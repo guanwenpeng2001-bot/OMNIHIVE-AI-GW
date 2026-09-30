@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -26,13 +27,27 @@ type catalogScopeFixture struct {
 func (f catalogScopeFixture) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	// #nosec G701 -- the test executes the production query verbatim against a
 	// read-only jsonb_to_recordset CTE fixture; no user input reaches the SQL.
-	return f.DB.QueryContext(ctx, `WITH accounts AS (
- SELECT * FROM jsonb_to_recordset($5::jsonb) AS a(
+	// The ordinary query has four parameters; the authorized-groups query has
+	// five; access/generation reads have zero or one. Append the fixture after
+	// every shape without replacing any argument or leaving parameter gaps.
+	fixtureSQL := fmt.Sprintf(`WITH accounts AS (
+ SELECT * FROM jsonb_to_recordset($%d::jsonb) AS a(
  id bigint, platform text, type text, status text, schedulable boolean,
  parent_account_id bigint, expires_at timestamptz, auto_pause_on_expired boolean,
  temp_unschedulable_until timestamptz, credentials jsonb, extra jsonb, deleted_at timestamptz)
-), account_groups(account_id, group_id) AS (VALUES (1::bigint, 3::bigint), (2, 3), (3, 4), (5, 3), (6, 3), (7, 3), (8, 3))
-`+query, append(args, f.accounts)...)
+), account_groups(account_id, group_id) AS (VALUES (1::bigint, 3::bigint), (2, 3), (3, 4), (5, 3), (6, 3), (7, 3), (8, 3), (1, 5), (1, 6), (1, 7), (1, 8)),
+groups(id, platform, account_type) AS (VALUES
+ (3::bigint, 'composite'::text, ''::text), (4, 'composite', NULL),
+ (5, 'openai', 'oauth'), (6, 'bedrock', ''), (7, 'vertex', NULL), (8, 'bedrock', 'apikey')),
+model_catalog_generations(scope, generation) AS (VALUES ('catalog'::text, 1::bigint)),
+model_access_rules AS (
+ SELECT NULL::bigint AS account_id, NULL::bigint AS api_key_id,
+ NULL::bigint AS access_group_id, NULL::bigint AS workspace_id,
+ NULL::jsonb AS models, '[]'::jsonb AS exclude WHERE FALSE),
+model_access_groups AS (
+ SELECT NULL::bigint AS id, NULL::bigint AS workspace_id, NULL::jsonb AS models WHERE FALSE)
+`, len(args)+1)
+	return f.DB.QueryContext(ctx, fixtureSQL+query, append(args, f.accounts)...)
 }
 
 func catalogScopeAccounts(t *testing.T) string {
@@ -123,6 +138,7 @@ func TestModelCatalogScopePostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 	group3, group4, missing := int64(3), int64(4), int64(99)
+	oauthGroup, bedrockGroup, vertexGroup, explicitTypeGroup := int64(5), int64(6), int64(7), int64(8)
 	for _, tc := range []struct {
 		name           string
 		group          *int64
@@ -133,14 +149,20 @@ func TestModelCatalogScopePostgres(t *testing.T) {
 		{"single", &group3, []string{"openai"}, false, []int64{1}},
 		{"multiple", &group3, []string{"openai", "anthropic"}, false, []int64{1, 2}},
 		{"all concrete", &group3, domain.ConcretePlatforms(), false, []int64{1, 2}},
-		{"nil matches none", &group3, nil, false, []int64{}},
-		{"empty matches none", &group3, []string{}, false, []int64{}},
-		{"nil remains empty when including grouped", nil, nil, true, []int64{}},
-		{"empty remains empty when including grouped", nil, []string{}, true, []int64{}},
+		{"nil leaves platform unrestricted", &group3, nil, false, []int64{1, 2, 8}},
+		{"empty leaves platform unrestricted", &group3, []string{}, false, []int64{1, 2, 8}},
+		{"nil includes grouped without platform restriction", nil, nil, true, []int64{1, 2, 3, 4, 8}},
+		{"empty includes grouped without platform restriction", nil, []string{}, true, []int64{1, 2, 3, 4, 8}},
+		{"nil preserves ungrouped isolation", nil, nil, false, []int64{4}},
+		{"empty preserves ungrouped isolation", nil, []string{}, false, []int64{4}},
 		{"different group", &group4, domain.ConcretePlatforms(), false, []int64{3}},
 		{"group still isolated when including grouped", &group3, domain.ConcretePlatforms(), true, []int64{1, 2}},
 		{"no group members", &missing, domain.ConcretePlatforms(), true, []int64{}},
 		{"platform mismatch", &group3, []string{"gemini"}, false, []int64{}},
+		{"explicit account type mismatch", &oauthGroup, nil, true, []int64{}},
+		{"legacy bedrock account type mismatch", &bedrockGroup, nil, true, []int64{}},
+		{"legacy vertex account type mismatch", &vertexGroup, nil, true, []int64{}},
+		{"explicit type overrides hosted default", &explicitTypeGroup, []string{"openai"}, false, []int64{1}},
 		{"ungrouped only", nil, domain.ConcretePlatforms(), false, []int64{4}},
 		{"include grouped", nil, domain.ConcretePlatforms(), true, []int64{1, 2, 3, 4}},
 	} {
@@ -155,6 +177,54 @@ func TestModelCatalogScopePostgres(t *testing.T) {
 			require.Equal(t, tc.want, ids)
 		})
 	}
+
+	t.Run("authorized groups use fifth production parameter", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			groups []int64
+			want   []int64
+		}{
+			{"one group", []int64{3}, []int64{1, 2, 8}},
+			{"other group", []int64{4}, []int64{3}},
+			{"multiple groups deduplicate", []int64{4, 3, 8}, []int64{1, 2, 3, 8}},
+			{"unauthorized group", []int64{99}, []int64{}},
+			{"no authorized groups", nil, []int64{}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				accounts, err := repo.ListModelCatalogAccountsForGroups(ctx, tc.groups)
+				require.NoError(t, err)
+				ids := make([]int64, 0, len(accounts))
+				for _, account := range accounts {
+					ids = append(ids, account.ID)
+					require.NotContains(t, account.Credentials, "api_key")
+					wantGroups := []int64{3}
+					if account.ID == 3 {
+						wantGroups = []int64{4}
+					} else if account.ID == 1 && len(tc.groups) > 1 {
+						wantGroups = []int64{3, 8}
+					}
+					require.Equal(t, wantGroups, account.GroupIDs, "project only authorized memberships")
+				}
+				require.Equal(t, tc.want, ids)
+			})
+		}
+	})
+
+	t.Run("single account evidence uses original id parameter", func(t *testing.T) {
+		// Direct evidence reads intentionally include disabled/unschedulable
+		// accounts; public listing eligibility remains enforced above.
+		for _, id := range []int64{1, 5, 6} {
+			account, err := repo.GetModelCatalogAccount(ctx, id)
+			require.NoError(t, err)
+			require.Equal(t, id, account.ID)
+			require.NotContains(t, account.Credentials, "api_key")
+		}
+		for _, id := range []int64{7, 99} {
+			account, err := repo.GetModelCatalogAccount(ctx, id)
+			require.ErrorIs(t, err, service.ErrAccountNotFound)
+			require.Nil(t, account)
+		}
+	})
 
 	t.Run("query through composite resolver to public catalog", func(t *testing.T) {
 		routes := catalogScopeRoutes{}
@@ -175,6 +245,12 @@ func TestModelCatalogScopePostgres(t *testing.T) {
 		ids, err = gateway.CatalogModelIDs(ctx, &missing, service.PlatformComposite)
 		require.NoError(t, err)
 		require.Empty(t, ids, "routes cannot grant visibility without eligible accounts in the group")
+		ids, err = gateway.CatalogModelIDs(service.WithVisibleModelKeyPolicy(ctx, []string{"company"}), &group3, service.PlatformComposite)
+		require.NoError(t, err)
+		require.Equal(t, []string{"company"}, ids, "Key policy still narrows eligible routes")
+		ids, err = gateway.CatalogModelIDs(service.WithVisibleModelKeyPolicy(ctx, []string{}), &group3, service.PlatformComposite)
+		require.NoError(t, err)
+		require.Empty(t, ids, "explicit empty Key policy denies every route")
 	})
 }
 
@@ -183,10 +259,15 @@ type catalogScopeRoutes struct {
 }
 
 func (catalogScopeRoutes) ListByGroup(_ context.Context, groupID int64, _ bool) ([]service.CompositeModelRoute, error) {
+	// Composite targets enter the account mapping as inputs: the fixture selects
+	// alias -> native, so routing straight to native would bypass that whitelist.
 	return []service.CompositeModelRoute{{ID: 1, GroupID: groupID, Enabled: true,
 		MatchType: service.CompositeRouteMatchExact, PublicModel: "company", TargetPlatform: service.PlatformOpenAI,
-		UpstreamModel: "native", Endpoint: service.CompositeRouteEndpointAny},
+		UpstreamModel: "alias", Endpoint: service.CompositeRouteEndpointAny},
 		{ID: 2, GroupID: groupID, Enabled: true,
 			MatchType: service.CompositeRouteMatchExact, PublicModel: "company-claude", TargetPlatform: service.PlatformAnthropic,
-			UpstreamModel: "native", Endpoint: service.CompositeRouteEndpointAny}}, nil
+			UpstreamModel: "alias", Endpoint: service.CompositeRouteEndpointAny},
+		{ID: 3, GroupID: groupID, Enabled: true,
+			MatchType: service.CompositeRouteMatchExact, PublicModel: "unselected-target", TargetPlatform: service.PlatformOpenAI,
+			UpstreamModel: "unselected", Endpoint: service.CompositeRouteEndpointAny}}, nil
 }
