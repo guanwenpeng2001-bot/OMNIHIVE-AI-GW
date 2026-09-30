@@ -158,7 +158,8 @@ func (s *GatewayService) ForwardAsResponses(
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 
-		if s.shouldFailoverUpstreamError(resp.StatusCode) {
+		// Go payment failures reject only this model and remain eligible for failover.
+		if s.shouldFailoverUpstreamError(resp.StatusCode) || account.IsOpenCodeGoPlan() && resp.StatusCode == http.StatusPaymentRequired {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -172,7 +173,12 @@ func (s *GatewayService) ForwardAsResponses(
 			})
 			shouldDisable := false
 			if s.rateLimitService != nil {
-				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
+				errorModel := mappedModel
+				if account.IsOpenCodeGoPlan() && (resp.StatusCode == http.StatusPaymentRequired || resp.StatusCode == http.StatusTooManyRequests && isOpenCodeUsageLimitFailure(respBody)) {
+					// Go quota handling maps explicit public names once; mappedModel is already the wire ID.
+					errorModel = originalModel
+				}
+				shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, errorModel)
 			}
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,

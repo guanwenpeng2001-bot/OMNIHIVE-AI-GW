@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -349,4 +350,80 @@ func TestOpenCodeUsageErrorTypeAndRetryHint(t *testing.T) {
 	require.Equal(t, "kimi-k3", repo.model)
 	require.WithinDuration(t, time.Now().Add(4*time.Hour+59*time.Minute), repo.until, 3*time.Second)
 	require.Zero(t, repo.rateLimitedCalls)
+}
+
+func TestOpenCodeForwardingTrunksQuotaUsesSentModel(t *testing.T) {
+	for _, protocol := range []string{"chat_completions", "responses"} {
+		for _, mappingKind := range []string{"chain", "wildcard"} {
+			for _, status := range []int{http.StatusPaymentRequired, http.StatusTooManyRequests} {
+				t.Run(protocol+"/"+mappingKind+"/"+http.StatusText(status), func(t *testing.T) {
+					account := openCodeQuotaAccount()
+					mapping := map[string]any{"paid-model": "kimi-k3", "paid-alias": "kimi-k3", "kimi-k3": "kimi-k3-eu", "space-bunny-free": "space-bunny-free", "private-model": "private-model"}
+					trapModel := "kimi-k3-eu"
+					if mappingKind == "wildcard" {
+						mapping = map[string]any{"paid-*": "kimi-k3", "kimi-*": "kimi-k3-thinking", "space-bunny-free": "space-bunny-free", "private-model": "private-model"}
+						trapModel = "kimi-k3-thinking"
+					}
+					account.Credentials["model_mapping"] = mapping
+					require.Equal(t, "kimi-k3", account.GetMappedModel("paid-model"))
+					require.Equal(t, trapModel, account.GetMappedModel("kimi-k3"), "fixture must expose double mapping")
+					upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"type":"GoUsageLimitError","message":"Usage limit reached. Insufficient account funds"}}`))}}
+					gateway := newForwardPartialUsageServiceForTest(upstream)
+					repo := &openCodeModelQuotaRepo{}
+					gateway.rateLimitService = NewRateLimitService(repo, nil, gateway.cfg, nil, nil)
+					c, _ := newTestContext()
+					var err error
+					if protocol == "chat_completions" {
+						_, err = gateway.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"paid-model","messages":[{"role":"user","content":"hello"}]}`), nil)
+					} else {
+						_, err = gateway.ForwardAsResponses(context.Background(), c, account, []byte(`{"model":"paid-model","input":"hello"}`), nil)
+					}
+					require.NotNil(t, upstream.lastReq, "exercise real forwarding up to the fake transport")
+					var sent map[string]any
+					require.NoError(t, json.Unmarshal(upstream.lastBody, &sent))
+					require.Equal(t, "kimi-k3", sent["model"])
+					var failure *UpstreamFailoverError
+					require.ErrorAs(t, err, &failure)
+					require.Equal(t, status, failure.StatusCode)
+					require.Equal(t, sent["model"], repo.model, "cooldown key must equal the model actually sent")
+					require.False(t, account.isRateLimitActiveForKey(trapModel))
+					for _, model := range []string{"paid-model", "paid-alias"} {
+						require.False(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+					}
+					for _, model := range []string{"space-bunny-free", "private-model"} {
+						require.True(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+					}
+					require.Zero(t, repo.tempCalls)
+					require.Zero(t, repo.rateLimitedCalls)
+					require.Zero(t, repo.setErrorCalls)
+				})
+			}
+		}
+	}
+}
+
+func TestOpenCodeQuotaForwardingChangePreservesOtherProviderPaymentErrors(t *testing.T) {
+	for _, protocol := range []string{"chat_completions", "responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			account := newAnthropicAPIKeyAccountForTest()
+			account.Credentials["model_mapping"] = map[string]any{"paid-model": "kimi-k3", "kimi-k3": "kimi-k3-eu"}
+			upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusPaymentRequired, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Insufficient funds"}}`))}}
+			gateway := newForwardPartialUsageServiceForTest(upstream)
+			repo := &openCodeModelQuotaRepo{}
+			gateway.rateLimitService = NewRateLimitService(repo, nil, gateway.cfg, nil, nil)
+			c, _ := newTestContext()
+			var err error
+			if protocol == "chat_completions" {
+				_, err = gateway.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"paid-model","messages":[{"role":"user","content":"hello"}]}`), nil)
+			} else {
+				_, err = gateway.ForwardAsResponses(context.Background(), c, account, []byte(`{"model":"paid-model","input":"hello"}`), nil)
+			}
+			require.NotNil(t, upstream.lastReq)
+			require.ErrorContains(t, err, "upstream error: 402")
+			require.Empty(t, repo.model)
+			require.Zero(t, repo.tempCalls)
+			require.Zero(t, repo.rateLimitedCalls)
+			require.Zero(t, repo.setErrorCalls)
+		})
+	}
 }
