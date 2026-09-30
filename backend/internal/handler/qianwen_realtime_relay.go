@@ -221,7 +221,11 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 			if err != nil {
 				return err
 			}
-			if job.ChargedUsageLogID == nil && job.ErrorCode != "settlement_needs_review" {
+			// A terminal review receipt is durably retained, not free usage.
+			// Let the provider's completion reach the client; unresolved writes
+			// and receipts still awaiting settlement remain relay failures.
+			reviewRetained := job.Terminal() && (job.ErrorCode == "settlement_needs_review" || job.ErrorCode == "unsupported_usage")
+			if job.ChargedUsageLogID == nil && !reviewRetained {
 				finishCode = "settlement_pending"
 				if job.Terminal() {
 					finishCode = job.ErrorCode
@@ -234,6 +238,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 				}
 				receipts[id] = true
 				finishCode = "session_closed"
+				if reviewRetained {
+					finishCode = "settlement_needs_review"
+				}
 			}
 			return nil
 		},

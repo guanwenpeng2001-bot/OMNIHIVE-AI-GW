@@ -55,10 +55,13 @@ func (*realtimeRouteConcurrency) ReleaseAccountSlot(context.Context, int64, stri
 
 type realtimeRouteJobs struct {
 	service.UpstreamJobRepository
-	session       *service.UpstreamJob
-	receipt       chan *service.UpstreamJob
-	finished      chan struct{}
-	storedReceipt *service.UpstreamJob
+	session        *service.UpstreamJob
+	receipt        chan *service.UpstreamJob
+	finished       chan struct{}
+	storedReceipt  *service.UpstreamJob
+	charges        int
+	chargedCommand *service.UsageBillingCommand
+	receiptError   error
 }
 
 func (repository *realtimeRouteJobs) CreateRealtimeSession(_ context.Context, job *service.UpstreamJob) (*service.UpstreamJob, error) {
@@ -226,6 +229,15 @@ func TestProductionQianwenActionBindings(test *testing.T) {
 }
 
 func (repository *realtimeRouteJobs) InsertRealtimeReceipt(_ context.Context, job *service.UpstreamJob) (*service.UpstreamJob, error) {
+	if repository.receiptError != nil {
+		return nil, repository.receiptError
+	}
+	if repository.storedReceipt != nil && repository.storedReceipt.UpstreamTaskID == job.UpstreamTaskID {
+		if !service.EqualQianwenRealtimeReceipt(repository.storedReceipt, job) {
+			return repository.storedReceipt, service.ErrQianwenRealtimeConflict
+		}
+		return repository.storedReceipt, nil
+	}
 	repository.storedReceipt = job
 	repository.receipt <- job
 	return job, nil
@@ -235,8 +247,8 @@ func (repository *realtimeRouteJobs) WithLocked(_ context.Context, id string, up
 	if repository.storedReceipt != nil && repository.storedReceipt.PublicRequestID == id {
 		job = repository.storedReceipt
 	}
-	err := update(job, nil)
-	if job == repository.session && repository.finished != nil {
+	err := update(job, repository)
+	if job == repository.session && job.Terminal() && repository.finished != nil {
 		close(repository.finished)
 	}
 	return job, err
@@ -418,4 +430,12 @@ func TestProductionQianwenRealtimeNativeAndAliasWire(test *testing.T) {
 			}
 		})
 	}
+}
+
+func (repository *realtimeRouteJobs) Charge(_ context.Context, usage *service.UsageLog, command *service.UsageBillingCommand) error {
+	repository.charges++
+	usage.ID = int64(repository.charges)
+	copied := *command
+	repository.chargedCommand = &copied
+	return nil
 }
