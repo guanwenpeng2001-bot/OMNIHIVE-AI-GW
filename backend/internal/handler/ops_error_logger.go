@@ -1338,7 +1338,10 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 	entry.IsCountTokens = isCountTokensRequest(c)
 	entry.CreatedAt = time.Now()
 	entry.ErrorMessage = "Recovered upstream error"
-	if lastStage == string(service.GatewayFailureStageAccountAuth) {
+	if opsLastErrorIsLocalBinding(entry.UpstreamErrors) {
+		entry.ErrorPhase, entry.ErrorSource, entry.ErrorOwner = "routing", "gateway", "platform"
+		entry.ErrorMessage = "Recovered local model binding rejection"
+	} else if lastStage == string(service.GatewayFailureStageAccountAuth) {
 		entry.ErrorPhase = string(service.GatewayFailureStageAccountAuth)
 		entry.ErrorMessage = "Recovered account authentication failure"
 	} else if lastStatus > 0 {
@@ -1619,7 +1622,10 @@ func applyOpsStreamErrorSnapshot(entry *service.OpsInsertErrorLogInput, streamEr
 			break
 		}
 	}
-	if lastStage == string(service.GatewayFailureStageAccountAuth) {
+	if opsLastErrorIsLocalBinding(streamErr.UpstreamErrors) {
+		entry.ErrorPhase, entry.ErrorSource, entry.ErrorOwner = "routing", "gateway", "platform"
+		entry.UpstreamStatusCode = nil
+	} else if lastStage == string(service.GatewayFailureStageAccountAuth) {
 		entry.ErrorPhase = string(service.GatewayFailureStageAccountAuth)
 		entry.ErrorOwner = "provider"
 		entry.ErrorSource = "gateway"
@@ -2213,6 +2219,13 @@ func classifyOpsSeverity(errType string, status int) string {
 }
 
 func classifyOpsErrorLog(c *gin.Context, errType, message, code string, status int) (phase string, isBusinessLimited bool, errorOwner string, errorSource string) {
+	if c != nil {
+		if raw, ok := c.Get(service.OpsUpstreamErrorsKey); ok {
+			if events, ok := raw.([]*service.OpsUpstreamErrorEvent); ok && opsLastErrorIsLocalBinding(events) {
+				return "routing", false, "platform", "gateway"
+			}
+		}
+	}
 	phase = classifyOpsPhase(errType, message, code)
 	routingCapacityLimited := isOpsRoutingCapacityLimited(c)
 	clientBusinessLimited := service.HasOpsClientBusinessLimited(c)
@@ -2332,6 +2345,15 @@ func isOpsLocalBusinessLimitError(code string, msg string) bool {
 		strings.Contains(msg, "this account only allows codex official clients") ||
 		strings.Contains(msg, "openai wsv1 is temporarily unsupported") ||
 		strings.Contains(msg, "openai codex passthrough requires a non-empty instructions field")
+}
+
+func opsLastErrorIsLocalBinding(events []*service.OpsUpstreamErrorEvent) bool {
+	for index := len(events) - 1; index >= 0; index-- {
+		if event := events[index]; event != nil {
+			return event.Kind == string(service.ModelBindingRejectedReason)
+		}
+	}
+	return false
 }
 
 func hasOpsUpstreamErrorContext(c *gin.Context) bool {

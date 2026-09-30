@@ -1,0 +1,1457 @@
+{
+  "id": 53,
+  "platform": "grok",
+  "type": "oauth",
+  "status": "active",
+  "schedulable": true,
+  "concurrency": 10,
+  "priority": 1,
+  "group_ids": [
+    4,
+    12,
+    69,
+    73,
+    74,
+    75,
+    79
+  ],
+  "credentials": {
+    "base_url": "https://cli-chat-proxy.grok.com/v1",
+    "model_mapping": {
+      "composer-2.5": "composer-2.5",
+      "grok-4.20-0309-non-reasoning": "grok-4.20-0309-non-reasoning",
+      "grok-4.20-0309-reasoning": "grok-4.20-0309-reasoning",
+      "grok-4.20-multi-agent": "grok-4.20-multi-agent",
+      "grok-4.20-multi-agent-0309": "grok-4.20-multi-agent-0309",
+      "grok-4.20-multi-agent-latest": "grok-4.20-multi-agent-latest",
+      "grok-4.20-non-reasoning": "grok-4.20-non-reasoning",
+      "grok-4.20-reasoning": "grok-4.20-reasoning",
+      "grok-4.3": "grok-4.3",
+      "grok-4.3-latest": "grok-4.3-latest",
+      "grok-4.5": "grok-4.5",
+      "grok-4.5-latest": "grok-4.5-latest",
+      "grok-4.6": "grok-4.6",
+      "grok-4.6-latest": "grok-4.6-latest",
+      "grok-4.7": "grok-4.7",
+      "grok-4.7-build-fast": "grok-4.7-build-fast",
+      "grok-build-0.1": "grok-build-0.1",
+      "grok-build-latest": "grok-build-latest",
+      "grok-composer-2.5-fast": "grok-composer-2.5-fast",
+      "grok-imagine": "grok-imagine",
+      "grok-imagine-image": "grok-imagine-image",
+      "grok-imagine-image-2.0": "grok-imagine-image-2.0",
+      "grok-imagine-image-quality": "grok-imagine-image-quality",
+      "grok-imagine-video": "grok-imagine-video",
+      "grok-imagine-video-1.5": "grok-imagine-video-1.5",
+      "grok-latest": "grok-latest"
+    },
+    "access_token": "synthetic-fixture-only",
+    "refresh_token": "synthetic-fixture-only"
+  },
+  "extra": {
+    "model_selection_baseline_frozen": true,
+    "upstream_model_allowlist": {
+      "confirmed_at": "2026-09-30T12:26:04.8963609Z",
+      "confirmed_by": 1,
+      "enabled": false,
+      "identity_revision": 0,
+      "models": [],
+      "reason": "isolated live acceptance"
+    },
+    "upstream_model_catalog": {
+      "capability_status": "incomplete",
+      "capability_summary": {
+        "complete": 0,
+        "discovered": 4,
+        "eligible": 2,
+        "estimated": 0,
+        "incomplete": 26,
+        "mapping_targets": 26,
+        "total": 26
+      },
+      "complete": true,
+      "discovered_models": [
+        "grok-4.5",
+        "grok-4.6",
+        "grok-4.7",
+        "grok-4.7-build-fast"
+      ],
+      "discovery_scope": "unknown",
+      "eligible_models": [
+        {
+          "category": "other",
+          "endpoints": [
+            "chat_completions"
+          ],
+          "evidence_kind": "native_account_catalog",
+          "evidence_observed_at": "2026-09-30T12:26:12.3126837Z",
+          "id": "grok-4.5"
+        },
+        {
+          "category": "other",
+          "endpoints": [
+            "chat_completions"
+          ],
+          "evidence_kind": "native_account_catalog",
+          "evidence_observed_at": "2026-09-30T12:26:12.3126837Z",
+          "id": "grok-4.6"
+        }
+      ],
+      "enrichment_version": "capability-v2",
+      "excluded_models": [
+        {
+          "model": "grok-4.7",
+          "reason": "metadata_incomplete"
+        },
+        {
+          "model": "grok-4.7-build-fast",
+          "reason": "metadata_incomplete"
+        }
+      ],
+      "identity_revision": 0,
+      "observed_at": "2026-09-30T12:26:12.3126837Z",
+      "provider_profile": "grok:oauth",
+      "revision": 1,
+      "rules_revision": 1,
+      "schema_version": 2,
+      "source_generation": 1790554945,
+      "source_kind": "live",
+      "source_versions": {
+        "endpoint_rules": "endpoint-contract-v1",
+        "heuristics": "name-rules-v1",
+        "local_catalog": "53ef68d8c76983b141a8c22560a3d4f755bb60029051d94dacdabca07b0132c5"
+      }
+    },
+    "upstream_model_catalog_state": {
+      "attempted_at": "2026-09-30T12:26:12.3261012Z",
+      "identity_revision": 0,
+      "last_success_at": "2026-09-30T12:26:12.3126837Z",
+      "legacy_policy_revision": 1,
+      "result": "succeeded",
+      "rules_revision": 1
+    },
+    "upstream_model_metadata": {
+      "enrichment_version": "capability-v2",
+      "identity_revision": 0,
+      "models": {
+        "composer-2.5": {
+          "display_name": "composer-2.5",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "composer-2.5",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "composer-2.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "composer-2.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "composer-2.5",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-0309-non-reasoning": {
+          "display_name": "grok-4.20-0309-non-reasoning",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-0309-non-reasoning",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-0309-non-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-0309-non-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.20-0309-non-reasoning",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-0309-reasoning": {
+          "display_name": "grok-4.20-0309-reasoning",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-0309-reasoning",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-0309-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-0309-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "reasoning": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-4.20-0309-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-4.20-0309-reasoning",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth",
+          "reasoning": true,
+          "reasoning_control": {
+            "kind": "unknown"
+          }
+        },
+        "grok-4.20-multi-agent": {
+          "display_name": "grok-4.20-multi-agent",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-multi-agent",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.20-multi-agent",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-multi-agent-0309": {
+          "display_name": "grok-4.20-multi-agent-0309",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-multi-agent-0309",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent-0309",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent-0309",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.20-multi-agent-0309",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-multi-agent-latest": {
+          "display_name": "grok-4.20-multi-agent-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-multi-agent-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-multi-agent-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.20-multi-agent-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-non-reasoning": {
+          "display_name": "grok-4.20-non-reasoning",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-non-reasoning",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-non-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-non-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.20-non-reasoning",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.20-reasoning": {
+          "display_name": "grok-4.20-reasoning",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.20-reasoning",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.20-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "reasoning": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-4.20-reasoning",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-4.20-reasoning",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth",
+          "reasoning": true,
+          "reasoning_control": {
+            "kind": "unknown"
+          }
+        },
+        "grok-4.3": {
+          "display_name": "grok-4.3",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.3",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.3",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.3",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.3",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.3-latest": {
+          "display_name": "grok-4.3-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.3-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.3-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.3-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.3-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.5": {
+          "category": "other",
+          "context_limit_kind": "total",
+          "context_window": 256000,
+          "display_name": "Grok 4.5",
+          "field_evidence": {
+            "context_limit_kind": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "context_window": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "display_name": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.5",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.5-latest": {
+          "display_name": "grok-4.5-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.5-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.5-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.5-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.6": {
+          "category": "other",
+          "context_limit_kind": "total",
+          "context_window": 256000,
+          "display_name": "Grok 4.6",
+          "field_evidence": {
+            "context_limit_kind": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "context_window": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "display_name": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.6",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.6-latest": {
+          "display_name": "grok-4.6-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-4.6-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.6-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.6-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.7": {
+          "category": "other",
+          "context_limit_kind": "total",
+          "context_window": 256000,
+          "description": "SpaceXAI's latest frontier model",
+          "display_name": "Grok 4.7",
+          "field_evidence": {
+            "context_limit_kind": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "context_window": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "description": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "display_name": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.7",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-4.7-build-fast": {
+          "category": "other",
+          "context_limit_kind": "total",
+          "context_window": 256000,
+          "description": "Fast variant. 2x the price.",
+          "display_name": "Grok 4.7 Fast",
+          "field_evidence": {
+            "context_limit_kind": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "context_window": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "description": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "display_name": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-4.7-build-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-4.7-build-fast",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-build-0.1": {
+          "display_name": "grok-build-0.1",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-build-0.1",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-build-0.1",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-build-0.1",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-build-0.1",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-build-latest": {
+          "display_name": "grok-build-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-build-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-build-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-build-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-build-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-composer-2.5-fast": {
+          "display_name": "grok-composer-2.5-fast",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-composer-2.5-fast",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-composer-2.5-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-composer-2.5-fast",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-composer-2.5-fast",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-imagine": {
+          "display_name": "grok-imagine",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-imagine",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        },
+        "grok-imagine-image": {
+          "display_name": "grok-imagine-image",
+          "estimated_fields": [
+            "task_type",
+            "output_modalities"
+          ],
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine-image",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "output_modalities": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "task_type": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-imagine-image",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "input_modalities",
+            "supported_methods",
+            "task_limits.output_formats",
+            "task_limits.resolutions"
+          ],
+          "output_modalities": [
+            "image"
+          ],
+          "provider_profile": "grok-oauth",
+          "task_type": "image_generation"
+        },
+        "grok-imagine-image-2.0": {
+          "display_name": "grok-imagine-image-2.0",
+          "estimated_fields": [
+            "task_type",
+            "output_modalities"
+          ],
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine-image-2.0",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image-2.0",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "output_modalities": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image-2.0",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image-2.0",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "task_type": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image-2.0",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-imagine-image-2.0",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "input_modalities",
+            "supported_methods",
+            "task_limits.output_formats",
+            "task_limits.resolutions"
+          ],
+          "output_modalities": [
+            "image"
+          ],
+          "provider_profile": "grok-oauth",
+          "task_type": "image_generation"
+        },
+        "grok-imagine-image-quality": {
+          "display_name": "grok-imagine-image-quality",
+          "estimated_fields": [
+            "task_type",
+            "output_modalities"
+          ],
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine-image-quality",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image-quality",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "output_modalities": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image-quality",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-image-quality",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "task_type": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-image-quality",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-imagine-image-quality",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "input_modalities",
+            "supported_methods",
+            "task_limits.output_formats",
+            "task_limits.resolutions"
+          ],
+          "output_modalities": [
+            "image"
+          ],
+          "provider_profile": "grok-oauth",
+          "task_type": "image_generation"
+        },
+        "grok-imagine-video": {
+          "display_name": "grok-imagine-video",
+          "estimated_fields": [
+            "task_type",
+            "output_modalities"
+          ],
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine-video",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-video",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "output_modalities": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-video",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-video",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "task_type": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-video",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-imagine-video",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "input_modalities",
+            "supported_methods",
+            "task_limits.output_formats",
+            "task_limits.resolutions",
+            "task_limits.max_duration_seconds"
+          ],
+          "output_modalities": [
+            "video"
+          ],
+          "provider_profile": "grok-oauth",
+          "task_type": "video_generation"
+        },
+        "grok-imagine-video-1.5": {
+          "display_name": "grok-imagine-video-1.5",
+          "estimated_fields": [
+            "task_type",
+            "output_modalities"
+          ],
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-imagine-video-1.5",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-video-1.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "output_modalities": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-video-1.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-imagine-video-1.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "task_type": {
+              "confidence": "estimated",
+              "match_rule": "bounded_suffix",
+              "matched_model_id": "grok-imagine-video-1.5",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "heuristic",
+              "source_version": "name-rules-v1"
+            }
+          },
+          "id": "grok-imagine-video-1.5",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "input_modalities",
+            "supported_methods",
+            "task_limits.output_formats",
+            "task_limits.resolutions",
+            "task_limits.max_duration_seconds"
+          ],
+          "output_modalities": [
+            "video"
+          ],
+          "provider_profile": "grok-oauth",
+          "task_type": "video_generation"
+        },
+        "grok-latest": {
+          "display_name": "grok-latest",
+          "field_evidence": {
+            "display_name": {
+              "confidence": "derived",
+              "match_rule": "display_id",
+              "matched_model_id": "grok-latest",
+              "provider_profile": "grok-oauth",
+              "source": "derived",
+              "source_version": "id-label-v1"
+            },
+            "id": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            },
+            "provider_profile": {
+              "confidence": "verified",
+              "match_rule": "native_id",
+              "matched_model_id": "grok-latest",
+              "observed_at": "2026-09-30T12:26:12Z",
+              "provider_profile": "grok-oauth",
+              "source": "upstream",
+              "source_version": "9dd9cdc632678e59ff53db5ab67921be9262b955a67b19a0855b4ebc759d1bad"
+            }
+          },
+          "id": "grok-latest",
+          "metadata_status": "incomplete",
+          "missing_fields": [
+            "task_type",
+            "input_modalities",
+            "output_modalities",
+            "supported_methods"
+          ],
+          "provider_profile": "grok-oauth"
+        }
+      },
+      "rules_revision": 1,
+      "schema_version": 2,
+      "snapshot_revision": 1,
+      "source": "enriched",
+      "source_generation": 1790554945,
+      "source_versions": {
+        "endpoint_rules": "endpoint-contract-v1",
+        "heuristics": "name-rules-v1",
+        "local_catalog": "53ef68d8c76983b141a8c22560a3d4f755bb60029051d94dacdabca07b0132c5"
+      },
+      "synced_at": "2026-09-30T12:26:12.3126837Z"
+    }
+  }
+}

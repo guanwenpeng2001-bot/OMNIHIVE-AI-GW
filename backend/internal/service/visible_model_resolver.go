@@ -395,8 +395,40 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 			return []string{}, nil
 		}
 		if resolver == nil {
-			resolver = &CompositeRouteResolver{modelOwnershipResolver: s.resolveCompositeModelOwnership}
+			resolver = &CompositeRouteResolver{}
 		}
+		// Ownership and membership must use the same scoped catalog snapshot.
+		// Scheduling reads would add a query per model/endpoint and let transient
+		// cooldowns or concurrent refreshes change this persistent public view.
+		resolverCopy := *resolver
+		ownershipByModel := make(map[string]CompositeModelOwnership)
+		resolverCopy.modelOwnershipResolver = func(_ context.Context, _ int64, model string) (CompositeModelOwnership, error) {
+			if ownership, found := ownershipByModel[model]; found {
+				return ownership, nil
+			}
+			owners := make(map[CompositeModelOwnership]struct{})
+			for _, account := range accounts {
+				platform := domain.CanonicalPlatform(strings.TrimSpace(account.Platform))
+				if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
+					continue
+				}
+				accountType := ""
+				if account.IsBedrock() || account.IsVertexServiceAccount() {
+					accountType = account.Type
+				}
+				owners[CompositeModelOwnership{TargetPlatform: platform, AccountType: accountType}] = struct{}{}
+			}
+			ownership := CompositeModelOwnership{Ambiguous: len(owners) > 1}
+			if len(owners) == 1 {
+				for owner := range owners {
+					ownership = owner
+					ownership.Matched = true
+				}
+			}
+			ownershipByModel[model] = ownership
+			return ownership, nil
+		}
+		resolver = &resolverCopy
 		if resolver.repo != nil {
 			routes, err := resolver.repo.ListByGroup(ctx, *groupID, false)
 			if err != nil {

@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
@@ -83,6 +85,17 @@ func (h *GatewayHandler) publicModelView(ctx *gin.Context) (service.VisibleModel
 	view, metadata, err := h.gatewayService.VisibleModelsWithMetadata(ctx.Request.Context(), groupID, platform)
 	publicModelHeaders(ctx, view.Revision)
 	if err != nil {
+		reason := "catalog_read_failed"
+		switch {
+		case errors.Is(err, service.ErrVisibleModelRevisionChanged):
+			reason = "catalog_revision_changed"
+		case errors.Is(err, context.DeadlineExceeded):
+			reason = "catalog_read_timeout"
+		case errors.Is(err, context.Canceled):
+			reason = "catalog_read_canceled"
+		}
+		requestID, _ := ctx.Request.Context().Value(ctxkey.RequestID).(string)
+		slog.WarnContext(ctx.Request.Context(), "public model catalog unavailable", "reason", reason, "request_id", requestID, "platform", platform)
 		gatewayerror.Write(ctx, 503, "catalog_unavailable", "Model catalog unavailable")
 		return view, nil, platform, false
 	}
