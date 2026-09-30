@@ -66,7 +66,13 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool
 		h.errorResponse(c, 400, "invalid_request_error", "Invalid async JSON")
 		return true
 	}
-	body, err = service.CanonicalUpstreamJobBody(body)
+	return h.submitQianwenAsyncJob(c, key, family, body, writeQianwenAsyncJob)
+}
+
+// submitQianwenAsyncJob shares native admission, immutable billing and account
+// selection with standard adapters. Only the response projection differs.
+func (h *OpenAIGatewayHandler) submitQianwenAsyncJob(c *gin.Context, key *service.APIKey, family string, body []byte, writeJob func(*gin.Context, *service.UpstreamJob, int)) bool {
+	body, err := service.CanonicalUpstreamJobBody(body)
 	if err != nil {
 		h.errorResponse(c, 400, "invalid_request_error", "Invalid async JSON")
 		return true
@@ -135,7 +141,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool
 		return true
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
-	writeQianwenAsyncJob(c, job, http.StatusAccepted)
+	writeJob(c, job, http.StatusAccepted)
 	return true
 }
 
