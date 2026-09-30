@@ -1,0 +1,7 @@
+# Generated credentials belong outside the checkout; defense against accidents.
+/generated/
+/config.yaml
+/manifest.json
+/*.create.json
+/*.import.json
+/migration.json
