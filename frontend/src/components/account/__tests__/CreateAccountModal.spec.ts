@@ -1444,9 +1444,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(entry.findAll('[role="radio"]')).toHaveLength(0)
     expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="account-type-summary"]').exists()).toBe(false)
-    // 说明含上游条件、5 小时/周窗口与本地回落，不承诺固定额度
+    // 鉴权与套餐正交，保存后自动获取观测，不承诺固定额度
     const description = zhAdminAccounts.accounts.platformDetails.commandcodeAccountTypeDescription
-    for (const phrase of ['上游返回有效数据', '5 小时', '本地统计', '不代表剩余额度']) expect(description).toContain(phrase)
+    for (const phrase of ['API Key', '保存后', '自动', '套餐', '未知']) expect(description).toContain(phrase)
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
     // 兼容载荷与探测行为不变
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Command Code')

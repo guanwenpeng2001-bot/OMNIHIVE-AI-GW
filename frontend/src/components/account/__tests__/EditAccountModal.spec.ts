@@ -2745,3 +2745,18 @@ it('ordinary account save preserves protected deny-all and existing capability d
   expect(allowlistWrite).not.toHaveBeenCalled()
   wrapper.unmount()
 })
+
+
+it('shows the observed CommandCode plan separately from API key authentication', async () => {
+  const wrapper = mountModal({ ...buildAccount(), id: 2401, platform: 'commandcode', extra: {
+    commandcode_plan_level: 'individual-goat', commandcode_monthlyCredits: 0,
+    commandcode_usage_updated_at: new Date().toISOString()
+  } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('admin.accounts.platformDetails.commandcodeAccountTypeTitle')
+  const quota = wrapper.get('[data-test="cn-provider-quota"]')
+  expect(quota.text()).toContain('GOAT')
+  expect(quota.text()).toContain('0.00')
+  expect(quota.find('select').exists()).toBe(false)
+  wrapper.unmount()
+})

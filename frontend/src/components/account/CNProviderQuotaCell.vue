@@ -19,8 +19,8 @@
     </div>
 
     <template v-if="account.platform === 'commandcode'">
-      <p class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}</p>
-      <p v-if="data?.plan_level" class="text-[10px] text-gray-500">{{ data.plan_level }}</p>
+      <p v-if="data?.success" class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}<span v-if="observationTime"> · {{ observationTime }}</span></p>
+      <p v-if="data?.plan_level" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.commandCodePlan') }}: {{ planName }}</p>
       <p v-for="(value, bucket) in data?.credits" :key="bucket" class="text-[10px] text-gray-500">
         {{ t(`admin.accounts.cnProviders.${bucket}`) }}: {{ value.toFixed(2) }}
       </p>
@@ -121,14 +121,13 @@ const readExtraString = (key: string): string => {
   return typeof v === 'string' ? v : ''
 }
 
-// 从持久化快照构造展示数据（缺少 5h/weekly 两档键时返回 null）。
+// Restore independent observations; missing windows do not discard plan or credits.
 const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
   const platform = props.account.platform
   if (platform === 'commandcode' && props.account.extra?.commandcode_usage_supported === false) return null
   const used5h = readExtraNumber(`${platform}_5h_used_percent`)
   const usedWeekly = readExtraNumber(`${platform}_weekly_used_percent`)
   const usedMonthly = readExtraNumber(`${platform}_monthly_used_percent`)
-  if (used5h == null && usedWeekly == null && usedMonthly == null) return null
   const tiers: CNProviderQuotaProbeResult['tiers'] = []
   if (used5h != null) {
     tiers.push({ window: '5h', used_percent: used5h, reset_at: readExtraString(`${platform}_5h_reset_at`) || undefined })
@@ -146,7 +145,10 @@ const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
       if (value != null) credits[bucket] = value
     }
   }
-  return { success: true, tiers, credits, plan_level: readExtraString(`${platform}_plan_level`) } as CNProviderQuotaProbeResult
+  const plan = readExtraString(`${platform}_plan_level`)
+  if (!tiers.length && !Object.keys(credits).length && !plan) return null
+  return { success: true, tiers, credits, plan_level: plan,
+    fetched_at: Date.parse(readExtraString(`${platform}_usage_updated_at`)) / 1000 } as CNProviderQuotaProbeResult
 })
 
 // 快照是否过期（无更新时间或超过 staleness 窗口）→ 挂载时需要自动探测。
@@ -185,12 +187,23 @@ const windowLabel = (window: string) => {
   return t('admin.accounts.cnProviders.window5h')
 }
 
+const planName = computed(() => {
+  const id = data.value?.plan_level || ''
+  const names: Record<string, string> = { 'individual-goat': 'GOAT', 'individual-pro': 'Pro', 'individual-go': 'Go', 'individual-max': 'Max' }
+  return names[id] || id
+})
+const observationTime = computed(() => data.value?.fetched_at
+  ? new Date(data.value.fetched_at * 1000).toLocaleString() : '')
+let observationGeneration = 0
 const handleProbe = async () => {
   if (loading.value) return
+  const generation = observationGeneration
+  const accountID = props.account.id
   loading.value = true
   error.value = null
   try {
-    const result = await adminAPI.cnProviders.queryQuota(props.account.id)
+    const result = await adminAPI.cnProviders.queryQuota(accountID)
+    if (generation !== observationGeneration) return
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
     if (result.success) {
       data.value = result
@@ -199,17 +212,21 @@ const handleProbe = async () => {
       error.value = result.unsupported ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
     }
   } catch (e) {
+    if (generation !== observationGeneration) return
     if (props.account.platform === 'commandcode') data.value = null
     error.value = extractErrorMessage(e)
   } finally {
-    loading.value = false
+    if (generation === observationGeneration) loading.value = false
   }
 }
 
 watch(
-  () => props.account.id,
-  () => {
-    data.value = null
+  [() => props.account.id, () => props.account.credentials?.api_key,
+    () => props.account.credentials?.base_url, () => snapshotData.value],
+  (current, previous) => {
+    observationGeneration++
+    const identityChanged = current.slice(0, 3).some((value, index) => value !== previous[index])
+    data.value = identityChanged ? null : snapshotData.value
     error.value = null
     loading.value = false
   }

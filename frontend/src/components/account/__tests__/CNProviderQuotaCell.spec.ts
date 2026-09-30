@@ -107,11 +107,11 @@ describe('CNProviderQuotaCell', () => {
   })
 })
 
-it('shows Command Code windows, credits and alpha notice from persisted data', async () => {
+it('shows Command Code windows, credits and source from persisted data', async () => {
  const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...account, id: 2020, platform: 'commandcode', credentials: {}, extra: { commandcode_5h_used_percent: 16.18, commandcode_weekly_used_percent: 37.1, commandcode_monthlyCredits: 57.01, commandcode_plan_level: 'individual-goat', commandcode_usage_updated_at: new Date().toISOString() } } as Account } })
  await flushPromises()
  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(2)
- expect(wrapper.text()).toContain('individual-goat')
+ expect(wrapper.text()).toContain('GOAT')
  expect(wrapper.text()).toContain('57.01')
  expect(wrapper.text()).toContain('admin.accounts.cnProviders.commandCodeAlpha')
  expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(false)
@@ -177,4 +177,67 @@ describe('CommandCode local usage wording and recovery', () => {
     expect(wrapper.text()).toContain('57.01')
     wrapper.unmount()
   })
+})
+
+
+describe('CommandCode independent plan and credit observations', () => {
+  beforeEach(() => {
+    queryQuota.mockReset()
+    translate.mockReset().mockImplementation((key: string) => key)
+  })
+  it('renders a plan and genuine zero credits with no windows and leaves missing buckets absent', async () => {
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: {
+      ...account, id: 2301, platform: 'commandcode', credentials: { api_key: 'fixture' },
+      extra: { commandcode_plan_level: 'individual-goat', commandcode_monthlyCredits: 0,
+        commandcode_usage_updated_at: new Date().toISOString() }
+    } as Account } })
+    await flushPromises()
+    expect(queryQuota).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('GOAT')
+    expect(wrapper.text()).toContain('monthlyCredits: 0.00')
+    expect(wrapper.text()).not.toContain('purchasedCredits')
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(false)
+  })
+  it('replaces missing plan and windows individually while retaining newly observed credits', async () => {
+    queryQuota.mockResolvedValue({ success: true, credits: { purchasedCredits: 3 } })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: {
+      ...account, id: 2302, platform: 'commandcode', credentials: {}, extra: {
+        commandcode_plan_level: 'individual-goat', commandcode_5h_used_percent: 42,
+        commandcode_usage_updated_at: new Date().toISOString()
+      }
+    } as Account } })
+    await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('GOAT')
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.text()).toContain('purchasedCredits: 3.00')
+  })
+  it('ignores an in-flight observation after the key changes', async () => {
+    let resolveProbe!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { resolveProbe = resolve }))
+    const initial = { ...account, id: 2303, platform: 'commandcode', credentials: { api_key: 'old-fixture' }, extra: {} } as Account
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await flushPromises()
+    await wrapper.setProps({ account: { ...initial, credentials: { api_key: 'new-fixture' } } })
+    resolveProbe({ success: true, plan_level: 'individual-goat', credits: { monthlyCredits: 57 } })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('GOAT')
+    expect(wrapper.text()).not.toContain('57.00')
+    expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(true)
+  })
+})
+
+
+it('clears the rendered plan when the server invalidates the credential snapshot', async () => {
+  const initial = { ...account, id: 2304, platform: 'commandcode', credentials: {}, extra: {
+    commandcode_plan_level: 'individual-goat', commandcode_monthlyCredits: 57,
+    commandcode_usage_updated_at: new Date().toISOString()
+  } } as Account
+  const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+  await flushPromises()
+  expect(wrapper.text()).toContain('GOAT')
+  await wrapper.setProps({ account: { ...initial, extra: {} } })
+  expect(wrapper.text()).not.toContain('GOAT')
+  expect(wrapper.text()).not.toContain('57.00')
 })
