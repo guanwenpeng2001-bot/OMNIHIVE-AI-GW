@@ -67,6 +67,8 @@ const messages: Record<string, string> = {
 	'keys.copyToClipboard': 'Copy to clipboard',
 	'common.copyFailed': 'Copy failed',
 	'usage.requestedModel': 'Requested',
+  'usage.notCollected': 'Not obtained',
+  'usage.mapping': 'Mapping',
 	'usage.sentUpstreamModel': 'Sent upstream',
 	'usage.upstreamResponseModel': 'Upstream response',
 	'usage.modelVariant': 'Possible version variant',
@@ -127,6 +129,63 @@ const baseImageRow = {
   image_size_source: null,
   image_size_breakdown: null,
 }
+
+describe('shared UsageTable model observations', () => {
+  it.each([true, false])('always shows request and response rows (admin=%s)', (admin) => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          { ...baseImageRow, request_id: 'same', model: 'same-model', upstream_response_model: 'same-model', upstream_model_mismatch: false },
+          { ...baseImageRow, request_id: 'different', model: 'requested-model', upstream_response_model: 'returned-model', upstream_model_mismatch: true },
+          ...[undefined, null, ''].map((response, index) => ({
+            ...baseImageRow,
+            request_id: `missing-${index}`,
+            model: 'requested-model',
+            ...(admin ? { upstream_model: 'sent-model', model_mapping_chain: 'requested-model→sent-model' } : {}),
+            upstream_response_model: response,
+            upstream_model_mismatch: null,
+          })),
+        ],
+        columns: [{ key: 'model', label: 'Model' }],
+        showAccountBilling: admin,
+        showUpstreamEndpoint: admin,
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const cells = wrapper.findAll('[data-testid="model-cell"]')
+    expect(cells).toHaveLength(5)
+    for (const cell of cells) {
+      expect(cell.element.children).toHaveLength(2)
+      expect(cell.get('[data-testid="requested-model"]').text()).toMatch(/^↑ Requested:/)
+      expect(cell.get('[data-testid="response-model"]').text()).toMatch(/^↓ Upstream response:/)
+      if (!admin) expect(cell.get('[data-testid="requested-model"]').attributes('title')).not.toContain('Sent upstream:')
+    }
+    expect(cells[0].get('[data-testid="requested-model"]').text()).toBe('↑ Requested:same-model')
+    expect(cells[0].get('[data-testid="response-model"]').text()).toBe('↓ Upstream response:same-model')
+    expect(cells[0].text()).not.toContain('Different model')
+    expect(cells[1].get('[data-testid="response-model"]').text()).toContain('returned-model')
+    expect(cells[1].text()).toContain('Different model')
+    for (const cell of cells.slice(2)) {
+      expect(cell.get('[data-testid="response-model"]').text()).toBe('↓ Upstream response:Not obtained')
+      expect(cell.text()).not.toContain('sent-model')
+    }
+    wrapper.unmount()
+  })
+
+  it('truncates long names while preserving exact full values in the tooltip', () => {
+    const requested = `Exact-Request-${'long-name-'.repeat(30)}`
+    const response = `Exact-Response-${'long-name-'.repeat(30)}`
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ ...baseImageRow, model: requested, upstream_response_model: response }], columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    const cell = wrapper.get('[data-testid="model-cell"]')
+    expect(cell.findAll('.truncate').map(value => value.text())).toEqual([requested, response])
+    expect(cell.get('[data-testid="requested-model"]').attributes('title')).toContain(requested)
+    expect(cell.get('[data-testid="response-model"]').attributes('title')).toContain(response)
+    wrapper.unmount()
+  })
+})
 
 describe('admin UsageTable tooltip', () => {
   beforeEach(() => {
@@ -357,7 +416,9 @@ describe('admin UsageTable tooltip', () => {
 
     const text = wrapper.text()
     expect(text).toContain('claude-sonnet-4')
-    expect(text).toContain('claude-sonnet-4-20250514')
+    expect(text).not.toContain('claude-sonnet-4-20250514')
+    expect(wrapper.get('[data-testid="requested-model"]').attributes('title')).toContain('Sent upstream: claude-sonnet-4-20250514')
+    expect(wrapper.get('[data-testid="response-model"]').text()).toBe('↓ Upstream response:Not obtained')
   })
 
   it('shows requested and forwarded reasoning effort separately when they differ', () => {
@@ -477,7 +538,7 @@ describe('admin UsageTable tooltip', () => {
 
 		const text = wrapper.text()
 		expect(text).toContain('gpt-5.6-sol')
-		expect(text).toContain('gpt-5.5')
+		expect(wrapper.get('[data-testid="requested-model"]').attributes('title')).toContain('Mapping: gpt-5.6-sol→gpt-5.5')
 		expect(text).toContain(responseModel)
 		expect(text).toContain(expectedBadge)
 	})
