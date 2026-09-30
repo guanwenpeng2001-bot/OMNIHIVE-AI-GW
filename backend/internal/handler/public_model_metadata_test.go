@@ -42,6 +42,8 @@ func (repo *publicMetadataRepository) ListModelCatalogAccounts(_ context.Context
 
 func publicMetadataAccount() service.Account {
 	negative := false
+	// The historical alias "denied" is explicitly selected; absent discovery or
+	// metadata for its target must not be mistaken for an authorization denial.
 	account := service.Account{ID: 91, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 		Status: service.StatusActive, Schedulable: true,
 		Credentials: map[string]any{"api_key": "private-key-never-public", "base_url": "https://api.openai.com", "model_mapping": map[string]any{"gpt-alias": "gpt-native", "denied": "absent"}},
@@ -367,9 +369,20 @@ func TestPublicModelMetadataCatalogMixedAccountSources(t *testing.T) {
 				} `json:"data"`
 			}
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-			require.Len(t, response.Data, 1)
-			require.Equal(t, "gpt-alias", response.Data[0].ID)
-			context := response.Data[0].Capabilities.TotalContext
+			capabilitiesByID := make(map[string]publicModelMetadata)
+			for _, model := range response.Data {
+				require.NotContains(t, capabilitiesByID, model.ID, "public IDs must be unique")
+				capabilitiesByID[model.ID] = model.Capabilities
+			}
+			require.Len(t, response.Data, 2)
+			require.Contains(t, capabilitiesByID, "gpt-alias")
+			require.Contains(t, capabilitiesByID, "denied")
+			unknown := capabilitiesByID["denied"].TotalContext
+			require.True(t, unknown.Unknown)
+			require.Nil(t, unknown.Guaranteed)
+			require.Nil(t, unknown.ObservedMinimum)
+			require.Empty(t, unknown.Available)
+			context := capabilitiesByID["gpt-alias"].TotalContext
 			require.Equal(t, []int64{128000, 200000}, context.Available)
 			require.Equal(t, int64(128000), *context.ObservedMinimum)
 			if sources[0] == "upstream" && sources[1] == "upstream" {
