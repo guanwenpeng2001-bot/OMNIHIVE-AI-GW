@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"net/http"
 	"strings"
@@ -8,6 +9,24 @@ import (
 
 const DefaultCommandCodeBaseURL = "https://api.commandcode.ai/provider/v1"
 const DefaultCommandCodeTestModel = "gpt-5.6-luna"
+
+const CommandCodeCreditExhaustedReason GatewayFailureReason = "commandcode_credit_exhausted"
+const commandCodeCreditExhaustedMessage = "You have insufficient credits to make this request. Please purchase more credits to continue using the service."
+
+// This observed provider rejection is safe to try on another selected account.
+// It provides no reset time or credential-invalid evidence, so do not mutate
+// scheduling state or retry the same account. Other HTTP 400s remain client errors.
+func commandCodeCreditFailover(c *gin.Context, account *Account, status int, headers http.Header, body []byte) *UpstreamFailoverError {
+	if !account.IsCommandCode() || status != http.StatusBadRequest || !gjson.ValidBytes(body) ||
+		strings.TrimSpace(gjson.GetBytes(body, "error.message").String()) != commandCodeCreditExhaustedMessage || c != nil && IsResponseCommitted(c) {
+		return nil
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account), UpstreamStatusCode: status,
+		UpstreamRequestID: headers.Get("x-request-id"), Kind: "failover", Message: commandCodeCreditExhaustedMessage})
+	return &UpstreamFailoverError{StatusCode: status, ResponseBody: body, ResponseHeaders: headers.Clone(),
+		Reason: CommandCodeCreditExhaustedReason, ClientStatusCode: status, ClientMessage: commandCodeCreditExhaustedMessage}
+}
 
 // Catalog IDs remain intact on the wire; only comparisons are normalized.
 func normalizeCommandCodeModelID(model string) string {

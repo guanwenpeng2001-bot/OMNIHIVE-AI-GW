@@ -1648,6 +1648,15 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.CommandCodeCreditExhaustedReason {
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, failoverErr.ClientMessage, "")
+		if streamStarted {
+			h.anthropicStreamingAwareError(c, failoverErr.StatusCode, "invalid_request_error", failoverErr.ClientMessage, true)
+		} else {
+			c.Data(failoverErr.StatusCode, "application/json", failoverErr.ResponseBody)
+		}
+		return
+	}
 	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
 		h.anthropicStreamingAwareError(c, failoverErr.ClientStatusCode, string(service.ModelBindingRejectedReason), failoverErr.ClientMessage, streamStarted)
 		return
@@ -3421,6 +3430,15 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.CommandCodeCreditExhaustedReason {
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, failoverErr.ClientMessage, "")
+		if streamStarted {
+			h.handleStreamingAwareError(c, failoverErr.StatusCode, "invalid_request_error", failoverErr.ClientMessage, true)
+		} else {
+			c.Data(failoverErr.StatusCode, "application/json", failoverErr.ResponseBody)
+		}
+		return
+	}
 	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
 		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, string(service.ModelBindingRejectedReason), failoverErr.ClientMessage, streamStarted)
 		return
