@@ -13,19 +13,51 @@ func TestResolveCLIVersionDefaultsToPinnedClientVersion(t *testing.T) {
 	require.Equal(t, CLIClientVersion, ResolveCLIVersion())
 	require.True(t, IsSupportedCLIVersion(CLIClientVersion))
 	require.True(t, IsSupportedCLIVersion(CLIStableVersion))
+	require.Equal(t, "1.0.44", CLIClientVersion)
+	require.Equal(t, "1.0.13", CLIStableVersion)
 }
 
 func TestResolveCLIVersionAcceptsValidOverride(t *testing.T) {
-	t.Setenv(CLIVersionEnv, "0.2.95-alpha.1")
-	require.Equal(t, "0.2.95-alpha.1", ResolveCLIVersion())
+	t.Setenv(CLIVersionEnv, "1.0.45-alpha.1")
+	require.Equal(t, "1.0.45-alpha.1", ResolveCLIVersion())
+}
+
+func TestCLIHeaderVersionsStayConsistent(t *testing.T) {
+	for _, tc := range []struct {
+		name, override, want string
+	}{
+		{"default", "", CLIClientVersion},
+		{"minimum", "1.0.13", "1.0.13"},
+		{"trimmed override", " 1.0.44 ", "1.0.44"},
+		{"future prerelease", "1.0.45-alpha.1", "1.0.45-alpha.1"},
+		{"outdated default", "0.2.120", CLIClientVersion},
+		{"below minimum", "1.0.12", CLIClientVersion},
+		{"minimum prerelease", "1.0.13-beta.1", CLIClientVersion},
+		{"unsafe", "1.0.45\r\nX-Injected: true", CLIClientVersion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(CLIVersionEnv, tc.override)
+			text, err := http.NewRequest(http.MethodPost, "https://cli-chat-proxy.grok.com/v1/responses", nil)
+			require.NoError(t, err)
+			billing, err := http.NewRequest(http.MethodGet, BuildBillingURL(true), nil)
+			require.NoError(t, err)
+			ApplyCLIProxyHeaders(text)
+			ApplyCLIBillingHeaders(billing, "test-token")
+			require.Equal(t, tc.want, text.Header.Get(CLIClientVersionHeader))
+			require.Equal(t, tc.want, billing.Header.Get(CLIClientVersionHeader))
+			require.Equal(t, CLIUserAgent(tc.want), text.UserAgent())
+			require.Equal(t, "grok-pager/"+tc.want+" grok-shell/"+tc.want+" (macos; aarch64)", billing.UserAgent())
+		})
+	}
 }
 
 func TestResolveCLIVersionRejectsUnsafeOrTooOld(t *testing.T) {
 	for _, version := range []string{
-		"0.2.92",
-		"0.2.93-beta.1",
-		"0.2.95\r\nX-Injected: true",
-		"0.2.093",
+		"0.2.120",
+		"1.0.12",
+		"1.0.13-beta.1",
+		"1.0.45\r\nX-Injected: true",
+		"1.0.045",
 		"0.3",
 		"1",
 	} {
@@ -52,7 +84,7 @@ func TestApplyCLIProxyHeaders(t *testing.T) {
 }
 
 func TestApplyCLIProxyHeadersLeavesAPIHostUnchanged(t *testing.T) {
-	t.Setenv(CLIVersionEnv, "0.2.95")
+	t.Setenv(CLIVersionEnv, "1.0.45")
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.x.ai/v1/responses", nil)
 	require.NoError(t, err)

@@ -28,7 +28,7 @@ func TestApplyDefaultGrokUpstreamHeadersUsesCLIUserAgent(t *testing.T) {
 }
 
 func TestApplyDefaultGrokUpstreamHeadersHonorsCLIVersionOverride(t *testing.T) {
-	t.Setenv(xai.CLIVersionEnv, "0.2.95")
+	t.Setenv(xai.CLIVersionEnv, "1.0.13")
 
 	req, err := http.NewRequest(http.MethodGet, "https://api.x.ai/v1/responses", nil)
 	require.NoError(t, err)
@@ -36,9 +36,36 @@ func TestApplyDefaultGrokUpstreamHeadersHonorsCLIVersionOverride(t *testing.T) {
 
 	applyDefaultGrokUpstreamHeaders(req)
 
-	require.Equal(t, "0.2.95", req.Header.Get("x-grok-client-version"))
-	require.Equal(t, xai.CLIUserAgent("0.2.95"), req.Header.Get("User-Agent"))
+	require.Equal(t, "1.0.13", req.Header.Get("x-grok-client-version"))
+	require.Equal(t, xai.CLIUserAgent("1.0.13"), req.Header.Get("User-Agent"))
 	require.Equal(t, "grok-shell", req.Header.Get("x-grok-client-identifier"))
+}
+
+func TestGrokDiscoveryAndTextHeadersShareVersionPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, override, want string
+	}{
+		{"default", "", xai.CLIClientVersion},
+		{"minimum", "1.0.13", "1.0.13"},
+		{"outdated", "0.2.120", xai.CLIClientVersion},
+		{"future", "1.0.45", "1.0.45"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(xai.CLIVersionEnv, tc.override)
+			for _, path := range []string{"models", "responses", "chat/completions"} {
+				req, err := http.NewRequest(http.MethodGet, "https://cli-chat-proxy.grok.com/v1/"+path, nil)
+				require.NoError(t, err)
+				// Used by upstream model discovery and subscription text requests.
+				applyGrokCLIHeaders(req.Header)
+				require.Equal(t, tc.want, req.Header.Get(xai.CLIClientVersionHeader))
+				require.Equal(t, xai.CLIUserAgent(tc.want), req.UserAgent())
+				before := req.Header.Clone()
+				xai.ApplyCLIProxyHeaders(req)
+				require.Equal(t, before.Get(xai.CLIClientVersionHeader), req.Header.Get(xai.CLIClientVersionHeader))
+				require.Equal(t, before.Get("User-Agent"), req.UserAgent())
+			}
+		})
+	}
 }
 
 func TestResolveGrokUpstreamUserAgentNeverPassthrough(t *testing.T) {
