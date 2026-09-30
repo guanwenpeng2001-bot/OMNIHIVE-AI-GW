@@ -9,6 +9,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 const {
   catalogRead,
   allowlistWrite,
+  credentialAccountRead,
   updateAccountMock,
   checkMixedChannelRiskMock,
   authIsSimpleMode,
@@ -20,6 +21,7 @@ const {
 } = vi.hoisted(() => ({
   catalogRead: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }),
   allowlistWrite: vi.fn(),
+  credentialAccountRead: vi.fn(),
   updateAccountMock: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
   showInfoMock: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('@/stores/auth', () => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getById: credentialAccountRead,
       update: updateAccountMock,
       syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
@@ -368,6 +371,34 @@ function mountModal(account = buildAccount(), renderGroupSelector = false, realC
 }
 
 describe('model selection saves preserve unrelated account drafts', () => {
+  it('preserves unsaved account fields after the parent echoes an independently saved credential change', async () => {
+    const account = buildAccount()
+    credentialAccountRead.mockResolvedValue({ ...account, updated_at: '2026-10-01T00:00:00Z' })
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ onUpdated: updated => { void wrapper.setProps({ account: { ...updated } }) } })
+    await flushPromises()
+    const name = wrapper.get<HTMLInputElement>('[data-tour="edit-account-form-name"]')
+    await name.setValue('Unsaved name')
+    wrapper.getComponent({ name: 'AccountCredentialSecretSection' }).vm.$emit('changed')
+    await flushPromises()
+    expect(credentialAccountRead).toHaveBeenCalledWith(account.id)
+    expect(name.element.value).toBe('Unsaved name')
+    wrapper.unmount()
+  })
+
+  it('ignores a credential account refresh after switching accounts', async () => {
+    const account = buildAccount()
+    let finish!: (account: Account) => void
+    credentialAccountRead.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mountModal(account)
+    await flushPromises()
+    wrapper.getComponent({ name: 'AccountCredentialSecretSection' }).vm.$emit('changed')
+    await wrapper.setProps({ account: { ...account, id: 99, name: 'Other account' } })
+    finish(account)
+    await flushPromises()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
   it.each([false, true])('preserves compact and switch drafts with parent echo=%s', async echoToParent => {
     const account = buildAccount()
     const savedAccount = {

@@ -129,8 +129,12 @@
         </p>
       </div>
 
-      <details class="space-y-4" data-testid="account-connection-settings">
-        <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.connection') }}</summary>
+      </section>
+      <details class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="account-connection-settings">
+        <summary class="cursor-pointer rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+          {{ t('admin.accounts.editSections.connection') }}
+          <span class="mt-1 block text-sm font-normal text-secondary">{{ t('admin.accounts.editSections.connectionSummary', { platform: t(`admin.accounts.platforms.${account.platform}`), type: connectionTypeLabel }) }}</span>
+        </summary>
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -938,8 +942,11 @@
       </div>
 
       </details>
-      <details class="space-y-4" data-testid="account-advanced-settings">
-        <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.advanced') }}</summary>
+      <details class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="account-advanced-settings">
+        <summary class="cursor-pointer rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+          {{ t('admin.accounts.editSections.advanced') }}
+          <span class="mt-1 block text-sm font-normal text-secondary">{{ t('admin.accounts.editSections.advancedSummary', { concurrency: form.concurrency, priority: form.priority }) }}</span>
+        </summary>
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
 
       <!-- Temp Unschedulable Rules -->
@@ -2391,9 +2398,7 @@
       </div>
 
       </details>
-      </section>
-      <p class="input-hint">{{ t('admin.accounts.editSections.independentSaves') }}</p>
-      <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
+      <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
         :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
@@ -2410,9 +2415,10 @@
     </form>
 
     <template #footer>
-      <div v-if="account" class="flex justify-end gap-3">
+      <div v-if="account" class="flex flex-wrap items-center justify-end gap-3">
+        <p class="w-full text-sm text-secondary">{{ t('admin.accounts.editSections.independentSaves') }}</p>
         <button @click="handleClose" type="button" class="btn btn-secondary">
-          {{ t('common.cancel') }}
+          {{ t('common.close') }}
         </button>
         <button
           type="submit"
@@ -2476,7 +2482,7 @@ import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
@@ -2584,6 +2590,7 @@ interface Props {
 }
 
 const accountForm = ref<HTMLFormElement>()
+const modelConfigurationSection = ref<InstanceType<typeof AccountModelConfigurationSection>>()
 function revealField(target: HTMLElement) {
   let ancestor = target.parentElement
   let expanded = false
@@ -2631,6 +2638,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const browserTimeZone = getBrowserTimeZone()
+const connectionTypeLabel = computed(() => {
+  const key = { oauth: 'types.oauth', apikey: 'apiKey', 'setup-token': 'setupToken', upstream: 'types.upstream', bedrock: 'platforms.bedrock', service_account: 'vertexDesc' }[props.account?.type ?? 'oauth']
+  return t(`admin.accounts.${key}`)
+})
 
 const selectableGroups = computed(() => {
   const groups = new Map<number, Group>(props.groups.map(group => [group.id, group]))
@@ -2655,10 +2666,22 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
 }
 
+let credentialRefreshGeneration = 0
+let credentialEchoAccountId: number | null = null
+watch(() => [props.show, props.account?.id], () => { credentialRefreshGeneration++ }, { flush: 'sync' })
+onUnmounted(() => { credentialRefreshGeneration++ })
 const handleCredentialSecretChanged = async () => {
-  if (!props.account) return
+  if (!props.account || !props.show) return
+  const accountId = props.account.id
+  const refreshGeneration = ++credentialRefreshGeneration
   try {
-    emit('updated', await adminAPI.accounts.getById(props.account.id))
+    const account = await adminAPI.accounts.getById(accountId)
+    if (refreshGeneration !== credentialRefreshGeneration || !props.show || props.account?.id !== accountId) return
+    // Refresh the persisted revision without resetting unrelated form drafts.
+    savedModelGeneration.value++
+    credentialEchoAccountId = accountId
+    emit('updated', account)
+    void nextTick(() => { credentialEchoAccountId = null })
   } catch { /* the section keeps its own loaded state on refresh failure */ }
 }
 
@@ -4071,14 +4094,17 @@ watch(
   ([show, newAccount], [wasShow, previousAccount]) => {
     if (!show || !newAccount) {
       modelSelectionEchoAccountId = null
+      credentialEchoAccountId = null
       syncFormFromAccount(null)
       return
     }
-    if (wasShow && newAccount.id === previousAccount?.id && newAccount.id === modelSelectionEchoAccountId) {
+    if (wasShow && newAccount.id === previousAccount?.id && (newAccount.id === modelSelectionEchoAccountId || newAccount.id === credentialEchoAccountId)) {
       modelSelectionEchoAccountId = null
+      credentialEchoAccountId = null
       return
     }
     modelSelectionEchoAccountId = null
+    credentialEchoAccountId = null
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
@@ -4604,7 +4630,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
   accountForm.value?.querySelectorAll<HTMLElement>('[aria-invalid="true"]').forEach(revealField)
   if (!confirmation) antigravityMixedChannelConfirmed.value = false
   const restrictionErrors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
-  if (restrictionErrors.length) { revealSection('model-selection'); revealSection('model-mappings'); appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
+  if (restrictionErrors.length) { modelConfigurationSection.value?.revealValidation(restrictionErrors); appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id
 
