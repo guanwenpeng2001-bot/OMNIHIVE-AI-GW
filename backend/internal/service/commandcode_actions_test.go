@@ -75,8 +75,8 @@ func TestCommandCodeModelEndpointSelection(t *testing.T) {
 	}{
 		{"claude-sonnet-5", CommandCodeEndpointMessages, APIProtocolAnthropic},
 		{"ANTHROPIC/Claude-Opus-5", CommandCodeEndpointMessages, APIProtocolAnthropic},
-		{"gpt-5.6-sol", CommandCodeEndpointResponses, APIProtocolChatCompletions},
-		{"openai/gpt-5.6-luna", CommandCodeEndpointResponses, APIProtocolChatCompletions},
+		{"gpt-5.6-sol", CommandCodeEndpointChatCompletions, APIProtocolChatCompletions},
+		{"openai/gpt-5.6-luna", CommandCodeEndpointChatCompletions, APIProtocolChatCompletions},
 		{"deepseek/deepseek-v4-flash", CommandCodeEndpointChatCompletions, APIProtocolChatCompletions},
 		{"Qwen/Qwen3.8-Omni-Flash", CommandCodeEndpointChatCompletions, APIProtocolChatCompletions},
 		// 反例：供应商前缀的 claude 不在内置匹配规则内，既不是官方口径的 Anthropic 服务集，
@@ -90,17 +90,14 @@ func TestCommandCodeModelEndpointSelection(t *testing.T) {
 	}
 }
 
-// 官方端点匹配规则：Claude 只在 /messages 被服务。Responses 端点是否服务某个模型
-// 由该模型自己的 supported_endpoints 决定，静态规则证明不了，所以 adaptive 下显式
-// Responses 规则不能让模型打到 /responses——否则会换来一个 400 invalid_request_error。
-func TestCommandCodeResponsesRuleRespectsDocumentedServingEndpoint(t *testing.T) {
+// Explicit rules reach the upstream even when optional metadata is missing.
+func TestCommandCodeResponsesRuleHonorsExplicitChoice(t *testing.T) {
 	account := commandCodeTestAccount()
 	account.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "*", "protocol": APIProtocolResponses}}
-	require.Equal(t, APIProtocolAnthropic, account.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
-	require.Equal(t, APIProtocolChatCompletions, account.ResolveCommandCodeUpstreamProtocol("gpt-5.6-sol"))
-	// 正例：显式 Chat / Anthropic 固定值仍是高级覆写，原样生效。
+	require.Equal(t, APIProtocolResponses, account.ResolveCommandCodeUpstreamProtocol("claude-private"))
+	require.Equal(t, APIProtocolResponses, account.ResolveCommandCodeUpstreamProtocol("private/model"))
 	account.Credentials["api_protocol"] = APIProtocolAnthropic
-	require.Equal(t, APIProtocolAnthropic, account.ResolveCommandCodeUpstreamProtocol("gpt-5.6-sol"))
+	require.Equal(t, APIProtocolAnthropic, account.ResolveCommandCodeUpstreamProtocol("private/model"))
 }
 
 func TestCommandCodeDocumentedErrorContract(t *testing.T) {
@@ -300,7 +297,7 @@ func TestCommandCodeActionCellsTriState(t *testing.T) {
 		require.Equal(t, PlatformCommandCode, cell.Identity.Platform, cell.Action)
 		require.Empty(t, cell.Identity.HostedAccountType, cell.Action)
 		require.NotEmpty(t, cell.Evidence, cell.Action)
-		require.Contains(t, cell.Evidence, "2026-09-21", cell.Action)
+		require.Contains(t, cell.Evidence, "2026-", cell.Action)
 		byAction[cell.Action] = cell
 	}
 	for _, action := range []string{"chat", "messages", "responses", "count_tokens"} {

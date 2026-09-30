@@ -824,7 +824,7 @@ describe('EditAccountModal', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
     await flushPromises()
-    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-token-plan-warning"]').exists()).toBe(true)
+    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-coding-plan-scope"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
@@ -1071,8 +1071,8 @@ describe('EditAccountModal', () => {
     ['kimi', true],
     ['deepseek', true],
     ['minimax', true],
-    ['zhipu', false],
-    ['commandcode', false]
+    ['zhipu', true],
+    ['commandcode', true]
   ] as const)('keeps an explicit protocol and custom endpoints when editing %s', async (platform, supportsNativeResponses) => {
     const account = buildAccount()
     account.platform = platform
@@ -1114,8 +1114,8 @@ describe('EditAccountModal', () => {
     ['minimax', 'responses'],
     ['opencode_go', 'responses'],
     ['qianwen', 'responses'],
-    ['zhipu', 'chat_completions'],
-    ['commandcode', 'adaptive']
+    ['zhipu', 'responses'],
+    ['commandcode', 'responses']
   ] as const)('resolves a stored Responses protocol by platform support (%s)', async (platform, expectedProtocol) => {
     const account = buildAccount()
     account.platform = platform
@@ -2743,5 +2743,22 @@ it('ordinary account save preserves protected deny-all and existing capability d
     expect(payload.extra.model_capability_defaults).toEqual(account.extra.model_capability_defaults)
   }
   expect(allowlistWrite).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+
+it('round-trips Qianwen Coding Plan credentials without replacing its private endpoints', async () => {
+  const account = buildAccount()
+  account.platform = 'qianwen'
+  account.credentials = { api_key: 'fixture-coding-key', account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://private.example/chat', api_base_urls: { chat_completions: 'https://private.example/chat', anthropic: 'https://private.example/messages', responses: 'https://private.example/responses' } }
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  const wrapper = mountModal(account)
+  await flushPromises()
+  expect(wrapper.get('[data-testid="qianwen-coding-plan-scope"] a').attributes('href')).toBe('https://help.aliyun.com/zh/model-studio/coding-plan')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock).toHaveBeenCalledTimes(1)
+  expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject(account.credentials)
   wrapper.unmount()
 })

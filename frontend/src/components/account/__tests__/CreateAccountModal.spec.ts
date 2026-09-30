@@ -802,10 +802,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
     await wrapper.get('form#create-account-form input[type="text"]').setValue(platform)
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-sp-test-only')
-    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-token-plan-warning"]').exists()).toBe(true)
+    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-coding-plan-scope"]').exists()).toBe(false)
     if (platform === 'commandcode') {
-      expect(wrapper.find('[data-testid="cn-adaptive-base-url-responses"]').exists()).toBe(false)
-      expect(wrapper.find('option[value="responses"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="cn-adaptive-base-url-responses"]').exists()).toBe(true)
+      expect(wrapper.find('option[value="responses"]').exists()).toBe(true)
     }
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await confirmReview(wrapper)
@@ -820,7 +820,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://dashscope.aliyuncs.com/compatible-mode/v1', responses: 'https://dashscope.aliyuncs.com/compatible-mode/v1', anthropic: 'https://dashscope.aliyuncs.com/apps/anthropic' })
     } else {
       expect(payload.credentials.protocol_rules).toEqual([{ pattern: 'claude-*', protocol: 'anthropic' }, { pattern: 'anthropic/claude-*', protocol: 'anthropic' }])
-      expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://api.commandcode.ai/provider/v1', anthropic: 'https://api.commandcode.ai/provider/v1' })
+      expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://api.commandcode.ai/provider/v1', anthropic: 'https://api.commandcode.ai/provider/v1', responses: 'https://api.commandcode.ai/provider/v1' })
     }
   })
 
@@ -1184,7 +1184,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     // 千问：维持没有账号类型选择区的现状，不为引导造卡
     await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
     await flushPromises()
-    expect(wrapper.find('[data-tour="account-form-type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tour="account-form-type"]').exists()).toBe(true)
     expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="commandcode-account-type-card"]').exists()).toBe(false)
     wrapper.unmount()
@@ -1336,9 +1336,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(payload.credentials).not.toHaveProperty('zhipu_organization')
       expect(payload.credentials).not.toHaveProperty('zhipu_project')
     }
-    // 原协议选项能力不变：智谱/CommandCode 不新增原生 Responses；Kimi/MiniMax/OpenCode 保持四项
+    // 智谱与 CommandCode 同样提供原生 Responses；Kimi/MiniMax/OpenCode 保持四项
     const protocolCount = wrapper.findAll('[data-testid="account-protocol-choices"] > button[role="radio"]').length
-    expect(protocolCount).toBe(platform === 'zhipu' ? 3 : 4)
+    expect(protocolCount).toBe(4)
     wrapper.unmount()
   })
 
@@ -1635,5 +1635,26 @@ it('previews OAuth drafts through the selected proxy without exposing draft cred
   expect(preview).toHaveBeenCalledWith(expect.objectContaining({ proxy_id: 9, credential_draft: 'proxy-draft', credential_draft_revision: 'initial' }))
   expect(preview.mock.calls[0]?.[0].api_key).toBeUndefined()
   expect(createAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+
+it('creates Qianwen Coding Plan with isolated defaults and preserves a custom base on mode changes', async () => {
+  const wrapper = mountModal()
+  await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+  const state = wrapper.vm as unknown as { accountMode: 'payg' | 'coding'; apiProtocol: string; apiKeyBaseUrl: string }
+  state.accountMode = 'coding'
+  await flushPromises()
+  const scope = wrapper.get('[data-testid="qianwen-coding-plan-scope"]')
+  expect(scope.get('a').attributes('href')).toBe('https://help.aliyun.com/zh/model-studio/coding-plan')
+  expect(wrapper.get('[data-testid="cn-adaptive-base-url-chat_completions"]').element).toHaveProperty('value', 'https://coding.dashscope.aliyuncs.com/v1')
+  expect(wrapper.get('[data-testid="cn-adaptive-base-url-anthropic"]').element).toHaveProperty('value', 'https://coding.dashscope.aliyuncs.com/apps/anthropic')
+  expect(wrapper.get('[data-testid="cn-adaptive-base-url-responses"]').element).toHaveProperty('value', '')
+  state.apiProtocol = 'chat_completions'
+  await flushPromises()
+  state.apiKeyBaseUrl = 'https://private.example/custom/v1'
+  state.accountMode = 'payg'
+  await flushPromises()
+  expect(state.apiKeyBaseUrl).toBe('https://private.example/custom/v1')
   wrapper.unmount()
 })

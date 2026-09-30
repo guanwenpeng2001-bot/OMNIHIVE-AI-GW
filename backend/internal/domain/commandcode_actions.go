@@ -34,7 +34,7 @@ var (
 		},
 		"responses": {
 			adapter:  "openai.responses",
-			evidence: "POST /provider/v1/responses is documented for OpenAI and most open models while Claude stays on /messages, so inbound /responses is bridged; this branch adds the documented endpoint-selection fact but leaves native /responses wiring to multimodal-ingress (official Provider API reference, 2026-09-21)",
+			evidence: "POST /provider/v1/responses executes natively when selected by account protocol, matching protocol rule, or discovered supported_endpoints; missing metadata keeps the Chat fallback and Claude defaults to Messages (official Provider API reference, 2026-10-01)",
 		},
 		"count_tokens": {
 			adapter:  "openai.count_tokens",

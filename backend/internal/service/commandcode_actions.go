@@ -47,10 +47,7 @@ import (
 //   官方端点表只有上述四个端点，且 FAQ 明确 audio/file/document 分片被拒，
 //   既无原生端点也无保真桥接。unverified：无，本平台不留未核证格。
 //
-// 归口说明：把 /provider/v1/responses 接成“非 Claude 模型的原生 Responses 选择”，
-// 以及把 /models 的 supported_endpoints 写入模型注册表（methods 字段），属于
-// domain 矩阵与 model-registry-data 的所有权，本分支不自行修改，已在 worker_done
-// 的集成说明中登记给 multimodal-ingress 与 model-registry-data。
+// Native Responses selection reuses the existing forwarder and discovered SupportedMethods.
 
 // CommandCodeProviderEndpoint 是 Provider API 文档化端点的路径（相对 provider/v1 base）。
 type CommandCodeProviderEndpoint string
@@ -91,28 +88,12 @@ func CommandCodeDocumentedEndpoints() []CommandCodeEndpointFact {
 	}
 }
 
-// commandCodeOpenAIModelFamily 报告模型是否属于官方口径里的 “OpenAI models”：
-// 这些模型在 /responses 上被服务。目录里的这些 ID 形如 `gpt-5.6-sol`，
-// 供应商前缀形式是 `openai/...`。运行时权威仍是 /models 的 supported_endpoints，
-// 这里只给出证据可追溯的静态兜底。
-func commandCodeOpenAIModelFamily(model string) bool {
-	id := normalizeCommandCodeModelID(model)
-	if strings.HasPrefix(id, "openai/") {
-		return true
-	}
-	return strings.HasPrefix(id, "gpt-")
-}
-
-// CommandCodeModelEndpoint 返回官方端点表下服务该模型的端点。
-// Claude 模型只在 /messages 回答；OpenAI 家族在 /responses；
-// 其余目录模型由 /chat/completions 服务（其中多数也支持 /responses，
-// 但只有该模型的 supported_endpoints 能证明，故静态兜底取 /chat/completions）。
+// CommandCodeModelEndpoint returns the compatible fallback when no account choice or
+// discovered endpoint metadata is available. Model-name prefixes do not prove Responses
+// support; ResolveCommandCodeUpstreamProtocol uses supported_endpoints for that decision.
 func CommandCodeModelEndpoint(model string) CommandCodeProviderEndpoint {
 	if matchModelProtocolRules(normalizeCommandCodeModelID(model), DefaultCommandCodeProtocolRules()) == APIProtocolAnthropic {
 		return CommandCodeEndpointMessages
-	}
-	if commandCodeOpenAIModelFamily(model) {
-		return CommandCodeEndpointResponses
 	}
 	return CommandCodeEndpointChatCompletions
 }

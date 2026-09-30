@@ -580,6 +580,10 @@
             </div>
           </button>
         </div>
+        <p v-if="form.platform === 'qianwen' && accountMode === 'coding'" class="input-hint" data-testid="qianwen-coding-plan-scope">
+          {{ t('admin.accounts.platformDetails.qianwenCodingScope') }}
+          <a href="https://help.aliyun.com/zh/model-studio/coding-plan" target="_blank" rel="noopener noreferrer" class="text-primary-600 underline">{{ t('admin.accounts.platformDetails.qianwenCodingDocs') }}</a>
+        </p>
         <p v-if="paygOnlyNoteKey" class="input-hint" data-testid="account-mode-payg-only-note">{{ t(paygOnlyNoteKey) }}</p>
       </div>
 
@@ -1372,7 +1376,6 @@
             :placeholder="apiKeyValuePlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
-          <p v-if="form.platform === 'qianwen' && apiKeyValue.trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
         </div>
 
         <!-- Only verified billing-probe platforms expose this control. -->

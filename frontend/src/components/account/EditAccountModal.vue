@@ -319,6 +319,10 @@
             </button>
           </div>
         </div>
+        <p v-if="account.platform === 'qianwen' && editAccountMode === 'coding'" class="input-hint" data-testid="qianwen-coding-plan-scope">
+          {{ t('admin.accounts.platformDetails.qianwenCodingScope') }}
+          <a href="https://help.aliyun.com/zh/model-studio/coding-plan" target="_blank" rel="noopener noreferrer" class="text-primary-600 underline">{{ t('admin.accounts.platformDetails.qianwenCodingDocs') }}</a>
+        </p>
         <!-- API Protocol Selection (CN providers / OpenCode) -->
         <div v-if="isProtocolApiKeyAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
@@ -396,7 +400,6 @@
             :placeholder="editApiKeyPlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
-          <p v-if="account.platform === 'qianwen' && (editApiKey || String(account.credentials?.api_key || '')).trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 

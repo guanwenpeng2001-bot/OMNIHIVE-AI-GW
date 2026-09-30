@@ -32,7 +32,7 @@
           <option value="chat_completions">
             {{ t('admin.accounts.cnProviders.apiProtocol.chatCompletions') }}
           </option>
-          <option v-if="platform !== 'commandcode'" value="responses">
+          <option value="responses">
             {{ t('admin.accounts.cnProviders.apiProtocol.responses') }}
           </option>
           <option value="anthropic">
