@@ -23,6 +23,40 @@ def node(name="Unknown real location"):
 
 
 class RenderTests(unittest.TestCase):
+    def test_dns_opt_in_and_bootstrap(self):
+        self.assertIsNone(render.resolver_config(None))
+        servers = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+        dns = render.resolver_config(servers)
+        self.assertEqual(dns["nameserver"], servers)
+        self.assertEqual(dns["proxy-server-nameserver"], servers)
+        self.assertEqual(dns["default-nameserver"], servers)
+        self.assertTrue(dns["enable"])
+        self.assertEqual(dns["enhanced-mode"], "redir-host")
+        self.assertEqual(dns["listen"], "")
+        self.assertFalse(dns["respect-rules"])
+        self.assertFalse(dns["ipv6"])
+        self.assertFalse(dns["use-system-hosts"])
+        self.assertNotIn("fake-ip-range", dns)
+        self.assertEqual(render.resolver_config(["https://resolver.example/dns-query"])["default-nameserver"], servers)
+        self.assertEqual(render.resolver_config(["https://resolver.example/dns-query"], ["192.0.2.53"])["default-nameserver"], ["192.0.2.53"])
+        for server in ["192.0.2.53", "2001:db8::53", "https://[2001:db8::53]:443/dns-query"]:
+            self.assertTrue(render.dns_endpoint(server))
+
+    def test_dns_invalid_values_are_redacted(self):
+        invalid = ["", "system", "http://example.org/SECRET", "https://user:SECRET@example.org/dns-query",
+                   "https://example.org/dns-query?token=SECRET", "https://example.org/dns-query#SECRET",
+                   "https://example.org:99999/SECRET", "https://example.org/SECRET\n",
+                   "https://example.org/SECRET\x7f", "https://bad_host/SECRET", "https://example.org",
+                   "https://example.org:/SECRET", "https://example.org/%0aSECRET"]
+        for server in invalid:
+            with self.subTest(server=server), self.assertRaises(render.SafeError) as raised:
+                render.resolver_config([server])
+            self.assertNotIn("SECRET", str(raised.exception))
+        with self.assertRaises(render.SafeError):
+            render.resolver_config(None, ["192.0.2.53"])
+        with self.assertRaises(render.SafeError):
+            render.resolver_config(["192.0.2.53"], ["https://resolver.example/dns-query"])
+
     def test_metadata_and_unfamiliar_names(self):
         labels = ["到期时间：2099-01-01", "距离下次重置：10天", "获取最新订阅", "剩余流量：1GB", "Remaining: 1 GB"]
         entries = [node(label) for label in labels] + [node("Unknown real location"), node("US remaining node")]
@@ -84,6 +118,23 @@ class RenderTests(unittest.TestCase):
             second = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertEqual(before, {path.name: path.read_bytes() for path in output.iterdir()})
+            self.assertNotIn("dns", yaml.safe_load((output / "config.yaml").read_text()))
+            dns_result = subprocess.run(command + ["--dns-server", "https://1.1.1.1/dns-query",
+                                                   "--dns-server", "https://8.8.8.8/dns-query"], capture_output=True, text=True)
+            self.assertEqual(dns_result.returncode, 0, dns_result.stderr)
+            after_dns = {path.name: path.read_bytes() for path in output.iterdir()}
+            self.assertEqual({key: value for key, value in before.items() if key != "config.yaml"},
+                             {key: value for key, value in after_dns.items() if key != "config.yaml"})
+            dns_config = yaml.safe_load((output / "config.yaml").read_text())
+            self.assertTrue(dns_config["dns"]["enable"])
+            self.assertNotIn("tun", dns_config)
+            self.assertNotIn("external-controller", dns_config)
+            invalid_dns = subprocess.run(command + ["--dns-server", "https://example.org/dns-query?token=SECRET"],
+                                         capture_output=True, text=True)
+            self.assertEqual(invalid_dns.returncode, 1)
+            self.assertNotIn("SECRET", invalid_dns.stdout + invalid_dns.stderr)
+            self.assertEqual(after_dns, {path.name: path.read_bytes() for path in output.iterdir()})
+            before = after_dns
             imported = json.loads((output / "server.import.json").read_text())
             self.assertEqual(imported["data"]["accounts"], [])
             self.assertEqual(imported["data"]["proxies"][0]["host"], "node-proxy")

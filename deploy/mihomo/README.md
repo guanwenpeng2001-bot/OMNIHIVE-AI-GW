@@ -139,6 +139,51 @@ import implementation deduplicates by address/auth, so a different host can crea
 new IDs. No account rebind is necessary when updating the existing IDs. Retired
 nodes need separate operator review; rendering never deletes database records.
 
+## Opt-in core DNS for portable deployment
+
+If the container's inherited DNS returns desktop VPN FakeIP addresses for node
+hostnames, choose resolvers explicitly when rendering. For example, append:
+
+```sh
+--dns-server https://1.1.1.1/dns-query \
+--dns-server https://8.8.8.8/dns-query
+```
+
+These IP-addressed public DoH endpoints avoid inherited DNS even for bootstrap.
+Choose endpoints reachable directly from the deployment network; this example
+does not assert that either provider is reachable from a particular server.
+Production can use its own stable resolver IP or HTTPS DoH endpoint. A bare IP
+uses ordinary DNS; HTTPS URLs use DoH. Repeat the option for multiple resolvers.
+URLs must have a path and cannot contain userinfo, queries, fragments, percent
+escapes or control characters. Proxy/interface suffixes are deliberately rejected
+to prevent DNS from depending on the AnyTLS node it must first resolve. Supply
+only non-secret resolver addresses on the command line.
+
+The generated core DNS uses `enable: true`, `enhanced-mode: redir-host`, and the
+supplied list for both `nameserver` and `proxy-server-nameserver`. DNS connections
+are direct (`respect-rules: false`), with no system hosts lookup. `listen: ""`
+opens no DNS server port. The existing core IPv4 choice remains unchanged
+(`ipv6: false`, also in DNS); this does not alter host OS IPv6 or DNS settings.
+Subscription DNS/rules are still discarded and no TUN or added privilege is used.
+These fields follow the [official DNS configuration](https://wiki.metacubex.one/en/config/dns/).
+
+For hostname-based DoH, bootstrap uses supplied IP-addressed resolvers when
+available, otherwise the two IP-addressed DoH endpoints above. To choose your own
+bootstrap, repeat `--dns-bootstrap-server` with bare IPs or IP-addressed HTTPS
+URLs, for example `--dns-bootstrap-server 192.0.2.53` (documentation address;
+replace with your reachable resolver). Bootstrap hostnames are rejected, avoiding
+a resolution loop. This option requires `--dns-server`.
+
+Without `--dns-server`, no DNS block is generated and prior behavior is unchanged.
+Rerender into the same private output directory, retaining the manifest: DNS
+changes preserve ports, node identities and all address exports. Recreate only
+the sidecar using the existing deployment procedure after reviewing the generated
+config. The helper does not modify Docker daemon DNS, Windows/global DNS, Clash,
+or any running service. Container loopback names a container itself; neither
+`127.0.0.1` nor Docker's inherited resolver is a portable reference to a desktop
+VPN resolver. This core DNS option also does not change the helper's subscription
+download resolution.
+
 ## Version and verification
 
 The default image is `metacubex/mihomo:v1.19.32`, the official stable release
