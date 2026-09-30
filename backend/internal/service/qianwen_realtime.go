@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,10 @@ import (
 )
 
 const QianwenRealtimeFrameLimit = 256 << 10
+const QianwenRealtimeAudioAppendLimit = 15 << 20
+const QianwenRealtimeAudioFrameLimit = (QianwenRealtimeAudioAppendLimit * 4 / 3) + (16 << 10)
+const QianwenRealtimeAudioSecondsLimit = 600
+const QianwenRealtimeAudioTurnLimit = 50
 
 type QianwenRealtimeUpstream struct {
 	accountID int64
@@ -97,7 +102,11 @@ func dialQianwenRealtime(ctx context.Context, target, model string, headers http
 		}
 		return nil, failure
 	}
-	conn.SetReadLimit(QianwenRealtimeFrameLimit)
+	frameLimit := QianwenRealtimeFrameLimit
+	if QianwenRealtimeFamily(model) != "tts" {
+		frameLimit = QianwenRealtimeAudioFrameLimit
+	}
+	conn.SetReadLimit(int64(frameLimit))
 	kind, created, err := conn.Read(ctx)
 	if err != nil || kind != ws.MessageText || !json.Valid(created) || gjson.GetBytes(created, "type").String() != "session.created" || gjson.GetBytes(created, "session.id").String() == "" || gjson.GetBytes(created, "session.model").String() != model {
 		_ = conn.CloseNow()
@@ -109,6 +118,15 @@ func dialQianwenRealtime(ctx context.Context, target, model string, headers http
 // All state transitions and writes run in one supervisor. Only readers run in
 // goroutines; their queues contain one bounded frame each and are always joined.
 type qianwenRealtimeState struct {
+	family                                         string
+	sampleRate                                     int
+	vad, clearing                                  bool
+	audioBytes, pendingBytes, acknowledgedBytes    int64
+	commitBytes                                    int64
+	speechEnds                                     map[string]int64
+	itemBytes                                      map[string]int64
+	clientEvents                                   map[string]bool
+	beginTurn                                      bool
 	configured, configuring, generating, finishing bool
 	text                                           string
 	characters, turns, events, windowEvents        int
@@ -117,7 +135,11 @@ type qianwenRealtimeState struct {
 }
 
 func (s *qianwenRealtimeState) client(raw []byte, now time.Time) error {
-	if len(raw) > QianwenRealtimeFrameLimit || !json.Valid(raw) {
+	limit := QianwenRealtimeFrameLimit
+	if s.family == "omni" || s.family == "asr" {
+		limit = QianwenRealtimeAudioFrameLimit
+	}
+	if len(raw) > limit || !json.Valid(raw) {
 		return errors.New("invalid realtime JSON")
 	}
 	s.events++
@@ -130,6 +152,9 @@ func (s *qianwenRealtimeState) client(raw []byte, now time.Time) error {
 		return errors.New("realtime event limit exceeded")
 	}
 	event := gjson.ParseBytes(raw)
+	if s.family == "omni" || s.family == "asr" {
+		return s.audioClient(event)
+	}
 	switch event.Get("type").String() {
 	case "session.update":
 		if s.configured || s.configuring || s.generating || s.finishing {
@@ -190,16 +215,25 @@ type QianwenRealtimeCallbacks struct {
 }
 
 func RelayQianwenRealtime(ctx context.Context, client *ws.Conn, upstream *QianwenRealtimeUpstream, cb QianwenRealtimeCallbacks) error {
-	return relayQianwenRealtime(ctx, client, upstream, cb, 120*time.Second, 30*time.Second, 5*time.Second)
+	idle := 30 * time.Second
+	if upstream != nil && QianwenRealtimeFamily(gjson.GetBytes(upstream.Created, "session.model").String()) != "tts" {
+		idle = 60 * time.Second
+	}
+	return relayQianwenRealtime(ctx, client, upstream, cb, 120*time.Second, idle, 5*time.Second)
 }
 
 func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *QianwenRealtimeUpstream, cb QianwenRealtimeCallbacks, lifetime, idle, drain time.Duration) error {
 	if cb.BeforeCommit == nil || cb.Receipt == nil {
 		return errors.New("durable realtime billing callbacks required")
 	}
-	ctx, cancel := context.WithTimeout(parent, lifetime)
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	client.SetReadLimit(QianwenRealtimeFrameLimit)
+	family := QianwenRealtimeFamily(gjson.GetBytes(upstream.Created, "session.model").String())
+	limit := QianwenRealtimeFrameLimit
+	if family == "omni" || family == "asr" {
+		limit = QianwenRealtimeAudioFrameLimit
+	}
+	client.SetReadLimit(int64(limit))
 	type frame struct {
 		kind ws.MessageType
 		data []byte
@@ -232,7 +266,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 	if err := write(client, upstream.Created); err != nil {
 		return err
 	}
-	state := qianwenRealtimeState{}
+	state := qianwenRealtimeState{family: family}
 	logicalTurn := 0
 	seen := map[string]bool{}
 	absolute := time.NewTimer(lifetime)
@@ -259,9 +293,9 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 			stopGeneration()
 			parent = context.Background()
 		case <-absolute.C:
-			stopGeneration()
+			return protocolError(errors.New("realtime lifetime exceeded"))
 		case <-timer.C:
-			stopGeneration()
+			return protocolError(errors.New("realtime idle limit exceeded"))
 		case f := <-fromClient:
 			if f.err != nil {
 				stopGeneration()
@@ -283,7 +317,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				stopGeneration()
 				continue
 			}
-			generating := gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit"
+			generating := gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit" || state.beginTurn
 			if generating {
 				logicalTurn++
 				BeginAttemptStreamTurn(ctx, logicalTurn)
@@ -324,11 +358,59 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 			event := gjson.ParseBytes(f.data)
 			switch event.Get("type").String() {
 			case "session.updated":
-				if !state.configuring || event.Get("session.mode").String() != "commit" {
+				if !state.configuring || (family == "tts" && event.Get("session.mode").String() != "commit") {
 					return protocolError(errors.New("upstream did not acknowledge commit mode"))
+				}
+				if family != "tts" {
+					rate := event.Get("session.sample_rate")
+					if rate.Exists() && (rate.Type != gjson.Number || rate.Float() != float64(state.sampleRate)) {
+						return protocolError(errors.New("upstream changed PCM sample rate"))
+					}
 				}
 				state.configuring = false
 				state.configured = true
+			case "input_audio_buffer.cleared":
+				if family != "tts" {
+					if !state.clearing {
+						return protocolError(errors.New("unexpected clear acknowledgment"))
+					}
+					state.clearing = false
+				}
+			case "input_audio_buffer.speech_stopped":
+				if family != "tts" && state.vad {
+					if err := state.audioSpeechStopped(event); err != nil {
+						return protocolError(err)
+					}
+				}
+			case "input_audio_buffer.committed":
+				if family != "tts" {
+					if err := state.audioCommitted(event); err != nil {
+						return protocolError(err)
+					}
+				}
+			case "conversation.item.input_audio_transcription.completed":
+				if family == "asr" {
+					id := event.Get("item_id").String()
+					bytes, ok := state.itemBytes[id]
+					if !ok || bytes <= 0 {
+						return protocolError(errors.New("unacknowledged transcription"))
+					}
+					usage, _ := json.Marshal(map[string]any{"seconds": float64(bytes) / float64(state.sampleRate*2), "meter": "relay_pcm_bytes"})
+					billingContext, finishBilling := detachedBillingContext(ctx)
+					receiptErr := cb.Receipt(billingContext, id, usage, "completed")
+					finishBilling()
+					if receiptErr != nil {
+						return receiptErr
+					}
+					if !seen[id] && !state.vad {
+						state.generating = false
+					}
+					seen[id] = true
+				}
+			case "conversation.item.input_audio_transcription.failed":
+				if family == "asr" {
+					return protocolError(errors.New("upstream transcription failed"))
+				}
 			case "response.created":
 				if !state.generating || state.responseID != "" {
 					return errors.New("unexpected upstream response")
@@ -393,7 +475,11 @@ func (s *UpstreamJobService) MarkQianwenRealtimePending(ctx context.Context, id 
 		j.ErrorCode = "usage_pending"
 		j.ErrorMessage = "A committed turn may incur usage; never estimate missing receipts"
 		j.AttemptCount++
-		if j.AttemptCount > 20 {
+		limit := 20
+		if QianwenRealtimeFamily(j.Billing.Model) != "tts" {
+			limit = QianwenRealtimeAudioTurnLimit
+		}
+		if j.AttemptCount > limit {
 			return errors.New("realtime turn limit exceeded")
 		}
 		return nil
@@ -413,4 +499,277 @@ func sanitizeQianwenRealtimeError(raw []byte) []byte {
 		return raw
 	}
 	return []byte(`{"type":"error","error":{"type":"upstream_error","code":"qianwen_realtime_error","message":"Realtime upstream rejected the request"}}`)
+}
+
+// Audio uses PCM16 mono, so actual submitted bytes determine duration. Headers
+// such as WAV nframes are never accepted as a duration source.
+func (s *qianwenRealtimeState) audioClient(event gjson.Result) error {
+	s.beginTurn = false
+	id := event.Get("event_id").String()
+	if id != "" {
+		if len(id) > 256 {
+			return errors.New("invalid event id")
+		}
+		if s.clientEvents == nil {
+			s.clientEvents = map[string]bool{}
+		}
+		if s.clientEvents[id] {
+			return errors.New("duplicate client event")
+		}
+		s.clientEvents[id] = true
+	}
+	kind := event.Get("type").String()
+	if kind != "input_audio_buffer.append" && len(event.Raw) > QianwenRealtimeFrameLimit {
+		return errors.New("realtime configuration too large")
+	}
+	allowed := map[string]bool{"type": true, "event_id": true}
+	switch kind {
+	case "session.update":
+		allowed["session"] = true
+	case "input_audio_buffer.append":
+		allowed["audio"] = true
+	case "response.create":
+		allowed["response"] = true
+	}
+	valid := true
+	event.ForEach(func(key, value gjson.Result) bool {
+		if !allowed[key.String()] {
+			valid = false
+		}
+		return true
+	})
+	if !valid {
+		return errors.New("unsupported realtime event field")
+	}
+	if kind == "session.update" {
+		if s.configured || s.configuring || s.finishing {
+			return errors.New("session already configured")
+		}
+		session := event.Get("session")
+		if !session.IsObject() {
+			return errors.New("session configuration required")
+		}
+		fields := map[string]bool{"input_audio_format": true, "turn_detection": true}
+		if s.family == "asr" {
+			fields["sample_rate"] = true
+			fields["input_audio_transcription"] = true
+			s.sampleRate = 16000
+		} else {
+			fields["modalities"] = true
+			fields["voice"] = true
+			fields["output_audio_format"] = true
+			s.sampleRate = 16000
+		}
+		session.ForEach(func(key, value gjson.Result) bool {
+			if !fields[key.String()] {
+				valid = false
+			}
+			return true
+		})
+		if value := session.Get("input_audio_format"); value.Exists() && value.String() != "pcm" && !(s.family == "omni" && value.String() == "pcm16") {
+			valid = false
+		}
+		if rate := session.Get("sample_rate"); rate.Exists() {
+			if rate.Type != gjson.Number || (rate.Float() != 8000 && rate.Float() != 16000) {
+				valid = false
+			} else {
+				s.sampleRate = int(rate.Int())
+			}
+		}
+		if format := session.Get("output_audio_format"); format.Exists() && format.String() != "pcm16" && format.String() != "pcm" {
+			valid = false
+		}
+		if modalities := session.Get("modalities"); modalities.Exists() {
+			if !modalities.IsArray() || len(modalities.Array()) == 0 {
+				valid = false
+			}
+			for _, modality := range modalities.Array() {
+				if modality.String() != "text" && modality.String() != "audio" {
+					valid = false
+				}
+			}
+		}
+		detection := session.Get("turn_detection")
+		// Explicit null selects manual mode; omitted configuration uses provider VAD.
+		s.vad = !detection.Exists() || detection.Type != gjson.Null
+		if detection.Exists() && detection.Type != gjson.Null {
+			if !detection.IsObject() || detection.Get("type").String() != "server_vad" {
+				valid = false
+			}
+			detection.ForEach(func(key, value gjson.Result) bool {
+				switch key.String() {
+				case "type":
+				case "threshold":
+					if value.Type != gjson.Number || value.Float() < -1 || value.Float() > 1 {
+						valid = false
+					}
+				case "silence_duration_ms":
+					if value.Type != gjson.Number || value.Float() != float64(value.Int()) || value.Int() < 200 || value.Int() > 6000 {
+						valid = false
+					}
+				default:
+					valid = false
+				}
+				return true
+			})
+		}
+		if transcription := session.Get("input_audio_transcription"); transcription.Exists() {
+			if !transcription.IsObject() {
+				valid = false
+			}
+			transcription.ForEach(func(key, value gjson.Result) bool {
+				switch key.String() {
+				case "language":
+					if value.Type != gjson.String {
+						valid = false
+					}
+				case "corpus":
+					if !value.IsObject() || len(value.Map()) != 1 || value.Get("text").Type != gjson.String {
+						valid = false
+					}
+				default:
+					valid = false
+				}
+				return true
+			})
+		}
+		if !valid {
+			return errors.New("unsupported PCM session configuration")
+		}
+		s.configuring = true
+		return nil
+	}
+	if !s.configured || s.finishing || s.clearing {
+		return errors.New("audio not accepted in this session state")
+	}
+	switch kind {
+	case "input_audio_buffer.append":
+		if !s.vad && s.generating {
+			return errors.New("wait for current audio turn")
+		}
+		encoded := event.Get("audio")
+		if encoded.Type != gjson.String {
+			return errors.New("base64 PCM required")
+		}
+		audio, err := base64.StdEncoding.Strict().DecodeString(encoded.String())
+		if err != nil || len(audio) == 0 || len(audio)%2 != 0 || len(audio) > QianwenRealtimeAudioAppendLimit {
+			return errors.New("invalid or oversized PCM append")
+		}
+		if len(audio) >= 4 && string(audio[:4]) == "RIFF" {
+			return errors.New("raw PCM required, remove WAV container")
+		}
+		if s.audioBytes+int64(len(audio)) > int64(s.sampleRate*2*QianwenRealtimeAudioSecondsLimit) {
+			return errors.New("session audio duration exceeded")
+		}
+		if s.vad && !s.generating {
+			if err := s.startAudioTurn(); err != nil {
+				return err
+			}
+		}
+		s.audioBytes += int64(len(audio))
+		s.pendingBytes += int64(len(audio))
+	case "input_audio_buffer.clear":
+		if !s.vad && s.generating {
+			return errors.New("cannot clear committed audio")
+		}
+		s.pendingBytes = 0
+		s.acknowledgedBytes = s.audioBytes
+		s.generating = false
+		s.clearing = true
+	case "input_audio_buffer.commit":
+		if s.vad || s.generating || s.pendingBytes == 0 {
+			return errors.New("nonempty manual audio turn required")
+		}
+		if err := s.startAudioTurn(); err != nil {
+			return err
+		}
+		s.commitBytes = s.pendingBytes
+	case "response.create":
+		if s.family != "omni" || s.vad || !s.generating || s.responseID != "" {
+			return errors.New("response.create requires an Omni manual turn")
+		}
+		response := event.Get("response")
+		if response.Exists() && (!response.IsObject() || len(response.Map()) != 0) {
+			return errors.New("response overrides not supported")
+		}
+	case "session.finish":
+		if !s.vad && s.pendingBytes > 0 && !s.generating {
+			return errors.New("commit or clear buffered audio before finishing")
+		}
+		s.finishing = true
+	default:
+		return errors.New("unsupported DashScope audio event")
+	}
+	return nil
+}
+func (s *qianwenRealtimeState) startAudioTurn() error {
+	if s.turns >= QianwenRealtimeAudioTurnLimit {
+		return errors.New("realtime turn limit exceeded")
+	}
+	s.turns++
+	s.generating = true
+	s.beginTurn = true
+	return nil
+}
+func (s *qianwenRealtimeState) audioSpeechStopped(event gjson.Result) error {
+	id := event.Get("item_id").String()
+	end := event.Get("audio_end_ms")
+	if id == "" || len(id) > 256 || end.Type != gjson.Number || end.Float() != float64(end.Int()) || end.Int() < 0 || end.Int() > QianwenRealtimeAudioSecondsLimit*1000 {
+		return errors.New("invalid VAD audio boundary")
+	}
+	bytes := end.Int() * int64(s.sampleRate*2) / 1000
+	if prior, ok := s.speechEnds[id]; ok {
+		if prior != bytes {
+			return errors.New("conflicting VAD boundary")
+		}
+		return nil
+	}
+	if len(s.speechEnds) >= QianwenRealtimeAudioTurnLimit {
+		return errors.New("VAD turn limit exceeded")
+	}
+	if bytes > s.audioBytes || bytes <= s.acknowledgedBytes {
+		return errors.New("VAD boundary exceeds submitted PCM")
+	}
+	if s.speechEnds == nil {
+		s.speechEnds = map[string]int64{}
+	}
+	if prior, ok := s.speechEnds[id]; ok && prior != bytes {
+		return errors.New("conflicting VAD boundary")
+	}
+	s.speechEnds[id] = bytes
+	return nil
+}
+func (s *qianwenRealtimeState) audioCommitted(event gjson.Result) error {
+	id := event.Get("item_id").String()
+	if id == "" || len(id) > 256 {
+		return errors.New("missing committed audio identity")
+	}
+	if s.itemBytes == nil {
+		s.itemBytes = map[string]int64{}
+	}
+	if _, ok := s.itemBytes[id]; ok {
+		return nil
+	}
+	if len(s.itemBytes) >= QianwenRealtimeAudioTurnLimit {
+		return errors.New("audio turn limit exceeded")
+	}
+	bytes := s.commitBytes
+	if s.vad {
+		end, ok := s.speechEnds[id]
+		if !ok {
+			return errors.New("VAD commit without bounded speech end")
+		}
+		bytes = end - s.acknowledgedBytes
+	}
+	if bytes <= 0 || bytes > s.pendingBytes {
+		return errors.New("commit exceeds submitted audio")
+	}
+	s.itemBytes[id] = bytes
+	s.pendingBytes -= bytes
+	s.acknowledgedBytes += bytes
+	s.commitBytes = 0
+	if s.vad && s.family == "asr" {
+		s.generating = false
+	}
+	return nil
 }

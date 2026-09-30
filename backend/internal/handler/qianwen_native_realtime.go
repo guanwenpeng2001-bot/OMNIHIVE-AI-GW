@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// The native authenticated ingress handles the bounded TTS subset and retains
+// The native authenticated ingress handles the bounded TTS, Omni and ASR subsets and retains
 // the structured gate for all other realtime families and transports.
 func (h *OpenAIGatewayHandler) rejectQianwenNativeRealtime(c *gin.Context) bool {
 	path := c.Request.URL.Path
@@ -25,3 +25,7 @@ func (h *OpenAIGatewayHandler) rejectQianwenNativeRealtime(c *gin.Context) bool 
 	}
 	return false
 }
+
+// QianwenRealtimeCompat provides path compatibility for /v1/realtime.
+// Clients still speak DashScope events; this is not full OpenAI realtime SDK compatibility.
+func (h *OpenAIGatewayHandler) QianwenRealtimeCompat(c *gin.Context) { h.qianwenRealtime(c) }
