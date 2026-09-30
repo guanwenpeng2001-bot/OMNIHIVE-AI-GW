@@ -4,13 +4,17 @@ package service
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestModelMethods_PresetsDoNotGrantAccountEligibility(t *testing.T) {
@@ -33,9 +37,8 @@ func TestModelMethods_PresetsDoNotGrantAccountEligibility(t *testing.T) {
 	}
 }
 
-func TestModelMethods_CommandCodeResponsesKeepsConfiguredBridgeSemantics(t *testing.T) {
+func TestModelMethods_CommandCodeResponsesHonorsExplicitNativeProtocol(t *testing.T) {
 	account := commandCodeTestAccount()
-	account.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "*", "protocol": APIProtocolResponses}}
 	presetMethods := map[string][]string{}
 	for _, profile := range NewModelRegistry().Snapshot().Presets() {
 		if profile.Platform == PlatformCommandCode {
@@ -45,21 +48,41 @@ func TestModelMethods_CommandCodeResponsesKeepsConfiguredBridgeSemantics(t *test
 		}
 	}
 	require.Contains(t, presetMethods["gpt-6-astra"], "responses")
+	// Presets alone do not select a model's native endpoint or grant permission.
 	require.Equal(t, APIProtocolChatCompletions, account.ResolveCommandCodeUpstreamProtocol("gpt-6-astra"))
 	require.Equal(t, APIProtocolAnthropic, account.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
 	descriptor, found := domain.LookupPlatform(PlatformCommandCode)
 	require.True(t, found)
-	require.Equal(t, domain.EndpointBridge, descriptor.ResponsesPOST)
-	// Exercise the forwarding boundary too: reviewed Responses support must not
-	// bypass the existing Chat Completions bridge selected above.
-	body := []byte(`{"model":"gpt-6-astra","input":"hi","stream":false}`)
-	upstream := &httpUpstreamRecorder{resp: commandCodeChatTestResponse()}
-	gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	request := adaptiveProtocolTestContext("/v1/responses", body)
-	SetOpenAIClientTransport(request, OpenAIClientTransportHTTP)
-	_, err := gateway.Forward(context.Background(), request, account, body)
-	require.NoError(t, err)
-	require.Equal(t, "/provider/v1/chat/completions", upstream.lastReq.URL.Path)
+	require.Equal(t, domain.EndpointNative, descriptor.ResponsesPOST)
+
+	for _, target := range []string{"gpt-6-astra", "private/exact-model"} {
+		t.Run(target, func(t *testing.T) {
+			account := commandCodeTestAccount()
+			account.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "*", "protocol": APIProtocolResponses}}
+			account.Credentials["model_mapping"] = map[string]any{"public-model": target}
+			require.Nil(t, account.GetUpstreamModelMetadataSnapshot())
+			require.Equal(t, APIProtocolResponses, account.ResolveCommandCodeUpstreamProtocol(target))
+			require.Equal(t, APIProtocolResponses, account.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"), "explicit rules precede the default Claude route")
+			require.False(t, ResolveAccountModelBinding(context.Background(), account, "unselected-model", AccountModelBindingOptions{Endpoint: "responses"}).Supported, "a protocol rule cannot authorize an unselected model")
+
+			body := []byte(`{"model":"public-model","input":"hi","stream":false}`)
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{"id":"fixture","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"native response"}]}],"usage":{"input_tokens":1,"output_tokens":1}}`)),
+			}}
+			gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			request := adaptiveProtocolTestContext("/v1/responses", body)
+			SetOpenAIClientTransport(request, OpenAIClientTransportHTTP)
+			result, err := gateway.Forward(context.Background(), request, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Len(t, upstream.requests, 1)
+			require.Equal(t, DefaultCommandCodeBaseURL+"/responses", upstream.lastReq.URL.String())
+			require.Equal(t, target, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, "hi", gjson.GetBytes(upstream.lastBody, "input").String())
+			require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists(), "native Responses must not be silently converted to Chat")
+		})
+	}
 }
 
 func TestModelMethods_UnknownEndpointDoesNotBecomeNativeSupport(t *testing.T) {
