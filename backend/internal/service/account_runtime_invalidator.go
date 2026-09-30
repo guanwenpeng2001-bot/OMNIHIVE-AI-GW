@@ -212,11 +212,25 @@ func (fetcher *ChannelMonitorQuotaFetcher) InvalidateAccount(accountID int64) {
 }
 
 // ClearAccountRuntimeObservations is used by the identity-changing repository
-// transaction before persisting Extra. It only removes observed snapshots;
-// account status, financial consumption and configured limits are untouched.
+// transaction before persisting Extra. It removes observed snapshots and known
+// OpenCode quota cooldowns; status, financial consumption and limits stay intact.
 func ClearAccountRuntimeObservations(account *Account) {
 	if account == nil {
 		return
+	}
+	if account.IsOpenCodeGoPlan() {
+		if strings.HasPrefix(account.TempUnschedulableReason, openCodePaymentReason) || strings.HasPrefix(account.TempUnschedulableReason, cnQuotaExhaustedReasonPrefix) {
+			account.TempUnschedulableUntil = nil
+			account.TempUnschedulableReason = ""
+		}
+		for _, window := range []string{"5h", "weekly", "monthly"} {
+			reset := parseSchedulingResetAt(account.Extra[cnExtraKey(PlatformOpenCodeGo, window+"_reset_at")])
+			if reset != nil && sameQuotaTime(account.RateLimitResetAt, reset) {
+				account.RateLimitedAt = nil
+				account.RateLimitResetAt = nil
+				break
+			}
+		}
 	}
 	account.Extra = shallowCopyMap(account.Extra)
 	for _, field := range []string{
@@ -236,5 +250,8 @@ func ClearAccountRuntimeObservations(account *Account) {
 		for _, suffix := range []string{cnExtraSuffix5hUsed, cnExtraSuffix5hReset, cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset, cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset, cnExtraSuffixUsageUpdated, cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixAvailable, cnBalanceExtraSuffixUpdated, cnBalanceExtraSuffixBalances} {
 			delete(account.Extra, cnExtraKey(provider, suffix))
 		}
+	}
+	for _, suffix := range []string{"usage_supported", "usage_checked_at", "monthlyCredits", "purchasedCredits", "freeCredits", "plan_level", "period_basis", "totalCount", "totalTokens", "totalCredits"} {
+		delete(account.Extra, cnExtraKey(PlatformCommandCode, suffix))
 	}
 }

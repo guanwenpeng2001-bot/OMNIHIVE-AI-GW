@@ -179,6 +179,11 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 		return nil
 	}
 	provider := account.Platform
+	if account.IsOpenCodeGoPlan() {
+		if reset := openCodeExhaustedQuotaReset(account, now); reset != nil {
+			return reset
+		}
+	}
 	suffixes := []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset}
 	if account.IsOpenCodeGo() {
 		suffixes = append(suffixes, cnExtraSuffixMonthlyReset)

@@ -517,6 +517,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 		}
 	case 402:
+		if account.IsOpenCodeGoPlan() {
+			s.handleOpenCodePaymentRequired(ctx, account, upstreamMsg)
+			shouldDisable = true
+			break
+		}
 		// 国产供应商：余额不足是可恢复状态（充值/检测恢复后由周期任务自动解除），
 		// 不能走 handleAuthError 永久置 status=error。改为可恢复的临时停调。
 		if account.IsCNProvider() || account.IsOpenCodeZen() {

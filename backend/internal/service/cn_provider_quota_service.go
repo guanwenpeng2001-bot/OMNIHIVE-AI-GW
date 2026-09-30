@@ -219,8 +219,12 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		// 鉴权失败：不落快照（不覆盖之前的有效值），仅返回失败结果供前端提示。
-		result.Error = fmt.Sprintf("Authentication failed (HTTP %d)", resp.StatusCode)
+		// Preserve the previous quota values; OpenCode also records the current
+		// authentication failure so an old exhausted snapshot cannot hide it.
+		result.Error = fmt.Sprintf("Authentication failed (HTTP %d): %s", resp.StatusCode, truncate(strings.TrimSpace(string(bodyBytes)), 240))
+		if account.IsOpenCodeGoPlan() {
+			s.persistOpenCodeQuotaProbe(ctx, account, result)
+		}
 		return result, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -265,6 +269,10 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	result.Tiers = tiers
 	result.Success = true
 	result.CredentialValid = true
+	if account.IsOpenCodeGoPlan() {
+		s.persistOpenCodeQuotaProbe(ctx, account, result)
+		return result, nil
+	}
 
 	updates := cnQuotaExtraUpdates(provider, tiers, now)
 	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
@@ -273,6 +281,18 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		result.Persisted = true
 	}
 	return result, nil
+}
+
+func (s *CNProviderQuotaService) persistOpenCodeQuotaProbe(ctx context.Context, account *Account, result *CNProviderQuotaProbeResult) {
+	writer, ok := s.accountRepo.(OpenCodeQuotaProbeWriter)
+	if !ok {
+		return
+	}
+	if err := writer.ApplyOpenCodeQuotaProbe(ctx, account, result); err != nil {
+		slog.Warn("opencode_quota_persist_failed", "account_id", account.ID, "error", err)
+		return
+	}
+	result.Persisted = true
 }
 
 func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, accountID int64) (*Account, error) {
