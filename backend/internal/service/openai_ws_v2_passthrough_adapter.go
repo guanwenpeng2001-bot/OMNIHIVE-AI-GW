@@ -19,6 +19,7 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type attemptFrameConn struct {
@@ -34,14 +35,25 @@ func (c *attemptFrameConn) WriteFrame(ctx context.Context, kind coderws.MessageT
 	if c.plan != nil {
 		ctx = WithGatewayRequestPlan(ctx, c.plan())
 	}
-	if gjson.GetBytes(payload, "type").String() == "response.create" {
+	isResponseCreate := strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create"
+	if isResponseCreate {
 		if err := validateAccountPassthroughForwardModel(ctx, c.repo, c.account, gjson.GetBytes(payload, "model").String()); err != nil {
 			return err
 		}
 	}
 
-	err := generationWS(ctx, c.accountID, json.RawMessage(payload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
-	if err == nil && gjson.GetBytes(payload, "type").String() == "response.create" {
+	// The relay recognizes trimmed event types. Use that same classification
+	// for generation admission, while preserving the actual outgoing frame.
+	admissionPayload := payload
+	if isResponseCreate && gjson.GetBytes(payload, "type").String() != "response.create" {
+		var err error
+		admissionPayload, err = sjson.SetBytes(payload, "type", "response.create")
+		if err != nil {
+			return err
+		}
+	}
+	err := generationWS(ctx, c.accountID, json.RawMessage(admissionPayload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
+	if err == nil && isResponseCreate {
 		c.sentResponseCreates.Add(1)
 	}
 	return err

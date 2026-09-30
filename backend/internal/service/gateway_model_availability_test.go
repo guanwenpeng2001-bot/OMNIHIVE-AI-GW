@@ -61,6 +61,58 @@ func TestModelAvailabilityDiagnosisExplicitScope(t *testing.T) {
 	}
 }
 
+func TestModelAvailabilityDiagnosisPassthroughWireScope(t *testing.T) {
+	for _, gateway := range []string{"generic", "openai"} {
+		for _, websocket := range []bool{false, true} {
+			for _, scope := range []AccountModelAllowlist{{Enabled: true, Models: []string{"wire-name"}}, {Enabled: true, Models: []string{"mapped-target"}}, {Enabled: true}} {
+				account := catalogEvidenceAccount(1, PlatformOpenAI)
+				account.Credentials["model_mapping"] = map[string]string{"wire-name": "mapped-target"}
+				account.Extra["openai_passthrough"] = !websocket
+				account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+				account.Extra[UpstreamModelAllowlistExtraKey] = scope
+				future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
+				account.RateLimitResetAt, account.OverloadUntil, account.TempUnschedulableUntil, account.ExpiresAt = &future, &future, &future, &past
+				ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-name", Protocol: "responses", Action: "responses"}))
+				if websocket {
+					ctx = WithOpenAIWebSocketSelection(ctx, OpenAIWSIngressModeCtxPool)
+				}
+				repo := &mockAccountRepoForPlatform{accounts: []Account{account}}
+				var diagnoser ModelAvailabilityDiagnoser = &GatewayService{accountRepo: repo, cfg: testConfig()}
+				if gateway == "openai" {
+					diagnoser = &OpenAIGatewayService{accountRepo: repo, cfg: testConfig()}
+				}
+				diagnosis := diagnoser.DiagnoseModelAvailabilityForPlatform(ctx, nil, "wire-name", PlatformOpenAI)
+				require.True(t, diagnosis.HasAccountsInPool)
+				require.Equal(t, len(scope.Models) > 0 && scope.Models[0] == "wire-name", diagnosis.HasModelSupport)
+			}
+		}
+	}
+}
+
+func TestModelAvailabilityDiagnosisRequestedAliasNormalization(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAntigravity} {
+		account := catalogEvidenceAccount(1, platform)
+		account.Credentials["model_mapping"] = map[string]string{"gemini-3.1-pro-preview": "gemini-3.1-pro-preview"}
+		diagnoser := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: []Account{account}}, cfg: testConfig()}
+		require.True(t, diagnoser.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "gemini-3.1-pro-preview-customtools", platform).HasModelSupport)
+		require.False(t, diagnoser.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "gemini-unselected", platform).HasModelSupport)
+	}
+}
+
+func TestModelAvailabilityDiagnosisWebSocketScopeRemainsLiteral(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Type = AccountTypeOAuth
+	account.Credentials["model_mapping"] = map[string]string{"gpt-5.4": "different-target"}
+	account.Extra["openai_oauth_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+	ctx := WithOpenAIWebSocketSelection(context.Background(), OpenAIWSIngressModePassthrough)
+	for _, allowed := range []string{"gpt-5.4", "gpt-5.4-high"} {
+		account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{allowed}}
+		binding := ResolveAccountModelBinding(ctx, &account, "gpt-5.4", AccountModelBindingOptions{Endpoint: "responses"})
+		require.Equal(t, allowed == "gpt-5.4", binding.Supported)
+		require.Equal(t, binding.Supported, accountModelScopeAllowsDiagnosis(ctx, &account, "gpt-5.4"))
+	}
+}
+
 type modelDiagnosisFailingRepository struct{ AccountRepository }
 
 func (modelDiagnosisFailingRepository) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {

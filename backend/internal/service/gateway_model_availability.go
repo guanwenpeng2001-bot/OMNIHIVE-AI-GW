@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -122,6 +123,14 @@ func accountModelScopeAllowsDiagnosis(ctx context.Context, account *Account, req
 	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
 	if !scope.Enabled {
 		return true
+	}
+	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && configuredPassthroughModel(account, requestedModel) {
+		// Match the relay's literal wire scope without admitting on transient
+		// account state or fetching dynamic binding evidence.
+		return slices.Contains(scope.Models, requestedModel)
+	}
+	if accountUsesHTTPResponsesPassthrough(ctx, account, "") && configuredPassthroughModel(account, normalizeAccountBindingWireModel(account, requestedModel)) {
+		return slices.Contains(scope.Models, normalizeAccountBindingWireModel(account, requestedModel))
 	}
 	model, resolved := computeAccountBindingModel(ctx, account, requestedModel, AccountModelBindingOptions{})
 	if !resolved {

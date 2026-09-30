@@ -1224,43 +1224,14 @@ func (h *GatewayHandler) codexModelIDsForGroupChecked(ctx context.Context, group
 	if h == nil || h.gatewayService == nil || group == nil {
 		return nil, nil
 	}
-
-	groupID := &group.ID
 	platform := strings.TrimSpace(platformOverride)
 	if platform == "" {
 		platform = group.Platform
 	}
-	if platform == service.PlatformComposite {
-		availableModels, err := h.compositeAvailableModelsChecked(ctx, groupID)
-		if err != nil {
-			return nil, err
-		}
-		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
-		if group.ModelAllowlistEnabled() {
-			source := availableModels
-			if len(source) == 0 {
-				source = fallbackModels
-			}
-			return group.ModelAllowlist.FilterForListing(source), nil
-		}
-		if len(availableModels) > 0 {
-			return availableModels, nil
-		}
-		return fallbackModels, nil
-	}
-
-	availableModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
-	if err != nil {
-		return nil, err
-	}
-	fallbackModels := defaultCodexModelIDsForPlatform(platform)
-	if group.ModelAllowlistEnabled() {
-		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels)), nil
-	}
-	if len(availableModels) > 0 {
-		return availableModels, nil
-	}
-	return fallbackModels, nil
+	// An authoritative empty selection must stay empty, including when the
+	// subsequent manifest metadata lookup falls back after a repository error.
+	view, err := h.gatewayService.VisibleModels(ctx, &group.ID, platform)
+	return view.Models, err
 }
 
 func (h *GatewayHandler) compositeAvailableModelsChecked(ctx context.Context, groupID *int64) ([]string, error) {

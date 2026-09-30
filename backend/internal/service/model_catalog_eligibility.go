@@ -376,9 +376,19 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	// A passthrough request deliberately does not apply account aliases. Its
 	// exact configured key is therefore a selected wire name, even when the
 	// same mapping has a different value for the ordinary forwarding path.
-	// Keep this projection local to the WS selection/send path, out of ordinary
-	// FinalModel resolution and the shared binding memo.
-	if options.Passthrough && options.Endpoint == CompositeRouteEndpointResponses && options.FinalModel != "" && configuredPassthroughModel(account, options.FinalModel) {
+	// HTTP passthrough also sends the configured key unchanged. Compact targets
+	// still use the ordinary compact membership checks below.
+	httpPassthrough := accountUsesHTTPResponsesPassthrough(ctx, account, options.Endpoint) && !options.Passthrough
+	if httpPassthrough {
+		wireModel := options.FinalModel
+		if wireModel == "" {
+			wireModel, _ = computeAccountBindingModel(ctx, account, model, options)
+		}
+		if configuredPassthroughModel(account, wireModel) {
+			options.FinalModel = wireModel
+		}
+	}
+	if (options.Passthrough && options.Endpoint == CompositeRouteEndpointResponses || httpPassthrough) && options.FinalModel != "" && configuredPassthroughModel(account, options.FinalModel) {
 		binding.UpstreamModel = options.FinalModel
 		binding.IdentityRevision = account.ModelCatalogState().IdentityRevision
 		binding.RulesRevision = account.ModelCatalogState().RulesRevision
@@ -390,16 +400,26 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		if scope.Enabled && !slices.Contains(scope.Models, options.FinalModel) {
 			return binding
 		}
-		// This option is supplied by the installed Responses WS relay itself;
-		// an HTTP Responses probe or missing method metadata is not its adapter.
+		// The installed WS relay supplies its endpoint directly. HTTP retains
+		// the account's existing adapter endpoint calculation.
 		member := AccountCatalogModel{ID: options.FinalModel, Endpoints: []string{CompositeRouteEndpointResponses}, EvidenceKind: ModelEvidenceConfiguredSelection}
+		if !options.Passthrough {
+			member.Endpoints = configuredSelectionEndpoints(account, options.FinalModel)
+		}
 		uncached := *account
 		uncached.modelCatalogReadEvidence = nil
 		binding.Supported = computeAccountBindingEndpoint(&uncached, options.FinalModel, options, 0, member)
 		binding.EvidenceKind = member.EvidenceKind
 		return binding
 	}
-	model, mapped := memoizedAccountBindingModel(ctx, account, model, options)
+	var mapped bool
+	if account.IsOpenAIPassthroughEnabled() {
+		// The shared name memo predates transport-specific mapping and omits
+		// protocol/WS mode from its key. Do not publish this local decision there.
+		model, mapped = computeAccountBindingModel(ctx, account, model, options)
+	} else {
+		model, mapped = memoizedAccountBindingModel(ctx, account, model, options)
+	}
 	if !mapped {
 		return binding
 	}
@@ -480,6 +500,30 @@ func catalogEndpointsContain(endpoints []string, endpoint string) bool {
 	return false
 }
 
+// The account flag controls HTTP Responses forwarding only. WS ingress has its
+// own adapter decision, and compatibility endpoints apply account mappings even
+// when their serialized upstream request happens to use /responses.
+func accountUsesHTTPResponsesPassthrough(ctx context.Context, account *Account, endpoint string) bool {
+	if account == nil || !account.IsOpenAIPassthroughEnabled() {
+		return false
+	}
+	// Forward chooses these installed compatibility adapters before inspecting
+	// the passthrough flag. They still send the account mapping's target.
+	if account.IsAnthropicProtocol() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		return false
+	}
+	if _, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket {
+		return false
+	}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		spec := plan.Snapshot()
+		if spec.ExecutionKind == "turn" || spec.Protocol != "" && spec.Protocol != "responses" {
+			return false
+		}
+	}
+	return endpoint == "" || endpoint == CompositeRouteEndpointAny || endpoint == CompositeRouteEndpointResponses || endpoint == "responses/compact"
+}
+
 func computeAccountBindingModel(ctx context.Context, account *Account, model string, options AccountModelBindingOptions) (string, bool) {
 	if options.FinalModel != "" {
 		if len(configuredModelMapping(account)) > 0 {
@@ -512,6 +556,12 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 	} else {
 		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
 		_, matched := resolveRequestedModelInMapping(configuredModelMapping(account), model)
+		if !matched {
+			normalized := normalizeRequestedModelForLookup(account.Platform, model)
+			if normalized != model {
+				_, matched = resolveRequestedModelInMapping(configuredModelMapping(account), normalized)
+			}
+		}
 		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && options.MessagesDispatchModel == "" {
 			return "", false
 		}
@@ -532,7 +582,7 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 				model = applyThinkingModelSuffix(model, thinking)
 			}
 		case account.Platform == PlatformOpenAI:
-			if !account.IsOpenAIPassthroughEnabled() {
+			if !accountUsesHTTPResponsesPassthrough(ctx, account, options.Endpoint) {
 				model = resolveOpenAIForwardModel(account, model, options.MessagesDispatchModel)
 			}
 			if options.Compact {
