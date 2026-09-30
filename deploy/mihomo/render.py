@@ -2,6 +2,7 @@
 """Render a standalone AnyTLS sidecar. Never contacts the admin API."""
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -111,7 +112,51 @@ def allocate(nodes, previous, start, end):
             "nodes": sorted(records.values(), key=lambda record: record["port"])}
 
 
-def construct(nodes, manifest, host):
+def dns_endpoint(value):
+    """Accept plain IP DNS or HTTPS DoH, without Mihomo routing directives."""
+    message = "Invalid DNS resolver; use an IP address or HTTPS DoH URL without credentials, query or fragment."
+    require(isinstance(value, str) and value.isascii() and bool(value) and
+            not any(char.isspace() or ord(char) < 33 or ord(char) == 127 for char in value)
+            and not any(char in value for char in "\\?#@%"), message)
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        pass
+    try:
+        parsed = urlsplit(value)
+        require(parsed.scheme == "https" and bool(parsed.hostname) and
+                parsed.path.startswith("/") and bool(parsed.path[1:]) and
+                (parsed.port is None or 1 <= parsed.port <= 65535) and
+                not parsed.netloc.endswith(":"), message)
+        try:
+            ipaddress.ip_address(parsed.hostname)
+            return True
+        except ValueError:
+            require(len(parsed.hostname) <= 253 and all(
+                re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+                for label in parsed.hostname.split(".")), message)
+            return False
+    except ValueError:
+        raise SafeError(message) from None
+
+
+def resolver_config(servers, bootstrap_servers=None):
+    require(bool(servers) or not bootstrap_servers, "DNS bootstrap requires --dns-server.")
+    if not servers:
+        return None
+    literal_servers = [server for server in servers if dns_endpoint(server)]
+    bootstrap = bootstrap_servers or literal_servers or [
+        "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+    require(all(dns_endpoint(server) for server in bootstrap),
+            "DNS bootstrap resolvers must use literal IP addresses.")
+    return {"enable": True, "enhanced-mode": "redir-host", "listen": "",
+            "ipv6": False, "respect-rules": False, "use-hosts": False,
+            "use-system-hosts": False, "default-nameserver": list(bootstrap),
+            "nameserver": list(servers), "proxy-server-nameserver": list(servers)}
+
+
+def construct(nodes, manifest, host, dns=None):
     require(text_value(host) and not any(char in host for char in "/@?# "), "Invalid export host.")
     by_identity = {identity(node): node for node in nodes}
     listeners, proxies, entries = [], [], []
@@ -126,6 +171,8 @@ def construct(nodes, manifest, host):
     config = {"mode": "rule", "log-level": "silent", "ipv6": False,
               "allow-lan": True, "listeners": listeners, "proxies": proxies,
               "rules": ["MATCH,REJECT"]}
+    if dns is not None:
+        config["dns"] = dns
     return config, entries
 
 
@@ -165,6 +212,7 @@ def private_write(path, content):
 
 
 def render(args):
+    dns = resolver_config(args.dns_server, args.dns_bootstrap_server)
     output = Path(args.output_dir).resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parents[2]),
             "Output directory must be outside the source checkout.")
@@ -172,7 +220,7 @@ def render(args):
     manifest_path = output / "manifest.json"
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
     manifest = allocate(nodes, previous, args.port_start, args.port_end)
-    config, selected = construct(nodes, manifest, args.export_host)
+    config, selected = construct(nodes, manifest, args.export_host, dns)
     _, server = construct(nodes, manifest, args.server_host)
     _, development = construct(nodes, manifest, "127.0.0.1")
     artifacts = {"config.yaml": yaml.safe_dump(config, allow_unicode=True, sort_keys=False)}
@@ -204,6 +252,9 @@ def main():
     parser.add_argument("--port-end", type=int, default=24999)
     parser.add_argument("--export-host", default="node-proxy")
     parser.add_argument("--server-host", default="node-proxy")
+    parser.add_argument("--dns-server", action="append", help="Opt-in resolver: IP or HTTPS DoH URL; repeatable")
+    parser.add_argument("--dns-bootstrap-server", action="append",
+                        help="Optional IP-based bootstrap resolver for DoH hostnames; repeatable")
     args = parser.parse_args()
     try:
         render(args)
