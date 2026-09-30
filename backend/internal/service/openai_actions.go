@@ -305,8 +305,18 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	connection, response, err := ws.Dial(ctx, parsed.String(), &ws.DialOptions{HTTPClient: client, HTTPHeader: headers, CompressionMode: ws.CompressionDisabled})
 	if err != nil {
-		if response != nil && response.Body != nil {
-			_ = response.Body.Close()
+		if response != nil {
+			failure := &UpstreamFailoverError{StatusCode: response.StatusCode, ResponseHeaders: http.Header{}}
+			for _, name := range []string{"Content-Type", "Retry-After", "X-Request-ID"} {
+				if value := response.Header.Get(name); value != "" {
+					failure.ResponseHeaders.Set(name, value)
+				}
+			}
+			if response.Body != nil {
+				failure.ResponseBody, _ = io.ReadAll(io.LimitReader(response.Body, 8192))
+				_ = response.Body.Close()
+			}
+			return nil, failure
 		}
 		return nil, errors.New("OpenAI realtime handshake failed")
 	}

@@ -500,6 +500,8 @@ func GatewayResourceJobCharge(job *UpstreamJob) (*UsageLog, *UsageBillingCommand
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	switch {
+	case job.Platform == PlatformOpenAI && job.Family == "realtime_turn":
+		return OpenAIRealtimeCharge(job)
 	case job.Platform == PlatformOpenAI && job.Family == "files":
 		return gatewayResourceFreeCharge(job, "openai_files", "file-upload-v1")
 	case job.Platform == PlatformOpenAI && job.Family == "batch":
