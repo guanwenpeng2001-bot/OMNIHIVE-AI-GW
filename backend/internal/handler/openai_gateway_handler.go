@@ -680,9 +680,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			// 能力要求同样按本次尝试的平台重算：跨平台 fallback 不能把第一个平台
 			// 的能力要求强加给目标平台（也不放宽）。
 			attemptCapability = openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, attemptPlatform)
-			if targetModel := strings.TrimSpace(attemptTarget.UpstreamModel); targetModel != "" {
-				attemptForwardModel = targetModel
-			}
+			attemptForwardModel = service.CompositeTargetForwardModel(selectContext, &attemptTarget, channelMapping, reqModel)
+			selectContext = service.WithOpenAIForwardModel(selectContext, attemptForwardModel, requireCompact)
+			c.Request = c.Request.WithContext(selectContext)
 		}
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			selectContext,
@@ -1418,6 +1418,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
 		// 应用渠道模型映射到请求体
 		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		if target, ok := service.ActiveCompositeTargetFromContext(c.Request.Context()); ok {
+			forwardModel := service.CompositeTargetForwardModel(c.Request.Context(), &target, channelMappingMsg, reqModel)
+			forwardBody = mappedBodyForMessages(forwardModel != reqModel, forwardModel)
+			if strings.TrimSpace(target.UpstreamModel) != "" {
+				defaultMappedModel = forwardModel
+			}
+		}
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {

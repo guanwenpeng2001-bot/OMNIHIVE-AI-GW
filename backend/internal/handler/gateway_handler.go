@@ -478,6 +478,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
+			forwardBody, forwardModel := body, reqModel
+			if selection.CompositeTarget != nil {
+				forwardModel = service.CompositeTargetForwardModel(c.Request.Context(), selection.CompositeTarget, channelMapping, reqModel)
+				if forwardModel != reqModel {
+					forwardBody = h.gatewayService.ReplaceModelInBody(body, forwardModel)
+				}
+			}
 			// 转发请求 - 根据账号平台分流
 			var result *service.ForwardResult
 			requestCtx := c.Request.Context()
@@ -491,15 +498,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					requestCtx,
 					c,
 					account,
-					reqModel,
+					forwardModel,
 					"generateContent",
 					reqStream,
-					body,
+					forwardBody,
 					hasBoundSession,
 					service.WithForwardGeminiSession(derefGroupID(apiKey.GroupID), sessionKey),
 				)
 			} else {
-				result, err = h.geminiCompatService.Forward(requestCtx, c, account, body)
+				result, err = h.geminiCompatService.Forward(requestCtx, c, account, forwardBody)
 			}
 			if accountReleaseFunc != nil {
 				accountReleaseFunc()
@@ -675,6 +682,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			)
 			// 只有本主干会在每次尝试内把出站模型改写成被选中目标的模型，因此只有它
 			// 启用有序目标推进（见 service.WithCompositeTargetAdvancement）。
+			attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
+				service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(c.Request.Context(), fs.FailedAccountIDs)), currentAPIKey.GroupID)
+			if targetErr != nil {
+				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error(), streamStarted)
+				return
+			}
+			if hasAttemptTarget {
+				c.Request = c.Request.WithContext(service.WithCompositeTargetSelectionContext(c.Request.Context(), attemptTarget))
+			}
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
 				service.WithCompositeTargetAdvancement(c.Request.Context()),
 				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
@@ -725,6 +741,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			setOpsSelectedAccount(c, account.ID, account.Platform)
 			// 有序目标 fallback：后续计费/归属按本次尝试实际使用的目标平台计算。
 			if selection.CompositeTarget != nil && selection.CompositeTarget.TargetPlatform != "" {
+				c.Request = c.Request.WithContext(service.WithCompositeTargetSelectionContext(c.Request.Context(), *selection.CompositeTarget))
 				platform = selection.CompositeTarget.TargetPlatform
 			}
 			// 受控脱敏暴露：只回传白名单字段（provider/region），不含账号身份与凭据。
@@ -904,23 +921,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			attemptParsedReq.OnUpstreamAccepted = queueRelease
 			// ===== 用户消息串行队列 END =====
 
-			// 有序目标 fallback：中间件只按首个目标改写过一次模型，换目标后必须
-			// 在渠道映射之前把本次尝试的模型改成被选中目标的 upstream 模型。
-			if selection.CompositeTarget != nil {
-				if targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel); targetModel != "" && targetModel != attemptParsedReq.Model {
-					attemptParsedReq.Model = targetModel
-					if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), targetModel)); err != nil {
-						h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
-						return
-					}
-					reqModel = targetModel
-				}
-			}
-
-			// 渠道模型映射只作用于本次账号尝试，避免 failover 后污染原始 ParsedRequest。
-			if channelMapping.Mapped {
-				attemptParsedReq.Model = channelMapping.MappedModel
-				if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), channelMapping.MappedModel)); err != nil {
+			// Resolve each attempt from saved target/channel rules without mutating
+			// the requested model or retaining an earlier target's wire model.
+			forwardModel := service.CompositeTargetForwardModel(c.Request.Context(), selection.CompositeTarget, channelMapping, reqModel)
+			if forwardModel != attemptParsedReq.Model {
+				attemptParsedReq.Model = forwardModel
+				if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), forwardModel)); err != nil {
 					h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 					return
 				}

@@ -288,15 +288,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		// 5. Forward request
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardBody := body
-		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
-		}
-		if selection.CompositeTarget != nil {
-			targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel)
-			if targetModel == "" {
-				targetModel = reqModel
-			}
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, targetModel)
+		forwardModel := service.CompositeTargetForwardModel(c.Request.Context(), selection.CompositeTarget, channelMapping, reqModel)
+		if forwardModel != reqModel {
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, forwardModel)
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")

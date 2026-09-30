@@ -101,7 +101,11 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 	if native != "" {
 		nativeModel, err := service.ParseQianwenNativeBody(body)
 		if err != nil {
-			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			status := http.StatusBadRequest
+			if errors.Is(err, service.ErrQianwenAudioTooLarge) {
+				status = http.StatusRequestEntityTooLarge
+			}
+			h.errorResponse(c, status, "invalid_request_error", err.Error())
 			return
 		}
 		if nativeModel != reqModel {
@@ -217,10 +221,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			if hasAttemptTarget {
 				selectContext = service.WithCompositeTargetSelectionContext(selectContext, attemptTarget)
 				attemptPlatform = attemptTarget.TargetPlatform
-				attemptForwardModel = reqModel
-				if targetModel := strings.TrimSpace(attemptTarget.UpstreamModel); targetModel != "" {
-					attemptForwardModel = targetModel
-				}
+				attemptForwardModel = service.CompositeTargetForwardModel(selectContext, &attemptTarget, channelMapping, reqModel)
 			}
 		}
 		c.Request = c.Request.WithContext(selectContext)
