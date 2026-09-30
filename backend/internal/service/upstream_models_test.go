@@ -468,6 +468,7 @@ func TestSyncUpstreamModelCatalogEnrichesOpenCodeIDOnlyListAndPersistsSnapshot(t
 		},
 	}
 
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // The installed recorder handles both discovery and registry requests.
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 	require.NoError(t, err)
 	require.Equal(t, []string{"x-preview-f-free"}, catalog.DiscoveredModels)
@@ -825,6 +826,7 @@ func TestSyncUpstreamModelCatalogIncludesDedicatedMediaModelsForCompleteness(t *
 	repo := &upstreamModelMetadataRepoStub{}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // The installed recorder handles both discovery and registry requests.
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), &Account{
 		ID: 113, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
@@ -959,6 +961,7 @@ func TestSyncUpstreamModelCatalogEnrichesOfficialOpenAIHostWithoutRegistryAPIFie
 	repo := &upstreamModelMetadataRepoStub{}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // The installed recorder handles both discovery and registry requests.
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), &Account{
 		ID: 110, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
@@ -1080,6 +1083,7 @@ func TestSyncUpstreamModelCatalogEnrichesConfiguredMappingModelsMissingFromUpstr
 	repo := &upstreamModelMetadataRepoStub{}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // The installed recorder handles both discovery and registry requests.
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), &Account{
 		ID: 112, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{

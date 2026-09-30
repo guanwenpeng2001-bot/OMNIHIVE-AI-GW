@@ -127,8 +127,15 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"public"}, view.Models)
 	require.Equal(t, []string{"chat_completions", "count_tokens", "embeddings", "images", "messages", "responses"}, view.ExecutableEndpoints["public"])
-	require.Len(t, view.Bindings["public"], 6)
-	require.Len(t, metadata["public"], 6)
+	require.Len(t, metadata["public"], len(view.Bindings["public"]))
+	endpointsByAccount := map[int64][]string{}
+	for _, binding := range view.Bindings["public"] {
+		require.Equal(t, "native", binding.UpstreamModel)
+		endpointsByAccount[binding.AccountID] = append(endpointsByAccount[binding.AccountID], binding.Endpoint)
+	}
+	require.Len(t, endpointsByAccount, 2)
+	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "embeddings", "images"}, endpointsByAccount[first.ID])
+	require.ElementsMatch(t, []string{"chat_completions", "embeddings", "images"}, endpointsByAccount[second.ID])
 	for index, binding := range view.Bindings["public"] {
 		fact := metadata["public"][index]
 		if binding.AccountID == first.ID {

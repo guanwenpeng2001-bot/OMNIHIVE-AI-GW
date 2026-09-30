@@ -57,7 +57,7 @@ func TestChatOnlyNilEmptyAndMixedMethods(t *testing.T) {
 			}
 			require.Equal(t, textFamilies, accountCatalogModelEndpoints(account, "fixture", UpstreamModelMetadata{}))
 			for _, task := range []string{"", "text_generation", "video_generation", "audio_transcription"} {
-				require.Empty(t, accountCatalogModelEndpoints(account, "fixture", UpstreamModelMetadata{TaskType: task, SupportedMethods: []string{}, OutputModalities: []string{"text"}}))
+				require.Equal(t, accountCatalogModelEndpoints(account, "fixture", UpstreamModelMetadata{TaskType: task, OutputModalities: []string{"text"}}), accountCatalogModelEndpoints(account, "fixture", UpstreamModelMetadata{TaskType: task, SupportedMethods: []string{}, OutputModalities: []string{"text"}}), "empty optional methods must behave like absent methods")
 			}
 			expected := append([]string{}, textFamilies...)
 			expected = append(expected, "embeddings")
@@ -106,7 +106,7 @@ func TestChatOnlyTextMethodDeclarationsRemainSchedulable(t *testing.T) {
 					{Action: "messages", Protocol: "anthropic", Route: "/v1/messages", Model: "text-fixture"},
 				} {
 					ctx := requestPlanGateContext(spec)
-					allowed := platformActionAdapterBound(probe, spec.Action) && len(declared) > 0
+					allowed := platformActionAdapterBound(probe, spec.Action)
 					reason := requestPlanGateReason(ctx, &account, platform, "text-fixture", OpenAIEndpointCapabilityChatCompletions)
 					if allowed {
 						require.Empty(t, reason)

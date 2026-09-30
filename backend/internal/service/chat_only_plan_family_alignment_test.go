@@ -65,7 +65,7 @@ func TestChatOnlyTaskDeclarationsRespectActionBindings(t *testing.T) {
 				} else {
 					require.Empty(t, declared)
 				}
-				require.Empty(t, accountCatalogModelEndpoints(account, "task-fixture", UpstreamModelMetadata{TaskType: scenario.task, SupportedMethods: []string{}}))
+				require.Equal(t, declared, accountCatalogModelEndpoints(account, "task-fixture", UpstreamModelMetadata{TaskType: scenario.task, SupportedMethods: []string{}}), "empty optional methods do not erase task evidence")
 			})
 		}
 	}

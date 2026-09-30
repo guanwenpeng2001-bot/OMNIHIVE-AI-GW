@@ -148,6 +148,7 @@ func TestCodexContextWindowRegistryEnrichment(t *testing.T) {
 			syncer := &AccountTestService{
 				accountRepo: &upstreamModelMetadataRepoStub{}, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig(),
 			}
+			t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // The installed recorder handles both discovery and registry requests.
 			catalog, err := syncer.ApplyAccountModelCatalog(context.Background(), &account, nil)
 			require.NoError(t, err)
 			require.Empty(t, catalog.Warnings)

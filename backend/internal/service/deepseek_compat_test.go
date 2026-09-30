@@ -44,7 +44,8 @@ func TestDeepSeekContextSuffixScope(t *testing.T) {
 	require.Equal(t, "private[1m]", normalizeOpenAIModelForUpstream(a, a.GetMappedModel("alias")))
 	a.Platform = PlatformOpenAI
 	a.Extra = map[string]any{"openai_passthrough": true}
-	require.True(t, a.IsModelSupported("other"), "passthrough outranks stale mapping")
+	require.False(t, a.IsModelSupported("other"), "passthrough must preserve the explicit saved selection")
+	require.True(t, a.IsModelSupported("alias"))
 	require.Equal(t, "deepseek-flash[1m]", normalizeOpenAIModelForUpstream(a, "deepseek-flash[1m]"))
 	a.Credentials = map[string]any{}
 	require.Equal(t, "deepseek-flash[1m]", normalizeOpenAIModelForUpstream(a, "deepseek-flash[1m]"))

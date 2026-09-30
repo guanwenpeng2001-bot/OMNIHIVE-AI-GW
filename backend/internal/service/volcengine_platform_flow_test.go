@@ -37,7 +37,9 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	delete(declared.Extra, UpstreamModelCatalogExtraKey)
 	declared.Extra[ModelAvailabilityExtraKey] = []ModelAvailabilityDeclaration{{AccountID: 42, Model: "ep-target", Endpoint: "chat_completions", ConfirmedBy: 7, ConfirmedAt: time.Now().Add(-time.Minute), Reason: "fixture", EvidenceKind: ModelEvidenceAdministrator}}
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "chat_completions"}))
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}), "saved selection can use the installed Responses transport")
+	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "unselected", AccountModelBindingOptions{Endpoint: "responses"}))
+	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}))
 	discoveryTransport := &httpUpstreamRecorder{}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)

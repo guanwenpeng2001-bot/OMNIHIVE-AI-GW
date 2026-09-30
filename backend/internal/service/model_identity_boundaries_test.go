@@ -109,16 +109,23 @@ func testDomesticCandidateBoundaries(t *testing.T) {
 						mapping[model.ID] = model.ID
 					}
 					account := &Account{Platform: platform, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"account_mode": mode, "model_mapping": mapping}, Extra: map[string]any{}}
+					// Listing a preset does not select its candidates for an account.
+					account.Credentials["model_mapping"] = map[string]any{}
+					for _, model := range preset.Models {
+						require.False(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}))
+					}
+					account.Credentials["model_mapping"] = mapping
 					before, err := json.Marshal(account)
 					require.NoError(t, err)
 					for _, model := range preset.Models {
-						require.False(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}))
+						require.True(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}), "an explicit saved selection may attempt the installed adapter")
 					}
 					_, err = PlatformModelPresets()
 					require.NoError(t, err)
 					for _, model := range preset.Models {
-						require.False(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}))
+						require.True(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}), "an explicit saved selection may attempt the installed adapter")
 					}
+					require.False(t, AccountSupportsResolvedModel(context.Background(), account, "unselected-private-model", AccountModelBindingOptions{}))
 					after, err := json.Marshal(account)
 					require.NoError(t, err)
 					require.JSONEq(t, string(before), string(after))

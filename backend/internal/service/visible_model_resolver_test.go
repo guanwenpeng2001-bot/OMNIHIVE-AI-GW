@@ -92,7 +92,7 @@ func TestVisibleModelsKeyInheritanceIntersectionAndPublicAuthorization(t *testin
 		policy []string
 		want   []string
 	}{
-		{name: "inherit", want: []string{"public"}},
+		{name: "inherit", want: []string{"missing", "public"}},
 		{name: "explicit empty", policy: []string{}, want: []string{}},
 		{name: "intersection", policy: []string{"public", "other", "candidate-only"}, want: []string{"public"}},
 		{name: "upstream is not authorization", policy: []string{"deployment-private"}, want: []string{}},
@@ -221,11 +221,16 @@ func TestVisibleModelsDoNotPublishCandidatesOrUnsupportedActions(t *testing.T) {
 	require.Empty(t, view.Models)
 	require.False(t, ResolveAccountModelBinding(context.Background(), &account, "native", AccountModelBindingOptions{Endpoint: "images"}).Supported)
 	account.Extra = map[string]any{}
-	account.Credentials["model_mapping"] = map[string]any{"gpt-5": "gpt-5"}
 	gateway.accountRepo = &visiblePolicyAccountRepo{accounts: []Account{account}}
 	view, err = gateway.VisibleModels(context.Background(), nil, PlatformMistral)
 	require.NoError(t, err)
-	require.Empty(t, view.Models)
+	require.Empty(t, view.Models, "platform candidates alone confer no selection")
+	account.Credentials["model_mapping"] = map[string]any{"selected-private-model": "selected-private-model"}
+	gateway.accountRepo = &visiblePolicyAccountRepo{accounts: []Account{account}}
+	view, err = gateway.VisibleModels(context.Background(), nil, PlatformMistral)
+	require.NoError(t, err)
+	require.Equal(t, []string{"selected-private-model"}, view.Models)
+	require.NotContains(t, view.ExecutableEndpoints["selected-private-model"], "images", "selection cannot install an unsupported action")
 }
 
 func TestVisibleModelsPlazaChannelsAndListsSharePolicy(t *testing.T) {
@@ -297,7 +302,7 @@ func TestVisibleModelsCompositeAliasRebindsPlatformAndEndpoint(t *testing.T) {
 	require.Equal(t, CompositeRouteSourceExplicit, view.Bindings["public"][0].RouteSource)
 }
 
-func TestVisibleModelsDeclarationsRetainEvidenceAndRevoke(t *testing.T) {
+func TestVisibleModelsStaleDeclarationPreservesSelectionUntilRemoved(t *testing.T) {
 	for _, kind := range []string{ModelEvidenceAdministrator, ModelEvidenceProbe} {
 		t.Run(kind, func(t *testing.T) {
 			expires := time.Now().Add(time.Hour)
@@ -318,9 +323,21 @@ func TestVisibleModelsDeclarationsRetainEvidenceAndRevoke(t *testing.T) {
 			require.NoError(t, err)
 			require.JSONEq(t, string(before), string(after))
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 4, RulesRevision: 4}
+			repository.generation++
 			view, err = gateway.VisibleModels(context.Background(), nil, PlatformOpenAI)
 			require.NoError(t, err)
-			require.Empty(t, view.Models)
+			require.Equal(t, []string{"public"}, view.Models, "stale declaration does not revoke current selection")
+			for _, current := range view.Bindings["public"] {
+				require.Equal(t, ModelEvidenceConfiguredSelection, current.EvidenceKind)
+				require.EqualValues(t, 4, current.IdentityRevision)
+			}
+			require.False(t, declaration.ValidFor(&account, nil, time.Now()), "historical declaration still loses validity")
+			account.Credentials["model_mapping"] = map[string]string{}
+			NormalizeEmptyAccountModelSelection(&account)
+			repository.generation++
+			view, err = gateway.VisibleModels(context.Background(), nil, PlatformOpenAI)
+			require.NoError(t, err)
+			require.Empty(t, view.Models, "removing saved selection must revoke the public model")
 		})
 	}
 }
