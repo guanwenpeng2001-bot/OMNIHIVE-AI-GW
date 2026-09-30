@@ -68,16 +68,20 @@ func qianwenCatalogAccount(id int64, model string, endpoints ...string) service.
 	}
 }
 
-func newQianwenStandardTestHandler(t *testing.T, upstream service.HTTPUpstream, accounts []service.Account) *OpenAIGatewayHandler {
+func newQianwenStandardTestHandler(t *testing.T, upstream service.HTTPUpstream, accounts []service.Account, settlements ...*service.UsageSettlementService) *OpenAIGatewayHandler {
 	t.Helper()
 	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
+	settlement := service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil)
+	if len(settlements) > 0 {
+		settlement = settlements[0]
+	}
 	gatewayService := service.ProvideOpenAIGatewayService(
 		&qianwenStandardAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil,
 		cfg,
 		nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
+		nil, nil, nil, nil, nil, nil, nil, nil, settlement)
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCache.Stop)
 	h := NewOpenAIGatewayHandler(

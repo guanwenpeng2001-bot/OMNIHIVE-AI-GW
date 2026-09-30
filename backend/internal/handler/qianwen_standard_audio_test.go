@@ -4,6 +4,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"mime/multipart"
@@ -148,4 +149,48 @@ func TestQianwenAudioSpeechHandlerRejectsMalformedRequests(t *testing.T) {
 		require.Equal(t, 400, response.Code, body)
 		require.Empty(t, upstream.lastURL)
 	}
+}
+
+type qianwenShortASRReceiptStore struct {
+	unlimitedTPMReceiptStub
+	receipt       *service.UsageSettlementReceipt
+	persists      int
+	beforePersist func()
+}
+
+func (store *qianwenShortASRReceiptStore) Persist(_ context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	if store.beforePersist != nil {
+		store.beforePersist()
+	}
+	store.persists++
+	store.receipt = receipt
+	return receipt, nil
+}
+
+func TestQianwenShortASRHandlerRetainsReceiptBeforeTranscript(test *testing.T) {
+	payload := `{"request_id":"asr-short","output":{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":[{"text":"你好。"}]}}]},"usage":{"audio_tokens":14,"input_tokens":14,"input_tokens_details":{"audio_tokens":14,"text_tokens":0},"output_tokens":9,"output_tokens_details":{"text_tokens":9},"seconds":0,"total_tokens":23}}`
+	upstream := &httpUpstreamRecorderStub{body: payload}
+	account := qianwenCatalogAccount(1, "qwen3-asr-flash", "chat_completions")
+	store := &qianwenShortASRReceiptStore{}
+	gateway := newQianwenStandardTestHandler(test, upstream, []service.Account{account}, service.NewUsageSettlementService(store, nil, nil))
+	rate := 2.0
+	group := &service.Group{ID: 7, Platform: service.PlatformQianwen, RateMultiplier: 1, AudioSTTPricePerHour: &rate}
+	request, response := qianwenStandardContext(test, "POST", "/v1/audio/transcriptions", nil, group)
+	upload, _ := qianwenAudioUploadContext(test, "generated-speech.wav", "audio/wav", []byte("RIFFfixture"), map[string]string{"model": "qwen3-asr-flash"})
+	request.Request = upload.Request
+	store.beforePersist = func() {
+		require.False(test, request.Writer.Written(), "successful transcript must follow durable review acknowledgement")
+	}
+	gateway.QianwenAudioTranscriptions(request)
+	require.Equal(test, 200, response.Code, response.Body.String())
+	require.JSONEq(test, `{"text":"你好。"}`, response.Body.String())
+	require.Equal(test, 1, store.persists, "queued normal usage must not create a second receipt")
+	require.Equal(test, service.UsageSettlementNeedsReview, store.receipt.State)
+	require.Equal(test, service.PricingStateError, store.receipt.Usage.PricingState)
+	require.Nil(test, store.receipt.UsageLogID)
+	require.Zero(test, store.receipt.Command.BalanceCost)
+	require.Equal(test, "zero_duration", gjson.Get(store.receipt.Usage.PricingSnapshot, "reason").String())
+	require.True(test, gjson.Get(store.receipt.Usage.PricingSnapshot, "seconds_present").Bool())
+	require.JSONEq(test, gjson.Get(payload, "usage").Raw, gjson.Get(store.receipt.Usage.PricingSnapshot, "usage").Raw)
+	require.Equal(test, service.UsageSettlementNeedsReview, service.GatewayRequestPlanFromContext(request.Request.Context()).State().ReceiptState)
 }

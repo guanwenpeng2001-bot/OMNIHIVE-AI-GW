@@ -137,7 +137,6 @@ func TestQianwenNativeAudioInvalidResponses(t *testing.T) {
 		{"qwen3-tts-flash", strings.Replace(audioTTSResponse, `"characters":3`, `"characters":"3"`, 1)},
 		{"qwen3-tts-flash", strings.Replace(audioTTSResponse, `"characters":3`, `"unknown":3`, 1)},
 		{"qwen3-tts-flash", strings.Replace(audioTTSResponse, `"stop"`, `null`, 1)},
-		{"qwen3-asr-flash", strings.Replace(audioASRResponse, `"seconds":9`, `"duration":9`, 1)},
 		{"qwen3-asr-flash", strings.Replace(audioASRResponse, `"text":"你好。"`, `"text":null`, 1)},
 	} {
 		result := &OpenAIForwardResult{UpstreamModel: tc.model}

@@ -218,6 +218,12 @@ func (s *OpenAIGatewayService) forwardQianwenNativeAudio(ctx context.Context, c 
 	if err := observeQianwenNativeAudio(data, result); err != nil {
 		return protocolError(err)
 	}
+	if result.AudioUsageUnresolved {
+		if err := s.recordQianwenASRUnresolved(ctx, result, key, account, data); err != nil {
+			writeChatCompletionsError(c, http.StatusServiceUnavailable, "api_error", "Unable to retain DashScope ASR usage for review")
+			return nil, err
+		}
+	}
 	c.Data(resp.StatusCode, "application/json", data)
 	result.Duration = time.Since(started)
 	result.ClientDisconnect = clientCtx.Err() != nil
@@ -258,6 +264,14 @@ func observeQianwenNativeAudio(body []byte, result *OpenAIForwardResult) error {
 	units := gjson.GetBytes(body, "usage."+field)
 	value := units.Float()
 	if units.Type != gjson.Number || !positiveFinite(value) || math.Trunc(value) != value || value > 1<<53 {
+		if mode == "stt" {
+			// A completed transcript is independent of billable duration. Zero
+			// is observed evidence, not a documented free-price decision.
+			result.Usage = OpenAIUsage{}
+			result.AudioUsage = nil
+			result.AudioUsageUnresolved = true
+			return nil
+		}
 		return fmt.Errorf("DashScope audio response requires positive integral usage.%s", field)
 	}
 	// Audio quantities must never be represented as text tokens.
