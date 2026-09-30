@@ -1532,7 +1532,7 @@ func (s *GatewayService) GetAvailableModelsChecked(ctx context.Context, groupID 
 		// Passthrough routing accepts models independently of model_mapping. A stale
 		// mapping on any eligible passthrough account therefore cannot define the
 		// public whitelist; return nil so the handler uses its default model set.
-		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
+		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() && len(acc.GetModelMapping()) == 0 {
 			if s.modelsListCache != nil && versionErr == nil {
 				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 				modelsListCacheStoreTotal.Add(1)

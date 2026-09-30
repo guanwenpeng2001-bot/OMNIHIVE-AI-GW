@@ -114,7 +114,7 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 				candidate := compositeCatalogSnapshot(current, generation)
 				// Process identity is fixed at startup; a fresh CAS cannot authorize a rotated identity.
 				candidate.IdentityRevision = pinned.ModelCatalogBaseline().IdentityRevision
-				commitErr := committer.CommitAccountModelCatalog(ctx, current.ID, current.ModelCatalogBaseline(), candidate, current.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{})
+				commitErr := committer.CommitAccountModelCatalog(ctx, current.ID, current.ModelCatalogBaseline(), candidate, current.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{}, false)
 				if errors.Is(commitErr, service.ErrAccountModelCatalogConflict) {
 					response.Error = "conflict"
 				} else {
@@ -164,7 +164,7 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 		})
 		account, err := accounts.GetByID(ctx, row.ID)
 		require.NoError(test, err)
-		require.NoError(test, committer.CommitAccountModelCatalog(ctx, row.ID, account.ModelCatalogBaseline(), compositeCatalogSnapshot(account, 7), account.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{}))
+		require.NoError(test, committer.CommitAccountModelCatalog(ctx, row.ID, account.ModelCatalogBaseline(), compositeCatalogSnapshot(account, 7), account.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{}, false))
 	}
 	first, second := testprocess.Start(test, "composite-old-release"), testprocess.Start(test, "composite-new-release")
 	exchange := func(participant *testprocess.Client, request compositeProcessRequest) compositeProcessResponse {

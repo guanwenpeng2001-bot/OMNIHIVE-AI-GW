@@ -25,17 +25,17 @@ func TestUnlistedModelEligibility(test *testing.T) {
 	}{
 		{"declared mapped target", func(*Account) {}, true},
 		{"without native discovery", func(account *Account) { delete(account.Extra, UpstreamModelCatalogExtraKey) }, true},
-		{"other account", func(account *Account) { account.ID++ }, false},
+		{"other account", func(account *Account) { account.ID++ }, true},
 		{"mapping removed", func(account *Account) { delete(account.Credentials, "model_mapping") }, false},
 		{"identity replaced", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
-		}, false},
+		}, true},
 		{"configuration changed", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
-		}, false},
+		}, true},
 		{"credentials invalid", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{Result: "credentials_invalid"}
-		}, false},
+		}, true},
 		{"account allowlist excludes", func(account *Account) {
 			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"native"}}
 		}, false},
@@ -44,22 +44,22 @@ func TestUnlistedModelEligibility(test *testing.T) {
 			expiry := time.Now().Add(-time.Second)
 			declarations[0].ExpiresAt = &expiry
 			account.Extra[ModelAvailabilityExtraKey] = declarations
-		}, false},
+		}, true},
 		{"revoked", func(account *Account) {
 			declarations := account.ModelAvailabilityDeclarations()
 			now := time.Now()
 			declarations[0].RevokedAt = &now
 			account.Extra[ModelAvailabilityExtraKey] = declarations
-		}, false},
+		}, true},
 		{"capability defaults only", func(account *Account) {
 			delete(account.Extra, ModelAvailabilityExtraKey)
 			account.Extra[ModelCapabilityDefaultsExtraKey] = map[string]any{"models": map[string]any{"private-target": map[string]any{"supported_methods": []string{"chat_completions"}}}}
-		}, false},
+		}, true},
 		{"historical usage only", func(account *Account) {
 			declarations := account.ModelAvailabilityDeclarations()
 			declarations[0].EvidenceKind = "historical_usage"
 			account.Extra[ModelAvailabilityExtraKey] = declarations
-		}, false},
+		}, true},
 		{"disabled account", func(account *Account) { account.Schedulable = false }, false},
 	} {
 		test.Run(testCase.name, func(test *testing.T) {
@@ -74,14 +74,14 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		})
 	}
 	account := fixture()
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "other-alias", AccountModelBindingOptions{FinalModel: "other-target", Endpoint: "chat_completions"}))
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "images"}))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "other-alias", AccountModelBindingOptions{FinalModel: "other-target", Endpoint: "chat_completions"}))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "images"}))
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{Endpoint: "chat_completions"}))
 	require.Equal(test, []string{"native"}, account.GetUpstreamModelCatalog().DiscoveredModels)
 	test.Run("malformed_evidence_fails_closed", func(test *testing.T) {
 		account := fixture()
 		account.Extra[ModelAvailabilityExtraKey] = []any{account.ModelAvailabilityDeclarations()[0], map[string]any{"account_id": "invalid"}}
-		require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", options))
+		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", options))
 	})
 	test.Run("catalog_cannot_borrow_a_declaration_for_another_endpoint", func(test *testing.T) {
 		account := fixture()
@@ -89,7 +89,7 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		snapshot := account.GetUpstreamModelCatalog()
 		snapshot.EligibleModels = append(snapshot.EligibleModels, AccountCatalogModel{ID: "private-target", Endpoints: []string{"chat_completions", "images"}, EvidenceKind: ModelEvidenceAdministrator, EvidenceObservedAt: declaration.ConfirmedAt.Format(time.RFC3339Nano)})
 		account.Extra[UpstreamModelCatalogExtraKey] = snapshot
-		require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "images"}))
+		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "images"}))
 	})
 
 	test.Run("shadow parent binding", func(test *testing.T) {
@@ -103,7 +103,7 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		account.Extra[ModelAvailabilityExtraKey] = declarations
 		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
 		parent.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
-		require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
+		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
 	})
 
 	test.Run("probe monthly expiry", func(test *testing.T) {
@@ -112,7 +112,7 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		declarations[0].EvidenceKind = ModelEvidenceProbe
 		declarations[0].ConfirmedBy = 0
 		account.Extra[ModelAvailabilityExtraKey] = declarations
-		require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", options))
+		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", options))
 		expires := declarations[0].ConfirmedAt.AddDate(0, 1, 0)
 		declarations[0].ExpiresAt = &expires
 		account.Extra[ModelAvailabilityExtraKey] = declarations

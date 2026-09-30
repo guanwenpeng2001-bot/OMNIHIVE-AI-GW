@@ -13,12 +13,12 @@ import (
 
 type reviewedCatalogRepository struct{ *catalogFixtureRepository }
 
-func (r *reviewedCatalogRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot) error {
+func (r *reviewedCatalogRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
 	if baseline.RequireActive && r.accounts[id].Status != StatusActive {
 		return ErrAccountModelCatalogConflict
 	}
 	baseline.RequireActive = false
-	return r.catalogFixtureRepository.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata)
+	return r.catalogFixtureRepository.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata, freezeSelectionBaseline)
 }
 
 func TestAccountModelCatalogReviewedRejectsStaleApproval(t *testing.T) {

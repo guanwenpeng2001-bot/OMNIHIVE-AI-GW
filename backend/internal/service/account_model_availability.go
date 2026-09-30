@@ -91,7 +91,7 @@ func (declaration ModelAvailabilityDeclaration) ValidFor(account, credential *Ac
 		return false
 	}
 	state := account.ModelCatalogState()
-	if state.Result == "credentials_invalid" || declaration.IdentityRevision != state.IdentityRevision || declaration.RulesRevision != state.RulesRevision {
+	if state.Result == "credentials_invalid" || declaration.IdentityRevision != state.IdentityRevision {
 		return false
 	}
 	if declaration.ExpiresAt != nil && !now.Before(*declaration.ExpiresAt) {

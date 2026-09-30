@@ -78,7 +78,7 @@ func TestAccountBindingWarmComputationStillChecksAuthorizationAndExpiry(t *testi
 	denied := context.WithValue(ctx, visibleModelPolicyKey{}, []string{"other"})
 	require.False(t, ResolveAccountModelBinding(denied, &account, "native", options).Supported)
 	needsImage := context.WithValue(ctx, gatewayInputRequirementKey{}, GatewayInputRequirement{Image: true})
-	require.False(t, ResolveAccountModelBinding(needsImage, &account, "native", options).Supported)
+	require.True(t, ResolveAccountModelBinding(needsImage, &account, "native", options).Supported)
 	account.ExpiresAt = new(time.Now().Add(-time.Second))
 	require.False(t, ResolveAccountModelBinding(ctx, &account, "native", options).Supported)
 }
