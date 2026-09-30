@@ -49,10 +49,20 @@ func TestPublicGoogleMethodsAndVersionStayWithBindings(t *testing.T) {
 		{SupportedMethods: []string{"embedContent"}, ModelVersion: "private-deployment", ModelVersionStatus: "available", ContextWindow: 9999, ContextLimitKind: "input"},
 		{SupportedMethods: []string{"generateContent", "streamGenerateContent", "countTokens", "embedContent"}, ModelVersion: "001", ModelVersionStatus: "available", ContextWindow: 4096, ContextLimitKind: "input", MaxOutputTokens: 512},
 	}}
+	// Limits require native, model-bound facts; methods still come from bindings.
+	for index := range metadata["public"] {
+		metadata["public"][index] = publicMetadataWithEvidence(metadata["public"][index], "upstream")
+	}
 	entry := publicGoogleModelEntry(view, metadata, "public")
 	require.Equal(t, "001", entry.Version)
+	require.NotNil(t, entry.InputTokenLimit)
 	require.Equal(t, int64(4096), *entry.InputTokenLimit)
 	require.Equal(t, []string{"countTokens", "generateContent", "streamGenerateContent"}, entry.SupportedGenerationMethods)
+	metadata["public"][1] = publicMetadataWithEvidence(metadata["public"][1], "models.dev")
+	entry = publicGoogleModelEntry(view, metadata, "public")
+	require.Equal(t, "001", entry.Version, "capability evidence does not change version serialization")
+	require.Nil(t, entry.InputTokenLimit, "general specifications are not binding guarantees")
+	require.Nil(t, entry.OutputTokenLimit)
 	view.Bindings["public"] = view.Bindings["public"][:1]
 	entry = publicGoogleModelEntry(view, metadata, "public")
 	require.Empty(t, entry.Version)

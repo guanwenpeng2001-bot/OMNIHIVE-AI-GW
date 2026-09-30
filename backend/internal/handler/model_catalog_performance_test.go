@@ -205,11 +205,12 @@ func catalogPerformanceRequest(router *gin.Engine, path, role string) *httptest.
 
 func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 	router, accounts := newCatalogPerformanceRouter(tester)
-	// Full response digests captured before display-probe audit elision. These
-	// protect all fields, model counts, prices and user multipliers, cold and warm.
+	// Full response digests protect all fields, model counts, prices and user
+	// multipliers, cold and warm. The plaza digest includes unknown guarantees
+	// for this fixture's metadata without field evidence.
 	baselineDigests := map[string]string{
 		"/v1/models":          "1976b5508d2ea65c4453b461eec40b2c63343b4b20bc47b2b74f8810d49025ed",
-		"/api/v1/model-plaza": "ee8e87b8cd694ab651125a5a569c844002cd853fa39af93b98928213a22a5678",
+		"/api/v1/model-plaza": "12bca976eabaf8e4a3ca2b452bb05a1c3024b63ece0a31b489dfa6b0b2e65028",
 	}
 	for _, path := range []string{"/v1/models", "/api/v1/model-plaza"} {
 		cold := catalogPerformanceRequest(router, path, "user")
@@ -234,6 +235,15 @@ func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 			for _, group := range plaza.Groups {
 				require.Len(tester, group.Models, 100)
 				require.NotNil(tester, group.Models[0].Pricing)
+				capabilities := group.Models[0].Capabilities
+				require.NotNil(tester, capabilities)
+				require.Nil(tester, capabilities.UnspecifiedContext.Guaranteed)
+				require.True(tester, capabilities.UnspecifiedContext.Unknown)
+				require.Equal(tester, []int64{128000}, capabilities.UnspecifiedContext.Available)
+				require.Equal(tester, int64(128000), *capabilities.UnspecifiedContext.ObservedMinimum)
+				require.Nil(tester, capabilities.MaxOutputTokens.Guaranteed)
+				require.True(tester, capabilities.MaxOutputTokens.Unknown)
+				require.Equal(tester, []int64{8192}, capabilities.MaxOutputTokens.Available)
 			}
 			require.NotNil(tester, plaza.Groups[0].UserRateMultiplier)
 			require.Equal(tester, 0.8, *plaza.Groups[0].UserRateMultiplier)

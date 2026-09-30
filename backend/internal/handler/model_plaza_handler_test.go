@@ -89,7 +89,7 @@ func TestPlazaCapabilitiesOnlyProjectsSourcedFacts(t *testing.T) {
 	vision := true
 	pdfMissing := (*bool)(nil)
 
-	single := plazaCapabilities([]service.UpstreamModelMetadata{{
+	single := plazaCapabilities([]service.UpstreamModelMetadata{publicMetadataWithEvidence(service.UpstreamModelMetadata{
 		ContextLimitKind:    "input",
 		ContextWindow:       200000,
 		MaxOutputTokens:     64000,
@@ -98,7 +98,7 @@ func TestPlazaCapabilitiesOnlyProjectsSourcedFacts(t *testing.T) {
 		InputModalities:     []string{"text", "image"},
 		OutputModalities:    []string{"text"},
 		EmbeddingDimensions: 0,
-	}})
+	}, "upstream")})
 	require.NotNil(t, single)
 	require.NotNil(t, single.InputContext.Guaranteed)
 	require.EqualValues(t, 200000, *single.InputContext.Guaranteed)
@@ -112,8 +112,8 @@ func TestPlazaCapabilitiesOnlyProjectsSourcedFacts(t *testing.T) {
 	// 多个账号给出不同上限时，同量纲上限取最小值作为保证值，并同时给出观测最小值；
 	// 不会把冲突当成“未知零”或取最大值冒充能力。
 	conflict := plazaCapabilities([]service.UpstreamModelMetadata{
-		{ContextLimitKind: "input", ContextWindow: 200000},
-		{ContextLimitKind: "input", ContextWindow: 100000},
+		publicMetadataWithEvidence(service.UpstreamModelMetadata{ContextLimitKind: "input", ContextWindow: 200000}, "upstream"),
+		publicMetadataWithEvidence(service.UpstreamModelMetadata{ContextLimitKind: "input", ContextWindow: 100000}, "upstream"),
 	})
 	require.NotNil(t, conflict)
 	require.NotNil(t, conflict.InputContext.Guaranteed)
