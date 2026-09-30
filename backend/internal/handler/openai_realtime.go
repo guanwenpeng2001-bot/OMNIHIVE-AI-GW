@@ -113,13 +113,15 @@ func (h *OpenAIGatewayHandler) OpenAIRealtime(c *gin.Context) {
 		h.errorResponse(c, 403, "permission_error", "Realtime model restricted by channel")
 		return
 	}
-	forwardModel := model
-	if resolved, ok := service.ResolvedUpstreamModelFromContext(ctx); ok {
+	// Realtime stays on the ingress-selected target for the session. An empty
+	// explicit target keeps channel fallback; account aliases are mapped later.
+	forwardModel := service.CompositeTargetForwardModel(ctx, nil, mapping, model)
+	if targets, ok := service.CompositeRouteTargetsFromContext(ctx); ok {
+		forwardModel = service.CompositeTargetForwardModel(ctx, &targets[0], mapping, model)
+	} else if resolved, ok := service.ResolvedUpstreamModelFromContext(ctx); ok {
 		forwardModel = resolved
 	}
-	if mapping.Mapped {
-		forwardModel = mapping.MappedModel
-	}
+	ctx = service.WithOpenAIForwardModel(ctx, forwardModel, false)
 	// Native Realtime is not the OAuth-only Codex Live capability. The request
 	// plan and final dialer validate the realtime model binding directly.
 	ctx = service.WithOpenAIProfitControlSuppressed(ctx)
@@ -154,6 +156,9 @@ func (h *OpenAIGatewayHandler) OpenAIRealtime(c *gin.Context) {
 		return
 	}
 	snapshot.RequestedModel = model
+	if requested, ok := service.RequestedPublicModelFromContext(ctx); ok {
+		snapshot.RequestedModel = requested
+	}
 	if key.GroupID != nil {
 		pricingAt := service.GatewayRequestPlanFromContext(ctx).Snapshot().PricingAt
 		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(pricingAt)

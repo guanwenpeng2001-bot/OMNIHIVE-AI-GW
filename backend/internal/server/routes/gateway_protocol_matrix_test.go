@@ -52,13 +52,39 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 			for _, endpoint := range []string{"messages", "responses", "chat_completions", "generate_content", "embeddings", "images", "live"} {
 				test.Run(descriptor.ID+"/"+accountType+"/"+endpoint, func(test *testing.T) {
 					account := &service.Account{ID: 1, Platform: descriptor.ID, Type: accountType, Status: service.StatusActive, Schedulable: true}
-					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{endpoint}, EvidenceKind: "synthetic-contract"}}}
+					// Exercise the wire family used by the account's actual adapter.
+					// Cursor Responses and TokenHub's non-native Responses branch
+					// bridge through Chat Completions; they do not send /responses.
+					wireEndpoint := endpoint
+					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan) {
+						wireEndpoint = "chat_completions"
+					}
+					if account.IsMultiProtocolAPIKey() {
+						if wireEndpoint == "messages" {
+							account.Credentials = map[string]any{"api_protocol": service.APIProtocolAnthropic}
+						}
+						if wireEndpoint == "responses" && descriptor.NativeMultiProtocolResponses && descriptor.ID != service.PlatformCommandCode {
+							account.Credentials = map[string]any{"api_protocol": service.APIProtocolResponses}
+						}
+					}
+					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{wireEndpoint}, EvidenceKind: "synthetic-contract"}}}
 					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
-					options := service.AccountModelBindingOptions{Endpoint: endpoint, FinalModel: "fixture-model"}
+					options := service.AccountModelBindingOptions{Endpoint: wireEndpoint, FinalModel: "fixture-model"}
 					action := map[string]string{"messages": "messages", "responses": "responses", "chat_completions": "chat", "generate_content": "generate_content", "embeddings": "embeddings", "images": "image.generate", "live": "live"}[endpoint]
 					ctx := service.WithGatewayRequestPlan(context.Background(), service.NewGatewayRequestPlan(service.GatewayRequestSpec{Action: action}))
 					cell := domain.PlatformAction(domain.ActionIdentity{Platform: descriptor.ID, HostedAccountType: accountType}, action)
-					require.Equal(test, cell.Status == domain.ActionImplemented, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported, "action evidence cannot enable a missing adapter")
+					require.Equal(test, cell.Status == domain.ActionImplemented, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported, "representative account must bind every implemented adapter")
+					if account.IsMultiProtocolAPIKey() && (wireEndpoint == "messages" || wireEndpoint == "responses") {
+						credentials := account.Credentials
+						account.Credentials = map[string]any{"api_protocol": service.APIProtocolChatCompletions}
+						require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported, "fixed chat protocol cannot send the other wire family")
+						account.Credentials = credentials
+					}
+					if wireEndpoint != endpoint {
+						incompatible := options
+						incompatible.Endpoint = endpoint
+						require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", incompatible).Supported, "bridge support must not pretend native wire support")
+					}
 					catalog.EligibleModels[0].Endpoints = []string{"unrelated-endpoint"}
 					account.Extra[service.UpstreamModelCatalogExtraKey] = catalog
 					require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)

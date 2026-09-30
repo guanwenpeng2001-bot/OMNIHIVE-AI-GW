@@ -23,7 +23,7 @@ func TestKimiSearchAndQianfanCancelMatrix(t *testing.T) {
 	}
 	require.Empty(t, PlatformAction(ActionIdentity{Platform: PlatformKimi, HostedAccountType: AccountTypeOAuth}, "search").Adapter)
 	for _, platform := range ConcretePlatforms() {
-		if platform != PlatformQianfan {
+		if platform != PlatformQianfan && platform != PlatformQianwen {
 			require.Empty(t, PlatformAction(ActionIdentity{Platform: platform}, "video.cancel").Adapter)
 		}
 	}

@@ -96,17 +96,15 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		h.errorResponse(c, 403, "permission_error", "Realtime model restricted by channel")
 		return
 	}
-	forwardModel := model
-	if resolved, ok := service.ResolvedUpstreamModelFromContext(ctx); ok {
+	// Realtime stays on the ingress-selected target for the session. An empty
+	// explicit target keeps channel fallback; account aliases are mapped later.
+	forwardModel := service.CompositeTargetForwardModel(ctx, nil, mapping, model)
+	if targets, ok := service.CompositeRouteTargetsFromContext(ctx); ok {
+		forwardModel = service.CompositeTargetForwardModel(ctx, &targets[0], mapping, model)
+	} else if resolved, ok := service.ResolvedUpstreamModelFromContext(ctx); ok {
 		forwardModel = resolved
 	}
-	if mapping.Mapped {
-		forwardModel = mapping.MappedModel
-	}
-	if !service.IsQianwenRealtimeModel(forwardModel) {
-		h.errorResponse(c, 422, "unsupported_operation_error", "Unsupported mapped realtime model")
-		return
-	}
+	ctx = service.WithOpenAIForwardModel(ctx, forwardModel, false)
 	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(ctx, key.GroupID, "", "", forwardModel, nil, service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityChatCompletions, false, false, true, service.PlatformQianwen)
 	if err != nil || selection == nil || selection.Account == nil {
 		h.errorResponse(c, 503, "api_error", "No realtime account available")
@@ -137,6 +135,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		return
 	}
 	snapshot.RequestedModel = model
+	if requested, ok := service.RequestedPublicModelFromContext(ctx); ok {
+		snapshot.RequestedModel = requested
+	}
 	if key.GroupID != nil {
 		pricingAt := service.GatewayRequestPlanFromContext(ctx).Snapshot().PricingAt
 		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(pricingAt)
