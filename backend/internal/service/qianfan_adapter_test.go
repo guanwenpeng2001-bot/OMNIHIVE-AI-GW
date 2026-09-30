@@ -94,6 +94,11 @@ func TestQianfanAdapterContract(t *testing.T) {
 		require.Error(t, err)
 	})
 	t.Run("empty success differs from permission and partial failure", func(t *testing.T) {
+		optional, err := parseList(200, `{"object":"list","data":[{"id":"valid","context_length":"untrusted"}]}`)
+		require.NoError(t, err)
+		require.True(t, optional.Complete)
+		require.Len(t, optional.Models, 1)
+		require.Nil(t, optional.Models[0].ContextLength)
 		result, err := parseList(200, `{"object":"list","data":[]}`)
 		require.NoError(t, err)
 		require.True(t, result.Complete)
@@ -106,7 +111,7 @@ func TestQianfanAdapterContract(t *testing.T) {
 			require.Contains(t, err.Error(), fmt.Sprintf("HTTP status %d", status))
 			require.NotContains(t, err.Error(), "secret")
 		}
-		for _, body := range []string{`{}`, `{"object":"list","data":null}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"duplicate"},{"id":"duplicate"}]}`, `{"object":"list","data":[],"error":{"code":"denied"}}`, `{"object":"list","data":[{"id":"bad","context_length":"untrusted"}]}`, `{"object":"list","data":[]`} {
+		for _, body := range []string{`{}`, `{"object":"list","data":null}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"duplicate"},{"id":"duplicate"}]}`, `{"object":"list","data":[],"error":{"code":"denied"}}`, `{"object":"list","data":[]`} {
 			result, err := parseList(200, body)
 			require.Error(t, err, body)
 			require.Nil(t, result)

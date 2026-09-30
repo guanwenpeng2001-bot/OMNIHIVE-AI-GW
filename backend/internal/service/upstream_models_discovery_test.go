@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFinalReviewQianwenMalformedMetadataRetainsSnapshot(test *testing.T) {
+func TestFinalReviewQianwenMalformedMetadataPreservesDiscovery(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
 	for name, validBody := range map[string]string{
 		"compatible": `{"data":[{"id":"existing-model","modalities":{"output":["text"]},"context_window":8192}]}`,
 		"native":     `{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"existing-model","modalities":{"output":["text"]},"context_window":8192}]}}`,
@@ -30,18 +31,17 @@ func TestFinalReviewQianwenMalformedMetadataRetainsSnapshot(test *testing.T) {
 			preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
 			require.NoError(test, err)
 			test.Logf("discovered=%v eligible=%v discovery_complete=%v removed=%v review=%v conflicts=%v", preview.DiscoveredModels, preview.EligibleModels, preview.DiscoveryComplete, preview.Diff.Removed, preview.Review != nil, preview.Metadata["existing-model"].Conflicts)
-			require.False(test, preview.DiscoveryComplete)
-			require.False(test, preview.Complete)
+			require.True(test, preview.DiscoveryComplete)
+			require.True(test, preview.Complete)
 			require.Equal(test, []string{"existing-model"}, preview.DiscoveredModels)
 			require.Empty(test, preview.Diff.Removed)
-			require.Nil(test, preview.Review)
-			require.Equal(test, "partial", preview.CatalogSource)
+			require.NotNil(test, preview.Review)
+			require.Equal(test, "live", preview.CatalogSource)
 			require.Contains(test, preview.Metadata["existing-model"].Conflicts, "invalid_optional_metadata")
 			require.Equal(test, previous, account.GetUpstreamModelCatalog())
 			_, err = service.ApplyAccountModelCatalog(context.Background(), account, nil)
-			require.Error(test, err)
-			require.Equal(test, previous, account.GetUpstreamModelCatalog())
-			require.Equal(test, previous.EligibleModels, account.EffectiveUpstreamModelCatalog().EligibleModels)
+			require.NoError(test, err)
+			require.Equal(test, []string{"existing-model"}, account.GetUpstreamModelCatalog().DiscoveredModels)
 		})
 	}
 }
@@ -225,6 +225,7 @@ func TestDiscoveryEmptyPageWithContinuationIsPartial(test *testing.T) {
 	require.Nil(test, preview.Review)
 }
 func TestReviewDiscoveryRetainsIDsWhenOptionalMetadataIsMalformed(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
 	upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"existing-model","context_window":"8192"},{"id":"other-model"}]}`)}
 	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 	old := AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"existing-model"}, EligibleModels: []AccountCatalogModel{{ID: "existing-model"}}}
@@ -233,12 +234,12 @@ func TestReviewDiscoveryRetainsIDsWhenOptionalMetadataIsMalformed(test *testing.
 	require.NoError(test, err)
 	test.Logf("discovered=%v discovery_complete=%v removed=%v review=%v", preview.DiscoveredModels, preview.DiscoveryComplete, preview.Diff.Removed, preview.Review != nil)
 	require.Contains(test, preview.DiscoveredModels, "existing-model", "a malformed optional capability must not silently revoke a model reported by the upstream")
-	require.False(test, preview.DiscoveryComplete)
-	require.False(test, preview.Complete)
-	require.Nil(test, preview.Review)
+	require.True(test, preview.DiscoveryComplete)
+	require.True(test, preview.Complete)
+	require.NotNil(test, preview.Review)
 	require.Equal(test, "incomplete", preview.CapabilityStatus)
 	require.Contains(test, preview.Metadata["existing-model"].Conflicts, "invalid_optional_metadata")
-	require.Empty(test, preview.Diff.Removed)
+	require.Equal(test, old, *account.GetUpstreamModelCatalog(), "preview must not modify the saved selection or snapshot")
 }
 
 func TestReviewCapabilityProfileRejectsTenantHostedAWSHostname(test *testing.T) {

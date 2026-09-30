@@ -1885,8 +1885,23 @@ func (capability *upstreamSupportedCapability) UnmarshalJSON(body []byte) error 
 	if string(body) == "true" || string(body) == "false" || string(body) == "null" {
 		return json.Unmarshal(body, &capability.Supported)
 	}
-	type plain upstreamSupportedCapability
-	return json.Unmarshal(body, (*plain)(capability))
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil {
+		return err
+	}
+	*capability = upstreamSupportedCapability{}
+	var types map[string]json.RawMessage
+	decodeUpstreamOptionalFields(body, map[string]any{"supported": &capability.Supported, "types": &types})
+	if types != nil {
+		capability.Types = make(map[string]upstreamSupportedCapability, len(types))
+		for name, raw := range types {
+			var value upstreamSupportedCapability
+			if json.Unmarshal(raw, &value) == nil {
+				capability.Types[name] = value
+			}
+		}
+	}
+	return nil
 }
 
 func extractUpstreamModelIDs(body []byte) ([]string, error) {
@@ -1930,16 +1945,17 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 			continue
 		}
 		var capability upstreamModelCapabilityEntry
-		if err := json.Unmarshal(raw, &capability); err != nil {
-			metadata[modelID] = UpstreamModelMetadata{ID: modelID, Conflicts: []string{"invalid_optional_metadata"}}
-			continue
-		}
+		invalidOptional := decodeUpstreamModelCapabilities(raw, &capability)
+		capability.upstreamModelEntry = identity
 		// max_tokens has incompatible meanings across APIs. Only the Anthropic
 		// model-list contract establishes that it is an output limit.
 		if len(platform) == 0 || platform[0] != PlatformAnthropic {
 			capability.MaxTokens = 0
 		}
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if invalidOptional {
+			entry.Conflicts = append(entry.Conflicts, "invalid_optional_metadata")
+		}
 		if len(platform) > 0 && platform[0] == PlatformQianfan {
 			var model qianfanModel
 			if err := json.Unmarshal(raw, &model); err == nil {
@@ -1950,8 +1966,11 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 					InputModalities  []string `json:"input_modalities"`
 					OutputModalities []string `json:"output_modalities"`
 				}
-				if json.Unmarshal(model.Architecture, &architecture) == nil {
+				decodeUpstreamOptionalFields(model.Architecture, map[string]any{"input_modalities": &architecture.InputModalities, "output_modalities": &architecture.OutputModalities})
+				if architecture.InputModalities != nil {
 					entry.InputModalities = architecture.InputModalities
+				}
+				if architecture.OutputModalities != nil {
 					entry.OutputModalities = architecture.OutputModalities
 				}
 			}
@@ -1965,7 +1984,7 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 				entry.CodexToolCapabilities = nil
 			}
 		}
-		if upstreamModelMetadataIsUseful(entry) {
+		if invalidOptional || upstreamModelMetadataIsUseful(entry) {
 			metadata[modelID] = entry
 		}
 	}
@@ -2490,17 +2509,6 @@ func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) b
 	return false
 }
 
-// Invalid optional fields can hide endpoint facts used for eligibility. Keep
-// discovered IDs, but never authorize a destructive diff from malformed facts.
-func validateUpstreamModelMetadata(metadata map[string]UpstreamModelMetadata) error {
-	for _, entry := range metadata {
-		if slices.Contains(entry.Conflicts, "invalid_optional_metadata") {
-			return newUpstreamModelSyncUpstreamError("Invalid optional model metadata", nil)
-		}
-	}
-	return nil
-}
-
 // fetchCompleteModelPages preserves validated pages when a later page fails.
 // All continuation URLs stay on the original origin and redirects are disabled.
 func (service *AccountTestService) fetchCompleteModelPages(request *http.Request, account *Account) ([]string, []byte, error) {
@@ -2523,9 +2531,6 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		models, metadata, parseErr := extractUpstreamModelCatalog(merged, account.IsGrok(), account.Platform)
 		if parseErr != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
-		}
-		if cause == nil {
-			cause = validateUpstreamModelMetadata(metadata)
 		}
 		if cause == nil {
 			return models, merged, nil

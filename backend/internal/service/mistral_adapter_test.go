@@ -58,13 +58,21 @@ func TestMistralAdapterContract(t *testing.T) {
 		require.Equal(t, cards, arrayCards)
 	})
 	t.Run("empty lists and invalid or error envelopes differ", func(t *testing.T) {
+		for _, optional := range []string{`[{"id":"valid","capabilities":{"vision":"false"}}]`, `[{"id":"valid","max_context_length":-1}]`} {
+			cards, err := parseMistralModelCards([]byte(optional))
+			require.NoError(t, err)
+			require.Len(t, cards, 1)
+			require.Equal(t, "valid", cards[0].ID)
+			require.Nil(t, cards[0].Capabilities["vision"])
+			require.Nil(t, cards[0].MaxContextLength)
+		}
 		for _, valid := range []string{`[]`, `{"object":"list","data":[]}`} {
 			cards, err := parseMistralModelCards([]byte(valid))
 			require.NoError(t, err)
 			require.NotNil(t, cards)
 			require.Empty(t, cards)
 		}
-		for _, invalid := range []string{"", `null`, `{}`, `{"data":null}`, `{"data":{}}`, `{"error":{"message":"secret"},"data":[]}`, `{"detail":"denied","data":[]}`, `{"message":"denied"}`, `[{"id":"ok"},{}]`, `[{"id":"same"},{"id":"same"}]`, `[{"id":"bad","capabilities":{"vision":"false"}}]`, `[{"id":"bad","max_context_length":-1}]`, `[null]`, `[] trailing`} {
+		for _, invalid := range []string{"", `null`, `{}`, `{"data":null}`, `{"data":{}}`, `{"error":{"message":"secret"},"data":[]}`, `{"detail":"denied","data":[]}`, `{"message":"denied"}`, `[{"id":"ok"},{}]`, `[{"id":"same"},{"id":"same"}]`, `[null]`, `[] trailing`} {
 			cards, err := parseMistralModelCards([]byte(invalid))
 			require.Error(t, err, invalid)
 			require.Nil(t, cards)
