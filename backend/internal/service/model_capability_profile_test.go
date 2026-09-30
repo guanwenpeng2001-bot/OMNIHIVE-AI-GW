@@ -190,8 +190,14 @@ func (h *capabilityRegistryHTTP) DoWithTLS(req *http.Request, p string, a int64,
 func TestModelCapabilityRegistrySingleflightAndCancellation(t *testing.T) {
 	h := &capabilityRegistryHTTP{start: make(chan struct{}, 1), release: make(chan struct{})}
 	svc := &AccountTestService{httpUpstream: h}
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // This service uses only the fake transport above.
 	a := &Account{}
 	var wg sync.WaitGroup
+	var release sync.Once
+	defer func() {
+		release.Do(func() { close(h.release) })
+		wg.Wait()
+	}()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -200,7 +206,11 @@ func TestModelCapabilityRegistrySingleflightAndCancellation(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	<-h.start
+	select {
+	case <-h.start:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fake registry transport was not reached; check offline test isolation")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := svc.fetchModelsDevRegistry(ctx, a)
@@ -218,13 +228,15 @@ func TestModelCapabilityRegistrySingleflightAndCancellation(t *testing.T) {
 			}
 		}()
 	}
-	close(h.release)
+	release.Do(func() { close(h.release) })
 	wg.Wait()
 	require.Equal(t, int32(1), h.calls.Load())
 }
+
 func TestModelCapabilityRegistryOfflineAndStale(t *testing.T) {
 	h := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader("rate limited"))}}
 	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "old"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // This service uses only the fake transport above.
 	registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 	require.Error(t, err)
 	require.True(t, registry["openai"].Stale)
@@ -256,6 +268,7 @@ func TestModelCapabilityCascadeCapturesOneSnapshotAndPreservesPriority(t *testin
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"openai":{"models":{"private-reasoner":{"reasoning":true,"tool_call":true,"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":1000000,"output":8000}}}}}`))},
 	}}
 	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // This service uses only the fake transport above.
 	a := &Account{ID: 301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "base_url": "https://api.openai.com/v1"}}
 	catalog, err := svc.DiscoverModelCapabilities(context.Background(), a, provider)
 	require.NoError(t, err)
@@ -274,15 +287,18 @@ func TestModelCapabilityCascadeCapturesOneSnapshotAndPreservesPriority(t *testin
 	require.Equal(t, "models.dev", m.FieldEvidence["output_modalities"].Source)
 	require.Equal(t, []string{"private-reasoner"}, catalog.DiscoveredModels)
 }
+
 func TestModelCapabilityRegistryBudgetAndExpiredCache(t *testing.T) {
 	h := &capabilityRegistryHTTP{start: make(chan struct{}, 1), release: make(chan struct{})}
 	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "too-old"}}, modelMetadataRegistryAt: time.Now().Add(-80 * time.Hour)}
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // This service uses only the fake transport above.
 	started := time.Now()
 	registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Nil(t, registry)
 	require.Less(t, time.Since(started), 5*time.Second)
 }
+
 func TestModelCapabilityStructuredSupplementCompatibility(t *testing.T) {
 	var r CapabilityRecord
 	require.NoError(t, json.Unmarshal([]byte(`{"model_id":"fixed-model","profile":"hosting","supports_reasoning":true,"reasoning_control":{"kind":"fixed"},"aliases":["fixed-latest"]}`), &r))
@@ -311,6 +327,7 @@ func TestModelCapabilityRegistryInvalidResponsesRetainCache(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			h := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}}
 			svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "valid"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
+			t.Setenv("MODEL_CAPABILITY_OFFLINE", "false") // Only the fake transport above can run.
 			registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 			require.Error(t, err)
 			require.Equal(t, "valid", registry["openai"].Version)
@@ -320,6 +337,7 @@ func TestModelCapabilityRegistryInvalidResponsesRetainCache(t *testing.T) {
 		})
 	}
 }
+
 func TestModelCapabilityExplicitEmptyEffortRejectsLowerControl(t *testing.T) {
 	yes := true
 	m, changed := mergeUpstreamModelMetadata(UpstreamModelMetadata{Reasoning: &yes, ReasoningControl: &ReasoningControl{Kind: "unknown"}, SupportedReasoningLevels: []string{}}, UpstreamModelMetadata{ReasoningControl: &ReasoningControl{Kind: "effort", EffortValues: []string{"high"}}})

@@ -649,7 +649,7 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	require.Equal(t, int64(1), okRepo.listAllCalls.Load())
 }
 
-func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
+func TestGetAvailableModels_OpenAIPassthroughPreservesSavedSelection(t *testing.T) {
 	groupID := int64(10)
 
 	tests := []struct {
@@ -658,19 +658,19 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 		want     []string
 	}{
 		{
-			name: "passthrough only ignores stale mapping",
+			name: "passthrough keeps saved mapping",
 			accounts: []Account{
 				{
 					ID:          1,
 					Platform:    PlatformOpenAI,
-					Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "upstream-model"}},
+					Credentials: map[string]any{"model_mapping": map[string]any{"selected-model": "upstream-model"}},
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: []string{"selected-model"},
 		},
 		{
-			name: "passthrough wins over ordinary account mapping",
+			name: "passthrough and ordinary accounts both retain selection",
 			accounts: []Account{
 				{
 					ID:          2,
@@ -680,11 +680,11 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 				{
 					ID:          3,
 					Platform:    PlatformOpenAI,
-					Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "upstream-model"}},
+					Credentials: map[string]any{"model_mapping": map[string]any{"selected-model": "upstream-model"}},
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: []string{"configured-model", "selected-model"},
 		},
 		{
 			name: "ordinary accounts preserve mapped whitelist",

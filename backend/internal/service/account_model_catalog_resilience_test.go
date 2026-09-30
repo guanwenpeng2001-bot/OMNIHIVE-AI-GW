@@ -29,7 +29,7 @@ func TestLegacyMappingFingerprintCanonicalEncoding(test *testing.T) {
 	}
 }
 
-func TestLegacyEvidenceTokenRotationAndMonotonicRevocation(test *testing.T) {
+func TestLegacyEvidenceRotationPreservesCurrentSelectionAndRevokesStaleRequests(test *testing.T) {
 	for _, scenario := range []struct {
 		name   string
 		change func(*Account)
@@ -79,16 +79,30 @@ func TestLegacyEvidenceTokenRotationAndMonotonicRevocation(test *testing.T) {
 			scenario.change(&changed)
 			AdvanceAccountModelCatalogRevisions(&account, &changed)
 			require.EqualValues(test, 1, changed.ModelCatalogState().LegacyPolicyRevision)
-			require.Nil(test, changed.EffectiveUpstreamModelCatalog())
+			require.False(test, legacyModelCatalogValidFor(&changed, changed.GetUpstreamModelCatalog()), "changed policy invalidates the historical seed")
+			options := AccountModelBindingOptions{Endpoint: "generate_content"}
+			for alias, target := range configuredModelMapping(&changed) {
+				binding := ResolveAccountModelBinding(context.Background(), &changed, alias, options)
+				require.True(test, binding.Supported, "current explicit selection remains authoritative")
+				require.Equal(test, target, binding.UpstreamModel)
+			}
+			if scenario.name == "empty" || scenario.name == "removed" || scenario.name == "alias" {
+				require.False(test, ResolveAccountModelBinding(context.Background(), &changed, "public-model", options).Supported)
+			}
+			require.False(test, ResolveAccountModelBinding(context.Background(), &changed, "unselected", options).Supported)
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Protocol: "generate_content", Model: "public-model"}))
+			require.ErrorIs(test, validateAccountForwardModel(ctx, &forwardCatalogRepo{current: &changed}, &account, "actual-model", "generate_content"), ErrAccountModelUnsupported, "a request selected before the credential change must not send")
 			restored := clone(account)
 			AdvanceAccountModelCatalogRevisions(&changed, &restored)
 			require.EqualValues(test, 2, restored.ModelCatalogState().LegacyPolicyRevision)
-			require.Nil(test, restored.EffectiveUpstreamModelCatalog(), "returning to old configuration must not resurrect evidence")
+			require.False(test, legacyModelCatalogValidFor(&restored, restored.GetUpstreamModelCatalog()), "restoring configuration does not resurrect historical evidence")
+			require.True(test, ResolveAccountModelBinding(context.Background(), &restored, "public-model", options).Supported, "a newly saved selection can attempt the adapter")
+			require.ErrorIs(test, validateAccountForwardModel(ctx, &forwardCatalogRepo{current: &restored}, &changed, "actual-model", "generate_content"), ErrAccountModelUnsupported)
 		})
 	}
 }
 
-func TestLegacyFingerprintEvidenceRetainsAccountAndMemberGuards(test *testing.T) {
+func TestLegacyFingerprintEvidenceIsSeparateFromCurrentSelection(test *testing.T) {
 	for _, scenario := range []struct {
 		name   string
 		change func(*Account, *AccountModelCatalogSnapshot)
@@ -124,7 +138,18 @@ func TestLegacyFingerprintEvidenceRetainsAccountAndMemberGuards(test *testing.T)
 			snapshot := account.GetUpstreamModelCatalog()
 			scenario.change(&account, snapshot)
 			account.Extra[UpstreamModelCatalogExtraKey] = snapshot
-			require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+			options := AccountModelBindingOptions{Endpoint: "messages"}
+			denied := scenario.name == "disabled" || scenario.name == "expired" || scenario.name == "allowlist"
+			binding := ResolveAccountModelBinding(context.Background(), &account, "public-model", options)
+			require.Equal(test, !denied, binding.Supported)
+			if !denied {
+				require.Equal(test, account.GetMappedModel("public-model"), binding.UpstreamModel)
+			}
+			require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "unselected", options))
+			// Without the current selection, none of these invalid historical
+			// snapshots can confer model access, including a foreign owner.
+			delete(account.Credentials, "model_mapping")
+			require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "actual-model", options))
 		})
 	}
 }
@@ -159,14 +184,21 @@ func TestLegacyEvidenceUpgradeAndFormatGuards(test *testing.T) {
 	snapshot := account.GetUpstreamModelCatalog()
 	snapshot.LegacyMappingFingerprint = "sha256:999:unknown"
 	account.Extra[UpstreamModelCatalogExtraKey] = snapshot
-	require.Nil(test, account.EffectiveUpstreamModelCatalog())
+	require.False(test, legacyModelCatalogValidFor(&account, snapshot))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+	require.Equal(test, ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 	account = legacyCatalogSeedAccount(PlatformAnthropic)
 	require.True(test, UpgradeLegacyModelCatalogEvidence(&account))
 	snapshot = account.GetUpstreamModelCatalog()
 	snapshot.LegacyPolicyRevision = nil
 	account.Extra[UpstreamModelCatalogExtraKey] = snapshot
-	require.Nil(test, account.EffectiveUpstreamModelCatalog())
+	require.False(test, legacyModelCatalogValidFor(&account, snapshot))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+	require.Equal(test, ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 	account.Extra = catalogEvidenceAccount(account.ID, account.Platform).Extra
 	require.False(test, UpgradeLegacyModelCatalogEvidence(&account), "empty discovery cannot become a seed")
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "empty discovery cannot revoke a saved selection")
+	account.Credentials["model_mapping"] = map[string]string{}
+	NormalizeEmptyAccountModelSelection(&account)
+	require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "removing the saved selection revokes access")
 }

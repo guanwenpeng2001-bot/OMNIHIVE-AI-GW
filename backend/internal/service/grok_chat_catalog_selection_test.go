@@ -28,7 +28,8 @@ func TestGrokChatCatalogSelectionUsesNativeEndpoint(test *testing.T) {
 				seed["eligible_models"] = []AccountCatalogModel{{ID: model, EvidenceKind: modelEvidenceLegacyMappingUpgrade, EvidenceObservedAt: seed["observed_at"].(string)}}
 				catalog := account.EffectiveUpstreamModelCatalog()
 				require.NotNil(test, catalog)
-				require.Equal(test, []string{CompositeRouteEndpointChatCompletions}, catalog.EligibleModels[0].Endpoints)
+				require.Contains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointChatCompletions)
+				require.NotContains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointResponses)
 				plan := NewGatewayRequestPlan(GatewayRequestSpec{Action: "chat", Protocol: "chat_completions", Route: "/v1/chat/completions", Model: model})
 				ctx := WithGatewayRequestPlan(context.Background(), plan)
 				repository := &forwardCatalogRepo{current: &account}
@@ -79,7 +80,7 @@ func TestGrokComposerChatPlanReachesNativeUpstream(test *testing.T) {
 }
 
 func TestGrokChatCatalogSelectionPreservesEndpointDenials(test *testing.T) {
-	for _, endpoints := range [][]string{nil, {}, {CompositeRouteEndpointResponses}, {"grok_media_generation"}} {
+	for _, endpoints := range [][]string{{CompositeRouteEndpointResponses}, {"grok_media_generation"}} {
 		account := requestPlanGateAccount(PlatformGrok, "grok-composer-2.5-fast", endpoints...)
 		account.Type = AccountTypeOAuth
 		ctx := requestPlanGateContext(GatewayRequestSpec{Action: "chat", Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "grok-composer-2.5-fast"})
@@ -92,5 +93,25 @@ func TestGrokChatCatalogSelectionPreservesEndpointDenials(test *testing.T) {
 		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: protocol, Model: "grok-composer-2.5-fast"})
 		require.Equal(test, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(ctx, &account))
 		require.False(test, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, "grok-composer-2.5-fast", OpenAIEndpointCapabilityChatCompletions))
+	}
+}
+
+func TestGrokChatCatalogSelectionWithoutEndpointMetadata(test *testing.T) {
+	for _, model := range []string{"grok-composer-2.5-fast", "selected-private-model"} {
+		test.Run(model, func(test *testing.T) {
+			for _, endpoints := range [][]string{nil, {}} {
+				account := requestPlanGateAccount(PlatformGrok, model, endpoints...)
+				if model == "selected-private-model" {
+					account.Credentials["model_mapping"] = map[string]string{model: model}
+				}
+				account.Type = AccountTypeOAuth
+				ctx := requestPlanGateContext(GatewayRequestSpec{Action: "chat", Protocol: "chat_completions", Route: "/v1/chat/completions", Model: model})
+				require.True(test, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, model, OpenAIEndpointCapabilityChatCompletions))
+				require.Empty(test, requestPlanGateReason(ctx, &account, PlatformGrok, model, OpenAIEndpointCapabilityChatCompletions))
+				repository := &forwardCatalogRepo{current: &account}
+				require.NoError(test, validateAccountForwardModel(ctx, repository, &account, model, CompositeRouteEndpointChatCompletions))
+				require.ErrorIs(test, validateAccountForwardModel(ctx, repository, &account, "unselected-model", CompositeRouteEndpointChatCompletions), ErrAccountModelUnsupported)
+			}
+		})
 	}
 }

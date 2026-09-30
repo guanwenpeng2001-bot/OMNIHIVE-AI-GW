@@ -148,20 +148,22 @@ func TestChatOnlyPlatformWithoutPublishedTextProtocolStaysSelectable(t *testing.
 	}
 }
 
-// Explicitly empty endpoint evidence is a denial, not missing evidence: the
-// chat-trunk default must never turn "this model declares no endpoint" into an
-// admission for any chat-only platform.
-func TestChatOnlyExplicitEmptyEndpointEvidenceStaysDenied(t *testing.T) {
+// Empty optional metadata does not revoke a selected model. Explicit incompatible
+// endpoint declarations and an unselected model remain separate negative cases.
+func TestChatOnlyEmptyMetadataPreservesSelectedTextAdapter(t *testing.T) {
 	for _, platform := range []string{PlatformMistral, PlatformHunyuan, PlatformVolcengine, PlatformQianfan} {
-		account := &Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
-		require.Empty(t, accountCatalogModelEndpoints(account, "text-model", UpstreamModelMetadata{SupportedMethods: []string{}}),
-			"%s must keep an explicit empty declaration empty", platform)
-
-		evidence := requestPlanGateAccount(platform, "text-model")
-		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "text-model"})
-		require.Equal(t, "model_not_supported",
-			requestPlanGateReason(ctx, &evidence, platform, "text-model", OpenAIEndpointCapabilityChatCompletions),
-			"%s must stay refused when the model explicitly declares no endpoint", platform)
+		t.Run(platform, func(t *testing.T) {
+			account := &Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey}
+			require.Contains(t, accountCatalogModelEndpoints(account, "text-model", UpstreamModelMetadata{SupportedMethods: []string{}}), "chat_completions")
+			for _, endpoints := range [][]string{nil, {}} {
+				evidence := requestPlanGateAccount(platform, "text-model", endpoints...)
+				ctx := requestPlanGateContext(GatewayRequestSpec{Action: "chat", Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "text-model"})
+				require.Empty(t, requestPlanGateReason(ctx, &evidence, platform, "text-model", OpenAIEndpointCapabilityChatCompletions))
+				require.Equal(t, "model_not_supported", requestPlanGateReason(ctx, &evidence, platform, "unselected-model", OpenAIEndpointCapabilityChatCompletions))
+				incompatible := requestPlanGateAccount(platform, "text-model", "embeddings")
+				require.Equal(t, "model_not_supported", requestPlanGateReason(ctx, &incompatible, platform, "text-model", OpenAIEndpointCapabilityChatCompletions))
+			}
+		})
 	}
 }
 
