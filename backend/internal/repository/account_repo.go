@@ -607,10 +607,14 @@ func (r *accountRepository) updateLockedAccount(
 	incomingRuntime := *account
 	incomingRuntime.Proxy = nil
 	runtimeIdentityChanged := service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime)
-	clearOpenCodeQuotaCooldown := runtimeIdentityChanged && beforeRuntime.IsOpenCodeGoPlan() &&
-		(strings.HasPrefix(beforeRuntime.TempUnschedulableReason, "opencode_payment_required") || strings.HasPrefix(beforeRuntime.TempUnschedulableReason, "cn_quota_exhausted"))
+	clearOpenCodeQuotaCooldown := runtimeIdentityChanged && openCodeQuotaOwnedPause(beforeRuntime)
+	clearOpenCodeQuotaRateLimit := runtimeIdentityChanged && openCodeQuotaOwnedRateLimit(beforeRuntime)
 	if runtimeIdentityChanged {
 		service.ClearAccountRuntimeObservations(account)
+		quotaState := *beforeRuntime
+		quotaState.Extra = account.Extra
+		service.ClearOpenCodeModelQuotaLimits(&quotaState)
+		account.Extra = quotaState.Extra
 		extra = account.Extra
 	}
 	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
@@ -638,6 +642,9 @@ func (r *accountRepository) updateLockedAccount(
 		SetErrorMessage(account.ErrorMessage).
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
+	if clearOpenCodeQuotaRateLimit {
+		builder.ClearRateLimitedAt().ClearRateLimitResetAt()
+	}
 	if clearOpenCodeQuotaCooldown {
 		builder.ClearTempUnschedulableUntil().ClearTempUnschedulableReason()
 	}
@@ -3312,7 +3319,10 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			incomingCredentials = "(COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb)"
 		}
 		extraExpression = "(" + extraExpression + ") || " + accountCatalogRevisionPatchSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged, true)
+		openCodeIdentityChanged := openCodeQuotaIdentityChangeSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
+		setClauses = append(setClauses, openCodeQuotaInvalidationClausesSQL(openCodeIdentityChanged)...)
 		extraExpression = clearChangedAccountRuntimeObservationsSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
+		extraExpression = clearOpenCodeModelQuotaLimitsSQL(extraExpression, openCodeIdentityChanged)
 
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}

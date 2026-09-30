@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -10,13 +11,20 @@ import (
 
 const openCodePaymentReason = "opencode_payment_required"
 
-func (s *AccountTestService) observeOpenCodePaymentFailure(ctx context.Context, account *Account, status int, body []byte) {
-	if s.accountRepo == nil || !account.IsOpenCodeGoPlan() || status != http.StatusPaymentRequired {
+func (s *AccountTestService) observeOpenCodePaymentFailure(ctx context.Context, account *Account, status int, headers http.Header, body []byte, model string) {
+	if s.accountRepo == nil || !account.IsOpenCodeGoPlan() {
 		return
 	}
+	reason := openCodePaymentReason
+	if status != http.StatusPaymentRequired {
+		if status != http.StatusTooManyRequests || !isOpenCodeUsageLimitFailure(body) {
+			return
+		}
+		reason = "opencode_usage_limit"
+	}
 	limiter := NewRateLimitService(s.accountRepo, nil, s.cfg, nil, nil)
-	limiter.handleOpenCodePaymentRequired(WithAccountRuntimeIdentity(ctx, account), account,
-		fmt.Sprintf("HTTP 402: %s", strings.TrimSpace(string(body))))
+	limiter.handleOpenCodeModelQuotaFailure(withTempUnschedulableModel(WithAccountRuntimeIdentity(ctx, account), []string{model}), account, headers, body,
+		fmt.Sprintf("%s: HTTP %d: %s", reason, status, strings.TrimSpace(string(body))))
 }
 
 // OpenCodeQuotaProbeWriter persists a probe and its recovery decision under the
@@ -64,49 +72,17 @@ func ReconcileOpenCodeQuotaProbe(current, expected *Account, result *CNProviderQ
 	if current.TempUnschedulableUntil != nil && current.TempUnschedulableUntil.After(now) && !owned {
 		return
 	}
-	complete := map[string]bool{}
-	exhausted := false
-	until := now.Add(20 * time.Minute)
-	var latest *time.Time
-	for _, tier := range result.Tiers {
-		complete[tier.Window] = true
-		if tier.UsedPercent < 100 {
-			continue
-		}
-		exhausted = true
-		reset := parseSchedulingResetAt(tier.ResetAt)
-		if reset != nil && reset.After(now) && (latest == nil || reset.After(*latest)) {
-			latest = reset
-		}
+	// Usage is an observation, not proof that every model is blocked. Free,
+	// private and overage-funded models can remain available at 100% usage.
+	if owned {
+		current.TempUnschedulableUntil = nil
+		current.TempUnschedulableReason = ""
 	}
-	if exhausted {
-		if latest != nil {
-			until = *latest
-		}
-		current.TempUnschedulableUntil = &until
-		if strings.HasPrefix(current.TempUnschedulableReason, openCodePaymentReason) {
-			current.TempUnschedulableReason = cnQuotaExhaustedReasonPrefix + ": " + current.TempUnschedulableReason
-		} else if !owned {
-			current.TempUnschedulableReason = cnQuotaExhaustedReasonPrefix + ": OpenCode Go usage window exhausted"
-		}
-	} else if recoveredError && !owned {
-		current.TempUnschedulableUntil = &until
-		current.TempUnschedulableReason = openCodePaymentReason + ": key valid; generation capacity requires recheck"
-	} else if owned && complete["5h"] && complete["weekly"] && complete["monthly"] {
-		// A successful key check alone is not proof that generation has funds.
-		// Only a quota-owned pause can be lifted by an available quota snapshot.
-		if strings.HasPrefix(current.TempUnschedulableReason, cnQuotaExhaustedReasonPrefix) {
-			current.TempUnschedulableUntil = nil
-			current.TempUnschedulableReason = ""
-		}
-	}
-	if !exhausted && complete["5h"] && complete["weekly"] && complete["monthly"] {
-		for _, window := range []string{"5h", "weekly", "monthly"} {
-			reset := parseSchedulingResetAt(current.Extra[cnExtraKey(PlatformOpenCodeGo, window+"_reset_at")])
-			if reset != nil && sameQuotaTime(current.RateLimitResetAt, reset) {
-				current.RateLimitedAt, current.RateLimitResetAt = nil, nil
-				break
-			}
+	for _, window := range []string{"5h", "weekly", "monthly"} {
+		reset := parseSchedulingResetAt(current.Extra[cnExtraKey(PlatformOpenCodeGo, window+"_reset_at")])
+		if reset != nil && sameQuotaTime(current.RateLimitResetAt, reset) {
+			current.RateLimitedAt, current.RateLimitResetAt = nil, nil
+			break
 		}
 	}
 }
@@ -115,34 +91,65 @@ func sameQuotaTime(left, right *time.Time) bool {
 	return left == nil && right == nil || left != nil && right != nil && left.Equal(*right)
 }
 
-// A payment response does not invalidate the key. Keep its upstream explanation
-// and block generation until the exhausted window resets, or a bounded recheck.
-func (s *RateLimitService) handleOpenCodePaymentRequired(ctx context.Context, account *Account, message string) {
-	until := time.Now().Add(s.cnBalanceCooldownDuration())
-	reason := openCodePaymentReason + ": " + strings.TrimSpace(message)
-	if reset := openCodeExhaustedQuotaReset(account, time.Now()); reset != nil {
-		until = *reset
-		reason = cnQuotaExhaustedReasonPrefix + ": " + reason
-	}
-	s.setCNProviderTempUnschedulable(ctx, account, until, openCodePaymentReason, reason, "opencode_payment_required")
+// OpenCodeModelQuotaWriter serializes a model failure with identity changes and
+// other failures, retaining a later proven retry time for the same wire model.
+type OpenCodeModelQuotaWriter interface {
+	SetOpenCodeModelQuotaLimit(context.Context, *Account, string, time.Time, string) error
 }
 
-// All exhausted windows must have reset before generation can recover. A zero
-// rolling window must not shorten a monthly exhaustion to the rolling reset.
-func openCodeExhaustedQuotaReset(account *Account, now time.Time) *time.Time {
+// A quota failure proves only that the attempted model cannot currently run.
+func (s *RateLimitService) handleOpenCodeModelQuotaFailure(ctx context.Context, account *Account, headers http.Header, body []byte, reason string) {
+	model := tempUnschedulableModel(ctx, nil)
+	if model == "" || account == nil || s.accountRepo == nil {
+		return // Unknown probe model cannot justify an account-wide pause.
+	}
+	now := time.Now()
+	until := now.Add(s.cnBalanceCooldownDuration()) // default 20-minute recheck, never a snapshot-derived monthly ban
+	if retry := parseRetryAfterResetTime(headers, now); retry != nil && retry.After(now) {
+		until = *retry
+	}
+	if retry := parseOpenAIRateLimitResetTime(body); retry != nil && time.Unix(*retry, 0).After(until) {
+		until = time.Unix(*retry, 0)
+	}
+	if previous := account.modelRateLimitResetAt(model); previous != nil && previous.After(until) {
+		until = *previous
+	}
+	var err error
+	if writer, ok := s.accountRepo.(OpenCodeModelQuotaWriter); ok {
+		err = writer.SetOpenCodeModelQuotaLimit(ctx, account, model, until, reason)
+	} else {
+		err = s.accountRepo.SetModelRateLimit(ctx, account.ID, model, until, reason)
+	}
+	if err != nil {
+		slog.Warn("opencode_model_quota_write_failed", "account_id", account.ID, "model", model, "error", err)
+		return
+	}
+	setAccountModelRateLimitSnapshot(account, model, until, reason, now)
+}
+
+func isOpenCodeUsageLimitFailure(body []byte) bool {
+	message := strings.ToLower(string(body))
+	return strings.Contains(message, "gousagelimiterror") || strings.Contains(message, "usage limit") || strings.Contains(message, "usage_limit") || strings.Contains(message, "quota will reset")
+}
+
+// ClearOpenCodeModelQuotaLimits removes only quota-owned model observations on
+// identity replacement; unrelated operator/model cooldowns retain their reasons.
+func ClearOpenCodeModelQuotaLimits(account *Account) {
 	if account == nil || !account.IsOpenCodeGoPlan() {
-		return nil
+		return
 	}
-	var latest *time.Time
-	for _, window := range []string{"5h", "weekly", "monthly"} {
-		used, ok := cnParseF64(account.Extra[cnExtraKey(PlatformOpenCodeGo, window+"_used_percent")])
-		if !ok || used < 100 {
-			continue
-		}
-		reset := parseSchedulingResetAt(account.Extra[cnExtraKey(PlatformOpenCodeGo, window+"_reset_at")])
-		if reset != nil && reset.After(now) && (latest == nil || reset.After(*latest)) {
-			latest = reset
+	limits, ok := account.Extra[modelRateLimitsKey].(map[string]any)
+	if !ok {
+		return
+	}
+	remaining := make(map[string]any, len(limits))
+	for model, value := range limits {
+		limit, _ := value.(map[string]any)
+		reason, _ := limit["reason"].(string)
+		if !strings.HasPrefix(reason, openCodePaymentReason) && !strings.HasPrefix(reason, "opencode_usage_limit") {
+			remaining[model] = value
 		}
 	}
-	return latest
+	account.Extra = shallowCopyMap(account.Extra)
+	account.Extra[modelRateLimitsKey] = remaining
 }
