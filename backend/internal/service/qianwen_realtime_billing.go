@@ -143,19 +143,68 @@ func QianwenRealtimeBillingSnapshot(ctx context.Context, group *Group, account *
 	return b, nil
 }
 
-// Only the documented Qwen3 character schema is accepted. No elapsed time,
-// guessed PCM duration, text length, token fallback or unknown fields are billed.
+// Qwen3 TTS bills the provider's characters, even when its response.done also
+// carries the documented optional token counters. Those counters are validated
+// as evidence, never converted to characters or added to the character charge.
+// https://www.alibabacloud.com/help/en/model-studio/qwen-tts-realtime-server-events
 func QianwenRealtimeCharacters(raw []byte) (int64, error) {
 	var usage map[string]json.RawMessage
-	if json.Unmarshal(raw, &usage) != nil || len(usage) != 1 {
+	if json.Unmarshal(raw, &usage) != nil || usage == nil {
 		return 0, ErrUpstreamJobUnsupportedUsage
 	}
-	var n int64
-	value, ok := usage["characters"]
-	if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) || json.Unmarshal(value, &n) != nil || n < 0 || n > 2000 {
+	count := func(value json.RawMessage, limit int64) (int64, bool) {
+		var quantity int64
+		valid := !bytes.Equal(bytes.TrimSpace(value), []byte("null")) && json.Unmarshal(value, &quantity) == nil && quantity >= 0 && quantity <= limit
+		return quantity, valid
+	}
+	characters, valid := count(usage["characters"], 2000)
+	if !valid {
 		return 0, ErrUpstreamJobUnsupportedUsage
 	}
-	return n, nil
+	tokens := map[string]int64{}
+	for field, value := range usage {
+		switch field {
+		case "characters", "input_tokens_details", "output_tokens_details":
+		case "input_tokens", "output_tokens", "total_tokens":
+			quantity, valid := count(value, 10000000)
+			if !valid {
+				return 0, ErrUpstreamJobUnsupportedUsage
+			}
+			tokens[field] = quantity
+		default:
+			return 0, ErrUpstreamJobUnsupportedUsage
+		}
+	}
+	for _, direction := range []string{"input", "output"} {
+		value, present := usage[direction+"_tokens_details"]
+		if !present {
+			continue
+		}
+		var details map[string]json.RawMessage
+		if json.Unmarshal(value, &details) != nil || details == nil {
+			return 0, ErrUpstreamJobUnsupportedUsage
+		}
+		sum := int64(0)
+		for modality, value := range details {
+			if modality != "text_tokens" && !(direction == "output" && modality == "audio_tokens") {
+				return 0, ErrUpstreamJobUnsupportedUsage
+			}
+			quantity, valid := count(value, 10000000)
+			if !valid {
+				return 0, ErrUpstreamJobUnsupportedUsage
+			}
+			sum += quantity
+		}
+		if quantity, present := tokens[direction+"_tokens"]; present && quantity != sum {
+			return 0, ErrUpstreamJobUnsupportedUsage
+		}
+	}
+	input, hasInput := tokens["input_tokens"]
+	output, hasOutput := tokens["output_tokens"]
+	if total, present := tokens["total_tokens"]; present && hasInput && hasOutput && total != input+output {
+		return 0, ErrUpstreamJobUnsupportedUsage
+	}
+	return characters, nil
 }
 
 func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
@@ -317,6 +366,9 @@ func (s *UpstreamJobService) RecordQianwenRealtimeTurn(ctx context.Context, sess
 		if _, _, priceErr := QianwenRealtimeCharge(j); errors.Is(priceErr, ErrModelPricingUnavailable) {
 			s.finish(j, "failed", "settlement_needs_review", "Realtime price unavailable; receipt retained for review")
 		}
+	}
+	if j.ErrorCode == "unsupported_usage" {
+		recordJobPricingFailure(j, ErrUpstreamJobUnsupportedUsage)
 	}
 	logJobEvent(ctx, j, "receipt_received")
 	attemptedReceipt := j
