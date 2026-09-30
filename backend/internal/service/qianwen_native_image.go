@@ -7,8 +7,9 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// IsQianwenNativeImageModel is deliberately bounded to the per-image models.
-// New families (including 3.0 with distinct usage units) need their own adapter.
+// IsQianwenNativeImageModel identifies the synchronous per-image wire family.
+// Snapshot/private suffixes do not need catalog metadata to use that protocol.
+// The 3.0 family uses compatible mode with distinct usage units.
 func IsQianwenNativeImageModel(model string) bool {
 	switch model {
 	case "qwen-image", "qwen-image-plus", "qwen-image-max", "qwen-image-max-2025-12-30",
@@ -20,7 +21,7 @@ func IsQianwenNativeImageModel(model string) bool {
 		"qwen-image-edit-max-2026-01-16":
 		return true
 	}
-	return false
+	return strings.HasPrefix(model, "qwen-image-") && !strings.HasPrefix(model, "qwen-image-3.")
 }
 
 // ValidateQianwenNativeOperation must also run after account model mapping.

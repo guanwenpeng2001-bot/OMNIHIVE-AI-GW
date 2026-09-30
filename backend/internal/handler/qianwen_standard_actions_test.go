@@ -171,7 +171,7 @@ func TestQianwenImagesHandlerBridgeWire(t *testing.T) {
 	require.Equal(t, "Bearer sk-sp-test", recorder.lastHeader.Get("Authorization"))
 	require.Equal(t, payload, w.Body.String())
 	for _, body := range []string{
-		`{"model":"qwen-image-2.0","prompt":"a cat"}`,
+		`{"model":"qwen-image-2.0","prompt":" "}`,
 		`{"model":"qwen-image-3.0","prompt":"a cat","n":8}`,
 		`{"model":"qwen-image-3.0","prompt":" "}`,
 		`{"model":"qwen-image-3.0","prompt":"a cat","stream":true}`,
