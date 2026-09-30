@@ -102,3 +102,28 @@ func TestQianwenNativeRealtimeGateDoesNotClaimOtherFamilies(t *testing.T) {
 		require.False(t, (&OpenAIGatewayHandler{}).rejectQianwenNativeRealtime(c), path)
 	}
 }
+
+func TestQianwenRealtimeCompatHandshakeContract(t *testing.T) {
+	for _, test := range []struct {
+		name, query string
+		upgrade     bool
+		status      int
+	}{
+		{"non_websocket", "model=qwen3-asr-flash-realtime", false, 426},
+		{"duplicate_model", "model=qwen3-asr-flash-realtime&model=qwen3-omni-flash-realtime", true, 400},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/realtime?"+test.query, nil)
+			ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, User: &service.User{ID: 1}, Group: &service.Group{Platform: service.PlatformQianwen}})
+			ctx.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 3})
+			if test.upgrade {
+				ctx.Request.Header.Set("Connection", "Upgrade")
+				ctx.Request.Header.Set("Upgrade", "websocket")
+			}
+			(&OpenAIGatewayHandler{}).QianwenRealtimeCompat(ctx)
+			require.Equal(t, test.status, recorder.Code)
+		})
+	}
+}

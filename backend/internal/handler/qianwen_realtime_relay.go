@@ -220,7 +220,7 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 			if err != nil {
 				return err
 			}
-			if job.ChargedUsageLogID == nil {
+			if job.ChargedUsageLogID == nil && job.ErrorCode != "settlement_needs_review" {
 				finishCode = "settlement_pending"
 				if job.Terminal() {
 					finishCode = job.ErrorCode
