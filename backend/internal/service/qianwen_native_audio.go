@@ -116,8 +116,11 @@ func validateQianwenNativeAudioInput(model string, body []byte) error {
 				return fmt.Errorf("unsupported DashScope ASR content part")
 			}
 			if audio := part.Get("audio"); audio.Exists() {
-				if role != "user" || audio.Type != gjson.String || !qianwenAudioHTTPURL(audio.String()) {
-					return fmt.Errorf("DashScope ASR requires an HTTP(S) audio URL in a user message")
+				if role != "user" || audio.Type != gjson.String {
+					return fmt.Errorf("DashScope ASR requires audio in a user message")
+				}
+				if err := validateQianwenAudioSource(audio.String()); err != nil {
+					return err
 				}
 				audioCount++
 			} else if text := part.Get("text"); text.Type != gjson.String || role != "system" {
