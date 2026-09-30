@@ -45,6 +45,21 @@ class SafeError(Exception):
     """Only fixed, non-secret diagnostic messages belong here."""
 
 
+class ConfigDumper(yaml.SafeDumper):
+    """Quote strings explicitly across Python and Go YAML scalar resolvers."""
+
+
+def quoted_string(dumper, value):
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style='"')
+
+
+ConfigDumper.add_representer(str, quoted_string)
+
+
+def serialize_config(config):
+    return yaml.dump(config, Dumper=ConfigDumper, allow_unicode=True, sort_keys=False)
+
+
 def require(condition, message):
     if not condition:
         raise SafeError(message)
@@ -486,7 +501,7 @@ def render(args):
     config, selected = construct(nodes, manifest, args.export_host, dns, hosts)
     _, server = construct(nodes, manifest, args.server_host)
     _, development = construct(nodes, manifest, "127.0.0.1")
-    artifacts = {"config.yaml": yaml.safe_dump(config, allow_unicode=True, sort_keys=False)}
+    artifacts = {"config.yaml": serialize_config(config)}
     for prefix, entries in [("selected", selected), ("server", server), ("development", development)]:
         artifacts[prefix + ".create.json"] = json.dumps(entries, ensure_ascii=False, indent=2) + "\n"
         artifacts[prefix + ".import.json"] = json.dumps({"data": {"proxies": entries, "accounts": []}}, ensure_ascii=False, indent=2) + "\n"

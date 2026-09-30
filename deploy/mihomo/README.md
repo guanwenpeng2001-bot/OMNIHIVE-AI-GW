@@ -49,6 +49,12 @@ files mode 0600 where supported; on Windows set an equivalent private ACL.
 private. A generated `.gitignore` excludes every output. Diagnostics do not
 print URLs, YAML excerpts, credentials, or node names.
 
+Generated YAML explicitly quotes string scalars, including Reality short IDs
+and credentials, so Python and Mihomo's Go YAML parser cannot infer different
+types for values such as `123e0004`. Integers and booleans keep their native
+types. This changes serialization only; input files, transport values, identities,
+deduplication and port allocations are unchanged.
+
 | Output | Purpose |
 | --- | --- |
 | `config.yaml` | Secret runtime config with one HTTP listener per node |
