@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -59,10 +61,13 @@ func (s *OpenAIGatewayService) qianwenNativeAudioPrice(ctx context.Context, key 
 }
 
 func isQianwenNativeAudioResult(result *OpenAIForwardResult) bool {
-	return result != nil && result.AudioUsage != nil && strings.HasSuffix(result.UpstreamEndpoint, "/services/aigc/multimodal-generation/generation") && qianwenNativeAudioMode(result.UpstreamModel) != ""
+	return result != nil && (result.AudioUsage != nil || result.AudioUsageUnresolved) && strings.HasSuffix(result.UpstreamEndpoint, "/services/aigc/multimodal-generation/generation") && qianwenNativeAudioMode(result.UpstreamModel) != ""
 }
 
 func (s *OpenAIGatewayService) calculateQianwenNativeAudioCost(ctx context.Context, result *OpenAIForwardResult, key *APIKey, multiplier float64) (*CostBreakdown, error) {
+	if result.AudioUsageUnresolved {
+		return nil, fmt.Errorf("%w: DashScope ASR duration requires review", ErrUpstreamJobUnsupportedUsage)
+	}
 	cfg, err := s.qianwenNativeAudioPrice(ctx, key, result.UpstreamModel)
 	if err != nil {
 		return nil, err
@@ -83,7 +88,7 @@ func (s *OpenAIGatewayService) calculateQianwenNativeAudioCost(ctx context.Conte
 // usage row is auditable without pretending that characters/seconds are tokens.
 // A future dedicated audio schema can migrate these versioned labels losslessly.
 func recordQianwenNativeAudioUnits(log *UsageLog, result *OpenAIForwardResult) {
-	if !isQianwenNativeAudioResult(result) {
+	if !isQianwenNativeAudioResult(result) || result.AudioUsage == nil {
 		return
 	}
 	field, scale := "seconds", 3600.0
@@ -105,4 +110,55 @@ func QianwenNativeAudioAuditText(body []byte) (string, bool) {
 		return "", false
 	}
 	return gjson.GetBytes(body, "input.text").String(), true
+}
+
+// A completed ASR response with unbillable duration must have a durable review
+// receipt before either the native JSON or standard transcript is committed.
+// Reuse the existing settlement state and request-plan producer claim; do not
+// let the ordinary queued recorder turn missing units into text-token billing.
+func (gateway *OpenAIGatewayService) recordQianwenASRUnresolved(ctx context.Context, result *OpenAIForwardResult, key *APIKey, account *Account, body []byte) error {
+	if gateway == nil || gateway.usageSettlement == nil || gateway.usageSettlement.repo == nil || key == nil || account == nil {
+		return errors.New("DashScope ASR review settlement unavailable")
+	}
+	usage := gjson.GetBytes(canonicalQianwenAudioBody(body), "usage")
+	rawUsage := json.RawMessage(usage.Raw)
+	if len(rawUsage) == 0 {
+		rawUsage = json.RawMessage("null")
+	}
+	seconds := usage.Get("seconds")
+	reason := "invalid_duration"
+	if !seconds.Exists() {
+		reason = "missing_duration"
+	} else if seconds.Type == gjson.Number && seconds.Float() == 0 {
+		reason = "zero_duration"
+	}
+	evidence, err := json.Marshal(struct {
+		Reason         string          `json:"reason"`
+		SecondsPresent bool            `json:"seconds_present"`
+		Usage          json.RawMessage `json:"usage"`
+	}{Reason: reason, SecondsPresent: seconds.Exists(), Usage: rawUsage})
+	if err != nil {
+		return err
+	}
+	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
+	requestedModel := result.Model
+	if original, present := RequestedPublicModelFromContext(ctx); present {
+		requestedModel = original
+	}
+	receipt := &UsageSettlementReceipt{
+		Key:     UsageSettlementKey{RequestID: requestID, UserID: key.UserID, APIKeyID: key.ID},
+		Command: UsageBillingCommand{RequestID: requestID, UserID: key.UserID, APIKeyID: key.ID, AccountID: account.ID, AccountType: account.Type, Model: result.Model, MediaType: "audio", RequestPayloadHash: HashUsageRequestPayload(evidence)},
+		Usage: UsageLog{RequestID: requestID, UserID: key.UserID, APIKeyID: key.ID, AccountID: account.ID, GroupID: key.GroupID, Model: result.Model, RequestedModel: requestedModel,
+			UpstreamModel: optionalTrimmedStringPtr(result.UpstreamModel), UpstreamResponseModel: optionalTrimmedStringPtr(result.UpstreamResponseModel),
+			PricingState: PricingStateError, PricingSnapshot: string(evidence)},
+		ResolutionState: "unresolved", CompletionState: "complete",
+	}
+	err = gateway.usageSettlement.Submit(ctx, receipt, nil)
+	if err != nil && !errors.Is(err, ErrUsageSettlementNeedsReview) {
+		return err
+	}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		plan.Record()
+	}
+	return nil
 }
