@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -93,7 +94,7 @@ func (service *AccountTestService) probeTestCursorAccountConnection(requestConte
 		if modelID == "" {
 			models, err := gateway.AvailableModels(ctx, account)
 			if err != nil {
-				return service.sendErrorAndEnd(requestContext, "Cursor relay model probe failed")
+				return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "relay model", err))
 			}
 			modelID = models[0]
 		}
@@ -110,24 +111,33 @@ func (service *AccountTestService) probeTestCursorAccountConnection(requestConte
 				} `json:"message"`
 			} `json:"choices"`
 		}
-		if err != nil || json.Unmarshal(recorder.Body.Bytes(), &response) != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
-			return service.sendErrorAndEnd(requestContext, "Cursor relay conversation probe failed")
+		if err != nil {
+			return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "relay conversation", err))
+		}
+		if json.Unmarshal(recorder.Body.Bytes(), &response) != nil {
+			return service.sendErrorAndEnd(requestContext, "Cursor relay conversation probe failed: invalid response")
+		}
+		if len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
+			return service.sendErrorAndEnd(requestContext, "Cursor relay conversation probe failed: no text returned")
 		}
 	} else {
 		// Share the native account lock with gateway requests, including probes.
 		release, err := gateway.acquireNativeSlot(ctx, account)
 		if err != nil {
-			return service.sendErrorAndEnd(requestContext, "Cursor probe canceled")
+			return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "native slot", err))
 		}
 		defer release()
 		token, err := gateway.sessions.GetSessionToken(ctx, account, "")
 		if err != nil {
-			return service.sendErrorAndEnd(requestContext, "Cursor exchange/authentication probe failed")
+			return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "exchange/authentication", err))
 		}
 		credentials := gateway.credentials(ctx, account, token)
 		models, err := gateway.native.AvailableModels(ctx, credentials)
-		if err != nil || len(models) == 0 {
-			return service.sendErrorAndEnd(requestContext, "Cursor picker probe failed")
+		if err != nil {
+			return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "picker", err))
+		}
+		if len(models) == 0 {
+			return service.sendErrorAndEnd(requestContext, "Cursor picker probe failed: empty model catalog")
 		}
 		if modelID == "" {
 			modelID = models[0].ID
@@ -141,10 +151,46 @@ func (service *AccountTestService) probeTestCursorAccountConnection(requestConte
 			textReceived = textReceived || (event.Type == "text" && event.Text != "")
 			return nil
 		})
-		if err != nil || !textReceived {
-			return service.sendErrorAndEnd(requestContext, "Cursor Run/protocol probe failed")
+		if err != nil {
+			return service.sendErrorAndEnd(requestContext, cursorProbeFailure(ctx, "Run/protocol", err))
+		}
+		if !textReceived {
+			return service.sendErrorAndEnd(requestContext, "Cursor Run/protocol probe failed: stream completed without text")
 		}
 	}
 	service.sendEvent(requestContext, TestEvent{Type: "test_complete", Success: true})
 	return nil
+}
+
+// Only typed status and allowlisted protocol codes are safe for public probe events.
+// Error messages (including Connect messages and unrecognized codes) may contain secrets.
+func cursorProbeFailure(ctx context.Context, phase string, err error) string {
+	prefix := "Cursor " + phase + " probe failed: "
+	if errors.Is(err, context.Canceled) {
+		return prefix + "canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return prefix + "deadline exceeded"
+	}
+	var httpError *cursor.HTTPError
+	if errors.As(err, &httpError) && httpError != nil {
+		return fmt.Sprintf("%supstream HTTP %d", prefix, httpError.Status)
+	}
+	var connectError *cursor.ConnectError
+	if errors.As(err, &connectError) && connectError != nil {
+		switch connectError.Code {
+		case "canceled", "unknown", "invalid_argument", "deadline_exceeded", "not_found",
+			"already_exists", "permission_denied", "resource_exhausted", "failed_precondition",
+			"aborted", "out_of_range", "unimplemented", "internal", "unavailable", "data_loss", "unauthenticated":
+			return prefix + "Connect code " + connectError.Code
+		}
+	}
+	// Some client transport paths intentionally discard the original error.
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return prefix + "canceled"
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return prefix + "deadline exceeded"
+	}
+	return prefix + "unclassified upstream or protocol error"
 }
