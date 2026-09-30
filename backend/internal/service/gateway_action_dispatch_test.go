@@ -115,6 +115,13 @@ func TestGatewayInputAdmissionResolvesOnlyRequestedModel(t *testing.T) {
 	}
 	account := catalogEvidenceAccount(1, PlatformOpenAI, models...)
 	account.GroupIDs = []int64{9}
+	// Composite ownership comes from saved account mappings in the scoped
+	// catalog, rather than the separate resolver callback below.
+	mapping := make(map[string]string, len(models))
+	for _, model := range models {
+		mapping[model] = model
+	}
+	account.Credentials["model_mapping"] = mapping
 	disabled := false
 	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
 		models[0]: {ProviderProfile: resolveCapabilityProfile(&account), SupportsVision: &disabled},
@@ -133,10 +140,17 @@ func TestGatewayInputAdmissionResolvesOnlyRequestedModel(t *testing.T) {
 	_, metadata, err := gateway.VisibleModelsWithMetadata(context.Background(), &group.ID, group.Platform)
 	require.NoError(t, err)
 	require.Len(t, metadata, len(models))
-	require.Len(t, ownershipQueries, len(models), "full lists still resolve every public model")
-	queriesPerModel := ownershipQueries[models[0]]
-	require.Positive(t, queriesPerModel)
-	clear(ownershipQueries)
+	require.Empty(t, ownershipQueries, "full lists derive ownership from the same scoped catalog snapshot")
+	require.Equal(t, 1, reads, "full lists load candidate accounts once, not once per model")
+	reads = 0
+	scopedMetadata := make(map[string][]UpstreamModelMetadata)
+	view, err := (&VisibleModelResolver{gateway: gateway}).resolveScoped(context.Background(), &group.ID, group.Platform, scopedMetadata, &models[0])
+	require.NoError(t, err)
+	require.Equal(t, []string{models[0]}, view.Models)
+	require.Len(t, scopedMetadata, 1, "requested-model resolution must not project unrelated models")
+	require.Equal(t, metadata[models[0]], scopedMetadata[models[0]], "scoped resolution preserves the full catalog's evidence")
+	require.Equal(t, 1, reads, "scoped resolution loads candidate accounts once")
+	require.Empty(t, ownershipQueries, "scoped resolution must not issue separate ownership queries")
 	reads = 0
 	router := gin.New()
 	router.POST("/chat/completions", func(requestContext *gin.Context) {

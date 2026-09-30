@@ -137,6 +137,9 @@ func commandCodeProviderError(status int, body []byte) (CommandCodeErrorKind, bo
 	errorType := commandCodeUpstreamErrorType(body)
 	switch status {
 	case http.StatusBadRequest:
+		if isCommandCodeCreditExhausted(status, body) {
+			return CommandCodeErrorKind{Code: code, Type: errorType, ClientMessage: commandCodeCreditExhaustedMessage}, true
+		}
 		if upperCode == "UNSUPPORTED_MODEL" {
 			return CommandCodeErrorKind{Code: code, Type: errorType, ClientMessage: "The requested model is not in the Command Code catalog"}, true
 		}

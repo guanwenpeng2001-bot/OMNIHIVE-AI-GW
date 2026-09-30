@@ -148,7 +148,7 @@ func TestAccountModelCatalogTextPlatformProtocols(t *testing.T) {
 		{"qianwen responses", PlatformQianwen, AccountTypeAPIKey, APIProtocolResponses, []string{"responses"}},
 		{"qianwen adaptive", PlatformQianwen, AccountTypeAPIKey, APIProtocolAdaptive, []string{"chat_completions", "messages", "responses"}},
 		{"grok key", PlatformGrok, AccountTypeAPIKey, "", []string{"chat_completions"}},
-		{"grok oauth", PlatformGrok, AccountTypeOAuth, "", []string{"chat_completions"}},
+		{"grok oauth", PlatformGrok, AccountTypeOAuth, "", []string{"chat_completions", "responses"}},
 		{"openai key", PlatformOpenAI, AccountTypeAPIKey, "", []string{"chat_completions"}},
 		{"openai oauth", PlatformOpenAI, AccountTypeOAuth, "", []string{"responses"}},
 		{"gemini requires methods", PlatformGemini, AccountTypeAPIKey, "", []string{}},
