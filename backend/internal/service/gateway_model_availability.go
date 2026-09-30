@@ -18,8 +18,8 @@ type ModelAvailabilityDiagnosis struct {
 	// eligible account on the queried platform (or, for Anthropic/Gemini, on
 	// the platform plus mixed-scheduled Antigravity accounts).
 	HasAccountsInPool bool
-	// HasModelSupport is true if at least one account's model mapping admits
-	// the requested model.
+	// HasModelSupport is true if at least one account's static model mapping
+	// and explicit model scope admit the requested model.
 	HasModelSupport bool
 }
 
@@ -102,10 +102,35 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 			continue
 		}
 		diag.HasAccountsInPool = true
-		if s.isModelSupportedByAccountWithContext(ctx, &accounts[i], requestedModel) {
+		// A live request plan must not turn diagnosis into full admission:
+		// expiry, runtime state and missing capability evidence are not a
+		// persistent model exclusion. Only the saved mapping and scope apply.
+		if s.isModelSupportedByAccount(&accounts[i], requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
 			diag.HasModelSupport = true
 			return diag
 		}
 	}
 	return diag
+}
+
+// accountModelScopeAllowsDiagnosis checks only an explicit account restriction.
+// Reuse the forwarding name resolver so scope members are compared with the
+// wire target, not the public alias. Do not require refreshed capability facts,
+// load parent credentials, or call full binding: temporary failures stay 503/429.
+func accountModelScopeAllowsDiagnosis(ctx context.Context, account *Account, requestedModel string) bool {
+	var scope AccountModelAllowlist
+	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+	if !scope.Enabled {
+		return true
+	}
+	model, resolved := computeAccountBindingModel(ctx, account, requestedModel, AccountModelBindingOptions{})
+	if !resolved {
+		return false
+	}
+	for _, allowed := range scope.Models {
+		if normalizeAccountBindingWireModel(account, allowed) == model {
+			return true
+		}
+	}
+	return false
 }
