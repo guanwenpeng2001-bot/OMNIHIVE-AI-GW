@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -17,6 +18,93 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+// Runs both real retry loops against in-process responses, without a live upstream.
+func forwardCompactObservationRetry(t *testing.T, passthrough, stream, httpFailure bool, requestedModel, fallbackModel, createdModel, responseModel string) *OpenAIForwardResult {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":` + strconv.Quote(requestedModel) + `,"stream":` + strconv.FormatBool(stream) + `,"instructions":"compact-test","input":[{"type":"compaction_trigger"}]}`)
+	c := newOpenAICompactFallbackTestContext(t, "/v1/responses")
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	MarkOpenAINativeCompactionV2(c)
+	frame := func(event string, response map[string]any) string {
+		payload, err := json.Marshal(map[string]any{"type": event, "response": response})
+		require.NoError(t, err)
+		return "event: " + event + "\ndata: " + string(payload) + "\n\n"
+	}
+	failedResponse := map[string]any{"model": requestedModel, "status": "failed", "service_tier": "priority", "error": map[string]any{"code": "context_length_exceeded", "message": "context window exceeded"}}
+	failedBody := frame("response.failed", failedResponse)
+	if stream {
+		failedBody = frame("response.created", map[string]any{"model": requestedModel}) + failedBody
+	}
+	status, contentType := http.StatusOK, "text/event-stream"
+	if httpFailure {
+		status, contentType = http.StatusBadRequest, "application/json"
+		payload, err := json.Marshal(failedResponse)
+		require.NoError(t, err)
+		failedBody = string(payload)
+	}
+	completed := map[string]any{"id": "resp_compact", "status": "completed", "output": []any{}, "usage": map[string]any{"input_tokens": 20, "output_tokens": 10}}
+	if responseModel != "" {
+		completed["model"] = responseModel
+	}
+	completedPayload, err := json.Marshal(completed)
+	require.NoError(t, err)
+	successBody, successType := string(completedPayload), "application/json"
+	if stream {
+		successBody, successType = frame("response.completed", completed), "text/event-stream"
+		if createdModel != "" {
+			successBody = frame("response.created", map[string]any{"model": createdModel}) + successBody
+		}
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: status, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(failedBody))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{successType}}, Body: io.NopCloser(strings.NewReader(successBody))},
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: fallbackModel}}, httpUpstream: upstream}
+	account := &Account{ID: 1, Name: "compact-observation", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token", "chatgpt_account_id": "test-account"}, Status: StatusActive, Schedulable: true}
+	if passthrough {
+		account.Type = AccountTypeAPIKey
+		account.Credentials = map[string]any{"api_key": "test-key", "base_url": "https://upstream.example"}
+		account.Extra = map[string]any{"openai_passthrough": true}
+	}
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 2)
+	require.Equal(t, requestedModel, gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, fallbackModel, gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, requestedModel, result.Model)
+	require.Equal(t, fallbackModel, result.UpstreamModel)
+	require.Empty(t, result.UpstreamResponseServiceTier, "failed attempt tier must not leak into successful attempt")
+	return result
+}
+
+func TestCompactRetryObservationIsolation(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, scenario := range []struct {
+			name                string
+			stream, httpFailure bool
+			created, response   string
+			conflict            bool
+		}{
+			{name: "R1_stream", stream: true, created: "gpt-5.4", response: "gpt-5.4"},
+			{name: "R2_failed_sse_then_json", response: "gpt-5.4"},
+			{name: "R3_http_error_then_stream", stream: true, httpFailure: true, created: "gpt-5.4", response: "gpt-5.4"},
+			{name: "missing_final_declaration"},
+			{name: "missing_final_stream_declaration", stream: true},
+			{name: "final_attempt_conflict", stream: true, created: "gpt-5.5", response: "gpt-5.4", conflict: true},
+		} {
+			t.Run("passthrough="+strconv.FormatBool(passthrough)+"/"+scenario.name, func(t *testing.T) {
+				result := forwardCompactObservationRetry(t, passthrough, scenario.stream, scenario.httpFailure, "gpt-5.5", "gpt-5.4", scenario.created, scenario.response)
+				require.Equal(t, scenario.response, result.UpstreamResponseModel)
+				require.Equal(t, scenario.conflict, result.UpstreamResponseModelConflict)
+			})
+		}
+	}
+}
 
 func newOpenAICompactFallbackTestContext(t *testing.T, path string) *gin.Context {
 	t.Helper()

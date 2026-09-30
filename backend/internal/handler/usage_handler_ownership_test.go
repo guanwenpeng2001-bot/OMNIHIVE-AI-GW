@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,7 +19,14 @@ type ownedUsageRepository struct {
 
 func (s *ownedUsageRepository) GetByID(_ context.Context, id int64) (*service.UsageLog, error) {
 	if id == 7 {
-		return &service.UsageLog{ID: id, UserID: 99}, nil
+		responseModel := "foreign-declared-model"
+		return &service.UsageLog{ID: id, UserID: 99, UpstreamResponseModel: &responseModel}, nil
+	}
+	if id == 9 {
+		responseModel, sentModel := "declared-model", "private-mapped-model"
+		mismatch := true
+		return &service.UsageLog{ID: id, UserID: 42, Model: sentModel, RequestedModel: "requested-model",
+			UpstreamModel: &sentModel, UpstreamResponseModel: &responseModel, UpstreamModelMismatch: &mismatch}, nil
 	}
 	return nil, service.ErrUsageLogNotFound
 }
@@ -51,6 +59,19 @@ func TestUsageOwnershipHidesResourceExistence(t *testing.T) {
 			require.Equal(t, missing.Code, foreign.Code)
 			require.JSONEq(t, missing.Body.String(), foreign.Body.String())
 		})
+	}
+	owned := httptest.NewRecorder()
+	router.ServeHTTP(owned, httptest.NewRequest(http.MethodGet, "/usage/9", nil))
+	require.Equal(t, http.StatusOK, owned.Code)
+	var envelope struct {
+		Data map[string]any `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(owned.Body.Bytes(), &envelope))
+	require.Equal(t, "requested-model", envelope.Data["model"])
+	require.Equal(t, "declared-model", envelope.Data["upstream_response_model"])
+	require.Equal(t, true, envelope.Data["upstream_model_mismatch"])
+	for _, field := range []string{"upstream_model", "account", "account_rate_multiplier", "model_mapping_chain"} {
+		require.NotContains(t, envelope.Data, field)
 	}
 }
 

@@ -127,7 +127,7 @@ func TestUsageLogFromService_IncludesServiceTierForUserAndAdmin(t *testing.T) {
 	require.InDelta(t, 1.5, *adminDTO.AccountRateMultiplier, 1e-12)
 }
 
-func TestUsageLogFromService_UsesRequestedModelAndKeepsUpstreamAdminOnly(t *testing.T) {
+func TestUsageLogFromService_UsesRequestedModelAndKeepsSentModelAdminOnly(t *testing.T) {
 	t.Parallel()
 
 	upstreamModel := "claude-sonnet-4-20250514"
@@ -150,15 +150,44 @@ func TestUsageLogFromService_UsesRequestedModelAndKeepsUpstreamAdminOnly(t *test
 
 	userJSON, err := json.Marshal(userDTO)
 	require.NoError(t, err)
-	require.NotContains(t, string(userJSON), "upstream_model")
-	require.NotContains(t, string(userJSON), "upstream_response_model")
-	require.NotContains(t, string(userJSON), "upstream_model_mismatch")
+	require.NotContains(t, string(userJSON), `"upstream_model":`)
+	require.Contains(t, string(userJSON), `"upstream_response_model":"claude-sonnet-4-20250513"`)
+	require.Contains(t, string(userJSON), `"upstream_model_mismatch":true`)
 
 	adminJSON, err := json.Marshal(adminDTO)
 	require.NoError(t, err)
 	require.Contains(t, string(adminJSON), `"upstream_model":"claude-sonnet-4-20250514"`)
 	require.Contains(t, string(adminJSON), `"upstream_response_model":"claude-sonnet-4-20250513"`)
 	require.Contains(t, string(adminJSON), `"upstream_model_mismatch":true`)
+}
+
+func TestUsageLogFromService_ResponseObservationUnknownAndFalse(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"upstream_response_model":null,"upstream_model_mismatch":null}`} {
+		var decoded UsageLog
+		require.NoError(t, json.Unmarshal([]byte(raw), &decoded))
+		require.Nil(t, decoded.UpstreamResponseModel)
+		require.Nil(t, decoded.UpstreamModelMismatch)
+	}
+	for _, declared := range []*string{nil, stringPtr("requested-model")} {
+		log := &service.UsageLog{Model: "requested-model", UpstreamResponseModel: declared}
+		if declared != nil {
+			matched := false
+			log.UpstreamModelMismatch = &matched
+		}
+		for _, mapped := range []any{UsageLogFromService(log), UsageLogFromServiceAdmin(log)} {
+			payload, err := json.Marshal(mapped)
+			require.NoError(t, err)
+			var fields map[string]any
+			require.NoError(t, json.Unmarshal(payload, &fields))
+			if declared == nil {
+				require.NotContains(t, fields, "upstream_response_model")
+				require.NotContains(t, fields, "upstream_model_mismatch")
+			} else {
+				require.Equal(t, *declared, fields["upstream_response_model"])
+				require.Equal(t, false, fields["upstream_model_mismatch"])
+			}
+		}
+	}
 }
 
 func TestUsageLogFromService_KeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) {

@@ -1169,6 +1169,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					"[OpenAI] Retrying explicit compact request once with fallback model (account: %s, from: %s, to: %s, upstream_code: %s)",
 					account.Name, fromModel, fallbackModel, upstreamCode,
 				)
+				beginUpstreamResponseModelObservation(c)
 				continue
 			}
 			if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
@@ -1240,6 +1241,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						upstreamModel = fallbackModel
 						compactModelFallbackRetried = true
 						SetOpsUpstreamModel(c, fallbackModel)
+						beginUpstreamResponseModelObservation(c)
 						continue
 					}
 					if resp.Body != nil {
@@ -1302,6 +1304,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						upstreamModel = fallbackModel
 						compactModelFallbackRetried = true
 						SetOpsUpstreamModel(c, fallbackModel)
+						beginUpstreamResponseModelObservation(c)
 						continue
 					}
 				}

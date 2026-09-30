@@ -96,26 +96,28 @@ func TestUserUsageExportScopesToTheAuthenticatedOwner(t *testing.T) {
 
 func TestUserUsageExportStreamsOwnerColumnsOnly(t *testing.T) {
 	userAgent := "Mozilla/5.0"
+	responseModel := "declared-model"
 	repo := &userUsageExportRepo{logs: []service.UsageLog{{
-		ID:              3,
-		UserID:          42,
-		APIKeyID:        5,
-		RequestID:       "req-9",
-		Model:           "gpt-5.1",
-		InputTokens:     11,
-		OutputTokens:    4,
-		TotalCost:       0.25,
-		ActualCost:      0.2,
-		RateMultiplier:  1,
-		RequestType:     service.RequestTypeStream,
-		UserAgent:       &userAgent,
-		CreatedAt:       time.Date(2026, 9, 22, 3, 0, 0, 0, time.UTC),
-		APIKey:          &service.APIKey{ID: 5, Name: "primary"},
-		BillingEvidence: nil,
+		ID:                    3,
+		UserID:                42,
+		APIKeyID:              5,
+		RequestID:             "req-9",
+		Model:                 "gpt-5.1",
+		UpstreamResponseModel: &responseModel,
+		InputTokens:           11,
+		OutputTokens:          4,
+		TotalCost:             0.25,
+		ActualCost:            0.2,
+		RateMultiplier:        1,
+		RequestType:           service.RequestTypeStream,
+		UserAgent:             &userAgent,
+		CreatedAt:             time.Date(2026, 9, 22, 3, 0, 0, 0, time.UTC),
+		APIKey:                &service.APIKey{ID: 5, Name: "primary"},
+		BillingEvidence:       nil,
 	}}}
 	router := newUserUsageExportRouter(repo, 42)
 
-	req := httptest.NewRequest(http.MethodGet, "/usage/export?start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	req := httptest.NewRequest(http.MethodGet, "/usage/export?user_id=7&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -127,8 +129,10 @@ func TestUserUsageExportStreamsOwnerColumnsOnly(t *testing.T) {
 	require.Equal(t, dto.UsageExportColumns(dto.UsageExportScopeSelf), records[0])
 	require.Len(t, records, 2)
 	require.Equal(t, "primary", records[1][1])
-	require.Equal(t, "0.20000000", records[1][13])
-	require.Equal(t, "0.25000000", records[1][14])
+	require.Equal(t, int64(42), repo.filters.UserID)
+	require.Equal(t, "declared-model", records[1][3])
+	require.Equal(t, "0.20000000", records[1][14])
+	require.Equal(t, "0.25000000", records[1][15])
 	require.NotContains(t, rec.Body.String(), "owner@example.com")
 	require.NotContains(t, rec.Body.String(), "account_billed_cost")
 }
