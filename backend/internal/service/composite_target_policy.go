@@ -234,6 +234,29 @@ func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, 
 	return false
 }
 
+// CompositeTargetForwardModel applies an explicit target before channel mapping.
+// An empty target falls back to the channel or public request, never a previous
+// target's model left in the inbound body or resolved context. Account mapping
+// remains the forwarder's responsibility; mapping attribution is not changed.
+func CompositeTargetForwardModel(ctx context.Context, target *CompositeRouteTarget, mapping ChannelMappingResult, requestedModel string) string {
+	if target != nil {
+		if model := strings.TrimSpace(target.UpstreamModel); model != "" {
+			return model
+		}
+	}
+	if mapping.Mapped {
+		if model := strings.TrimSpace(mapping.MappedModel); model != "" {
+			return model
+		}
+	}
+	if target != nil {
+		if model, ok := RequestedPublicModelFromContext(ctx); ok {
+			return model
+		}
+	}
+	return requestedModel
+}
+
 // WithCompositeTargetSelectionContext re-points the composite decision on the
 // context at one ordered target and applies its affinity TTL, so a trunk that
 // receives the platform as a parameter schedules and binds the session for
