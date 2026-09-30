@@ -382,6 +382,7 @@ export default {
 
   // Usage
   usage: {
+    pending: { title: 'Pending pricing', description: 'Recorded requests and partial realtime turns awaiting pricing. Amounts are unknown and are not included in settled usage totals. Filters: date, requested model and API key.', refresh: 'Refresh', loadError: 'Could not load pending requests', pricingError: 'Pricing error', amount: 'Amount', unknown: 'Unknown — awaiting pricing', tokens: 'Input / output tokens', requestId: 'Request ID', state: 'Settlement state', more: 'Load more', loading: 'Loading pending requests…', empty: 'No requests awaiting pricing' },
     evidence: {
   "title": "Billing evidence",
   "unknown": "Unknown",

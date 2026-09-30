@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import UsageView from '../UsageView.vue'
+
+vi.mock('@/api/pendingSettlement', () => ({
+  listPendingSettlement: vi.fn(async () => ({ items: [], total: 0, next_cursor: 0 })),
+}))
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 

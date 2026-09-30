@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -275,4 +277,79 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 	}
 	receipt.State, receipt.UsageLogID = service.UsageSettlementSettled, &receipt.Usage.ID
 	return result, nil
+}
+
+// ListUserPendingSettlement projects unresolved receipts without creating usage rows.
+func (r *usageSettlementReceiptRepository) ListUserPendingSettlement(ctx context.Context, userID int64, filter usagestats.UsageLogFilters, cursor service.UserPendingSettlementCursor) (*service.UserPendingSettlementPage, error) {
+	if userID <= 0 {
+		return nil, service.ErrUsageLogNotFound
+	}
+	if cursor.Limit <= 0 {
+		cursor.Limit = 20
+	}
+	if cursor.Limit > 100 {
+		cursor.Limit = 100
+	}
+	table, columns, modelColumn, timeColumn := "usage_settlement_receipts", usageSettlementColumns, "usage_json->>'RequestedModel'", "created_at"
+	conditions := []string{"user_id=$1", "state='needs_review'", "usage_log_id IS NULL"}
+	if cursor.Source == "upstream_job" {
+		table, columns, modelColumn, timeColumn = "upstream_jobs", "row_to_json(upstream_jobs)", "billing_snapshot->>'requested_model'", "submitted_at"
+		conditions = []string{"user_id=$1", "family='realtime_turn'", "charged_usage_log_id IS NULL", "billing_snapshot->>'pricing_state' IN ('unpriced','error')", "error_code IN ('settlement_needs_review','unsupported_usage')", "result_ref IN ('completed','cancelled','canceled','incomplete','failed')", "jsonb_typeof(usage_json)='object'", "usage_json <> '{}'::jsonb"}
+	}
+	args := []any{userID}
+	add := func(condition string, value any) {
+		args = append(args, value)
+		conditions = append(conditions, fmt.Sprintf(condition, len(args)))
+	}
+	if filter.APIKeyID > 0 {
+		add("api_key_id=$%d", filter.APIKeyID)
+	}
+	if filter.Model != "" {
+		add(modelColumn+"=$%d", filter.Model)
+	}
+	if filter.StartTime != nil {
+		add(timeColumn+" >= $%d", *filter.StartTime)
+	}
+	if filter.EndTime != nil {
+		add(timeColumn+" < $%d", *filter.EndTime)
+	}
+	page := &service.UserPendingSettlementPage{Items: []*service.UserPendingSettlementItem{}}
+	if err := r.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE "+strings.Join(conditions, " AND "), args...).Scan(&page.Total); err != nil {
+		return nil, err
+	}
+	if cursor.BeforeID > 0 {
+		add("id < $%d", cursor.BeforeID)
+	}
+	args = append(args, cursor.Limit+1)
+	rows, err := r.db.QueryContext(ctx, "SELECT "+columns+" FROM "+table+" WHERE "+strings.Join(conditions, " AND ")+fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var receipt *service.UserPendingSettlementItem
+		var err error
+		if cursor.Source == "upstream_job" {
+			var raw []byte
+			err = rows.Scan(&raw)
+			if err == nil {
+				receipt, err = service.PendingSettlementFromRealtimeJSON(raw)
+			}
+		} else {
+			var stored *service.UsageSettlementReceipt
+			stored, err = scanUsageSettlement(rows)
+			if err == nil {
+				receipt = service.PendingSettlementFromReceipt(stored)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(page.Items) == cursor.Limit {
+			page.NextCursor = page.Items[len(page.Items)-1].ID
+			break
+		}
+		page.Items = append(page.Items, receipt)
+	}
+	return page, rows.Err()
 }

@@ -230,6 +230,41 @@ func derefTime(value *time.Time) time.Time {
 	return *value
 }
 
+// ListPendingSettlement returns receipt facts scoped to the authenticated user.
+func (h *UsageHandler) ListPendingSettlement(c *gin.Context) {
+	parsed, ok := h.parseUserUsageFilters(c, false)
+	if !ok {
+		return
+	}
+	cursor, err := strconv.ParseInt(c.DefaultQuery("cursor", "0"), 10, 64)
+	if err != nil || cursor < 0 {
+		response.BadRequest(c, "Invalid cursor")
+		return
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if err != nil || limit <= 0 {
+		response.BadRequest(c, "Invalid page_size")
+		return
+	}
+	source := c.DefaultQuery("source", "receipt")
+	if source != "receipt" && source != "upstream_job" {
+		response.BadRequest(c, "Invalid source")
+		return
+	}
+	page, err := h.usageService.ListUserPendingSettlement(c.Request.Context(), parsed.Filters.UserID, parsed.Filters, service.UserPendingSettlementCursor{Source: source, BeforeID: cursor, Limit: limit})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	items := make([]dto.UserPendingSettlement, 0, len(page.Items))
+	for _, receipt := range page.Items {
+		item := dto.UserPendingSettlementFromService(receipt)
+		item.Source = source
+		items = append(items, item)
+	}
+	response.Success(c, gin.H{"items": items, "total": page.Total, "next_cursor": page.NextCursor, "source": source})
+}
+
 // List handles listing usage records with pagination
 // GET /api/v1/usage
 func (h *UsageHandler) List(c *gin.Context) {

@@ -2,6 +2,9 @@ package repository
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -57,4 +60,12 @@ func (repository *usageSettlementReceiptRepository) SettlementStatus(ctx context
 		status.HistoricalItems = append(status.HistoricalItems, item)
 	}
 	return status, history.Err()
+}
+
+// Reuse the existing user usage repository connection for the read-only projection.
+func (r *usageLogRepository) ListUserPendingSettlement(ctx context.Context, userID int64, filter usagestats.UsageLogFilters, cursor service.UserPendingSettlementCursor) (*service.UserPendingSettlementPage, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("pending settlement database unavailable")
+	}
+	return (&usageSettlementReceiptRepository{db: r.db}).ListUserPendingSettlement(ctx, userID, filter, cursor)
 }
