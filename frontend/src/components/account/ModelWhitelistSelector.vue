@@ -80,7 +80,7 @@
           >
             <span class="flex min-w-0 items-center gap-1">
               <ModelIcon :model="model" size="14px" />
-              <span class="break-all">{{ model }}<small class="block">{{ modelSource(model) }}</small></span>
+              <span class="min-w-0 break-all">{{ modelDisplayName(model) }}<small v-if="modelDisplayName(model) !== model" class="block text-secondary">{{ model }}</small><small class="block">{{ modelSource(model) }}</small></span>
             </span>
             <button
               type="button"
@@ -150,7 +150,7 @@
                   </svg>
                 </span>
                 <ModelIcon :model="model.value" size="18px" />
-                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ model.value }}<small class="block text-xs text-secondary">{{ modelSource(model.value) }}</small></span>
+                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ modelDisplayName(model.value) }}<small v-if="modelDisplayName(model.value) !== model.value" class="block text-xs text-secondary">{{ model.value }}</small><small class="block text-xs text-secondary">{{ modelSource(model.value) }}</small></span>
               </button>
               <button
                 type="button"
@@ -493,6 +493,7 @@ const displayMetadata = computed(() => {
   for (const model of syncResult.value?.eligible_models ?? []) metadata[model.id] = { ...metadata[model.id], ...model }
   return metadata
 })
+const modelDisplayName = (id: string) => displayMetadata.value[id]?.display_name?.trim() || id
 const selectedModels = computed(() => [...new Set(props.modelValue)])
 const selectedGroups = computed(() => groupModelsByCategory(
   filterModelDisplay(selectedModels.value, '', model => model, model => displayMetadata.value[model]), model => displayMetadata.value[model]))
