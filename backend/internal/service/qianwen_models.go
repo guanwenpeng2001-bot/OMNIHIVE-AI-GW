@@ -31,8 +31,8 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 	if catalogDiscovery {
 		entries = []json.RawMessage{}
 	}
-	// Failed continuations and invalid optional metadata must not turn discovered
-	// IDs into an authoritative removal. Preview consumes this typed partial result.
+	// Failed continuations must not turn discovered IDs into an authoritative
+	// removal. Optional metadata does not determine pagination completeness.
 	defer func() {
 		if len(entries) == 0 && validatedPages == 0 {
 			return
@@ -46,9 +46,6 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 		partialModels, metadata, parseErr := extractUpstreamModelCatalog(merged, false, PlatformQianwen)
 		if parseErr != nil {
 			return
-		}
-		if discoveryErr == nil {
-			discoveryErr = validateUpstreamModelMetadata(metadata)
 		}
 		if discoveryErr == nil {
 			return

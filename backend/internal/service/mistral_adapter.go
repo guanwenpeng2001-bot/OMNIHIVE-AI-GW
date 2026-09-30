@@ -81,9 +81,6 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 			return nil, fmt.Errorf("mistral model response has duplicate IDs")
 		}
 		seen[card.ID] = struct{}{}
-		if card.MaxContextLength != nil && *card.MaxContextLength <= 0 {
-			return nil, fmt.Errorf("mistral model card has an invalid context length")
-		}
 	}
 	return cards, nil
 }
