@@ -39,6 +39,20 @@ def subscription(nodes, **extra):
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_config_serializer_preserves_strings_and_native_types(self):
+        strings = ["123e0004", "123e4567", "12345678", "000012ab", "00000001",
+                   "true", "null", "0x123456", "1e10", "中文", 'quote"slash\\']
+        config = {"strings": strings, "port": 443, "enabled": True, "disabled": False, "unset": None}
+        before = copy.deepcopy(config)
+        serialized = render.serialize_config(config)
+        self.assertEqual(yaml.safe_load(serialized), before)
+        self.assertEqual(config, before)
+        self.assertIn('"123e0004"', serialized)
+        self.assertIs(type(yaml.safe_load(serialized)["port"]), int)
+        self.assertIs(type(yaml.safe_load(serialized)["enabled"]), bool)
+        # The dedicated dumper must not mutate PyYAML's shared SafeDumper.
+        self.assertIn("short-id: 123e0004", yaml.safe_dump({"short-id": "123e0004"}))
+
     def test_six_sources_dedupe_and_upper_range_expansion(self):
         template = protocol_nodes()[0]
         def distinct(prefix, count):
@@ -199,7 +213,12 @@ class ProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "primary.yaml").write_text(subscription([protocol_nodes()[0]]), encoding="utf-8")
-            (root / "extra.yaml").write_text(subscription(protocol_nodes()[1:]), encoding="utf-8")
+            extra_nodes = protocol_nodes()[1:]
+            for node in extra_nodes:
+                if "reality-opts" in node:
+                    node["reality-opts"]["short-id"] = "123e0004"
+            source_text = subscription(extra_nodes)
+            (root / "extra.yaml").write_text(source_text, encoding="utf-8")
             command = [sys.executable, render.__file__, "--input", str(root / "primary.yaml"),
                        "--additional-input", "Extra=" + str(root / "extra.yaml"), "--output-dir", str(root / "output")]
             result = subprocess.run(command, capture_output=True, text=True)
@@ -207,6 +226,8 @@ class ProtocolTests(unittest.TestCase):
             entries = json.loads((root / "output/server.create.json").read_text())
             self.assertEqual(len(entries), 7)
             self.assertEqual(sum(entry["name"].startswith("[Extra] ") for entry in entries), 6)
+            self.assertIn('"short-id": "123e0004"', (root / "output/config.yaml").read_text(encoding="utf-8"))
+            self.assertEqual((root / "extra.yaml").read_text(encoding="utf-8"), source_text)
             failed = subprocess.run(command + ["--additional-input", "SECRET"], capture_output=True, text=True)
             self.assertEqual(failed.returncode, 1)
             self.assertNotIn("SECRET", failed.stdout + failed.stderr)
@@ -216,18 +237,31 @@ class ProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             fixtures = protocol_nodes()
-            fixtures[-1]["mport"] = fixtures[-1]["ports"]
+            for short_id in ["123e0004", "123e4567", "12345678", "000012ab", "00000001"]:
+                scalar_node = copy.deepcopy(fixtures[5])
+                scalar_node["name"] = "scalar-" + short_id
+                scalar_node["reality-opts"]["short-id"] = short_id
+                fixtures.append(scalar_node)
+            fixtures[6]["mport"] = fixtures[6]["ports"]
             nodes, hosts = render.parse_subscription(subscription(fixtures, hosts={"node.example.invalid": "alias.example.invalid"}))
             config, _ = render.construct(nodes, render.allocate(nodes, None, 24000, 24199), "node-proxy",
                                          render.resolver_config(["https://1.1.1.1/dns-query"]), hosts)
             self.assertEqual(config["dns"]["proxy-server-nameserver"], ["udp://127.0.0.1:1053"])
             self.assertNotIn("mport", yaml.safe_dump(config))
-            (root / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
-            result = subprocess.run(["docker", "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
+            before = copy.deepcopy(config)
+            command = ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
                                      "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--tmpfs", "/tmp",
                                      "--mount", f"type=bind,source={root},target=/fixtures,readonly",
-                                     os.environ["MIHOMO_SCHEMA_TEST_IMAGE"], "-t", "-d", "/tmp/mihomo", "-f", "/fixtures/config.yaml"],
-                                    capture_output=True, text=True, timeout=30)
+                                     os.environ["MIHOMO_SCHEMA_TEST_IMAGE"], "-t", "-d", "/tmp/mihomo", "-f", "/fixtures/config.yaml"]
+            (root / "config.yaml").write_text(yaml.safe_dump(config), encoding="utf-8")
+            baseline = subprocess.run(command, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(baseline.returncode, 0)
+            self.assertIn("invalid REALITY short ID", baseline.stdout + baseline.stderr)
+            serialized = render.serialize_config(config)
+            self.assertEqual(yaml.safe_load(serialized), before)
+            self.assertEqual(config, before)
+            (root / "config.yaml").write_text(serialized, encoding="utf-8")
+            result = subprocess.run(command, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("test is successful", result.stdout)
 
