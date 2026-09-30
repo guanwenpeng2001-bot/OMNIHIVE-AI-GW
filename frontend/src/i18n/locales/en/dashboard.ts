@@ -474,6 +474,7 @@ export default {
     preparingExport: 'Preparing export...',
     model: 'Model',
     requestedModel: 'Requested',
+    notCollected: 'Not obtained',
     upstreamModel: 'Upstream',
 	  sentUpstreamModel: 'Sent upstream',
 	  upstreamResponseModel: 'Upstream response',
