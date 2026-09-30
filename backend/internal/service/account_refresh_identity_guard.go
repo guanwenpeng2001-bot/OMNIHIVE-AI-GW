@@ -15,6 +15,7 @@ func (s *AuthPendingIdentityService) UpdateAccountCredentialsIfUnchanged(ctx con
 	if expected == nil || expected.IsShadow() {
 		return nil, ErrAccountCredentialDraftConflict
 	}
+	callerContext := ctx
 	transaction := dbent.TxFromContext(ctx)
 	owned := transaction == nil
 	if owned {
@@ -60,5 +61,5 @@ func (s *AuthPendingIdentityService) UpdateAccountCredentialsIfUnchanged(ctx con
 		return nil, err
 	}
 	InvalidateAvailableModelsCacheForAccount(expected)
-	return admin.GetAccount(ctx, expected.ID)
+	return admin.GetAccount(callerContext, expected.ID)
 }
