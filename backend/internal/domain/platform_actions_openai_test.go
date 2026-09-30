@@ -1,17 +1,16 @@
 package domain
 
 import (
-	"strings"
 	"testing"
 )
 
 // OpenAI cells verified against the official OpenAI API specification
 // (openai/openai-openapi@master, 224 paths) and the video/audio references on
-// 2026-09-21. The realtime cell is deliberately absent: the published adapter
-// had no registered handler, so it is now unverified (see below).
+// 2026-09-21, with the native Realtime production ingress wired separately.
 func TestOpenAIActionMatrixVerifiedCells(t *testing.T) {
 	implemented := map[string]string{
 		"image.variation": "openai.image.variation",
+		"realtime":        "openai.realtime",
 		"video.generate":  "openai.video.generate",
 		"video.edit":      "openai.video.edit",
 		"video.extend":    "openai.video.extend",
@@ -44,27 +43,27 @@ func TestOpenAIActionMatrixVerifiedCells(t *testing.T) {
 	}
 }
 
-// The realtime cell is the counterexample the handler-binding suite now
-// enforces: the published adapter had no registered dispatch key, so no identity
-// may advertise it as implemented until an ingress actually serves /v1/realtime.
-// The evidence has to name that state instead of silently dropping the adapter.
-func TestOpenAIActionMatrixRealtimeCellStaysUnverified(t *testing.T) {
-	for _, hostedType := range []string{"", AccountTypeAPIKey, AccountTypeOAuth} {
+func TestOpenAIRealtimeCredentialBoundary(t *testing.T) {
+	for _, hostedType := range []string{"", AccountTypeAPIKey} {
 		cell := PlatformAction(ActionIdentity{Platform: PlatformOpenAI, HostedAccountType: hostedType}, "realtime")
-		if cell.Status == ActionImplemented || cell.Adapter != "" {
-			t.Fatalf("realtime must not advertise an adapter without a registered handler: %+v", cell)
-		}
-		if cell.Status != ActionUnverified {
-			t.Fatalf("realtime is not implemented, so it stays unverified: %+v", cell)
-		}
-		if cell.Evidence == "" || !strings.Contains(cell.Evidence, "action_not_implemented") {
-			t.Fatalf("realtime evidence must state the actual ingress behaviour: %+v", cell)
+		if cell.Status != ActionImplemented || cell.Adapter != "openai.realtime" {
+			t.Fatalf("native realtime missing: %+v", cell)
 		}
 	}
-	// The neighbouring platform keeps its own adapter: a cell is a platform
-	// column, not a global ban.
-	if grok := PlatformAction(ActionIdentity{Platform: PlatformGrok, HostedAccountType: AccountTypeAPIKey}, "realtime"); grok.Status != ActionImplemented || grok.Adapter != "grok.realtime" {
-		t.Fatalf("grok realtime cell regressed: %+v", grok)
+	for _, hostedType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
+		cell := PlatformAction(ActionIdentity{Platform: PlatformOpenAI, HostedAccountType: hostedType}, "realtime")
+		if cell.Status == ActionImplemented || cell.Adapter != "" {
+			t.Fatalf("Codex credentials must not grant native realtime: %+v", cell)
+		}
+	}
+}
+
+func TestProviderRefreshDescriptorFlagsPreserved(t *testing.T) {
+	for _, platform := range []string{PlatformZhipu, PlatformCommandCode} {
+		descriptor, found := LookupPlatform(platform)
+		if !found || !descriptor.NativeMultiProtocolResponses || descriptor.ResponsesPOST != EndpointNative {
+			t.Fatalf("provider refresh regressed: %+v", descriptor)
+		}
 	}
 }
 

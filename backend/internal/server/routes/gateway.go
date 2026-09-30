@@ -52,6 +52,15 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 		"qianwen.embeddings":        h.OpenAIGateway.QianwenEmbeddings,
 		"qianwen.rerank":            h.OpenAIGateway.QianwenRerank,
 		"qianwen.images":            h.OpenAIGateway.QianwenImages,
+		"qianwen.image.edit":        h.OpenAIGateway.QianwenImageEdit,
+		"qianwen.video.generate":    h.OpenAIGateway.QianwenVideoGeneration,
+		"qianwen.video.status":      h.OpenAIGateway.QianwenVideoStatus,
+		"qianwen.video.content":     h.OpenAIGateway.QianwenVideoContent,
+		"qianwen.video.cancel":      h.OpenAIGateway.QianwenVideoCancel,
+		"qianwen.audio.tts":         h.OpenAIGateway.QianwenAudioSpeech,
+		"qianwen.audio.stt":         h.OpenAIGateway.QianwenAudioTranscriptions,
+		"qianwen.realtime":          h.OpenAIGateway.QianwenRealtimeCompat,
+		"openai.realtime":           h.OpenAIGateway.OpenAIRealtime,
 		"qianwen.native":            h.OpenAIGateway.QianwenNative,
 		"qianfan.embeddings":        h.OpenAIGateway.QianfanEmbeddings,
 		"qianfan.rerank":            h.OpenAIGateway.QianfanRerank,
@@ -111,7 +120,7 @@ func RegisterGatewayRoutes(
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
 	endpointNorm := handler.InboundEndpointMiddleware()
-	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
+	compositeTarget := h.OpenAIGateway.CompositeVideoJobTarget(compositeTargetPlatformMiddleware(compositeResolver))
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）

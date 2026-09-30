@@ -46,13 +46,13 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformAntigravity, ResponsesPOST: EndpointBridge, OAuth: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformGrok, ResponsesCompact: true, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformKimi, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformZhipu, ResponsesPOST: EndpointBridge, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformZhipu, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformDeepseek, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMiniMax, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenCodeGo, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformCommandCode, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	// The late-platform rows keep the protocol facts they were adjudicated with: the
 	// plan (Coding Plan / Token Plan) data planes published by Ark, Qianfan and
 	// TokenHub change an account's default base URL by account_mode, not the
@@ -172,17 +172,6 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			descriptor.Status = ActionHardConflict
 			descriptor.Evidence = "Official OpenAI API specification (openai/openai-openapi@master, checked 2026-09-21) publishes no standalone search endpoint; web search exists only as a Responses API tool, already served by the responses action"
 			return descriptor
-		case "realtime":
-			// The adapter was published while no production handler existed: the
-			// ingress dispatch table (server/routes/gateway.go GatewayActionHandlers)
-			// registers no openai.realtime key, so GET /v1/realtime fails with 400
-			// action_not_implemented. The Codex Live ingress on
-			// /backend-api/codex/realtime/calls is a different endpoint, and
-			// service/openai_actions.go OpenOpenAIRealtime has no ingress in front of
-			// it. Reported by the independent final audit (2026-09-22) and re-checked
-			// against the registered routes and the handler-binding test.
-			descriptor.Evidence = "No production handler: routes/gateway.go registers no openai.realtime dispatch key, so /v1/realtime answers 400 action_not_implemented; the Live call ingress is the separate Codex route POST /backend-api/codex/realtime/calls and does not serve this cell (handler table and route table re-checked 2026-09-22); OpenOpenAIRealtime has no ingress"
-			return descriptor
 		}
 	}
 	if identity.HostedAccountType != "" {
@@ -191,7 +180,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
+			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
 				// Open-API data-plane actions are verified for first-party API keys
 				// only; Codex OAuth credentials do not grant these endpoints.
 				if identity.HostedAccountType != AccountTypeAPIKey {
@@ -279,7 +268,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			adapter = "grok.images"
 		}
 		if identity.Platform == PlatformQianwen {
-			adapter = "qianwen.native"
+			adapter = "qianwen.image.edit"
 			if action == "image.generate" {
 				adapter = "qianwen.images"
 			}
@@ -301,18 +290,21 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformQianwen && action == "image.async" {
 			adapter = "qianwen.native"
 		}
-	case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "voice", "realtime", "search":
-		if identity.Platform == PlatformGrok {
+	case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "video.cancel", "audio.tts", "audio.stt", "voice", "realtime", "search":
+		if identity.Platform == PlatformGrok && action != "video.cancel" {
 			adapter = "grok." + action
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "video.generate", "video.edit", "video.extend", "video.status", "video.content":
+			case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "realtime":
 				adapter = "openai." + action
 			}
 		}
-		if identity.Platform == PlatformQianwen && action != "search" {
-			adapter = "qianwen.native"
+		if identity.Platform == PlatformQianwen {
+			switch action {
+			case "video.generate", "video.status", "video.content", "video.cancel", "audio.tts", "audio.stt", "realtime":
+				adapter = "qianwen." + action
+			}
 		}
 	case "audio.translate":
 		if identity.Platform == PlatformOpenAI {
@@ -392,6 +384,11 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
 			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio references checked 2026-09-21"
 			descriptor.CredentialPolicy = "OpenAI API key account only (open-API data plane); Codex OAuth credentials are not valid for this action"
+		}
+		if action == "realtime" {
+			descriptor.Evidence = "OpenAIRealtime production WebSocket ingress on GET /v1/realtime; native OpenAI API events, separate from Codex OAuth Live"
+			descriptor.CredentialPolicy = "OpenAI API key only; not Codex OAuth Live"
+			descriptor.Lifecycle = "request plan with realtime session and per-turn receipts"
 		}
 		if action == "video.status" || action == "video.content" {
 			descriptor.Lifecycle = "request plan and upstream job"

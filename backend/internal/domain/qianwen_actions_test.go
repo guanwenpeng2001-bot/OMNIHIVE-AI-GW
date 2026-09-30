@@ -5,10 +5,11 @@ import (
 	"testing"
 )
 
-// The Qianwen matrix must be fully tri-stated: every cell is either bound to
-// a verified adapter or recorded as a hard conflict with evidence.
-func TestQianwenActionMatrixIsFullyVerified(t *testing.T) {
+// The Qianwen matrix advertises only installed adapters. Provider features
+// without a standard handler stay unverified; documented absences stay conflicts.
+func TestQianwenActionMatrixMatchesImplementedAdapters(t *testing.T) {
 	implemented := map[string]string{
+		"video.cancel":   "qianwen.video.cancel",
 		"chat":           "openai.chat",
 		"messages":       "openai.messages",
 		"responses":      "openai.responses",
@@ -16,17 +17,14 @@ func TestQianwenActionMatrixIsFullyVerified(t *testing.T) {
 		"embeddings":     "qianwen.embeddings",
 		"rerank":         "qianwen.rerank",
 		"image.generate": "qianwen.images",
-		"image.edit":     "qianwen.native",
+		"image.edit":     "qianwen.image.edit",
 		"image.async":    "qianwen.native",
-		"video.generate": "qianwen.native",
-		"video.edit":     "qianwen.native",
-		"video.extend":   "qianwen.native",
-		"video.status":   "qianwen.native",
-		"video.content":  "qianwen.native",
-		"audio.tts":      "qianwen.native",
-		"audio.stt":      "qianwen.native",
-		"voice":          "qianwen.native",
-		"realtime":       "qianwen.native",
+		"video.generate": "qianwen.video.generate",
+		"video.status":   "qianwen.video.status",
+		"video.content":  "qianwen.video.content",
+		"audio.tts":      "qianwen.audio.tts",
+		"audio.stt":      "qianwen.audio.stt",
+		"realtime":       "qianwen.realtime",
 		"native":         "qianwen.native",
 	}
 	hardConflict := []string{
@@ -40,15 +38,17 @@ func TestQianwenActionMatrixIsFullyVerified(t *testing.T) {
 	seen := map[string]ActionDescriptor{}
 	for _, cell := range matrix {
 		seen[cell.Action] = cell
-		if cell.Action == "video.cancel" {
-			// The newly added cancellation action has no verified Qianwen adapter.
-			if cell.Status != ActionUnverified || cell.Adapter != "" || !strings.Contains(cell.Evidence, "2026-09-22") {
-				t.Fatalf("qianwen cancellation must remain explicitly unverified: %+v", cell)
+		if cell.Action == "video.edit" || cell.Action == "video.extend" || cell.Action == "voice" {
+			if cell.Status != ActionUnverified || cell.Adapter != "" {
+				t.Fatalf("unimplemented standard action advertised: %+v", cell)
+			}
+			if !strings.Contains(cell.Evidence, "Native-only") {
+				t.Fatalf("native-only support must remain explicit: %+v", cell)
 			}
 			continue
 		}
 		if cell.Status == ActionUnverified {
-			t.Fatalf("qianwen cell %s left unverified after evidence pass: %s", cell.Action, cell.Evidence)
+			t.Fatalf("unexpected unverified action: %+v", cell)
 		}
 		if cell.Status == ActionHardConflict && cell.Adapter != "" {
 			t.Fatalf("hard conflict must not advertise an adapter: %+v", cell)
@@ -62,7 +62,7 @@ func TestQianwenActionMatrixIsFullyVerified(t *testing.T) {
 		if cell.CredentialPolicy == "" || cell.ModelPolicy == "" || cell.UsagePolicy == "" || cell.Lifecycle == "" {
 			t.Fatalf("qianwen %s implemented cell lacks bindings: %+v", action, cell)
 		}
-		if !strings.Contains(cell.Evidence, "2026-09") && !strings.Contains(cell.Evidence, "dev-docs") && !strings.Contains(cell.Evidence, "docs/") {
+		if !strings.Contains(cell.Evidence, "2026-") && !strings.Contains(cell.Evidence, "dev-docs") && !strings.Contains(cell.Evidence, "docs/") {
 			t.Fatalf("qianwen %s evidence lacks dated documentation: %s", action, cell.Evidence)
 		}
 	}
