@@ -107,19 +107,29 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 	generation := int64(0)
 	authoritative := false
 	if replace {
-		// Authenticated policies cannot be refreshed as keyID=0: that would
-		// discard KeyGroup/KeyExclude restrictions during a revision race.
-		// Let the caller retry the complete authentication/read transaction.
+		// Replace the entire same-key policy, never an anonymous subset of it.
 		if _, attached := ctx.Value(visibleModelPolicyKey{}).([]string); attached {
-			return ctx, ErrVisibleModelRevisionChanged
-		}
-		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
+			access, known := ctx.Value(authenticatedModelAccessKey{}).(authenticatedModelAccess)
+			if !known || access.keyID <= 0 {
+				return ctx, ErrVisibleModelRevisionChanged
+			}
+			snapshot, readErr := access.reader.ReadModelAccessSnapshot(ctx, access.keyID)
+			if readErr != nil {
+				return ctx, readErr
+			}
+			if err := access.authorize(ctx, nil, false); err != nil {
+				return ctx, err
+			}
+			ctx = withModelAccessSnapshot(ctx, snapshot)
+		} else if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
 			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
 			if readErr != nil {
 				return ctx, readErr
 			}
 			ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 		}
+		ctx = context.WithValue(ctx, admissionGroupKey{}, (*Group)(nil))
+		ctx = context.WithValue(ctx, catalogGroupSnapshotKey{}, struct{}{})
 	} else if _, loaded := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); !loaded {
 		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
 			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
@@ -231,31 +241,43 @@ func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, plat
 func (r *VisibleModelResolver) resolveScoped(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, requestedModel *string, mixedOnly ...bool) (VisibleModelSet, error) {
 	view := VisibleModelSet{FullyEnumerable: true, Bindings: make(map[string][]AccountModelBinding), ExecutableEndpoints: make(map[string][]string)}
 	_, preFrozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
-	ctx, err := r.freeze(ctx)
-	if err != nil {
-		return VisibleModelSet{}, err
-	}
 	if r == nil || r.gateway == nil {
 		return view, nil
 	}
+	access, authenticated := ctx.Value(authenticatedModelAccessKey{}).(authenticatedModelAccess)
+	_, policyAttached := ctx.Value(visibleModelPolicyKey{}).([]string)
+	maxAttempts := visibleModelResolveMaxAttempts
+	if authenticated {
+		// The first freeze uses the attached snapshot. Share its consumed retry
+		// budget so attach races followed by resolution races still total three.
+		maxAttempts -= access.attachmentAttempts - 1
+	}
+	var err error
 	for attempt := 1; ; attempt++ {
-		view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, requestedModel, mixedOnly...)
-		if err != nil && !errors.Is(err, ErrVisibleModelRevisionChanged) {
+		if err := ctx.Err(); err != nil {
 			return VisibleModelSet{}, err
+		}
+		ctx, err = r.freezeMode(ctx, attempt > 1)
+		if err == nil {
+			view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, requestedModel, mixedOnly...)
+		}
+		if err == nil && authenticated && (attempt > 1 || access.attachmentAttempts > 1) {
+			// Revocation can also land while the replacement account view loads.
+			// Do not publish it under an old user or routing-group authorization.
+			err = access.authorize(ctx, groupID, true)
 		}
 		validateErr := err
 		if validateErr == nil {
 			validateErr = r.validate(ctx)
 		}
+		if err := ctx.Err(); err != nil {
+			return VisibleModelSet{}, err
+		}
 		if validateErr == nil {
 			break
 		}
-		if preFrozen || attempt >= visibleModelResolveMaxAttempts || !errors.Is(validateErr, ErrVisibleModelRevisionChanged) {
+		if preFrozen || (policyAttached && !authenticated) || attempt >= maxAttempts || !errors.Is(validateErr, ErrVisibleModelRevisionChanged) || errors.Is(validateErr, context.Canceled) || errors.Is(validateErr, context.DeadlineExceeded) {
 			return VisibleModelSet{}, validateErr
-		}
-		ctx, err = r.freezeMode(ctx, true)
-		if err != nil {
-			return VisibleModelSet{}, err
 		}
 		// 上一次尝试可能已部分填充 Bindings/ExecutableEndpoints/metadata，重算前清空。
 		view.Bindings = make(map[string][]AccountModelBinding)
