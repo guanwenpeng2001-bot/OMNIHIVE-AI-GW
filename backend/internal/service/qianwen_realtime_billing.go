@@ -20,10 +20,11 @@ var ErrQianwenRealtimeCapacity = errors.New("realtime session concurrency limit 
 var ErrQianwenRealtimeConflict = errors.New("conflicting realtime receipt")
 
 type QianwenRealtimeSnapshot struct {
-	PriceQuote   *ModelUnitPrice `json:"price_quote,omitempty"`
-	SessionID    string          `json:"session_id"`
-	Region       string          `json:"region"`
-	PriceVersion string          `json:"price_version"`
+	TokenPricing *ModelPricingDescriptor `json:"token_pricing,omitempty"`
+	PriceQuote   *ModelUnitPrice         `json:"price_quote,omitempty"`
+	SessionID    string                  `json:"session_id"`
+	Region       string                  `json:"region"`
+	PriceVersion string                  `json:"price_version"`
 }
 
 // The lease lasts longer than the absolute 120s relay + 12s handshake + 5s
