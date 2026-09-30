@@ -18,6 +18,62 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestZhipuAdaptiveResponsesLegacyBase(t *testing.T) {
+	for _, mode := range []string{AccountModePayG, AccountModeCoding} {
+		for _, scenario := range []struct {
+			name, base, override, protocol, expected string
+		}{
+			{name: "missing base", expected: DefaultZhipuResponsesBaseURL},
+			{name: "blank base", base: "  ", expected: DefaultZhipuResponsesBaseURL},
+			{name: "payg default", base: DefaultZhipuPayGBaseURL, expected: DefaultZhipuResponsesBaseURL},
+			{name: "coding default", base: DefaultZhipuCodingBaseURL, expected: DefaultZhipuResponsesBaseURL},
+			{name: "payg default trailing slash", base: DefaultZhipuPayGBaseURL + "/", expected: DefaultZhipuResponsesBaseURL},
+			{name: "coding default trailing slash", base: " " + DefaultZhipuCodingBaseURL + "/ ", expected: DefaultZhipuResponsesBaseURL},
+			{name: "custom host", base: "https://relay.example/api/paas/v4/", expected: "https://relay.example/api/paas/v4/"},
+			{name: "custom official host prefix", base: DefaultZhipuPayGBaseURL + "/private/", expected: DefaultZhipuPayGBaseURL + "/private/"},
+			{name: "custom coding prefix", base: DefaultZhipuCodingBaseURL + "/private", expected: DefaultZhipuCodingBaseURL + "/private"},
+			{name: "responses default", base: DefaultZhipuResponsesBaseURL, expected: DefaultZhipuResponsesBaseURL},
+			{name: "explicit responses override", base: DefaultZhipuPayGBaseURL, override: "https://responses.example/custom/", expected: "https://responses.example/custom/"},
+			{name: "explicit default-shaped override", base: DefaultZhipuCodingBaseURL, override: DefaultZhipuPayGBaseURL + "/", expected: DefaultZhipuPayGBaseURL + "/"},
+			{name: "blank responses override", base: DefaultZhipuCodingBaseURL, override: "  ", expected: DefaultZhipuResponsesBaseURL},
+			{name: "fixed responses payg override", base: DefaultZhipuPayGBaseURL + "/", protocol: APIProtocolResponses, expected: DefaultZhipuPayGBaseURL + "/"},
+			{name: "fixed responses coding override", base: DefaultZhipuCodingBaseURL, protocol: APIProtocolResponses, expected: DefaultZhipuCodingBaseURL},
+		} {
+			t.Run(mode+"/"+scenario.name, func(t *testing.T) {
+				protocol := scenario.protocol
+				if protocol == "" {
+					protocol = APIProtocolAdaptive
+				}
+				account := &Account{Platform: PlatformZhipu, Type: AccountTypeAPIKey, Credentials: map[string]any{
+					"account_mode": mode, "api_protocol": protocol,
+				}}
+				if scenario.base != "" {
+					account.Credentials["base_url"] = scenario.base
+				}
+				if scenario.override != "" {
+					account.Credentials["api_base_urls"] = map[string]any{APIProtocolResponses: scenario.override}
+				}
+				require.Equal(t, scenario.expected, account.GetCNProtocolBaseURL(APIProtocolResponses))
+				require.Equal(t, protocol, account.GetAPIProtocol())
+				if protocol == APIProtocolAdaptive {
+					expectedChat := strings.TrimSpace(scenario.base)
+					if expectedChat == "" {
+						expectedChat = DefaultZhipuPayGBaseURL
+						if mode == AccountModeCoding {
+							expectedChat = DefaultZhipuCodingBaseURL
+						}
+					}
+					require.Equal(t, expectedChat, account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+					require.Equal(t, DefaultZhipuAnthropicBaseURL, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
+				}
+				if scenario.base != "" {
+					require.Equal(t, scenario.base, account.Credentials["base_url"], "resolution must not migrate credentials")
+				}
+			})
+		}
+	}
+}
+
 func TestProviderProtocolDefaultsAndOverrides(t *testing.T) {
 	for _, mode := range []string{AccountModePayG, AccountModeCoding} {
 		for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses, APIProtocolAdaptive} {

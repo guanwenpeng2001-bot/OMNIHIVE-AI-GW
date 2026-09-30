@@ -1596,6 +1596,15 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 		}
 		if protocol == APIProtocolChatCompletions || a.IsCommandCode() || (a.IsZhipu() && protocol == APIProtocolResponses) {
 			if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+				if a.IsZhipu() && protocol == APIProtocolResponses {
+					// Legacy adaptive accounts stored the default Chat base before
+					// Responses was selectable. Preserve custom bases and the explicit
+					// per-protocol override above, but resolve these old defaults correctly.
+					switch strings.TrimRight(baseURL, "/") {
+					case DefaultZhipuPayGBaseURL, DefaultZhipuCodingBaseURL:
+						return DefaultZhipuResponsesBaseURL
+					}
+				}
 				return baseURL
 			}
 		}
