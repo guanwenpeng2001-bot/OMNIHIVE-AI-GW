@@ -178,7 +178,7 @@
       </div>
       <!-- Account Type (Command Code): 只读说明，无模式切换、无伪造额度 -->
       <div v-if="form.platform === 'commandcode'" data-tour="account-form-type">
-        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <p class="input-label">{{ t('admin.accounts.platformDetails.commandcodeConnectionMethodLabel') }}</p>
         <div data-testid="commandcode-account-type-card" role="note" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700/40">
           <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>

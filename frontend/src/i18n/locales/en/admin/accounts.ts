@@ -23,6 +23,7 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       platformDetails: {
+        "commandcodeConnectionMethodLabel": "Connection method",
         "qianwenDescription": "Qianwen uses API keys. Pay-as-you-go supports Chat, Responses and Messages; Coding Plan documents Chat and Messages, with adaptive Responses converted through Chat. DashScope native multimedia uses the pay-as-you-go endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
         "commandcodeDescription": "Command Code supports API keys. Claude models use Messages; other models use Chat or Responses according to discovered support or your protocol choice. Missing model metadata does not block an explicit choice.",
