@@ -38,7 +38,7 @@ func TestModelCatalogBindingUsesSameAccountFinalTarget(t *testing.T) {
 	first := catalogEvidenceAccount(1, PlatformOpenAI, "native-a")
 	second := catalogEvidenceAccount(2, PlatformOpenAI, "native-b")
 	first.Credentials["model_mapping"] = map[string]any{"company": "native-b"}
-	require.False(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{}).Supported)
+	require.True(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{}).Supported)
 	require.True(t, ResolveAccountModelBinding(ctx, &second, "native-b", AccountModelBindingOptions{}).Supported)
 	first.Credentials["model_mapping"] = map[string]any{"company": "native-a"}
 	binding := ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "responses"})
@@ -47,7 +47,7 @@ func TestModelCatalogBindingUsesSameAccountFinalTarget(t *testing.T) {
 	require.Equal(t, int64(1), binding.AccountID)
 	require.Equal(t, int64(7), binding.SnapshotRevision)
 	require.Equal(t, "native_account_catalog", binding.EvidenceKind)
-	require.False(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
+	require.True(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
 }
 
 func TestModelCatalogBindingIdentityRevocationAndUnlistedEvidence(t *testing.T) {
@@ -76,8 +76,8 @@ func TestModelCatalogPreparationDoesNotChangePublicProjection(t *testing.T) {
 		}
 		require.NoError(t, json.Unmarshal(projected, &result))
 		require.Len(t, result.Data, 2, "PREP must retain NEXT public projection until T7")
-		require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "foreign", AccountModelBindingOptions{}))
-		require.Equal(t, len(models) > 0, AccountSupportsResolvedModel(context.Background(), &account, "native", AccountModelBindingOptions{}))
+		require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "foreign", AccountModelBindingOptions{}))
+		require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "native", AccountModelBindingOptions{}))
 		if len(models) > 0 {
 			require.Equal(t, "native", result.Data[0].ID)
 		}

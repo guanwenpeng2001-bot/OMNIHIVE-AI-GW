@@ -60,7 +60,7 @@ func TestModelCatalogIndependentClientsCAS(test *testing.T) {
 			}
 			require.Equal(test, "commit", request.Operation)
 			require.NotNil(test, account)
-			err := repository.CommitAccountModelCatalog(ctx, account.ID, account.ModelCatalogBaseline(), independentCatalogSnapshot(account, request.Generation), account.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{})
+			err := repository.CommitAccountModelCatalog(ctx, account.ID, account.ModelCatalogBaseline(), independentCatalogSnapshot(account, request.Generation), account.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{}, false)
 			switch {
 			case err == nil:
 				response.Outcome = "committed"

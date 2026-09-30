@@ -1171,7 +1171,7 @@ func TestMatchModelsDevProviderOfficialHostsWithoutAPI(t *testing.T) {
 	require.Contains(t, evaluateModelMetadataCompleteness(metadata["gpt-6-astra"]).MissingFields, "task_type")
 }
 
-func (r *upstreamModelMetadataRepoStub) CommitAccountModelCatalog(_ context.Context, id int64, _ AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot) error {
+func (r *upstreamModelMetadataRepoStub) CommitAccountModelCatalog(_ context.Context, id int64, _ AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
 	r.accountID = id
 	r.updates = map[string]any{UpstreamModelCatalogStateExtraKey: state}
 	if snapshot != nil {

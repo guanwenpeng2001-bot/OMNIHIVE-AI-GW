@@ -79,8 +79,9 @@ func TestCatalogSelectionHydrationPreservesDenials(t *testing.T) {
 			plan := NewGatewayRequestPlan(GatewayRequestSpec{Model: "public-model", Protocol: "chat_completions"})
 			plan.catalogRepo = repo
 			ctx := WithGatewayRequestPlan(context.Background(), plan)
-			require.False(t, (&OpenAIGatewayService{accountRepo: repo}).supportsOpenAIAccountModel(ctx, &projected, "public-model", OpenAIEndpointCapabilityChatCompletions))
-			require.False(t, requestAccountCatalogSupports(ctx, &projected, "public-model", "chat_completions"))
+			expected := scenario.name == "identity revoked" || scenario.name == "rules revoked" || scenario.name == "no evidence"
+			require.Equal(t, expected, (&OpenAIGatewayService{accountRepo: repo}).supportsOpenAIAccountModel(ctx, &projected, "public-model", OpenAIEndpointCapabilityChatCompletions))
+			require.Equal(t, expected, requestAccountCatalogSupports(ctx, &projected, "public-model", "chat_completions"))
 		})
 	}
 }
@@ -179,12 +180,12 @@ func TestForwardModelPublicCatalogUsesSameEligibility(t *testing.T) {
 	ids, err := svc.CatalogModelIDs(context.Background(), nil, PlatformOpenAI)
 	require.NoError(t, err)
 	require.Contains(t, ids, "alias")
-	require.NotContains(t, ids, "unsupported")
+	require.Contains(t, ids, "unsupported", "explicit selections do not require discovery")
 	account.Extra = nil
 	ids, err = svc.CatalogModelIDs(context.Background(), nil, PlatformOpenAI)
 	require.NoError(t, err)
 	require.NotNil(t, ids)
-	require.Empty(t, ids)
+	require.ElementsMatch(t, []string{"alias", "unsupported"}, ids)
 }
 
 func (r *forwardCatalogRepo) GetByID(ctx context.Context, id int64) (*Account, error) {

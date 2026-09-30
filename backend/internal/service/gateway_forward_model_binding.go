@@ -199,13 +199,13 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 			}
 		}
 	}
-	return validateAccountForwardModel(request.Context(), repo, account, model, endpoint)
+	return validateAccountForwardModel(request.Context(), repo, account, model, endpoint, endpoint == CompositeRouteEndpointResponses && HasCompactionTriggerInInput(data))
 }
 
 // validateAccountForwardModel checks the actual wire target without applying an
 // alias a second time. Read current evidence at the send boundary so a stale
 // scheduler or sticky entry cannot retain revoked membership.
-func validateAccountForwardModel(ctx context.Context, repo AccountRepository, account *Account, finalModel, endpoint string) error {
+func validateAccountForwardModel(ctx context.Context, repo AccountRepository, account *Account, finalModel, endpoint string, compact ...bool) error {
 	if GatewayRequestPlanFromContext(ctx) == nil {
 		return nil
 	}
@@ -226,7 +226,7 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 		}
 	}
 	options := AccountModelBindingOptions{FinalModel: finalModel, Endpoint: endpoint}
-	if endpoint == "responses/compact" {
+	if endpoint == "responses/compact" || (len(compact) > 0 && compact[0]) {
 		options.Endpoint = CompositeRouteEndpointResponses
 		options.Compact = true
 	}

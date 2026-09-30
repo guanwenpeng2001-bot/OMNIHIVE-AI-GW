@@ -607,85 +607,21 @@ func gatewayInputAdmission(requestContext *gin.Context, gateway *GatewayService)
 		return false
 	}
 	requestmodel.ResetRequestBody(requestContext.Request, body)
-	requirement := parseGatewayInputRequirement(body)
-	if requirement.empty() {
-		return true
+	if key, ok := gatewayDispatchAPIKey(requestContext); ok && key.Group != nil {
+		requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), accountMessagesDispatchGroupKey{}, key.Group))
 	}
-	ctx := requestContext.Request.Context()
-	defer func() {
-		requestContext.Request = requestContext.Request.WithContext(context.WithValue(ctx, gatewayInputRequirementKey{}, requirement))
-	}()
-	key, exists := gatewayDispatchAPIKey(requestContext)
-	if gateway == nil || !exists || key.Group == nil {
+	if gateway == nil {
 		return true
 	}
 	if _, authoritative := gateway.accountRepo.(ModelCatalogAccountRepository); !authoritative {
 		return true
 	}
-	model := requestmodel.FromBodyForRoute(requestContext.FullPath(), requestContext.GetHeader("Content-Type"), body)
-	if original, resolved := RequestedPublicModelFromContext(ctx); resolved {
-		model = original
-	}
-	catalogPlatform := key.Group.Platform
-	if forced := requestContext.GetString("force_platform"); forced != "" {
-		catalogPlatform = forced
-	}
-	// Freeze the catalog revision once for the whole request: admission resolves
-	// against it, and the frozen context is written back so downstream dispatch
-	// (channel cache, evidence store, versioned cache keys) reuses the same
-	// anchored generation instead of probing per consumer. validate() still
-	// re-checks the live generation inside resolution, and a mid-resolution
-	// drift retries with a freshly frozen revision.
-	var candidates []UpstreamModelMetadata
-	var lookupErr error
 	resolver := &VisibleModelResolver{gateway: gateway}
-	for attempt := 1; ; attempt++ {
-		frozen, freezeErr := resolver.freezeMode(ctx, attempt > 1)
-		if freezeErr != nil {
-			lookupErr = freezeErr
-			break
-		}
-		resolveCtx := frozen
-		if attempt == 1 {
-			// The authentication chain already loaded this group; reuse it for
-			// the first resolution attempt. Revision-race retries read live so a
-			// concurrent group edit cannot be masked by the older attachment.
-			resolveCtx = context.WithValue(frozen, admissionGroupKey{}, key.Group)
-		}
-		candidates, lookupErr = gateway.visibleModelInputMetadata(resolveCtx, key.GroupID, catalogPlatform, model)
-		if !errors.Is(lookupErr, ErrVisibleModelRevisionChanged) || attempt >= visibleModelResolveMaxAttempts {
-			ctx = frozen
-			break
-		}
-	}
-	if lookupErr != nil {
+	frozen, err := resolver.freezeMode(requestContext.Request.Context(), false)
+	if err != nil {
 		requestContext.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "server_error", "message": "Model requirements temporarily unavailable"}})
 		return false
 	}
-	if len(candidates) == 0 {
-		return true
-	}
-	for _, candidate := range candidates {
-		if requirement.SupportedBy(candidate) {
-			return true
-		}
-	}
-	requestContext.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "code": "model_input_unsupported", "message": "The requested input or limit is not supported by this model"}})
-	return false
-}
-func accountSupportsGatewayInput(ctx context.Context, account *Account, model string) bool {
-	if ctx == nil {
-		return true
-	}
-	requirement, exists := ctx.Value(gatewayInputRequirementKey{}).(GatewayInputRequirement)
-	if !exists || requirement.empty() {
-		return true
-	}
-	profile := resolveCapabilityProfile(account)
-	metadata, found := account.GetUpstreamModelMetadata(model)
-	if !found || metadata.ProviderProfile != profile {
-		metadata = UpstreamModelMetadata{}
-	}
-	metadata = visibleModelMetadata(ModelRegistrySnapshotFromContext(ctx), profile, model, metadata)
-	return requirement.SupportedBy(metadata)
+	requestContext.Request = requestContext.Request.WithContext(frozen)
+	return true
 }

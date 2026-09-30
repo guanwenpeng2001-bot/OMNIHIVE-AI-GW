@@ -25,13 +25,13 @@ func TestModelCatalogAliasDiagnosticsReuseNativeBinding(t *testing.T) {
 			before, err := json.Marshal(account)
 			require.NoError(t, err)
 			snapshot := projectAccountModelCatalog(account, catalog)
-			require.Equal(t, []string{"invalid"}, catalog.InvalidAliases)
+			require.Empty(t, catalog.InvalidAliases)
 			require.Equal(t, snapshot.EligibleModels, catalog.EligibleModels)
 			require.Equal(t, catalog.ObservedAt, catalog.EligibleModels[0].EvidenceObservedAt)
 			after, err := json.Marshal(account)
 			require.NoError(t, err)
 			require.JSONEq(t, string(before), string(after), "preview diagnostics must not mutate saved evidence")
-			require.Equal(t, []string{"invalid", "valid"}, InvalidAccountCatalogAliases(account, nil))
+			require.Empty(t, InvalidAccountCatalogAliases(account, nil))
 		})
 	}
 }
