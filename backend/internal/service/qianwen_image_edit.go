@@ -97,8 +97,9 @@ func buildQianwenStandardImageBody(model, prompt, size string, count int, images
 }
 
 // ForwardQianwenImageEdit uses the native synchronous lifecycle and its image
-// usage observer. A failed native request or media conversion is never billable
-// through the standard handler.
+// usage observer. After confirmed generation, a failed media conversion still
+// returns the observed billable result while the client receives an explicit 502.
+// Failed native requests and unverified image usage remain unbillable.
 func (s *OpenAIGatewayService) ForwardQianwenImageEdit(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	model := gjson.GetBytes(body, "model").String()
 	mapped := account.GetMappedModel(model)
@@ -163,7 +164,8 @@ func (s *OpenAIGatewayService) forwardQianwenStandardNativeImage(ctx context.Con
 			}
 			if err != nil {
 				writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to retrieve DashScope image output")
-				return nil, err
+				result.Duration = time.Since(started)
+				return result, nil
 			}
 			items = append(items, map[string]string{"b64_json": encoded})
 		}
