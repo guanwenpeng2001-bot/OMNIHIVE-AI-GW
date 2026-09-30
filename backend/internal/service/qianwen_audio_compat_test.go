@@ -45,7 +45,9 @@ func TestQianwenAudioSpeechRequest(t *testing.T) {
 	for _, body := range []string{
 		`{"model":"qwen3-tts-flash","input":"hi","voice":"Cherry","response_format":"mp3"}`,
 		`{"model":"qwen3-tts-flash","input":"hi","voice":"Cherry","stream":true}`,
-		`{"model":"qwen3-asr-flash","input":"hi","voice":"Cherry"}`,
+		`{"input":"hi","voice":"Cherry"}`,
+		`{"model":"   ","input":"hi","voice":"Cherry"}`,
+		`{"model":123,"input":"hi","voice":"Cherry"}`,
 		`{"model":"qwen3-tts-flash","input":"","voice":"Cherry"}`,
 		`{"model":"qwen3-tts-flash","input":"hi","voice":""}`,
 		`{"model":"qwen3-tts-flash","input":{},"voice":"Cherry"}`,
@@ -74,36 +76,58 @@ func TestQianwenAudioCompatForward(t *testing.T) {
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/octet-stream"}}, ContentLength: int64(len(wav)), Body: io.NopCloser(bytes.NewReader(wav))}, nil
 	})
 	for _, mode := range []string{"tts", "stt"} {
-		body, payload := audioTTSRequest, strings.Replace(audioTTSResponse, "https://example.com/a.wav", "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.wav", 1)
-		if mode == "stt" {
-			body, payload = audioASRRequest, audioASRResponse
-		}
-		upstream := &httpUpstreamRecorder{resp: qianwenModelPage(payload, 200)}
-		upstream.resp.Header.Set("Content-Type", "application/json")
-		gateway := &OpenAIGatewayService{httpUpstream: upstream}
-		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
-		c.Request = httptest.NewRequest("POST", "/v1/audio/speech", nil)
-		c.Set("api_key", audioTestKey())
-		writer := c.Writer
-		result, err := gateway.ForwardQianwenAudioCompat(context.Background(), c, qianwenTestAccount(), []byte(body), mode)
-		require.NoError(t, err)
-		require.Same(t, writer, c.Writer)
-		require.Equal(t, 200, recorder.Code)
-		require.Equal(t, QianwenNativeMultimodalPath, upstream.requests[0].URL.Path)
-		require.Equal(t, mode, result.AudioUsage.Mode)
-		require.Equal(t, OpenAIUsage{}, result.Usage)
-		if mode == "tts" {
-			require.Equal(t, "audio/wav", recorder.Header().Get("Content-Type"))
-			require.Equal(t, wav, recorder.Body.Bytes())
-			require.False(t, gjson.ValidBytes(recorder.Body.Bytes()))
-			require.InDelta(t, 3.0/1e6, result.AudioUsage.DurationOrUnits, 1e-12)
-		} else {
-			require.JSONEq(t, `{"text":"你好。"}`, recorder.Body.String())
-			require.InDelta(t, 9.0/3600, result.AudioUsage.DurationOrUnits, 1e-12)
+		for _, alias := range []string{"", "selected-model", "private-audio-alias"} {
+			body, payload := audioTTSRequest, strings.Replace(audioTTSResponse, "https://example.com/a.wav", "http://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/a.wav", 1)
+			if mode == "stt" {
+				body, payload = audioASRRequest, audioASRResponse
+			}
+			wireModel := gjson.Get(body, "model").String()
+			requestedModel := wireModel
+			account := qianwenTestAccount()
+			if alias != "" {
+				requestedModel = alias
+				account.Credentials["model_mapping"] = map[string]any{alias: wireModel}
+			}
+			var native []byte
+			var buildErr error
+			if mode == "tts" {
+				native, buildErr = QianwenAudioSpeechBody([]byte(`{"model":"` + requestedModel + `","input":"你好。","voice":"Cherry"}`))
+			} else {
+				native, buildErr = QianwenAudioTranscriptionBody(requestedModel, "audio/wav", []byte("RIFFfixture"))
+			}
+			require.NoError(t, buildErr)
+			upstream := &httpUpstreamRecorder{resp: qianwenModelPage(payload, 200)}
+			upstream.resp.Header.Set("Content-Type", "application/json")
+			gateway := &OpenAIGatewayService{httpUpstream: upstream}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest("POST", "/v1/audio/speech", nil)
+			c.Set("api_key", audioTestKey())
+			writer := c.Writer
+			result, err := gateway.ForwardQianwenAudioCompat(context.Background(), c, account, native, mode)
+			require.NoError(t, err)
+			require.Same(t, writer, c.Writer)
+			require.Equal(t, 200, recorder.Code)
+			require.Equal(t, QianwenNativeMultimodalPath, upstream.requests[0].URL.Path)
+			require.Len(t, upstream.requests, 1)
+			require.Equal(t, wireModel, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, requestedModel, result.Model)
+			require.Equal(t, wireModel, result.UpstreamModel)
+			require.Equal(t, wireModel, result.BillingModel)
+			require.Equal(t, mode, result.AudioUsage.Mode)
+			require.Equal(t, OpenAIUsage{}, result.Usage)
+			if mode == "tts" {
+				require.Equal(t, "audio/wav", recorder.Header().Get("Content-Type"))
+				require.Equal(t, wav, recorder.Body.Bytes())
+				require.False(t, gjson.ValidBytes(recorder.Body.Bytes()))
+				require.InDelta(t, 3.0/1e6, result.AudioUsage.DurationOrUnits, 1e-12)
+			} else {
+				require.JSONEq(t, `{"text":"你好。"}`, recorder.Body.String())
+				require.InDelta(t, 9.0/3600, result.AudioUsage.DurationOrUnits, 1e-12)
+			}
 		}
 	}
-	require.Equal(t, 1, downloads)
+	require.Equal(t, 3, downloads)
 }
 
 func TestQianwenSpeechDownloadBoundaries(t *testing.T) {
@@ -141,4 +165,36 @@ func TestQianwenAudioCompatRetainsUsageOnDownloadFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result.AudioUsage)
 	require.Equal(t, 502, c.Writer.Status())
+}
+
+func TestQianwenAudioCompatRejectsMappedModeBeforeUpstream(t *testing.T) {
+	for _, mode := range []string{"tts", "stt"} {
+		for _, mapped := range []string{"qwen3-tts-flash", "qwen3-asr-flash", "qwen-plus", "qwen3-asr-flash-realtime", "paraformer-v2", "unknown-model"} {
+			if qianwenNativeAudioMode(mapped) == mode {
+				continue
+			}
+			t.Run(mode+"/"+mapped, func(t *testing.T) {
+				account := qianwenTestAccount()
+				account.Credentials["model_mapping"] = map[string]any{"selected-model": mapped}
+				var body []byte
+				var err error
+				if mode == "tts" {
+					body, err = QianwenAudioSpeechBody([]byte(`{"model":"selected-model","input":"hello","voice":"Cherry"}`))
+				} else {
+					body, err = QianwenAudioTranscriptionBody("selected-model", "audio/wav", []byte("audio"))
+				}
+				require.NoError(t, err)
+				upstream := &httpUpstreamRecorder{}
+				response := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(response)
+				c.Request = httptest.NewRequest("POST", "/v1/audio/"+mode, nil)
+				result, err := (&OpenAIGatewayService{httpUpstream: upstream}).ForwardQianwenAudioCompat(context.Background(), c, account, body, mode)
+				require.Error(t, err)
+				require.Nil(t, result)
+				require.Equal(t, 400, response.Code)
+				require.Equal(t, "invalid_request_error", gjson.GetBytes(response.Body.Bytes(), "error.type").String())
+				require.Empty(t, upstream.requests)
+			})
+		}
+	}
 }

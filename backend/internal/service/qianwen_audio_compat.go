@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -60,8 +61,8 @@ func validateQianwenAudioSource(value string) error {
 
 // QianwenAudioTranscriptionBody accepts uploaded bytes only, never a local path.
 func QianwenAudioTranscriptionBody(model, mediaType string, audio []byte) ([]byte, error) {
-	if qianwenNativeAudioMode(model) != "stt" {
-		return nil, fmt.Errorf("unsupported synchronous Qwen ASR model")
+	if strings.TrimSpace(model) == "" {
+		return nil, fmt.Errorf("model is required")
 	}
 	if len(audio) > QianwenAudioMaxUploadBytes {
 		return nil, ErrQianwenAudioTooLarge
@@ -90,17 +91,21 @@ func QianwenAudioSpeechBody(body []byte) ([]byte, error) {
 	if decoder.Decode(new(any)) != io.EOF {
 		return nil, fmt.Errorf("invalid speech JSON")
 	}
-	if qianwenNativeAudioMode(request.Model) != "tts" {
-		return nil, fmt.Errorf("unsupported synchronous Qwen TTS model")
+	if strings.TrimSpace(request.Model) == "" {
+		return nil, fmt.Errorf("model is required")
 	}
 	if request.ResponseFormat != "" && request.ResponseFormat != "wav" {
 		return nil, fmt.Errorf("Qwen synchronous speech supports response_format wav only")
 	}
-	native, err := json.Marshal(map[string]any{"model": request.Model, "input": map[string]any{"text": request.Input, "voice": request.Voice}})
-	if err == nil {
-		err = validateQianwenNativeAudioInput(request.Model, native)
+	// Validate the speech shape here; only the selected account can resolve
+	// the requested alias to the native model validated during forwarding.
+	if strings.TrimSpace(request.Input) == "" || utf8.RuneCountInString(request.Input) > 600 {
+		return nil, fmt.Errorf("DashScope TTS requires input.text with 1–600 characters")
 	}
-	return native, err
+	if strings.TrimSpace(request.Voice) == "" {
+		return nil, fmt.Errorf("DashScope TTS requires input.voice")
+	}
+	return json.Marshal(map[string]any{"model": request.Model, "input": map[string]any{"text": request.Input, "voice": request.Voice}})
 }
 
 // Capture only the synchronous native response. Keep the original gin context
@@ -145,12 +150,19 @@ func (s *OpenAIGatewayService) ForwardQianwenAudioCompat(ctx context.Context, c 
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	if err := ValidateQianwenNativeOperation(QianwenNativeMultimodal, account.GetMappedModel(model), body, false); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	original := c.Writer
 	capture := &qianwenAudioResponse{ResponseWriter: original, header: make(http.Header), status: http.StatusOK}
 	result, err := func() (*OpenAIForwardResult, error) {
 		c.Writer = capture
 		defer func() { c.Writer = original }()
-		return s.ForwardQianwenNative(ctx, c, account, QianwenNativeMultimodal, body, false)
+		// The standard body is already parsed by intent and validated against the
+		// mapped model. Reuse the native audio adapter without reparsing the alias
+		// as a native family name in the general conversation dispatcher.
+		return s.forwardQianwenNativeAudio(ctx, c, account, QianwenNativeMultimodal, body, false)
 	}()
 	if err != nil || result == nil {
 		if capture.Written() {
