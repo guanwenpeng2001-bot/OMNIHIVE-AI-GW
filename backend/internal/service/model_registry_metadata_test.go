@@ -126,7 +126,10 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 	view, metadata, err := gateway.VisibleModelsWithMetadata(context.Background(), nil, PlatformOpenAI)
 	require.NoError(t, err)
 	require.Equal(t, []string{"public"}, view.Models)
-	require.Equal(t, []string{"chat_completions", "count_tokens", "embeddings", "images", "messages", "responses"}, view.ExecutableEndpoints["public"])
+	// The catalog normalizes native realtime to the legacy "live" family.
+	// Saved API-key aliases now retain that installed adapter as well; this
+	// family label is not authorization for the separate Codex Live action.
+	require.Equal(t, []string{"chat_completions", "count_tokens", "embeddings", "images", "live", "messages", "responses"}, view.ExecutableEndpoints["public"])
 	require.Len(t, metadata["public"], len(view.Bindings["public"]))
 	endpointsByAccount := map[int64][]string{}
 	for _, binding := range view.Bindings["public"] {
@@ -134,8 +137,8 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 		endpointsByAccount[binding.AccountID] = append(endpointsByAccount[binding.AccountID], binding.Endpoint)
 	}
 	require.Len(t, endpointsByAccount, 2)
-	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "embeddings", "images"}, endpointsByAccount[first.ID])
-	require.ElementsMatch(t, []string{"chat_completions", "embeddings", "images"}, endpointsByAccount[second.ID])
+	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "embeddings", "images", "live"}, endpointsByAccount[first.ID])
+	require.ElementsMatch(t, []string{"chat_completions", "embeddings", "images", "live"}, endpointsByAccount[second.ID])
 	for index, binding := range view.Bindings["public"] {
 		fact := metadata["public"][index]
 		if binding.AccountID == first.ID {
@@ -203,4 +206,42 @@ func TestVisibleModelsGeminiMethodEvidenceStaysWithExecutableBinding(t *testing.
 	require.Equal(t, []string{"responses"}, view.ExecutableEndpoints["public"])
 	require.Len(t, metadata["public"], 1)
 	require.Empty(t, metadata["public"][0].SupportedMethods)
+}
+
+// Catalog endpoint families are deliberately coarser than gateway actions.
+// Even a shared realtime/live declaration cannot cross credential boundaries
+// when the request plan identifies the production route being executed.
+func TestVisibleRealtimeFamilyPreservesAPIAndCodexCredentialBoundaries(test *testing.T) {
+	for _, accountType := range []string{AccountTypeAPIKey, AccountTypeOAuth} {
+		test.Run(accountType, func(test *testing.T) {
+			account := catalogEvidenceAccount(1, PlatformOpenAI, "native")
+			account.Type = accountType
+			account.Credentials["model_mapping"] = map[string]any{"public": "native"}
+			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot.EligibleModels[0].Endpoints = []string{"realtime"}
+			gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}, generation: 10}}
+			view, err := gateway.VisibleModels(context.Background(), nil, PlatformOpenAI)
+			require.NoError(test, err)
+			require.Contains(test, view.ExecutableEndpoints["public"], string(OpenAIEndpointCapabilityLive))
+			require.NotContains(test, view.ExecutableEndpoints["public"], "realtime", "catalog must preserve its existing normalized family name")
+
+			for _, request := range []struct {
+				route, protocol, endpoint string
+				allowedAccountType        string
+			}{
+				{"/v1/realtime", "realtime", "realtime", AccountTypeAPIKey},
+				{"/v1/live", "live", string(OpenAIEndpointCapabilityLive), AccountTypeOAuth},
+				{"/backend-api/codex/realtime/calls", "live", string(OpenAIEndpointCapabilityLive), AccountTypeOAuth},
+			} {
+				requestContext := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{
+					Route: request.route, Protocol: request.protocol, Model: "public",
+				}))
+				binding := ResolveAccountModelBinding(requestContext, &account, "public", AccountModelBindingOptions{
+					Endpoint: request.endpoint, FinalModel: "native",
+				})
+				require.Equal(test, accountType == request.allowedAccountType, binding.Supported,
+					"the shared catalog family must not authorize %s for %s", request.route, accountType)
+			}
+		})
+	}
 }
