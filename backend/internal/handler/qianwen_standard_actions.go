@@ -204,6 +204,20 @@ func (h *OpenAIGatewayHandler) QianwenImages(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if !service.IsQianwenCompatibleImageModel(adm.model) {
+		body, err := service.BuildQianwenImageGenerationBody(adm.body)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		result, account, ok := h.forwardQianwenStandard(c, adm, "images", service.OpenAIEndpointCapabilityChatCompletions, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+			return h.gatewayService.ForwardQianwenNativeImages(c.Request.Context(), c, account, body, gjson.GetBytes(adm.body, "response_format").String())
+		})
+		if ok {
+			h.recordQianwenStandardUsage(c, adm, account, result, "image.generate")
+		}
+		return
+	}
 	if _, err := service.ValidateQianwenCompatibleImageBody(adm.body); err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
