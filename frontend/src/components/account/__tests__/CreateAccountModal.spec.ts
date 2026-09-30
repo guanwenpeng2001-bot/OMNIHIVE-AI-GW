@@ -426,7 +426,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
   })
 
-  it('saves draft selections, then requires saved review and retries conflict without recreating', async () => {
+  it('saves draft selections and previews saved candidates without recreating or requiring adoption', async () => {
     const wrapper = mountModal([], true)
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -445,24 +445,11 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
     expect(wrapper.emitted('close')).toBeUndefined()
     const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
-    const review = { account_id: 42, digest: 'saved-identity', rules_revision: '9007199254740993' }
-    const preview = { candidate_models: ['saved-model'], models: ['saved-model'], discovery_complete: true, complete: true, applied: false, rules_revision: review.rules_revision, review }
-    syncUpstreamModelsMock.mockResolvedValueOnce(preview).mockRejectedValueOnce({ status: 409 })
+    syncUpstreamModelsMock.mockResolvedValueOnce({ candidate_models: ['saved-model'], discovered_models: ['saved-model'], discovery_complete: true })
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
-    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, review)
-    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
-    const revisedReview = { ...review, digest: 'reconfirmed' }
-    syncUpstreamModelsMock.mockResolvedValueOnce({ ...preview, review: revisedReview }).mockResolvedValueOnce({ ...preview, applied: true })
-    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await flushPromises()
-    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, false)
+    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await confirmReview(wrapper)
     expect(createAccountMock).toHaveBeenCalledOnce()
@@ -1076,11 +1063,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     createAccountMock.mockResolvedValueOnce({ id: 81, platform: 'openai' })
     importCodexSessionMock.mockResolvedValueOnce({ total: 1, created: 0, updated: 0, skipped: 0, failed: 0, ready: [{ account: { name: 'Codex', platform: 'openai', type: 'oauth', credentials: {}, credential_draft: 'codex-draft', credential_draft_revision: 'initial' } }] })
     const wrapper = await openCodexImportStep()
-    const declaration = { schema_version: 1, reason: 'verified', models: { Private: { supports_function_calling: false } } }
-    ;(wrapper.vm as unknown as { capabilityDefaultsJSON: string }).capabilityDefaultsJSON = JSON.stringify(declaration)
     await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
     await flushPromises()
-    expect(importCodexSessionMock.mock.calls[0][0].extra.model_capability_defaults).toEqual(declaration)
+    expect(importCodexSessionMock.mock.calls[0][0].extra?.model_capability_defaults).toBeUndefined()
     expect(createAccountMock).not.toHaveBeenCalled()
     await confirmReview(wrapper)
     expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#81')
@@ -1612,5 +1597,43 @@ it('retains reviewed OAuth configuration and retries a lost confirmation respons
   expect(apiClient.post).toHaveBeenCalledTimes(1)
   expect(createAccountMock.mock.calls[1][0]).toEqual(frozen)
   expect(wrapper.emitted('created')).toHaveLength(1)
+  wrapper.unmount()
+})
+
+
+it.each([null, 7])('sends proxy_id=%s in credential previews', async proxyId => {
+  createAccountMock.mockClear()
+  const wrapper = mountModal([], true)
+  await selectButtonByText(wrapper, 'OpenAI')
+  await selectButtonByText(wrapper, 'API Key')
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Proxy preview')
+  await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+  ;(wrapper.vm as unknown as { form: { proxy_id: number | null } }).form.proxy_id = proxyId
+  await openReview(wrapper)
+  const preview = vi.mocked(accountsAPI.syncUpstreamModelsPreview)
+  preview.mockClear()
+  await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+  await flushPromises()
+  expect(preview).toHaveBeenCalledWith(expect.objectContaining({ proxy_id: proxyId, platform: 'openai' }))
+  expect(createAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('previews OAuth drafts through the selected proxy without exposing draft credentials', async () => {
+  createAccountMock.mockClear()
+  const wrapper = mountModal([], true)
+  await selectButtonByText(wrapper, 'Cursor')
+  await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
+  ;(wrapper.vm as unknown as { form: { proxy_id: number } }).form.proxy_id = 9
+  await flushPromises()
+  wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('draft', { credential_draft: 'proxy-draft', revision: 'initial', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' })
+  await flushPromises()
+  const preview = vi.mocked(accountsAPI.syncUpstreamModelsPreview)
+  preview.mockClear()
+  await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+  await flushPromises()
+  expect(preview).toHaveBeenCalledWith(expect.objectContaining({ proxy_id: 9, credential_draft: 'proxy-draft', credential_draft_revision: 'initial' }))
+  expect(preview.mock.calls[0]?.[0].api_key).toBeUndefined()
+  expect(createAccountMock).not.toHaveBeenCalled()
   wrapper.unmount()
 })
