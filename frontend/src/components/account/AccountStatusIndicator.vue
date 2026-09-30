@@ -1,7 +1,13 @@
 <template>
   <div class="flex items-center gap-2">
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
+    <div v-if="openCodeQuotaStatus" class="flex flex-col items-center gap-1">
+      <span class="badge text-xs badge-warning">{{ t(`admin.accounts.status.${openCodeQuotaStatus.label}`) }}</span>
+      <span class="text-[11px] text-gray-400 dark:text-gray-500">
+        {{ t(`admin.accounts.status.${openCodeQuotaStatus.label === 'paymentRequired' ? 'quotaRecheckAt' : 'quotaResetsAt'}`, { time: formatDateTime(openCodeQuotaStatus.resetAt) }) }}
+      </span>
+    </div>
+    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -62,7 +68,7 @@
     </div>
 
     <!-- Rate Limit Indicator (429) -->
-    <div v-if="isRateLimited" class="group relative">
+    <div v-if="isRateLimited && !openCodeQuotaStatus" class="group relative">
       <span
         class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
       >
@@ -175,8 +181,34 @@ const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
 
+const openCodeQuotaStatus = computed(() => {
+  const account = props.account
+  if (account.platform !== 'opencode_go' || account.status !== 'active' || !account.schedulable) return null
+  const extra = account.extra as Record<string, unknown> | undefined
+  const now = Date.now()
+  let exhausted: { label: string; resetAt: string } | null = null
+  if (extra?.opencode_go_usage_updated_at) {
+    for (const window of ['5h', 'weekly', 'monthly']) {
+      const used = Number(extra[`opencode_go_${window}_used_percent`])
+      const resetAt = extra[`opencode_go_${window}_reset_at`]
+      if (used >= 100 && typeof resetAt === 'string' && Date.parse(resetAt) > now) {
+        if (!exhausted || Date.parse(resetAt) > Date.parse(exhausted.resetAt)) {
+          exhausted = { label: window === 'monthly' ? 'monthlyQuotaExhausted' : 'upstreamQuotaExhausted', resetAt }
+        }
+      }
+    }
+  }
+  if (exhausted) return exhausted
+  if (account.temp_unschedulable_reason?.startsWith('opencode_payment_required') &&
+      account.temp_unschedulable_until && Date.parse(account.temp_unschedulable_until) > now) {
+    return { label: 'paymentRequired', resetAt: account.temp_unschedulable_until }
+  }
+  return null
+})
+
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {
+  if (props.account.status !== 'active' || !props.account.schedulable) return false
   if (!props.account.rate_limit_reset_at) return false
   return new Date(props.account.rate_limit_reset_at) > new Date()
 })
@@ -267,12 +299,14 @@ const formatScopeName = (scope: string): string => {
 
 // Computed: is overloaded (529)
 const isOverloaded = computed(() => {
+  if (props.account.status !== 'active' || !props.account.schedulable) return false
   if (!props.account.overload_until) return false
   return new Date(props.account.overload_until) > new Date()
 })
 
 // Computed: is temp unschedulable
 const isTempUnschedulable = computed(() => {
+  if (props.account.status !== 'active' || !props.account.schedulable) return false
   if (!props.account.temp_unschedulable_until) return false
   return new Date(props.account.temp_unschedulable_until) > new Date()
 })

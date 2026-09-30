@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AccountStatusIndicator from '../AccountStatusIndicator.vue'
 import type { Account } from '@/types'
+import { formatDateTime } from '@/utils/format'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: { time?: string }) => params?.time ? `${key} ${params.time}` : key
     })
   }
 })
@@ -51,6 +52,66 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  const openCodeMonthlyAccount = () => makeAccount({
+    platform: 'opencode_go', type: 'apikey',
+    extra: {
+      opencode_go_usage_updated_at: new Date().toISOString(),
+      opencode_go_5h_used_percent: 0,
+      opencode_go_5h_reset_at: '2099-01-01T00:00:00Z',
+      opencode_go_weekly_used_percent: 0,
+      opencode_go_monthly_used_percent: 100,
+      opencode_go_monthly_reset_at: '2099-10-11T21:28:32Z'
+    },
+    rate_limit_reset_at: '2099-01-01T00:00:00Z'
+  })
+
+  it('shows monthly exhaustion and its actual reset despite rolling zero', () => {
+    const wrapper = mount(AccountStatusIndicator, { props: { account: openCodeMonthlyAccount() } })
+    expect(wrapper.text()).toContain('admin.accounts.status.monthlyQuotaExhausted')
+    expect(wrapper.text()).toContain('admin.accounts.status.quotaResetsAt')
+    expect(wrapper.text()).toContain(formatDateTime('2099-10-11T21:28:32Z'))
+    expect(wrapper.text()).not.toContain(formatDateTime('2099-01-01T00:00:00Z'))
+    expect(wrapper.text()).not.toContain('429')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+  })
+
+  it.each([
+    { status: 'error', schedulable: true, error_message: 'HTTP 401 invalid key', label: 'error' },
+    { status: 'error', schedulable: true, error_message: 'HTTP 403 forbidden', label: 'error' },
+    { status: 'inactive', schedulable: false, label: 'inactive' },
+    { status: 'active', schedulable: false, label: 'paused' }
+  ] as const)('keeps $label ahead of old quota', ({ label, ...overrides }) => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: { ...openCodeMonthlyAccount(), ...overrides } }
+    })
+    expect(wrapper.text()).toContain(`admin.accounts.status.${label}`)
+    expect(wrapper.text()).not.toContain('admin.accounts.status.monthlyQuotaExhausted')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.rateLimited')
+  })
+
+  it('does not carry quota label across invalidation or elapsed reset', () => {
+    const account = openCodeMonthlyAccount()
+    account.rate_limit_reset_at = null
+    account.extra = {}
+    let wrapper = mount(AccountStatusIndicator, { props: { account } })
+    expect(wrapper.text()).not.toContain('monthlyQuotaExhausted')
+    account.extra = { ...openCodeMonthlyAccount().extra, opencode_go_monthly_reset_at: '2000-01-01T00:00:00Z' }
+    wrapper = mount(AccountStatusIndicator, { props: { account } })
+    expect(wrapper.text()).not.toContain('monthlyQuotaExhausted')
+  })
+
+  it('labels payment recheck without claiming a known quota reset or free capacity', () => {
+    const wrapper = mount(AccountStatusIndicator, { props: { account: makeAccount({
+      platform: 'opencode_go', type: 'apikey',
+      temp_unschedulable_reason: 'opencode_payment_required: HTTP 402 Insufficient account funds',
+      temp_unschedulable_until: '2099-01-01T00:00:00Z'
+    }) } })
+    expect(wrapper.text()).toContain('admin.accounts.status.paymentRequired')
+    expect(wrapper.text()).toContain('admin.accounts.status.quotaRecheckAt')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.quotaResetsAt')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.active')
+  })
+
   it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

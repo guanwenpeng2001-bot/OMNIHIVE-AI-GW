@@ -606,7 +606,10 @@ func (r *accountRepository) updateLockedAccount(
 	beforeRuntime := accountEntityToService(current)
 	incomingRuntime := *account
 	incomingRuntime.Proxy = nil
-	if service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime) {
+	runtimeIdentityChanged := service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime)
+	clearOpenCodeQuotaCooldown := runtimeIdentityChanged && beforeRuntime.IsOpenCodeGoPlan() &&
+		(strings.HasPrefix(beforeRuntime.TempUnschedulableReason, "opencode_payment_required") || strings.HasPrefix(beforeRuntime.TempUnschedulableReason, "cn_quota_exhausted"))
+	if runtimeIdentityChanged {
 		service.ClearAccountRuntimeObservations(account)
 		extra = account.Extra
 	}
@@ -635,6 +638,9 @@ func (r *accountRepository) updateLockedAccount(
 		SetErrorMessage(account.ErrorMessage).
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
+	if clearOpenCodeQuotaCooldown {
+		builder.ClearTempUnschedulableUntil().ClearTempUnschedulableReason()
+	}
 
 	if recoverCursorRefresh && account.IsCursor() {
 		// Use the locked DB reason, never the stale admin snapshot. This clear,
@@ -4429,6 +4435,9 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 		for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at", "balance", "balance_currency", "balance_available", "balance_updated_at", "balances"} {
 			fields = append(fields, provider+"_"+suffix)
 		}
+	}
+	for _, suffix := range []string{"usage_supported", "usage_checked_at", "monthlyCredits", "purchasedCredits", "freeCredits", "plan_level", "period_basis", "totalCount", "totalTokens", "totalCredits"} {
+		fields = append(fields, service.PlatformCommandCode+"_"+suffix)
 	}
 	return "CASE WHEN (" + strings.Join(changes, " OR ") + ") THEN (" + incomingExtra + ") - ARRAY['" + strings.Join(fields, "','") + "']::text[] ELSE (" + incomingExtra + ") END"
 }

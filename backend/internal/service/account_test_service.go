@@ -2126,6 +2126,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
+		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, body)
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) returned %d: %s", resp.StatusCode, string(body)))
 	}
 
