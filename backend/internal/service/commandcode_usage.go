@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -62,8 +63,8 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 	result := &CNProviderQuotaProbeResult{Provider: PlatformCommandCode, Source: "upstream_alpha", FetchedAt: now.Unix(), Unsupported: true}
 	// These errors describe observability only, never account/key health.
 	unsupported := func() (*CNProviderQuotaProbeResult, error) {
-		result.Error = "Command Code alpha usage unsupported or temporarily unavailable"
-		_ = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"commandcode_usage_supported": false, "commandcode_usage_checked_at": now.Format(time.RFC3339)})
+		result.Error = "Command Code plan and usage observations are temporarily unavailable"
+		result.Persisted = persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{"commandcode_usage_supported": false, "commandcode_usage_checked_at": now.Format(time.RFC3339)}, nil) == nil
 		return result, nil
 	}
 	key := strings.TrimSpace(account.GetCredential("api_key"))
@@ -101,14 +102,8 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 		}
 		return body, nil
 	}
-	credits, err := fetch("billing/credits")
-	if err != nil {
-		return unsupported()
-	}
+	credits, _ := fetch("billing/credits")
 	result.Tiers = parseCommandCodeUsageTiers(credits)
-	if len(result.Tiers) == 0 {
-		return unsupported()
-	}
 	result.Credits = map[string]float64{}
 	updates := cnQuotaExtraUpdates(PlatformCommandCode, result.Tiers, now)
 	updates["commandcode_usage_supported"] = true
@@ -133,29 +128,42 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 	updates["commandcode_plan_level"] = nil
 	if subscription, err := fetch("billing/subscriptions"); err == nil && gjson.GetBytes(subscription, "success").Type == gjson.True {
 		plan := gjson.GetBytes(subscription, "data.planId")
-		if plan.Type == gjson.String {
-			result.PlanLevel = plan.String()
+		if plan.Type == gjson.String && strings.TrimSpace(plan.String()) != "" {
+			result.PlanLevel = strings.TrimSpace(plan.String())
 			updates["commandcode_plan_level"] = result.PlanLevel
 		}
 	}
 	for _, field := range []string{"period_basis", "totalCount", "totalTokens", "totalCredits"} {
 		updates["commandcode_"+field] = nil
 	}
+	hasSummary := false
 	if summary, err := fetch("usage/summary"); err == nil {
 		basis := gjson.GetBytes(summary, "periodBasis")
-		if basis.Type == gjson.String {
-			updates["commandcode_period_basis"] = basis.String()
+		if basis.Type == gjson.String && strings.TrimSpace(basis.String()) != "" {
+			updates["commandcode_period_basis"] = strings.TrimSpace(basis.String())
+			hasSummary = true
 		}
 		for _, field := range []string{"totalCount", "totalTokens", "totalCredits"} {
 			if n, ok := commandCodeNumber(gjson.GetBytes(summary, field)); ok {
 				updates["commandcode_"+field] = n
+				hasSummary = true
 			}
 		}
 	}
-	result.Success, result.CredentialValid, result.Unsupported = true, true, false
-	result.StatusCode = http.StatusOK
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err == nil {
+	if len(result.Tiers) == 0 && len(result.Credits) == 0 && result.PlanLevel == "" && !hasSummary {
+		updates["commandcode_usage_supported"] = false
+		result.Error = "Command Code plan and usage observations are temporarily unavailable"
+	} else {
+		result.Success, result.CredentialValid, result.Unsupported = true, true, false
+		result.StatusCode = http.StatusOK
+	}
+	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err == nil {
 		result.Persisted = true
+	} else if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+		// A completed observation belongs to the credential that started it.
+		// Never return its plan or credits as the current account's metadata.
+		return &CNProviderQuotaProbeResult{Provider: PlatformCommandCode, Source: result.Source,
+			FetchedAt: now.Unix(), Unsupported: true, Error: "Account credentials changed; refresh plan and usage"}, nil
 	}
 	return result, nil
 }

@@ -16,6 +16,11 @@
       @submit.prevent="handleSubmit()"
       class="space-y-5"
     >
+      <div v-if="account.platform === 'commandcode'" class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+        <p class="text-sm font-medium">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
+        <p class="input-hint">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
+        <CNProviderQuotaCell :account="account" />
+      </div>
       <section class="space-y-4" data-testid="account-basic-settings">
       <h3 class="font-medium">{{ t('admin.accounts.editSections.basic') }}</h3>
       <div>
@@ -2455,6 +2460,7 @@
 <script setup lang="ts">
 import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
+import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import { navigateAccountChoices } from './accountChoiceNavigation'
 import { apiClient } from '@/api/client'
 import type { AccountCredentialDraft, AccountWorkflowRequest } from './accountCredentialDraft'

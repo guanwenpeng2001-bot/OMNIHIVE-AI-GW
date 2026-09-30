@@ -25,10 +25,10 @@ export default {
       platformDetails: {
         "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
-        "commandcodeDescription": "Command Code 仅支持 API Key。Claude 模型走 Anthropic Messages，其余模型走 Chat Completions；入站 Responses 由网关转换，无原生 Responses 端点。上游 Chat 鉴权使用 x-api-key。",
-        "commandcodeNote": "模型同步为公共接口，不能验证密钥，需执行真实推理测试。403 MODEL_NOT_IN_PLAN 或 upgrade_required 表示套餐/API 权限限制，不代表密钥无效。不支持 OAuth；支持实验性 alpha 用量/额度查询，查询失败时回落本地请求、Token 与成本统计。",
-        "commandcodeAccountTypeTitle": "API Key · 套餐与用量",
-        "commandcodeAccountTypeDescription": "使用 API Key 接入。上游返回有效数据时方可查询 5 小时 / 周用量窗口；alpha 查询暂不可用时回落本地统计，本地统计不代表剩余额度。",
+        "commandcodeDescription": "Command Code 使用 API Key 鉴权。上游 Provider API 为适用模型提供 Chat Completions、Responses 和 Anthropic Messages。网关当前按配置将入站 Responses 转换为 Chat 或 Messages；Claude 使用 Messages。",
+        "commandcodeNote": "模型同步为公共接口，不能验证密钥。MODEL_NOT_IN_PLAN 或 upgrade_required 表示套餐/API 权限限制。查询套餐与额度不会变更订阅或账号健康状态。",
+        "commandcodeAccountTypeTitle": "API Key 鉴权",
+        "commandcodeAccountTypeDescription": "使用 API Key 接入。保存后，账号列表会自动从 Command Code 获取套餐、可用余额和用量窗口。套餐由 Command Code 管理，未获取的资料保持未知。",
         "cursorDescription": "Cursor 经网关支持 Chat、Responses 和 Messages；原生 Agent 协议存在工具限制，请选择账号可用的模型。",
         "cursorNote": "客户端函数工具经 MCP/deferred 桥接；请使用网关已支持的工具格式，跨请求续传工具结果依赖工具 ID 持久化映射。中转模式能力取决于配置的上游。",
         "localUsage": "本地请求、Token 和成本统计并非上游剩余余额。通用 provider 映射定价同步尚不支持；千问可使用独立的北京区人民币原生定价流程。",
@@ -400,9 +400,10 @@ export default {
         openaiCompatible: 'OpenAI 兼容 / 其它'
       },
       cnProviders: {
-        commandCodeAlpha: '上游 alpha 接口，可能随时变化。',
+        commandCodePlan: '套餐',
+        commandCodeAlpha: "来源：Command Code",
         commandCodeLocal: '以下为今日本站请求、Token 与成本统计；上游用量窗口暂不可用。',
-        commandCodeUnsupported: '上游 alpha 用量暂不支持或暂不可用。',
+        commandCodeUnsupported: "套餐与用量资料暂不可用，不能据此判断 API Key 是否有效。",
         monthlyCredits: '月度剩余额度',
         purchasedCredits: '购买剩余额度',
         freeCredits: '免费剩余额度',

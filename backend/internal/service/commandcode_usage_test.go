@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -64,7 +65,7 @@ func TestCommandCodeUnsupportedDoesNotInventQuotaOrChangeHealth(t *testing.T) {
 		require.Empty(t, result.Tiers)
 		require.Len(t, repo.extraWrites, 1)
 		require.Equal(t, false, repo.extraWrites[0]["commandcode_usage_supported"])
-		require.NotContains(t, repo.extraWrites[0], "commandcode_5h_used_percent")
+		require.Nil(t, repo.extraWrites[0]["commandcode_5h_used_percent"])
 		for key, value := range repo.extraWrites[0] {
 			account.Extra[key] = value
 		}
@@ -93,7 +94,7 @@ type commandCodeTimeoutUpstream struct {
 }
 
 func (u *commandCodeTimeoutUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-	require.Equal(u.t, "https://proxy.example/alpha/billing/credits", req.URL.String())
+	require.True(u.t, strings.HasPrefix(req.URL.String(), "https://proxy.example/alpha/"))
 	require.Equal(u.t, http.MethodGet, req.Method)
 	require.Equal(u.t, "test", req.Header.Get("x-api-key"))
 	deadline, ok := req.Context().Deadline()
@@ -111,4 +112,142 @@ func TestCommandCodeTransportTimeoutIsUnsupported(t *testing.T) {
 	require.False(t, result.Success)
 	require.Empty(t, result.Tiers)
 	require.Equal(t, false, repo.extraWrites[0]["commandcode_usage_supported"])
+}
+
+// Serve fixtures through a fake transport: no credentials, sockets or upstream calls.
+type commandCodeUsageFixture struct {
+	cnBalanceResponseUpstream
+	handler http.Handler
+}
+
+func (u *commandCodeUsageFixture) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	recorder := httptest.NewRecorder()
+	u.handler.ServeHTTP(recorder, req)
+	return recorder.Result(), nil
+}
+
+func TestCommandCodePartialObservations(t *testing.T) {
+	for _, tc := range []struct {
+		name, credits, subscription, summary string
+		creditsStatus, subscriptionStatus    int
+		wantPlan                             string
+		wantCredits                          map[string]float64
+		wantWindows                          int
+		wantSuccess                          bool
+	}{
+		{name: "windows and plan", credits: `{"credits":{"monthlyCredits":18.9},"windowLimits":{"limited":true,"fiveHour":{"used":0,"cap":14},"weekly":{"used":7,"cap":35}}}`, subscription: `{"success":true,"data":{"planId":"individual-goat"}}`, wantPlan: "individual-goat", wantCredits: map[string]float64{"monthlyCredits": 18.9}, wantWindows: 2, wantSuccess: true},
+		{name: "credits without windows", credits: `{"credits":{"monthlyCredits":0,"purchasedCredits":2.5,"freeCredits":null}}`, wantCredits: map[string]float64{"monthlyCredits": 0, "purchasedCredits": 2.5}, wantSuccess: true},
+		{name: "subscription unavailable preserves credits", credits: `{"credits":{"monthlyCredits":11}}`, subscriptionStatus: 503, wantCredits: map[string]float64{"monthlyCredits": 11}, wantSuccess: true},
+		{name: "credits unavailable preserves plan", creditsStatus: 503, subscription: `{"success":true,"data":{"planId":"individual-goat"}}`, wantPlan: "individual-goat", wantSuccess: true},
+		{name: "invalid numbers stay unknown", credits: `{"credits":{"monthlyCredits":-1,"purchasedCredits":"NaN","freeCredits":true}}`, wantSuccess: false},
+		{name: "empty plan stays unknown", subscription: `{"success":true,"data":{"planId":"  "}}`, wantSuccess: false},
+		{name: "summary independently observed", summary: `{"periodBasis":"billing","totalCount":0,"totalTokens":12,"totalCredits":null}`, wantSuccess: true},
+		{name: "unauthorized observes no health", creditsStatus: 401, subscriptionStatus: 401, wantSuccess: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://fixture.example/provider/v1"}}
+			repo := &cnBalanceProbeRepo{account: account}
+			requests := 0
+			upstream := &commandCodeUsageFixture{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				require.Equal(t, http.MethodGet, r.Method)
+				require.Equal(t, "fixture", r.Header.Get("x-api-key"))
+				status, body := 200, "{}"
+				switch r.URL.Path {
+				case "/alpha/billing/credits":
+					body = tc.credits
+					if tc.creditsStatus != 0 {
+						status = tc.creditsStatus
+					}
+				case "/alpha/billing/subscriptions":
+					body = tc.subscription
+					if tc.subscriptionStatus != 0 {
+						status = tc.subscriptionStatus
+					}
+				case "/alpha/usage/summary":
+					body = tc.summary
+				default:
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+				if body == "" {
+					body = "{}"
+				}
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(body))
+			})}
+			result, err := NewCNProviderQuotaService(repo, nil, upstream, nil).QueryUsage(context.Background(), account.ID)
+			require.NoError(t, err)
+			require.Equal(t, 3, requests)
+			require.Equal(t, tc.wantSuccess, result.Success)
+			require.Equal(t, !tc.wantSuccess, result.Unsupported)
+			require.Equal(t, tc.wantSuccess, result.CredentialValid)
+			require.Equal(t, tc.wantPlan, result.PlanLevel)
+			require.Len(t, result.Tiers, tc.wantWindows)
+			require.Len(t, result.Credits, len(tc.wantCredits))
+			for key, value := range tc.wantCredits {
+				require.Equal(t, value, result.Credits[key])
+			}
+			require.Equal(t, StatusActive, account.Status)
+			require.Len(t, repo.extraWrites, 1)
+			updates := repo.extraWrites[0]
+			require.Nil(t, updates["commandcode_freeCredits"])
+			require.Nil(t, updates["commandcode_5h_reset_at"])
+			require.Nil(t, updates["commandcode_weekly_reset_at"])
+			if tc.wantWindows == 0 {
+				require.Nil(t, updates["commandcode_5h_used_percent"])
+				require.Nil(t, updates["commandcode_weekly_used_percent"])
+			}
+			if tc.wantPlan == "" {
+				require.Nil(t, updates["commandcode_plan_level"])
+			}
+			if tc.summary != "" {
+				require.Equal(t, "billing", updates["commandcode_period_basis"])
+				require.Equal(t, float64(0), updates["commandcode_totalCount"])
+				require.Equal(t, float64(12), updates["commandcode_totalTokens"])
+			} else {
+				require.Nil(t, updates["commandcode_period_basis"])
+				require.Nil(t, updates["commandcode_totalCount"])
+				require.Nil(t, updates["commandcode_totalTokens"])
+			}
+			require.Nil(t, updates["commandcode_totalCredits"])
+		})
+	}
+}
+
+func TestCommandCodeObservationsRejectStaleIdentity(t *testing.T) {
+	for _, tc := range []struct{ name, key, body string }{
+		{"successful observation", "old-fixture", `{"credits":{"monthlyCredits":57}}`},
+		{"unsupported observation", "old-fixture", `{}`},
+		{"missing key observation", "", `{}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			old := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": tc.key, "base_url": "https://fixture.example/provider/v1"}}
+			current := *old
+			current.Credentials = map[string]any{"api_key": "new-fixture", "base_url": "https://fixture.example/provider/v1"}
+			repo := &commandCodeSnapshotFixture{cnBalanceProbeRepo: cnBalanceProbeRepo{account: &current}}
+			svc := NewCNProviderQuotaService(repo, nil, &cnBalanceResponseUpstream{statusCode: 200, body: tc.body}, nil)
+			result, err := svc.queryCommandCodeUsage(context.Background(), old)
+			require.NoError(t, err)
+			require.False(t, result.Persisted)
+			require.False(t, result.Success)
+			require.True(t, result.Unsupported)
+			require.Empty(t, result.Credits)
+			require.Empty(t, result.PlanLevel)
+			require.Empty(t, repo.extraWrites)
+			require.Equal(t, 1, repo.attempts)
+		})
+	}
+}
+
+type commandCodeSnapshotFixture struct {
+	cnBalanceProbeRepo
+	attempts int
+}
+
+func (repo *commandCodeSnapshotFixture) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, _ *time.Time) error {
+	repo.attempts++
+	if AccountRuntimeIdentityKey(expected) != AccountRuntimeIdentityKey(repo.account) {
+		return ErrAccountRuntimeIdentityChanged
+	}
+	return repo.UpdateExtra(ctx, expected.ID, updates)
 }

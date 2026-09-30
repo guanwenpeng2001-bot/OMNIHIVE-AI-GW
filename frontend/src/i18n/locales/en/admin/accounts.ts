@@ -25,10 +25,10 @@ export default {
       platformDetails: {
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
-        "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
-        "commandcodeNote": "Model sync is public and does not validate a key: run an inference test. HTTP 403 MODEL_NOT_IN_PLAN or upgrade_required means a plan/API permission restriction, not an invalid key. OAuth is unavailable. Experimental alpha usage/quota lookup is supported; failed queries fall back to local request, token and cost statistics.",
-        "commandcodeAccountTypeTitle": "API Key · Plan and usage",
-        "commandcodeAccountTypeDescription": "Connect with an API key. Upstream 5-hour / weekly usage windows are available only while it returns valid data; when the alpha query is unavailable, usage falls back to local statistics, which are not remaining quota.",
+        "commandcodeDescription": "Command Code authenticates with an API key. Its Provider API offers Chat Completions, Responses and Anthropic Messages for supported models. The gateway currently converts incoming Responses to the configured Chat or Messages protocol; Claude uses Messages.",
+        "commandcodeNote": "Model sync is public and does not validate a key. MODEL_NOT_IN_PLAN or upgrade_required indicates a plan/API permission restriction. Plan and quota queries do not change your subscription or account health.",
+        "commandcodeAccountTypeTitle": "API Key authentication",
+        "commandcodeAccountTypeDescription": "Connect with an API key. After saving, the account list automatically fetches your plan and available credits and usage windows from Command Code. Your plan is managed by Command Code; missing observations remain unknown.",
         "cursorDescription": "Cursor supports Chat, Responses and Messages through the gateway. The native agent protocol has tool limitations; select a model available to the account.",
         "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
         "localUsage": "Local request/token/cost statistics are not upstream remaining balance. Generic provider-mapping pricing sync is unsupported; Qianwen has a separate Beijing-region CNY native pricing workflow.",
@@ -194,9 +194,10 @@ export default {
         openaiCompatible: 'OpenAI-compatible / Other'
       },
       cnProviders: {
-        commandCodeAlpha: 'Upstream alpha API; may change at any time.',
+        commandCodePlan: 'Plan',
+        commandCodeAlpha: "Source: Command Code",
         commandCodeLocal: 'Today’s local request, token and cost statistics are shown below; upstream usage windows are temporarily unavailable.',
-        commandCodeUnsupported: 'Upstream alpha usage unsupported or temporarily unavailable.',
+        commandCodeUnsupported: "Plan and usage observations are temporarily unavailable; this does not determine API key validity.",
         monthlyCredits: 'Monthly credits remaining',
         purchasedCredits: 'Purchased credits remaining',
         freeCredits: 'Free credits remaining',
