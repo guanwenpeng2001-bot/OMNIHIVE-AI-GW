@@ -17,6 +17,14 @@ import (
 
 var ErrAccountModelUnsupported = errors.New("model is not supported by the selected account")
 
+type openAIWebSocketSelectionKey struct{}
+
+// WithOpenAIWebSocketSelection preserves the actual ingress mode for account
+// eligibility. HTTP requests and the WS ctx-pool adapter keep their own mapping.
+func WithOpenAIWebSocketSelection(ctx context.Context, defaultMode string) context.Context {
+	return context.WithValue(ctx, openAIWebSocketSelectionKey{}, defaultMode)
+}
+
 func (s *GatewayService) doModelCheckedUpstream(request *http.Request, proxyURL string, account *Account, model string, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	if err := validateOpenAIForwardRequest(s.accountRepo, account, request); err != nil {
 		return nil, err
@@ -206,10 +214,25 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 // alias a second time. Read current evidence at the send boundary so a stale
 // scheduler or sticky entry cannot retain revoked membership.
 func validateAccountForwardModel(ctx context.Context, repo AccountRepository, account *Account, finalModel, endpoint string, compact ...bool) error {
+	options := AccountModelBindingOptions{FinalModel: finalModel, Endpoint: endpoint}
+	if endpoint == "responses/compact" || (len(compact) > 0 && compact[0]) {
+		options.Endpoint = CompositeRouteEndpointResponses
+		options.Compact = true
+	}
+	return validateAccountForwardModelBinding(ctx, repo, account, options)
+}
+
+func validateAccountPassthroughForwardModel(ctx context.Context, repo AccountRepository, account *Account, finalModel string) error {
+	return validateAccountForwardModelBinding(ctx, repo, account, AccountModelBindingOptions{
+		FinalModel: finalModel, Endpoint: CompositeRouteEndpointResponses, Passthrough: true,
+	})
+}
+
+func validateAccountForwardModelBinding(ctx context.Context, repo AccountRepository, account *Account, options AccountModelBindingOptions) error {
 	if GatewayRequestPlanFromContext(ctx) == nil {
 		return nil
 	}
-	if account == nil || finalModel == "" {
+	if account == nil || options.FinalModel == "" {
 		return ErrAccountModelUnsupported
 	}
 	current := account
@@ -225,11 +248,6 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 			return ErrAccountModelUnsupported
 		}
 	}
-	options := AccountModelBindingOptions{FinalModel: finalModel, Endpoint: endpoint}
-	if endpoint == "responses/compact" || (len(compact) > 0 && compact[0]) {
-		options.Endpoint = CompositeRouteEndpointResponses
-		options.Compact = true
-	}
 	if current.IsShadow() {
 		var err error
 		if _, ok := repo.(ModelCatalogAccountRepository); ok {
@@ -241,7 +259,7 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 			return err
 		}
 	}
-	publicModel := finalModel
+	publicModel := options.FinalModel
 	if requested := GatewayRequestPlanFromContext(ctx).Snapshot().Model; requested != "" {
 		publicModel = requested
 	}

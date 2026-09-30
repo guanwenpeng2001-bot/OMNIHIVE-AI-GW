@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1517,6 +1518,8 @@ func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	require.Equal(t, "sol", got.logs[0].RequestedModel)
 	require.NotNil(t, got.logs[0].UpstreamModel)
 	require.Equal(t, "sol-channel", *got.logs[0].UpstreamModel)
+	require.NotNil(t, got.logs[0].UpstreamResponseModel)
+	require.Equal(t, "sol-channel", *got.logs[0].UpstreamResponseModel)
 	require.NotNil(t, got.logs[0].ModelMappingChain)
 	require.Equal(t, "sol→sol-channel", *got.logs[0].ModelMappingChain)
 
@@ -1524,10 +1527,108 @@ func TestOpenAIResponsesWebSocket_PassthroughTracksModelPerTurn(t *testing.T) {
 	require.Equal(t, "terra", got.logs[1].RequestedModel)
 	require.NotNil(t, got.logs[1].UpstreamModel)
 	require.Equal(t, "terra-channel", *got.logs[1].UpstreamModel)
+	require.NotNil(t, got.logs[1].UpstreamResponseModel)
+	require.Equal(t, "terra-channel", *got.logs[1].UpstreamResponseModel)
 	require.NotNil(t, got.logs[1].ModelMappingChain)
 	require.Equal(t, "terra→terra-channel", *got.logs[1].ModelMappingChain)
 	require.InDelta(t, got.logs[1].TotalCost*2.5, got.logs[0].TotalCost, 1e-12,
 		"each turn must be billed with its own channel-mapped model")
+}
+
+func TestOpenAIResponsesWebSocket_PassthroughResponseDeclarationPerTurn(t *testing.T) {
+	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+		firstPayload:        `{"type":"response.create","model":"sol"}`,
+		secondPayload:       `{"type":"response.create","model":"terra"}`,
+		channelMapping:      map[string]string{"sol": "sol-channel", "terra": "terra-channel"},
+		accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol-channel": "gpt-5.6-sol", "terra-channel": "gpt-5.6-terra"},
+		responseModels:      []string{"upstream-declared-sol", ""},
+		configureAccount: func(account *service.Account) {
+			account.Extra[service.UpstreamModelCatalogExtraKey] = service.AccountModelCatalogSnapshot{}
+		},
+	})
+	require.Len(t, got.logs, 2)
+	require.Equal(t, "sol", got.logs[0].RequestedModel)
+	require.Equal(t, "sol-channel", *got.logs[0].UpstreamModel)
+	require.NotNil(t, got.logs[0].UpstreamResponseModel)
+	require.Equal(t, "upstream-declared-sol", *got.logs[0].UpstreamResponseModel)
+	require.Equal(t, "terra", got.logs[1].RequestedModel)
+	require.Equal(t, "terra-channel", *got.logs[1].UpstreamModel)
+	require.Nil(t, got.logs[1].UpstreamResponseModel, "missing declaration must not inherit the previous turn or request/sent model")
+}
+
+func TestOpenAIResponsesWebSocket_PassthroughRejectsUnselectedWireModel(t *testing.T) {
+	for _, compactPrivate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("compact_private=%t", compactPrivate), func(t *testing.T) {
+			got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+				firstPayload:        `{"type":"response.create","model":"sol"}`,
+				secondPayload:       `{"type":"response.create","model":"terra"}`,
+				channelMapping:      map[string]string{"sol": "sol-channel", "terra": "terra-channel"},
+				accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol-channel": "gpt-5.6-sol"},
+				configureAccount: func(account *service.Account) {
+					if compactPrivate {
+						account.Credentials["compact_model_mapping"] = map[string]string{"terra": "terra-channel"}
+					}
+				},
+				secondSendRejected: true,
+			})
+			require.Len(t, got.upstreamPayloads, 1)
+			require.Len(t, got.logs, 1)
+			require.Equal(t, "sol-channel", gjson.GetBytes(got.upstreamPayloads[0], "model").String())
+		})
+	}
+}
+
+func TestOpenAIResponsesWebSocket_PassthroughRejectsRevokedNextTurn(t *testing.T) {
+	for _, revoke := range []string{"selection", "scope", "disabled"} {
+		t.Run(revoke, func(t *testing.T) {
+			got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+				firstPayload:        `{"type":"response.create","model":"sol"}`,
+				secondPayload:       `{"type":"response.create","model":"sol"}`,
+				channelMapping:      map[string]string{"sol": "sol-channel"},
+				accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "sol-channel": "gpt-5.6-sol"},
+				afterFirstCompleted: func(repo *openAIWSUsageHandlerAccountRepoStub) {
+					repo.mu.Lock()
+					defer repo.mu.Unlock()
+					account := repo.account
+					account.Credentials = maps.Clone(account.Credentials)
+					account.Extra = maps.Clone(account.Extra)
+					switch revoke {
+					case "selection":
+						account.Credentials["model_mapping"] = map[string]string{"other": "other"}
+					case "scope":
+						account.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true}
+					case "disabled":
+						account.Schedulable = false
+					}
+					repo.account = account
+				},
+				secondSendRejected: true,
+			})
+			require.Len(t, got.upstreamPayloads, 1)
+			require.Len(t, got.logs, 1)
+		})
+	}
+}
+
+func TestOpenAIResponsesWebSocket_PassthroughSentInterruptedTurnKeepsObservation(t *testing.T) {
+	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+		firstPayload:          `{"type":"response.create","model":"sol"}`,
+		secondPayload:         `{"type":"response.create","model":"terra"}`,
+		channelMapping:        map[string]string{"sol": "sol-channel", "terra": "terra-channel"},
+		accountModelMapping:   map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol-channel": "gpt-5.6-sol", "terra-channel": "gpt-5.6-terra"},
+		responseModels:        []string{"first-declaration", "interrupted-declaration"},
+		secondTurnInterrupted: true,
+	})
+	require.Len(t, got.upstreamPayloads, 2)
+	require.Len(t, got.logs, 2)
+	require.Equal(t, "sol", got.logs[0].RequestedModel)
+	require.Equal(t, "first-declaration", *got.logs[0].UpstreamResponseModel)
+	require.Equal(t, "terra", got.logs[1].RequestedModel)
+	require.Equal(t, "terra-channel", *got.logs[1].UpstreamModel)
+	require.NotNil(t, got.logs[1].UpstreamResponseModel)
+	require.Equal(t, "interrupted-declaration", *got.logs[1].UpstreamResponseModel)
+	require.Zero(t, got.logs[1].InputTokens, "missing interrupted-turn usage must not inherit the completed turn")
+	require.Zero(t, got.logs[1].OutputTokens)
 }
 
 func TestOpenAIResponsesWebSocket_ChannelMappedTargetSelectsAccountWithoutRequestedAlias(t *testing.T) {
@@ -1916,7 +2017,12 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
-	firstPayload string
+	secondTurnInterrupted bool
+	responseModels        []string
+	configureAccount      func(*service.Account)
+	afterFirstCompleted   func(*openAIWSUsageHandlerAccountRepoStub)
+	secondSendRejected    bool
+	firstPayload          string
 	// midPayload 在首个 turn 完成后发送（如 session.update），上游桩会为它
 	// 回一个 response.completed，客户端按普通事件读取。
 	midPayload                string
@@ -1948,10 +2054,13 @@ type openAIResponsesWSUsageLogResult struct {
 
 type openAIWSUsageHandlerAccountRepoStub struct {
 	service.AccountRepository
+	mu      sync.Mutex
 	account service.Account
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.account.Platform != platform {
 		return nil, nil
 	}
@@ -1963,11 +2072,30 @@ func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatfor
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id int64) (*service.Account, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.account.ID != id {
 		return nil, nil
 	}
 	account := preparedGatewayFixtureAccount(s.account)
 	return &account, nil
+}
+
+type openAIWSLiveCatalogAccountRepoStub struct {
+	*openAIWSUsageHandlerAccountRepoStub
+}
+
+func (s *openAIWSLiveCatalogAccountRepoStub) GetModelCatalogAccount(ctx context.Context, id int64) (*service.Account, error) {
+	return s.GetByID(ctx, id)
+}
+
+func (s *openAIWSLiveCatalogAccountRepoStub) ListModelCatalogAccounts(ctx context.Context, _ *int64, platforms []string, _ bool) ([]service.Account, error) {
+	for _, platform := range platforms {
+		if platform == service.PlatformOpenAI {
+			return s.ListSchedulableByPlatform(ctx, platform)
+		}
+	}
+	return nil, nil
 }
 
 type openAIWSFailoverHandlerAccountRepoStub struct {
@@ -2901,8 +3029,24 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 				turn,
 				gjson.GetBytes(payload, "model").String(),
 			)
+			if turn <= len(tc.responseModels) {
+				responseObject := map[string]any{"id": fmt.Sprintf("resp_usage_e2e_%d", turn), "usage": map[string]int{"input_tokens": 2, "output_tokens": 1}}
+				if tc.responseModels[turn-1] != "" {
+					responseObject["model"] = tc.responseModels[turn-1]
+				}
+				encoded, marshalErr := json.Marshal(map[string]any{"type": "response.completed", "response": responseObject})
+				if marshalErr != nil {
+					upstreamErrCh <- marshalErr
+					return
+				}
+				response = string(encoded)
+			}
 			if gjson.GetBytes(payload, "type").String() == "session.update" {
 				response = `{"type":"session.updated"}`
+			}
+			if turn == 2 && tc.secondTurnInterrupted {
+				response, _ = sjson.Set(response, "type", "response.created")
+				response, _ = sjson.Delete(response, "response.usage")
 			}
 			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(response))
@@ -2938,6 +3082,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if strings.TrimSpace(tc.ingressMode) != "" {
 		account.Extra["openai_apikey_responses_websockets_v2_mode"] = tc.ingressMode
 	}
+	if tc.configureAccount != nil {
+		tc.configureAccount(&account)
+	}
 
 	cfg := &config.Config{}
 	cfg.Gateway.SessionAffinityEnabled = tc.affinityEnabled
@@ -2954,6 +3101,10 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
+	var gatewayAccountRepo service.AccountRepository = accountRepo
+	if tc.afterFirstCompleted != nil {
+		gatewayAccountRepo = &openAIWSLiveCatalogAccountRepoStub{accountRepo}
+	}
 	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, turnCount), plans: make(chan *service.GatewayRequestPlan, turnCount)}
 
 	if len(tc.channelMapping) > 0 {
@@ -2972,7 +3123,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.ProvideOpenAIGatewayService(
-		accountRepo,
+		gatewayAccountRepo,
 		usageRepo,
 		nil,
 		nil,
@@ -3022,13 +3173,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if tc.group != nil {
 		apiKey.Group = tc.group
 	}
+	handlerDone := make(chan struct{})
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
 		c.Next()
 	})
-	router.GET("/openai/v1/responses", h.ResponsesWebSocket)
+	router.GET("/openai/v1/responses", func(c *gin.Context) {
+		defer close(handlerDone)
+		h.ResponsesWebSocket(c)
+	})
 	handlerServer := httptest.NewServer(router)
 	defer handlerServer.Close()
 
@@ -3076,10 +3231,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		_, event, readErr := clientConn.Read(readCtx)
 		cancelRead()
 		require.NoError(t, readErr)
-		require.Equal(t, "response.completed", gjson.GetBytes(event, "type").String())
+		expectedEvent := "response.completed"
+		if tc.secondTurnInterrupted && len(clientEvents) == 1 {
+			expectedEvent = "response.created"
+		}
+		require.Equal(t, expectedEvent, gjson.GetBytes(event, "type").String())
 		clientEvents = append(clientEvents, append([]byte(nil), event...))
 	}
 	readCompleted()
+	if tc.afterFirstCompleted != nil {
+		tc.afterFirstCompleted(accountRepo)
+	}
 	if tc.midPayload != "" {
 		writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
 		err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.midPayload))
@@ -3112,10 +3274,31 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			_ = clientConn.CloseNow()
 			return openAIResponsesWSUsageLogResult{}
 		}
-		readCompleted()
+		if tc.secondSendRejected {
+			readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+			_, _, readErr := clientConn.Read(readCtx)
+			cancelRead()
+			var closeErr coderws.CloseError
+			require.ErrorAs(t, readErr, &closeErr, "send boundary must close the rejected turn")
+			require.NotEqual(t, coderws.StatusNormalClosure, closeErr.Code)
+			turnCount--
+		} else {
+			readCompleted()
+			if tc.secondTurnInterrupted {
+				readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+				_, _, readErr := clientConn.Read(readCtx)
+				cancelRead()
+				require.Error(t, readErr)
+			}
+		}
 	}
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
 
+	select {
+	case <-handlerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("websocket handler did not finish before usage verification")
+	}
 	usageCount := turnCount
 	if strings.TrimSpace(tc.midPayload) != "" {
 		usageCount--
@@ -3143,7 +3326,13 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 	select {
 	case upstreamErr := <-upstreamErrCh:
-		require.NoError(t, upstreamErr)
+		if tc.secondSendRejected {
+			require.Error(t, upstreamErr, "upstream must be closed before receiving the rejected frame")
+			require.Empty(t, upstreamPayloadCh, "rejected turn must never reach the upstream")
+			require.Empty(t, usageRepo.created, "unsent rejected turn has no upstream usage to record")
+		} else {
+			require.NoError(t, upstreamErr)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("等待上游 WebSocket 结束超时")
 	}
