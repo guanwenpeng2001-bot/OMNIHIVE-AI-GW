@@ -189,6 +189,92 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 }
 
 describe('ModelWhitelistSelector', () => {
+  it('displays preview names while selecting, copying and searching exact IDs without losing unknown selections', async () => {
+    syncUpstreamModelsPreview.mockResolvedValueOnce({
+      candidate_models: ['kimi-for-coding'], discovered_models: ['kimi-for-coding'],
+      metadata: { 'kimi-for-coding': { id: 'kimi-for-coding', display_name: 'K2.8 Preview' } }
+    })
+    const wrapper = mountSelector({ modelValue: ['private-unknown'], syncCredentials: { platform: 'openai', api_key: 'fixture-key' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    const search = wrapper.get('input[aria-label="admin.accounts.searchModels"]')
+    await search.setValue('k2.8 preview')
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(1)
+    const row = findModelRow(wrapper, 'kimi-for-coding')
+    expect(row.get('[data-testid="select-model"]').text()).toContain('K2.8 Preview')
+    expect(row.text()).toContain('admin.accounts.modelSync.nativeDiscovered')
+    await row.get('[data-testid="select-model"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['private-unknown', 'kimi-for-coding']])
+    await row.get('[data-testid="copy-model-id"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith('kimi-for-coding')
+    await wrapper.setProps({ modelValue: ['private-unknown', 'kimi-for-coding'] })
+    const selected = wrapper.get('[data-testid="selected-models"]')
+    expect(selected.text()).toContain('K2.8 Preview')
+    expect(selected.text()).toContain('kimi-for-coding')
+    expect(selected.text()).toContain('private-unknown')
+    await search.setValue('kimi-for-coding')
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('refreshes selected and candidate names from saved catalog reads and subsequent previews', async () => {
+    getAvailableModels.mockResolvedValueOnce([{ id: 'stable-model', display_name: 'Available name' }])
+    getModelCatalog.mockResolvedValueOnce({ synced: true, warnings: [], snapshot: { discovered_models: ['stable-model'] },
+      display_metadata: { 'stable-model': { display_name: 'Saved catalog name' } } })
+    const wrapper = mountSelector({ accountId: 19, modelValue: ['stable-model', 'private-unknown'] })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    expect(findModelRow(wrapper, 'stable-model').text()).toContain('Saved catalog name')
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Saved catalog name')
+    syncUpstreamModels.mockResolvedValueOnce({ candidate_models: ['stable-model'], discovered_models: ['stable-model'],
+      metadata: { 'stable-model': { id: 'stable-model', display_name: 'Updated preview name' } } })
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(findModelRow(wrapper, 'stable-model').text()).toContain('Updated preview name')
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Updated preview name')
+    expect(wrapper.text()).not.toContain('Saved catalog name')
+    getAvailableModels.mockResolvedValueOnce([{ id: 'stable-model' }])
+    getModelCatalog.mockResolvedValueOnce({ synced: true, warnings: [], snapshot: { discovered_models: ['stable-model'],
+      eligible_models: [{ id: 'stable-model', display_name: 'Reopened catalog name' }] } })
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    expect(findModelRow(wrapper, 'stable-model').text()).toContain('Reopened catalog name')
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Reopened catalog name')
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('private-unknown')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('uses available and preset names and renders equal, missing or blank names as a single exact ID', async () => {
+    getPlatformModelPresets.mockResolvedValueOnce([{ platform: 'openai', coverage_status: 'complete',
+      models: [{ id: 'preset-model', display_name: 'Preset name' }] }])
+    getAvailableModels.mockResolvedValueOnce([
+      { id: 'available-model', display_name: 'Available name' },
+      { id: 'same-name', display_name: 'same-name' }, { id: 'blank-name', display_name: '  ' }, { id: 'missing-name' }
+    ])
+    const selectedIds = ['available-model', 'preset-model', 'same-name', 'blank-name', 'missing-name']
+    const wrapper = mountSelector({ accountId: 19, modelValue: selectedIds })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    expect(findModelRow(wrapper, 'preset-model').text()).toContain('Preset name')
+    expect(findModelRow(wrapper, 'available-model').text()).toContain('Available name')
+    const selected = wrapper.get('[data-testid="selected-models"]')
+    expect(selected.text()).toContain('Preset name')
+    expect(selected.text()).toContain('Available name')
+    for (const id of ['same-name', 'blank-name', 'missing-name']) {
+      expect(findModelRow(wrapper, id).text().split(id)).toHaveLength(2)
+      expect(selected.text().split(id)).toHaveLength(2)
+    }
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('groups account models while preserving selection, copy, search and unknown IDs', async () => {
     getAvailableModels.mockResolvedValueOnce([
       { id: 'private-chat', category: 'chat' },
