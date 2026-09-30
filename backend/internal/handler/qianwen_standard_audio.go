@@ -93,13 +93,13 @@ func readQianwenAudioMultipart(c *gin.Context) ([]byte, error) {
 		}
 		seen[name] = true
 		if name == "file" {
-			// Parse the original disposition: FileName() strips paths and would hide
-			// path injection attempts. The filename is metadata, never a server path.
+			// Filename is metadata used only for format detection. Read the supplied
+			// part bytes, never open a path named by the client.
 			_, disposition, parseErr := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
 			filename := disposition["filename"]
-			if parseErr != nil || filename == "" || strings.ContainsAny(filename, "/\\:") || filename == "." || filename == ".." {
+			if parseErr != nil || filename == "" {
 				_ = part.Close()
-				return nil, fmt.Errorf("file must be uploaded with a plain filename, not a path")
+				return nil, fmt.Errorf("file must be uploaded with a filename")
 			}
 			audio, err = io.ReadAll(io.LimitReader(part, service.QianwenAudioMaxUploadBytes+1))
 			if err != nil {
