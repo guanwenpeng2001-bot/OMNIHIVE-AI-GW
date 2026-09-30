@@ -88,6 +88,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
+	if failure := commandCodeCreditFailover(c, account, resp.StatusCode, resp.Header, respBody); failure != nil {
+		return failure
+	}
 	if account.IsCommandCode() {
 		if commandCodePlanError(resp.StatusCode, respBody) != "" {
 			if s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel) {
