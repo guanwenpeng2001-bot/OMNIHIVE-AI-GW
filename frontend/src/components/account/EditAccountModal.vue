@@ -3595,10 +3595,16 @@ const markModelConfigurationSaved = () => {
   savedModelGeneration.value++
 }
 
+let modelSelectionEchoAccountId: number | null = null
 const handleModelSelectionSaved = (account: Account) => {
   if (account.id !== props.account?.id || !props.show) return
-  syncFormFromAccount(account)
+  loadModelRestrictionFromMapping(account.credentials?.model_mapping as Record<string, unknown> | undefined)
+  savedModelGeneration.value++
+  // AccountsView synchronously echoes updated as a new object with runtime fields.
+  // Only that update should bypass full initialization of the unrelated drafts.
+  modelSelectionEchoAccountId = account.id
   emit('updated', account)
+  void nextTick(() => { modelSelectionEchoAccountId = null })
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
@@ -4055,9 +4061,15 @@ watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
     if (!show || !newAccount) {
+      modelSelectionEchoAccountId = null
       syncFormFromAccount(null)
       return
     }
+    if (wasShow && newAccount.id === previousAccount?.id && newAccount.id === modelSelectionEchoAccountId) {
+      modelSelectionEchoAccountId = null
+      return
+    }
+    modelSelectionEchoAccountId = null
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
