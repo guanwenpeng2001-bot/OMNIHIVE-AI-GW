@@ -185,6 +185,10 @@ func (s *AntigravityOAuthService) RefreshToken(ctx context.Context, refreshToken
 		}
 		tokenResp, err := client.RefreshToken(ctx, refreshToken)
 		if err == nil {
+			// Google may omit refresh_token when it has not rotated the existing token.
+			if tokenResp.RefreshToken == "" {
+				tokenResp.RefreshToken = refreshToken
+			}
 			now := time.Now()
 			expiresAt := now.Unix() + tokenResp.ExpiresIn - 300
 			fmt.Printf("[AntigravityOAuth] Token refreshed: expires_in=%d, expires_at=%d (%s)\n",
