@@ -14,8 +14,8 @@ import (
 )
 
 // testCNProviderAdaptiveConnection verifies every native endpoint used by an
-// adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
-// DeepSeek and Kimi additionally use their native Responses endpoints.
+// adaptive provider account according to its resolved account mode and protocol.
+// Probe native Responses only when forwarding uses that endpoint.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *accountProbeContext, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
@@ -40,7 +40,7 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *accountProbeCon
 		return err
 	}
 
-	if account.SupportsNativeCNResponses() {
+	if account.UsesNativeCNResponses() {
 		if err := s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken); err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, body)
+		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, resp.Header, body, testModelID)
 		errMsg := fmt.Sprintf("Adaptive Responses endpoint returned %d: %s", resp.StatusCode, string(body))
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
@@ -233,7 +233,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *accountProbeCo
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, body)
+		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, resp.Header, body, testModelID)
 		errMsg := fmt.Sprintf("Anthropic endpoint returned %d: %s", resp.StatusCode, string(body))
 		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && s.accountRepo != nil {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)

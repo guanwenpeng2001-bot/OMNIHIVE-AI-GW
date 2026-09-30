@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -21,13 +22,14 @@ func openCodeQuotaAccount() *Account {
 func TestOpenCodePaymentClassification(t *testing.T) {
 	for _, status := range []int{402, 401} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			repo := &rateLimitAccountRepoStub{}
+			repo := &openCodeModelQuotaRepo{}
 			limiter := NewRateLimitService(repo, nil, nil, nil, nil)
-			require.True(t, limiter.HandleUpstreamError(context.Background(), openCodeQuotaAccount(), status, http.Header{}, []byte(`{"error":{"message":"Insufficient account funds"}}`)))
+			require.True(t, limiter.HandleUpstreamError(context.Background(), openCodeQuotaAccount(), status, http.Header{}, []byte(`{"error":{"message":"Insufficient account funds"}}`), "kimi-k3"))
 			if status == 402 {
 				require.Zero(t, repo.setErrorCalls)
-				require.Equal(t, 1, repo.tempCalls)
-				require.Contains(t, repo.lastTempReason, "Insufficient account funds")
+				require.Zero(t, repo.tempCalls)
+				require.Equal(t, "kimi-k3", repo.model)
+				require.Contains(t, repo.reason, "Insufficient account funds")
 			} else {
 				require.Equal(t, 1, repo.setErrorCalls)
 			}
@@ -45,14 +47,15 @@ func TestOpenCodeAccountTestPaymentAllProtocols(t *testing.T) {
 			}
 			before := shallowCopyMap(account.Credentials)
 			svc, upstream := adaptiveCNAccountTestService(account, &http.Response{StatusCode: 402, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Insufficient account funds"}}`))})
-			repo := &rateLimitAccountRepoStub{mockAccountRepoForGemini: mockAccountRepoForGemini{accountsByID: map[int64]*Account{55: account}}}
+			repo := &openCodeModelQuotaRepo{rateLimitAccountRepoStub: rateLimitAccountRepoStub{mockAccountRepoForGemini: mockAccountRepoForGemini{accountsByID: map[int64]*Account{55: account}}}}
 			svc.accountRepo = repo
 			ctx, recorder := newTestContext()
 			require.Error(t, svc.TestAccountConnection(ctx, 55, "kimi-k3", "hello", AccountTestModeDefault))
 			require.Len(t, upstream.requests, 1)
 			require.Contains(t, recorder.Body.String(), "402")
 			require.Contains(t, recorder.Body.String(), "Insufficient account funds")
-			require.Equal(t, 1, repo.tempCalls)
+			require.Zero(t, repo.tempCalls)
+			require.Equal(t, "kimi-k3", repo.model)
 			require.Zero(t, repo.setErrorCalls)
 			require.Equal(t, before, account.Credentials)
 		})
@@ -72,7 +75,7 @@ func TestCommandCodeKeyChangeInvalidatesObservedPlanAndCredits(t *testing.T) {
 	require.Equal(t, map[string]any{"configured_option": "preserved"}, account.Extra)
 }
 
-func TestOpenCodeMonthlyExhaustionIgnoresAvailableRollingWindow(t *testing.T) {
+func TestOpenCodeMonthlySnapshotNeverProvidesGlobalCooldown(t *testing.T) {
 	account := openCodeQuotaAccount()
 	now := time.Now().UTC().Truncate(time.Second)
 	monthly := now.Add(10 * 24 * time.Hour)
@@ -81,9 +84,9 @@ func TestOpenCodeMonthlyExhaustionIgnoresAvailableRollingWindow(t *testing.T) {
 		{Window: "weekly", UsedPercent: 0, ResetAt: now.Add(24 * time.Hour).Format(time.RFC3339)},
 		{Window: "monthly", UsedPercent: 100, ResetAt: monthly.Format(time.RFC3339)},
 	}, now)
-	require.Equal(t, &monthly, openCodeExhaustedQuotaReset(account, now))
-	require.Equal(t, &monthly, cnProviderQuotaSnapshotReset(account, now))
-	require.Nil(t, openCodeExhaustedQuotaReset(account, monthly.Add(time.Second)))
+	require.Nil(t, cnProviderQuotaSnapshotReset(account, now))
+	require.Equal(t, float64(100), account.Extra["opencode_go_monthly_used_percent"])
+	require.Equal(t, monthly.Format(time.RFC3339), account.Extra["opencode_go_monthly_reset_at"])
 }
 
 func TestOpenCodeQuotaRecoveryPreservesOperatorAndAuthenticationState(t *testing.T) {
@@ -110,7 +113,7 @@ func TestOpenCodeQuotaRecoveryPreservesOperatorAndAuthenticationState(t *testing
 			require.Equal(t, test.schedulable, account.Schedulable)
 			if test.recover {
 				require.Equal(t, StatusActive, account.Status)
-				require.Equal(t, &reset, account.TempUnschedulableUntil)
+				require.Nil(t, account.TempUnschedulableUntil)
 			} else {
 				require.Equal(t, test.status, account.Status)
 				require.Equal(t, test.message, account.ErrorMessage)
@@ -147,7 +150,7 @@ func TestOpenCodeQuotaRecoveryRequiresApplicableEvidence(t *testing.T) {
 	expected := *account
 	available := &CNProviderQuotaProbeResult{Success: true, CredentialValid: true, Tiers: []CNQuotaTier{{Window: "5h"}, {Window: "weekly"}, {Window: "monthly"}}}
 	ReconcileOpenCodeQuotaProbe(account, &expected, available, now)
-	require.Equal(t, &until, account.TempUnschedulableUntil, "usage success is not generation success")
+	require.Nil(t, account.TempUnschedulableUntil, "fresh quota observation removes the legacy global payment pause")
 	account.TempUnschedulableReason = cnQuotaExhaustedReasonPrefix
 	expected = *account
 	ReconcileOpenCodeQuotaProbe(account, &expected, available, now)
@@ -213,7 +216,7 @@ func TestOpenCodeQuotaProbeUsesFreshIdentityAndPreservesHTTPFailure(t *testing.T
 				require.True(t, result.Persisted)
 				require.True(t, result.CredentialValid)
 				require.Equal(t, StatusActive, account.Status)
-				require.NotNil(t, account.TempUnschedulableUntil)
+				require.Nil(t, account.TempUnschedulableUntil)
 			} else {
 				require.Contains(t, result.Error, "upstream explanation")
 				require.Equal(t, StatusError, account.Status)
@@ -225,6 +228,202 @@ func TestOpenCodeQuotaProbeUsesFreshIdentityAndPreservesHTTPFailure(t *testing.T
 			require.NoError(t, err)
 			require.False(t, result.Persisted)
 			require.Equal(t, before, repo.writes)
+		})
+	}
+}
+
+type openCodeModelQuotaRepo struct {
+	rateLimitAccountRepoStub
+	model, reason string
+	until         time.Time
+}
+
+func (r *openCodeModelQuotaRepo) SetModelRateLimit(_ context.Context, _ int64, model string, until time.Time, reason ...string) error {
+	r.model, r.until = model, until
+	if len(reason) > 0 {
+		r.reason = reason[0]
+	}
+	return nil
+}
+
+func TestOpenCodeQuotaFailureScopesMappedModel(t *testing.T) {
+	for _, status := range []int{402, 429} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			account := openCodeQuotaAccount()
+			account.Credentials["model_mapping"] = map[string]any{"paid-alias": "kimi-k3", "another-alias": "kimi-k3", "space-bunny-free": "space-bunny-free", "private-model": "private-model"}
+			now := time.Now()
+			account.Extra = cnQuotaExtraUpdates(PlatformOpenCodeGo, []CNQuotaTier{{Window: "monthly", UsedPercent: 100, ResetAt: now.Add(11 * 24 * time.Hour).Format(time.RFC3339)}}, now)
+			expected := *account
+			ReconcileOpenCodeQuotaProbe(account, &expected, &CNProviderQuotaProbeResult{Success: true, CredentialValid: true, Tiers: []CNQuotaTier{{Window: "monthly", UsedPercent: 100}}}, now)
+			for _, model := range []string{"paid-alias", "space-bunny-free", "private-model"} {
+				require.True(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+			}
+			repo := &openCodeModelQuotaRepo{}
+			limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+			limiter.HandleUpstreamError(context.Background(), account, status, http.Header{}, []byte(`{"error":{"message":"Usage limit reached. Insufficient account funds"}}`), "paid-alias")
+			require.Equal(t, "kimi-k3", repo.model)
+			require.WithinDuration(t, now.Add(20*time.Minute), repo.until, 3*time.Second)
+			require.Zero(t, repo.tempCalls)
+			require.Zero(t, repo.rateLimitedCalls)
+			for _, model := range []string{"paid-alias", "another-alias"} {
+				require.False(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+			}
+			for _, model := range []string{"space-bunny-free", "private-model"} {
+				require.True(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+			}
+			// Successful free-model testing is not recovery evidence for the paid model.
+			tester := &AccountTestService{accountRepo: repo}
+			tester.observeOpenCodePaymentFailure(context.Background(), account, 200, nil, nil, "space-bunny-free")
+			expected = *account
+			ReconcileOpenCodeQuotaProbe(account, &expected, &CNProviderQuotaProbeResult{Success: true, CredentialValid: true, Tiers: []CNQuotaTier{{Window: "monthly"}}}, time.Now())
+			require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "paid-alias"))
+		})
+	}
+}
+
+func TestOpenCodeUnknownProbeAndGlobalRateLimit(t *testing.T) {
+	for _, status := range []int{402, 429} {
+		repo := &openCodeModelQuotaRepo{}
+		limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+		limiter.HandleUpstreamError(context.Background(), openCodeQuotaAccount(), status, http.Header{}, []byte(`{"error":{"message":"Usage limit reached"}}`))
+		require.Empty(t, repo.model)
+		require.Zero(t, repo.tempCalls)
+		require.Zero(t, repo.rateLimitedCalls)
+	}
+	repo := &openCodeModelQuotaRepo{}
+	limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+	limiter.HandleUpstreamError(context.Background(), openCodeQuotaAccount(), 429, http.Header{"Retry-After": []string{"60"}}, []byte(`{"error":{"message":"Rate limit exceeded"}}`), "kimi-k3")
+	require.Empty(t, repo.model)
+	require.Equal(t, 1, repo.rateLimitedCalls)
+}
+
+func TestOpenCodeSameModelRetryTimeDoesNotShorten(t *testing.T) {
+	account := openCodeQuotaAccount()
+	repo := &openCodeModelQuotaRepo{}
+	limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+	limiter.HandleUpstreamError(context.Background(), account, 402, http.Header{"Retry-After": []string{"7200"}}, nil, "kimi-k3")
+	previous := repo.until
+	require.WithinDuration(t, time.Now().Add(2*time.Hour), previous, 3*time.Second)
+	limiter.HandleUpstreamError(context.Background(), account, 402, nil, nil, "kimi-k3")
+	require.WithinDuration(t, previous, repo.until, time.Second)
+}
+
+func TestOpenCodeGatewayQuotaFailureKeepsOtherModelsEligible(t *testing.T) {
+	for _, status := range []int{402, 429} {
+		account := openCodeQuotaAccount()
+		account.Credentials["model_mapping"] = map[string]any{"paid-alias": "kimi-k3", "kimi-k3": "another-wire-model", "free-alias": "space-bunny-free"}
+		repo := &openCodeModelQuotaRepo{}
+		limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+		gateway := &OpenAIGatewayService{rateLimitService: limiter}
+		limiter.SetAccountRuntimeBlocker(gateway)
+		body := []byte(`{"error":{"message":"Usage limit reached. Insufficient account funds"}}`)
+		c, _ := newTestContext()
+		failure := gateway.failoverOpenAIUpstreamHTTPError(context.Background(), c, account, &http.Response{StatusCode: status, Header: http.Header{}}, body, "Usage limit reached", "kimi-k3")
+		require.NotNil(t, failure, "current failed attempt retains cross-account failover")
+		require.False(t, gateway.isOpenAIAccountRuntimeBlocked(account), "one paid-model failure must not block the account in memory")
+		require.Equal(t, "kimi-k3", repo.model)
+		require.True(t, account.IsSchedulableForModelWithContext(context.Background(), "free-alias"))
+		require.False(t, account.IsSchedulableForModelWithContext(context.Background(), "paid-alias"))
+	}
+}
+
+func TestOpenCodeSuccessfulFreeManualTestPreservesPaidCooldown(t *testing.T) {
+	account := openCodeGoTestAccount(55)
+	account.Credentials["api_protocol"] = APIProtocolChatCompletions
+	until := time.Now().Add(time.Hour)
+	setAccountModelRateLimitSnapshot(account, "kimi-k3", until, openCodePaymentReason, time.Now())
+	svc, _ := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
+	repo := &openCodeModelQuotaRepo{rateLimitAccountRepoStub: rateLimitAccountRepoStub{mockAccountRepoForGemini: mockAccountRepoForGemini{accountsByID: map[int64]*Account{55: account}}}}
+	svc.accountRepo = repo
+	ctx, recorder := newTestContext()
+	require.NoError(t, svc.TestAccountConnection(ctx, 55, "space-bunny-free", "hello", AccountTestModeDefault))
+	require.Contains(t, recorder.Body.String(), "test_complete")
+	require.True(t, account.isRateLimitActiveForKey("kimi-k3"))
+	require.Empty(t, repo.model)
+}
+
+func TestOpenCodeUsageErrorTypeAndRetryHint(t *testing.T) {
+	account := openCodeQuotaAccount()
+	repo := &openCodeModelQuotaRepo{}
+	limiter := NewRateLimitService(repo, nil, nil, nil, nil)
+	limiter.HandleUpstreamError(context.Background(), account, 429, nil, []byte(`{"error":{"type":"GoUsageLimitError","message":"Resets in 4hr 59min"}}`), "kimi-k3")
+	require.Equal(t, "kimi-k3", repo.model)
+	require.WithinDuration(t, time.Now().Add(4*time.Hour+59*time.Minute), repo.until, 3*time.Second)
+	require.Zero(t, repo.rateLimitedCalls)
+}
+
+func TestOpenCodeForwardingTrunksQuotaUsesSentModel(t *testing.T) {
+	for _, protocol := range []string{"chat_completions", "responses"} {
+		for _, mappingKind := range []string{"chain", "wildcard"} {
+			for _, status := range []int{http.StatusPaymentRequired, http.StatusTooManyRequests} {
+				t.Run(protocol+"/"+mappingKind+"/"+http.StatusText(status), func(t *testing.T) {
+					account := openCodeQuotaAccount()
+					mapping := map[string]any{"paid-model": "kimi-k3", "paid-alias": "kimi-k3", "kimi-k3": "kimi-k3-eu", "space-bunny-free": "space-bunny-free", "private-model": "private-model"}
+					trapModel := "kimi-k3-eu"
+					if mappingKind == "wildcard" {
+						mapping = map[string]any{"paid-*": "kimi-k3", "kimi-*": "kimi-k3-thinking", "space-bunny-free": "space-bunny-free", "private-model": "private-model"}
+						trapModel = "kimi-k3-thinking"
+					}
+					account.Credentials["model_mapping"] = mapping
+					require.Equal(t, "kimi-k3", account.GetMappedModel("paid-model"))
+					require.Equal(t, trapModel, account.GetMappedModel("kimi-k3"), "fixture must expose double mapping")
+					upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"type":"GoUsageLimitError","message":"Usage limit reached. Insufficient account funds"}}`))}}
+					gateway := newForwardPartialUsageServiceForTest(upstream)
+					repo := &openCodeModelQuotaRepo{}
+					gateway.rateLimitService = NewRateLimitService(repo, nil, gateway.cfg, nil, nil)
+					c, _ := newTestContext()
+					var err error
+					if protocol == "chat_completions" {
+						_, err = gateway.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"paid-model","messages":[{"role":"user","content":"hello"}]}`), nil)
+					} else {
+						_, err = gateway.ForwardAsResponses(context.Background(), c, account, []byte(`{"model":"paid-model","input":"hello"}`), nil)
+					}
+					require.NotNil(t, upstream.lastReq, "exercise real forwarding up to the fake transport")
+					var sent map[string]any
+					require.NoError(t, json.Unmarshal(upstream.lastBody, &sent))
+					require.Equal(t, "kimi-k3", sent["model"])
+					var failure *UpstreamFailoverError
+					require.ErrorAs(t, err, &failure)
+					require.Equal(t, status, failure.StatusCode)
+					require.Equal(t, sent["model"], repo.model, "cooldown key must equal the model actually sent")
+					require.False(t, account.isRateLimitActiveForKey(trapModel))
+					for _, model := range []string{"paid-model", "paid-alias"} {
+						require.False(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+					}
+					for _, model := range []string{"space-bunny-free", "private-model"} {
+						require.True(t, account.IsSchedulableForModelWithContext(context.Background(), model), model)
+					}
+					require.Zero(t, repo.tempCalls)
+					require.Zero(t, repo.rateLimitedCalls)
+					require.Zero(t, repo.setErrorCalls)
+				})
+			}
+		}
+	}
+}
+
+func TestOpenCodeQuotaForwardingChangePreservesOtherProviderPaymentErrors(t *testing.T) {
+	for _, protocol := range []string{"chat_completions", "responses"} {
+		t.Run(protocol, func(t *testing.T) {
+			account := newAnthropicAPIKeyAccountForTest()
+			account.Credentials["model_mapping"] = map[string]any{"paid-model": "kimi-k3", "kimi-k3": "kimi-k3-eu"}
+			upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusPaymentRequired, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Insufficient funds"}}`))}}
+			gateway := newForwardPartialUsageServiceForTest(upstream)
+			repo := &openCodeModelQuotaRepo{}
+			gateway.rateLimitService = NewRateLimitService(repo, nil, gateway.cfg, nil, nil)
+			c, _ := newTestContext()
+			var err error
+			if protocol == "chat_completions" {
+				_, err = gateway.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"paid-model","messages":[{"role":"user","content":"hello"}]}`), nil)
+			} else {
+				_, err = gateway.ForwardAsResponses(context.Background(), c, account, []byte(`{"model":"paid-model","input":"hello"}`), nil)
+			}
+			require.NotNil(t, upstream.lastReq)
+			require.ErrorContains(t, err, "upstream error: 402")
+			require.Empty(t, repo.model)
+			require.Zero(t, repo.tempCalls)
+			require.Zero(t, repo.rateLimitedCalls)
+			require.Zero(t, repo.setErrorCalls)
 		})
 	}
 }

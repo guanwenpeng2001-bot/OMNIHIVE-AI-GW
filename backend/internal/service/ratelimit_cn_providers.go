@@ -180,9 +180,7 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 	}
 	provider := account.Platform
 	if account.IsOpenCodeGoPlan() {
-		if reset := openCodeExhaustedQuotaReset(account, now); reset != nil {
-			return reset
-		}
+		return nil // Go usage snapshots do not establish a global generation limit.
 	}
 	suffixes := []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset}
 	if account.IsOpenCodeGo() {
@@ -248,6 +246,14 @@ func (s *RateLimitService) applyCNProviderReactive429(
 	headers http.Header,
 	responseBody []byte,
 ) bool {
+	if account.IsOpenCodeGoPlan() {
+		if isOpenCodeUsageLimitFailure(responseBody) {
+			s.handleOpenCodeModelQuotaFailure(ctx, account, headers, responseBody, "opencode_usage_limit: "+extractUpstreamErrorMessage(responseBody))
+			return true
+		}
+		// Ordinary RPM/concurrency 429 remains on the existing global path.
+		return false
+	}
 	if account.IsOpenCodeGo() {
 		if s.cooldownCNProviderToQuotaSnapshotReset(ctx, account, "429", "opencode_go_rate_limited") != nil {
 			return true
