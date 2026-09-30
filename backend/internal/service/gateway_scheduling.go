@@ -32,6 +32,13 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	account, _, err := s.selectAccountForModelWithSelectionContext(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+	return account, err
+}
+
+// Keep the context that actually selected the account, including the exact composite
+// target after session-limit exclusions advance the ordered target walk.
+func (s *GatewayService) selectAccountForModelWithSelectionContext(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, context.Context, error) {
 	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
@@ -41,10 +48,10 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 	} else if groupID != nil {
 		group, resolvedGroupID, err := s.resolveGatewayGroup(ctx, groupID)
 		if err != nil {
-			return nil, err
+			return nil, ctx, err
 		}
 		if group == nil {
-			return nil, ErrGroupNotFound
+			return nil, ctx, ErrGroupNotFound
 		}
 		groupID = resolvedGroupID
 		ctx = s.withGroupContext(ctx, group)
@@ -52,10 +59,10 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		if group.Platform == PlatformComposite {
 			decision, ok, err := s.resolveCompositeRouteDecision(ctx, group, requestedModel, CompositeRouteEndpointAny)
 			if err != nil {
-				return nil, err
+				return nil, ctx, err
 			}
 			if !ok {
-				return nil, fmt.Errorf("%w supporting model: %s (composite target platform unknown)", ErrNoAvailableAccounts, requestedModel)
+				return nil, ctx, fmt.Errorf("%w supporting model: %s (composite target platform unknown)", ErrNoAvailableAccounts, requestedModel)
 			}
 			platform = decision.TargetPlatform
 			requestedModel = decision.UpstreamModel
@@ -74,7 +81,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		return nil, ctx, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
 	// anthropic/gemini 分组支持混合调度（包含启用了 mixed_scheduling 的 antigravity 账户）
@@ -82,18 +89,20 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 	if (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform {
 		account, err := s.selectAccountWithMixedScheduling(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
 		if err != nil {
-			return nil, err
+			return nil, ctx, err
 		}
-		return s.hydrateSelectedAccount(ctx, account)
+		account, err = s.hydrateSelectedAccount(ctx, account)
+		return account, ctx, err
 	}
 
 	// antigravity 分组、强制平台模式或无分组使用单平台选择
 	// 注意：强制平台模式也必须遵守分组限制，不再回退到全平台查询
 	account, err := s.selectAccountForModelWithPlatform(ctx, groupID, sessionHash, requestedModel, excludedIDs, platform)
 	if err != nil {
-		return nil, err
+		return nil, ctx, err
 	}
-	return s.hydrateSelectedAccount(ctx, account)
+	account, err = s.hydrateSelectedAccount(ctx, account)
+	return account, ctx, err
 }
 
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
@@ -172,32 +181,32 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 
 		for {
-			account, err := s.SelectAccountForModelWithExclusions(ctx, groupID, sessionHash, requestedModel, localExcluded)
+			account, selectionCtx, err := s.selectAccountForModelWithSelectionContext(ctx, groupID, sessionHash, requestedModel, localExcluded)
 			if err != nil {
 				return nil, err
 			}
 
-			result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			result, err := s.tryAcquireAccountSlot(selectionCtx, account.ID, account.Concurrency)
 			if err == nil && result.Acquired {
 				// 获取槽位后检查会话限制（使用 sessionHash 作为会话标识符）
-				if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+				if !s.checkAndRegisterSession(selectionCtx, account, sessionHash) {
 					result.ReleaseFunc()                   // 释放槽位
 					localExcluded[account.ID] = struct{}{} // 排除此账号
 					continue                               // 重新选择
 				}
-				return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+				return s.newSelectionResult(selectionCtx, account, true, result.ReleaseFunc, nil)
 			}
 
 			// 对于等待计划的情况，也需要先检查会话限制
-			if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+			if !s.checkAndRegisterSession(selectionCtx, account, sessionHash) {
 				localExcluded[account.ID] = struct{}{}
 				continue
 			}
 
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(selectionCtx, account.ID)
 				if waitingCount < cfg.StickySessionMaxWaiting {
-					return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+					return s.newSelectionResult(selectionCtx, account, false, nil, &AccountWaitPlan{
 						AccountID:      account.ID,
 						MaxConcurrency: account.Concurrency,
 						Timeout:        cfg.StickySessionWaitTimeout,
@@ -205,7 +214,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					})
 				}
 			}
-			return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+			return s.newSelectionResult(selectionCtx, account, false, nil, &AccountWaitPlan{
 				AccountID:      account.ID,
 				MaxConcurrency: account.Concurrency,
 				Timeout:        cfg.FallbackWaitTimeout,
