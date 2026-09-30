@@ -33,8 +33,8 @@ line:
 The helper fetches directly, ignores inherited HTTP proxies, refuses redirects,
 and never uses a converter. Give it the provider's final Clash YAML URL; HTML,
 base64 URI lists, proxy providers and non-AnyTLS protocols are not supported.
-Only proxy entries are copied; subscription rules, scripts, DNS, controllers and
-other top-level configuration are discarded. Administrative labels such as
+Only proxy entries and their exact host dependencies are copied; subscription
+rules, scripts, DNS, controllers and unrelated configuration are discarded. Administrative labels such as
 到期时间、距离下次重置、获取最新订阅、剩余流量 and `remaining` are excluded by anchored
 patterns. Unfamiliar real node names are retained. Unsupported outbound fields
 fail with a redacted error so they can be reviewed privately without silently
@@ -63,6 +63,51 @@ The server listeners are reachable only through the Compose network; only truste
 containers should join it. No controller, dashboard or host ports are enabled.
 
 ## Stable allocation
+
+### Required subscription host mappings
+
+The renderer retains exact `hosts` mappings reachable from selected real nodes'
+`server` names, following at most 32 mappings per chain and retaining at most
+4096 entries. Metadata-only nodes do not contribute dependencies. Unrelated
+mappings and wildcard keys are omitted. Matching and emitted host keys/CNAMEs
+are lowercased with one optional trailing dot removed; the node's original
+server, name, SNI and identity inputs remain unchanged. Ambiguous normalized
+keys, required cycles, empty IP lists and invalid required values fail with
+redacted errors. No DNS lookup occurs while rendering.
+
+Values may be an IPv4/IPv6 address, a nonempty list of IP addresses, or a single
+hostname CNAME; hostname lists are rejected. This follows the
+[official hosts schema](https://wiki.metacubex.one/en/config/dns/hosts/).
+Public, private and loopback IPs are preserved as supplied, consistent with
+the helper's existing endpoint policy: privately review authorized subscriptions
+before deployment. No address classification silently removes a required mapping.
+
+Retained mappings are emitted as top-level `hosts` in the private config.
+With explicit core DNS, `use-hosts` becomes true. Without `--dns-server`, retained
+hosts enable a minimal core DNS block with `nameserver` set to `system`,
+`use-hosts: true`, and system hosts lookup disabled. IP-ending chains also use
+`system` for `proxy-server-nameserver` and need no DNS listen address; terminal
+CNAMEs use the internal service described below. This preserves the deployment's DNS
+choice without copying any desktop configuration. Use explicit resolvers where
+inherited Docker DNS is unsuitable. With no retained hosts and no DNS option,
+the original no-DNS-block behavior remains unchanged.
+
+Host value rotation and host-entry reordering do not change port assignments or
+API exports. Keep the existing manifest when rerendering; do not recreate proxy
+records or rebind accounts. These are core-local mappings, not mutations of the
+machine hosts file, Windows DNS, Docker daemon DNS or Clash.
+
+For a chain ending in a hostname without a retained IP mapping, the renderer
+sets the core's internal DNS listener to `127.0.0.1:1053` and routes
+`proxy-server-nameserver` to `udp://127.0.0.1:1053`. This is necessary because
+the pinned core's raw outbound resolver bypasses CNAME hosts middleware. The
+same core's DNS service applies the retained mappings and uses the ordinary
+`nameserver` list to resolve the terminal hostname; that list is never pointed
+back at the internal listener. This avoids a forwarding loop and preserves
+explicit `--dns-server` choices. Chains ending in retained IPs need no internal
+listener. Port 1053 is reserved inside this sidecar for the internal resolver.
+No DNS port is published by either Compose overlay, and no separate broker is
+needed. Runtime connectivity still depends on reachable upstream DNS and nodes.
 
 Keep and back up `manifest.json` alongside the configuration. Identity hashes
 the exact node name, protocol, lowercased server and upstream port, excluding the
@@ -162,7 +207,10 @@ only non-secret resolver addresses on the command line.
 The generated core DNS uses `enable: true`, `enhanced-mode: redir-host`, and the
 supplied list for both `nameserver` and `proxy-server-nameserver`. DNS connections
 are direct (`respect-rules: false`), with no system hosts lookup. `listen: ""`
-opens no DNS server port. The existing core IPv4 choice remains unchanged
+opens no DNS server port unless a retained terminal CNAME needs the internal
+loopback resolver described above. In that case only proxy-server resolution is
+sent through the internal service; the supplied list remains its upstream.
+The existing core IPv4 choice remains unchanged
 (`ipv6: false`, also in DNS); this does not alter host OS IPv6 or DNS settings.
 Subscription DNS/rules are still discarded and no TUN or added privilege is used.
 These fields follow the [official DNS configuration](https://wiki.metacubex.one/en/config/dns/).
@@ -174,7 +222,7 @@ URLs, for example `--dns-bootstrap-server 192.0.2.53` (documentation address;
 replace with your reachable resolver). Bootstrap hostnames are rejected, avoiding
 a resolution loop. This option requires `--dns-server`.
 
-Without `--dns-server`, no DNS block is generated and prior behavior is unchanged.
+Without `--dns-server` and without retained hosts, no DNS block is generated and prior behavior is unchanged.
 Rerender into the same private output directory, retaining the manifest: DNS
 changes preserve ports, node identities and all address exports. Recreate only
 the sidecar using the existing deployment procedure after reviewing the generated
@@ -211,4 +259,10 @@ python3 -m unittest discover -s deploy/mihomo -p test_render.py -v
 
 Tests render fake credentials, exercise allocation and errors, and validate both
 Compose overlays with an isolated synthetic environment using `compose config`.
-They never launch services or access a real subscription.
+They never access a real subscription. The optional core test is skipped unless
+`MIHOMO_TEST_IMAGE=metacubex/mihomo:v1.19.32` is set and that image is already
+installed. It uses `--pull never --network none`, no published ports, dropped
+capabilities and a read-only fixture mount. Four core syntax checks and a short
+synthetic CNAME resolution test run inside an ephemeral container; its two core
+processes serve only synthetic data over container loopback and are terminated
+on completion. No existing sidecar or external DNS is contacted.

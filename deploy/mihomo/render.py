@@ -40,7 +40,7 @@ def text_value(value):
     return isinstance(value, str) and bool(value.strip()) and not any(ord(char) < 32 for char in value)
 
 
-def parse_nodes(raw):
+def parse_subscription(raw):
     require(len(raw) <= MAX_INPUT, "Subscription exceeds size limit.")
     try:
         # Reject aliases: no recursive structures or expansion surprises.
@@ -74,7 +74,90 @@ def parse_nodes(raw):
         names.add(name)
         nodes.append(dict(entry))
     require(bool(nodes), "No usable AnyTLS nodes.")
-    return nodes
+    return nodes, required_hosts(document.get("hosts", {}), nodes)
+
+
+def parse_nodes(raw):
+    return parse_subscription(raw)[0]
+
+
+def hostname(value):
+    require(isinstance(value, str) and value.isascii(), "Invalid required hosts hostname.")
+    normalized = value[:-1] if value.endswith(".") else value
+    require(0 < len(normalized) <= 253 and all(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+        for label in normalized.split(".")), "Invalid required hosts hostname.")
+    return normalized.lower()
+
+
+def host_value(value):
+    """Return a canonical IP, IP list, or one CNAME; never resolve it here."""
+    if isinstance(value, list):
+        require(bool(value), "Required hosts IP list is empty.")
+        result = []
+        for address in value:
+            require(isinstance(address, str) and "%" not in address, "Invalid required hosts IP list.")
+            try:
+                result.append(str(ipaddress.ip_address(address)))
+            except ValueError:
+                raise SafeError("Invalid required hosts IP list.") from None
+        return result
+    require(isinstance(value, str) and "%" not in value, "Invalid required hosts value.")
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        alias = hostname(value)
+        require("." in alias and not all(label.isdigit() for label in alias.split(".")),
+                "Invalid required hosts alias.")
+        return alias
+
+
+def required_hosts(source, nodes):
+    require(isinstance(source, dict), "Subscription hosts must be a mapping.")
+    if not source:
+        return {}
+    indexed = {}
+    for key, value in source.items():
+        try:
+            normalized = hostname(key)
+        except SafeError:
+            # Wildcards and unrelated invalid keys are not exact dependencies.
+            continue
+        indexed.setdefault(normalized, []).append(value)
+    retained = {}
+    for node in nodes:
+        try:
+            ipaddress.ip_address(node["server"])
+            continue
+        except ValueError:
+            current = hostname(node["server"])
+        visited = set()
+        while current in indexed:
+            require(current not in visited, "Required hosts alias cycle.")
+            require(len(visited) < 32, "Required hosts alias chain exceeds 32 mappings.")
+            visited.add(current)
+            require(len(indexed[current]) == 1, "Ambiguous required hosts hostname.")
+            value = host_value(indexed[current][0])
+            retained[current] = value
+            require(len(retained) <= 4096, "Too many required hosts mappings.")
+            if isinstance(value, list):
+                break
+            try:
+                ipaddress.ip_address(value)
+                break
+            except ValueError:
+                current = value
+    return dict(sorted(retained.items()))
+
+
+def needs_hosts_resolver(hosts):
+    for value in hosts.values():
+        if isinstance(value, str) and value not in hosts:
+            try:
+                ipaddress.ip_address(value)
+            except ValueError:
+                return True
+    return False
 
 
 def identity(node):
@@ -156,7 +239,7 @@ def resolver_config(servers, bootstrap_servers=None):
             "nameserver": list(servers), "proxy-server-nameserver": list(servers)}
 
 
-def construct(nodes, manifest, host, dns=None):
+def construct(nodes, manifest, host, dns=None, hosts=None):
     require(text_value(host) and not any(char in host for char in "/@?# "), "Invalid export host.")
     by_identity = {identity(node): node for node in nodes}
     listeners, proxies, entries = [], [], []
@@ -172,7 +255,23 @@ def construct(nodes, manifest, host, dns=None):
               "allow-lan": True, "listeners": listeners, "proxies": proxies,
               "rules": ["MATCH,REJECT"]}
     if dns is not None:
-        config["dns"] = dns
+        config["dns"] = dict(dns)
+    if hosts:
+        config["hosts"] = hosts
+        if dns is None:
+            # Keep the deployment's resolver choice, but enable hosts handling.
+            config["dns"] = {"enable": True, "enhanced-mode": "redir-host", "listen": "",
+                             "ipv6": False, "respect-rules": False, "use-system-hosts": False,
+                             "nameserver": ["system"], "proxy-server-nameserver": ["system"]}
+        config["dns"]["use-hosts"] = True
+        if needs_hosts_resolver(hosts):
+            require(all(listener["port"] != 1053 for listener in listeners),
+                    "Listener port 1053 conflicts with required internal DNS; review the manifest privately.")
+            # The raw outbound resolver bypasses CNAME hosts handling. Route it
+            # through this core's own DNS service; that service uses nameserver,
+            # not proxy-server-nameserver, so this does not forward to itself.
+            config["dns"]["listen"] = "127.0.0.1:1053"
+            config["dns"]["proxy-server-nameserver"] = ["udp://127.0.0.1:1053"]
     return config, entries
 
 
@@ -216,11 +315,11 @@ def render(args):
     output = Path(args.output_dir).resolve()
     require(not output.is_relative_to(Path(__file__).resolve().parents[2]),
             "Output directory must be outside the source checkout.")
-    nodes = parse_nodes(read_source(args))
+    nodes, hosts = parse_subscription(read_source(args))
     manifest_path = output / "manifest.json"
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
     manifest = allocate(nodes, previous, args.port_start, args.port_end)
-    config, selected = construct(nodes, manifest, args.export_host, dns)
+    config, selected = construct(nodes, manifest, args.export_host, dns, hosts)
     _, server = construct(nodes, manifest, args.server_host)
     _, development = construct(nodes, manifest, "127.0.0.1")
     artifacts = {"config.yaml": yaml.safe_dump(config, allow_unicode=True, sort_keys=False)}

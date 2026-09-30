@@ -1,4 +1,4 @@
-"""Synthetic-only verification; does not start services or contact subscriptions."""
+"""Synthetic verification; optional core tests use isolated network-none containers."""
 import contextlib
 import copy
 import io
@@ -23,6 +23,136 @@ def node(name="Unknown real location"):
 
 
 class RenderTests(unittest.TestCase):
+    @unittest.skipUnless(os.environ.get("MIHOMO_TEST_IMAGE"), "Set MIHOMO_TEST_IMAGE for isolated core verification")
+    def test_core_hosts_syntax_and_isolated_cname_resolution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nodes = [node()]
+            manifest = render.allocate(nodes, None, 24000, 24010)
+            cname = {"example.invalid": "alias.invalid", "alias.invalid": "terminal.invalid"}
+            ip_chain = {**cname, "terminal.invalid": ["192.0.2.50", "2001:db8::50"]}
+            configs = {}
+            for label, hosts in (("cname", cname), ("chain", ip_chain)):
+                for resolver, dns in (("system", None), ("explicit", render.resolver_config(["https://1.1.1.1/dns-query"]))):
+                    configs[label + "-" + resolver] = render.construct(nodes, manifest, "node-proxy", dns, hosts)[0]
+            configs["subject"] = render.construct(nodes, manifest, "node-proxy", render.resolver_config(["127.0.0.1"]), cname)[0]
+            configs["upstream"] = {"hosts": {"terminal.invalid": "192.0.2.50"}, "log-level": "silent",
+                                   "dns": {"enable": True, "use-hosts": True, "use-system-hosts": False,
+                                           "listen": "127.0.0.1:53", "nameserver": ["192.0.2.53"], "enhanced-mode": "redir-host"}}
+            for label, config in configs.items():
+                (root / (label + ".yaml")).write_text(yaml.safe_dump(config), encoding="utf-8")
+            script = '''set -eu
+for variant in cname-system cname-explicit chain-system chain-explicit; do
+  /mihomo -t -d /tmp/check -f /fixtures/$variant.yaml
+done
+/mihomo -d /tmp/upstream -f /fixtures/upstream.yaml > /tmp/upstream.log 2>&1 &
+upstream_pid=$!
+/mihomo -d /tmp/subject -f /fixtures/subject.yaml > /tmp/subject.log 2>&1 &
+subject_pid=$!
+trap 'kill "$subject_pid" "$upstream_pid" 2>/dev/null || true' EXIT
+sleep 1
+nslookup example.invalid 127.0.0.1:1053 > /tmp/lookup.txt 2>&1
+cat /tmp/lookup.txt
+grep -q '192.0.2.50' /tmp/lookup.txt
+'''
+            (root / "verify.sh").write_text(script, encoding="utf-8", newline="\n")
+            result = subprocess.run(["docker", "run", "--rm", "--pull", "never", "--network", "none",
+                                     "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                                     "--tmpfs", "/tmp", "--mount", f"type=bind,source={root},target=/fixtures,readonly",
+                                     "--entrypoint", "/bin/sh", os.environ["MIHOMO_TEST_IMAGE"],
+                                     "-c", "timeout 15 sh /fixtures/verify.sh"], capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.stdout.count("test is successful"), 4)
+            self.assertIn("192.0.2.50", result.stdout)
+
+    def test_hosts_dependency_chain_and_metadata_filter(self):
+        real = {**node(), "server": "NODE.Example.Invalid.", "sni": "tls.example.invalid"}
+        metadata = {**node("Remaining: 1 GB"), "server": "metadata.example.invalid"}
+        source = {"NODE.example.invalid.": "Alias.Example.Invalid.",
+                  "alias.example.invalid": "final.example.invalid",
+                  "final.example.invalid": ["192.0.2.10", "2001:db8::10"],
+                  "unrelated.example.invalid": "SECRET-invalid-value/",
+                  "metadata.example.invalid": "192.0.2.20", "*.example.invalid": "192.0.2.30"}
+        nodes, hosts = render.parse_subscription(yaml.safe_dump({"proxies": [metadata, real], "hosts": source}))
+        self.assertEqual(nodes, [real])
+        self.assertEqual(hosts, {"node.example.invalid": "alias.example.invalid",
+                                 "alias.example.invalid": "final.example.invalid",
+                                 "final.example.invalid": ["192.0.2.10", "2001:db8::10"]})
+        manifest = render.allocate(nodes, None, 24000, 24010)
+        for dns in (None, render.resolver_config(["https://1.1.1.1/dns-query"])):
+            config, _ = render.construct(nodes, manifest, "node-proxy", dns, hosts)
+            self.assertEqual(config["hosts"], hosts)
+            self.assertTrue(config["dns"]["use-hosts"])
+            self.assertTrue(config["dns"]["enable"])
+            self.assertFalse(config["dns"]["use-system-hosts"])
+            self.assertEqual(config["dns"]["listen"], "")
+            self.assertEqual(config["proxies"][0]["server"], real["server"])
+            self.assertEqual(config["proxies"][0]["sni"], real["sni"])
+
+    def test_hosts_terminal_alias_and_private_ips(self):
+        nodes = [node()]
+        for value in ("alias.example.invalid", "10.0.0.1", "127.0.0.1", "2001:db8::1", ["10.0.0.1"]):
+            self.assertEqual(render.required_hosts({"example.invalid": value}, nodes), {"example.invalid": value})
+        self.assertEqual(render.required_hosts({"unrelated.example": "192.0.2.1"}, nodes), {})
+        manifest = render.allocate(nodes, None, 24000, 24010)
+        hosts = {"example.invalid": "alias.invalid", "alias.invalid": "terminal.invalid"}
+        for dns in (None, render.resolver_config(["https://1.1.1.1/dns-query"])):
+            config, _ = render.construct(nodes, manifest, "node-proxy", dns, hosts)
+            self.assertEqual(config["dns"]["listen"], "127.0.0.1:1053")
+            self.assertEqual(config["dns"]["proxy-server-nameserver"], ["udp://127.0.0.1:1053"])
+            self.assertEqual(config["dns"]["nameserver"], dns["nameserver"] if dns else ["system"])
+            self.assertNotIn("udp://127.0.0.1:1053", config["dns"]["nameserver"])
+            self.assertEqual(config["proxies"][0]["server"], nodes[0]["server"])
+        self.assertFalse(render.needs_hosts_resolver({"example.invalid": "alias.invalid", "alias.invalid": "192.0.2.1"}))
+        with self.assertRaises(render.SafeError):
+            render.construct(nodes, render.allocate(nodes, None, 1053, 1053), "node-proxy", hosts=hosts)
+
+    def test_hosts_invalid_cycle_and_depth_errors_are_safe(self):
+        nodes = [node()]
+        invalid_values = [None, 123, [], ["alias.example.invalid"], ["192.0.2.1", "bad"],
+                          "https://example.invalid/SECRET", "alias.example.invalid\nSECRET", "999.999.999.999",
+                          "alias..invalid", "*.example.invalid", "singlelabel", "fe80::1%SECRET"]
+        invalid_maps = [{"example.invalid": value} for value in invalid_values]
+        invalid_maps += [{"example.invalid": "EXAMPLE.INVALID."},
+                         {"example.invalid": "alias.invalid", "alias.invalid": "example.invalid"},
+                         {"example.invalid": "192.0.2.1", "EXAMPLE.INVALID.": "192.0.2.2"}]
+        chain = {"example.invalid": "alias0.invalid"}
+        chain.update({f"alias{index}.invalid": f"alias{index + 1}.invalid" for index in range(32)})
+        invalid_maps.append(chain)
+        for source in invalid_maps:
+            with self.subTest(source=source), self.assertRaises(render.SafeError) as raised:
+                render.required_hosts(source, nodes)
+            self.assertNotIn("SECRET", str(raised.exception))
+
+    def test_hosts_rotation_keeps_manifest_and_exports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "synthetic.yaml"
+            output = root / "generated"
+            command = [sys.executable, str(Path(render.__file__)), "--input", str(source), "--output-dir", str(output)]
+            baseline = None
+            configs = []
+            for hosts in ({"example.invalid": "alias.invalid", "alias.invalid": "192.0.2.1"},
+                          {"alias.invalid": "192.0.2.1", "EXAMPLE.INVALID.": "ALIAS.INVALID."},
+                          {"example.invalid": "rotated.invalid", "rotated.invalid": "192.0.2.2"}):
+                source.write_text(yaml.safe_dump({"proxies": [node()], "hosts": hosts}), encoding="utf-8")
+                result = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                artifacts = {path.name: path.read_bytes() for path in output.iterdir() if path.name != "config.yaml"}
+                if baseline is None:
+                    baseline = artifacts
+                self.assertEqual(artifacts, baseline)
+                configs.append((output / "config.yaml").read_bytes())
+            self.assertEqual(configs[0], configs[1])
+            self.assertNotEqual(configs[1], configs[2])
+            source.write_text(yaml.safe_dump({"proxies": [node()], "hosts": {
+                "example.invalid": "https://subscription.invalid/SECRET"}}), encoding="utf-8")
+            failed = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(failed.returncode, 1)
+            self.assertNotIn("SECRET", failed.stdout + failed.stderr)
+            self.assertEqual((output / "config.yaml").read_bytes(), configs[-1])
+            self.assertEqual(baseline, {path.name: path.read_bytes() for path in output.iterdir() if path.name != "config.yaml"})
+
     def test_dns_opt_in_and_bootstrap(self):
         self.assertIsNone(render.resolver_config(None))
         servers = ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
