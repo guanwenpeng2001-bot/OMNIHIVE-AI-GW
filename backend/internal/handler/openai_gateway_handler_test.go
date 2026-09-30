@@ -1578,6 +1578,55 @@ func TestOpenAIResponsesWebSocket_PassthroughRejectsUnselectedWireModel(t *testi
 	}
 }
 
+func TestOpenAIResponsesWebSocket_PassthroughWhitespaceTypeCannotSkipModelCheck(t *testing.T) {
+	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+		firstPayload:        `{"type":"response.create","model":"sol"}`,
+		secondPayload:       `{"type":" response.create ","model":"terra"}`,
+		channelMapping:      map[string]string{"sol": "sol-channel", "terra": "terra-channel"},
+		accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol-channel": "gpt-5.6-sol"},
+		secondSendRejected:  true,
+	})
+	require.Len(t, got.upstreamPayloads, 1)
+	require.Len(t, got.logs, 1)
+	require.Equal(t, "sol", got.logs[0].RequestedModel)
+}
+
+func TestOpenAIResponsesWebSocket_CtxPoolIgnoresHTTPPassthroughMappingMode(t *testing.T) {
+	got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+		firstPayload:        `{"type":"response.create","model":"sol"}`,
+		secondPayload:       `{"type":"response.create","model":"terra"}`,
+		ingressMode:         service.OpenAIWSIngressModeCtxPool,
+		accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra"},
+		configureAccount:    func(account *service.Account) { account.Extra["openai_passthrough"] = true },
+	})
+	require.Len(t, got.upstreamPayloads, 2)
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(got.upstreamPayloads[0], "model").String())
+	require.Equal(t, "gpt-5.6-terra", gjson.GetBytes(got.upstreamPayloads[1], "model").String())
+}
+
+func TestOpenAIResponsesWebSocket_PassthroughInFlightRejectionKeepsObservation(t *testing.T) {
+	for _, eventType := range []string{"response.create", " response.create "} {
+		t.Run(eventType, func(t *testing.T) {
+			got := runOpenAIResponsesWebSocketUsageLogCase(t, openAIResponsesWSUsageLogCase{
+				firstPayload:        `{"type":"response.create","model":"sol"}`,
+				secondPayload:       fmt.Sprintf(`{"type":%q,"model":"terra"}`, eventType),
+				channelMapping:      map[string]string{"sol": "sol-channel", "terra": "terra-channel"},
+				accountModelMapping: map[string]any{"sol": "gpt-5.6-sol", "terra": "gpt-5.6-terra", "sol-channel": "gpt-5.6-sol"},
+				responseModels:      []string{"inflight-declaration"},
+				firstTurnInFlight:   true,
+				secondSendRejected:  true,
+			})
+			require.Len(t, got.upstreamPayloads, 1)
+			require.Len(t, got.logs, 1)
+			require.Equal(t, "sol", got.logs[0].RequestedModel)
+			require.Equal(t, "sol-channel", *got.logs[0].UpstreamModel)
+			require.Equal(t, "inflight-declaration", *got.logs[0].UpstreamResponseModel)
+			require.Equal(t, 2, got.logs[0].InputTokens)
+			require.Equal(t, 1, got.logs[0].OutputTokens)
+		})
+	}
+}
+
 func TestOpenAIResponsesWebSocket_PassthroughRejectsRevokedNextTurn(t *testing.T) {
 	for _, revoke := range []string{"selection", "scope", "disabled"} {
 		t.Run(revoke, func(t *testing.T) {
@@ -2017,6 +2066,7 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
+	firstTurnInFlight     bool
 	secondTurnInterrupted bool
 	responseModels        []string
 	configureAccount      func(*service.Account)
@@ -3048,6 +3098,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 				response, _ = sjson.Set(response, "type", "response.created")
 				response, _ = sjson.Delete(response, "response.usage")
 			}
+			if turn == 1 && tc.firstTurnInFlight {
+				response, _ = sjson.Set(response, "type", "response.created")
+			}
 			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(response))
 			cancelWrite()
@@ -3232,7 +3285,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		cancelRead()
 		require.NoError(t, readErr)
 		expectedEvent := "response.completed"
-		if tc.secondTurnInterrupted && len(clientEvents) == 1 {
+		if tc.secondTurnInterrupted && len(clientEvents) == 1 || tc.firstTurnInFlight && len(clientEvents) == 0 {
 			expectedEvent = "response.created"
 		}
 		require.Equal(t, expectedEvent, gjson.GetBytes(event, "type").String())

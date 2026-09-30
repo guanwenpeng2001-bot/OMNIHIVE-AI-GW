@@ -2,14 +2,18 @@ package service
 
 import (
 	"context"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/require"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestConfiguredSelectionSurvivesDiscoveryAndMetadata(t *testing.T) {
@@ -76,6 +80,172 @@ func TestConfiguredSelectionPassthroughWhitelist(t *testing.T) {
 	require.False(t, account.IsModelSupported("new-discovery"))
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "new-discovery", AccountModelBindingOptions{}))
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "selected", AccountModelBindingOptions{FinalModel: "absent"}))
+}
+
+func TestConfiguredSelectionRequestedAliasNormalization(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAntigravity} {
+		t.Run(platform, func(t *testing.T) {
+			account := catalogEvidenceAccount(1, platform, "gemini-3.1-pro-preview-customtools", "gemini-other")
+			account.Credentials["model_mapping"] = map[string]string{"gemini-3.1-pro-preview": "gemini-3.1-pro-preview"}
+			requested := "gemini-3.1-pro-preview-customtools"
+			require.True(t, account.IsModelSupported(requested))
+			binding := ResolveAccountModelBinding(context.Background(), &account, requested, AccountModelBindingOptions{})
+			require.True(t, binding.Supported)
+			require.Equal(t, "gemini-3.1-pro-preview", binding.UpstreamModel)
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: requested, Protocol: "gemini", Action: "chat"}))
+			require.NoError(t, validateAccountForwardModel(ctx, nil, &account, binding.UpstreamModel, "generate_content"))
+			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "gemini-other", AccountModelBindingOptions{}))
+			account.Credentials["model_mapping"] = map[string]string{requested: "explicit-target", "gemini-3.1-pro-preview": "gemini-3.1-pro-preview"}
+			binding = ResolveAccountModelBinding(context.Background(), &account, requested, AccountModelBindingOptions{})
+			require.True(t, binding.Supported)
+			require.Equal(t, "explicit-target", binding.UpstreamModel)
+		})
+	}
+}
+
+func TestConfiguredSelectionHTTPPassthroughAlias(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "discovered-only", "compact-private")
+	account.Credentials["model_mapping"] = map[string]string{"wire-alias": "mapped-target"}
+	account.Extra["openai_passthrough"] = true
+	account.Extra["openai_responses_supported"] = true
+	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-alias", Protocol: "responses", Action: "responses"}))
+	for _, final := range []bool{false, true} {
+		options := AccountModelBindingOptions{Endpoint: "responses"}
+		if final {
+			options.FinalModel = "wire-alias"
+		}
+		binding := ResolveAccountModelBinding(ctx, &account, "wire-alias", options)
+		require.True(t, binding.Supported)
+		require.Equal(t, "wire-alias", binding.UpstreamModel)
+	}
+	require.NoError(t, validateAccountForwardModel(ctx, nil, &account, "wire-alias", "responses"))
+	require.True(t, AccountSupportsResolvedModel(ctx, &account, "wire-alias", AccountModelBindingOptions{Endpoint: "responses", Compact: true}), "compact with no remap keeps the selected wire key")
+	account.Credentials["compact_model_mapping"] = map[string]string{"wire-alias": "compact-private"}
+	compactBinding := ResolveAccountModelBinding(ctx, &account, "wire-alias", AccountModelBindingOptions{Endpoint: "responses", Compact: true})
+	require.True(t, compactBinding.Supported)
+	require.Equal(t, "compact-private", compactBinding.UpstreamModel)
+	for _, unselected := range []string{"discovered-only", "compact-private"} {
+		require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, unselected, "responses"), ErrAccountModelUnsupported)
+	}
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"mapped-target"}}
+	require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, "wire-alias", "responses"), ErrAccountModelUnsupported)
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"wire-alias"}}
+	require.NoError(t, validateAccountForwardModel(ctx, nil, &account, "wire-alias", "responses"))
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true}
+	require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, "wire-alias", "responses"), ErrAccountModelUnsupported)
+}
+
+func TestConfiguredSelectionHTTPAliasActualWire(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("passthrough=%t/stream=%t", passthrough, stream), func(t *testing.T) {
+				account := catalogEvidenceAccount(1, PlatformOpenAI)
+				account.Credentials["model_mapping"] = map[string]string{"wire-alias": "mapped-target"}
+				account.Credentials["api_key"] = "fixture"
+				account.Credentials["base_url"] = "https://fixture.invalid"
+				account.Extra["openai_passthrough"] = passthrough
+				account.Extra["openai_responses_supported"] = true
+				body := []byte(fmt.Sprintf(`{"model":"wire-alias","stream":%t,"input":"hello"}`, stream))
+				responseBody := `{"id":"fixture-response","model":"declared-model","usage":{"input_tokens":2,"output_tokens":1}}`
+				contentType := "application/json"
+				if stream {
+					contentType = "text/event-stream"
+					responseBody = "data: {\"type\":\"response.completed\",\"response\":" + responseBody + "}\n\ndata: [DONE]\n\n"
+				}
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(responseBody))}}
+				gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+				plan := NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-alias", Protocol: "responses", Action: "responses"})
+				installUnlimitedTPMFixture(plan)
+				ctx := WithGatewayRequestPlan(context.Background(), plan)
+				request, _ := gin.CreateTestContext(httptest.NewRecorder())
+				request.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))).WithContext(ctx)
+				request.Request.Header.Set("Content-Type", "application/json")
+				result, err := gateway.Forward(ctx, request, &account, body)
+				require.NoError(t, err)
+				require.Len(t, upstream.bodies, 1)
+				expected := "mapped-target"
+				if passthrough {
+					expected = "wire-alias"
+				}
+				require.Equal(t, expected, gjson.GetBytes(upstream.lastBody, "model").String())
+				require.Equal(t, "declared-model", result.UpstreamResponseModel)
+			})
+		}
+	}
+}
+
+func TestConfiguredSelectionHTTPAdapterWireMapping(t *testing.T) {
+	for _, responsesSupported := range []bool{false, true} {
+		for _, incomingResponses := range []bool{false, true} {
+			t.Run(fmt.Sprintf("responses_upstream=%t/responses_ingress=%t", responsesSupported, incomingResponses), func(t *testing.T) {
+				account := catalogEvidenceAccount(1, PlatformOpenAI)
+				account.Credentials["model_mapping"] = map[string]string{"wire-alias": "mapped-target"}
+				account.Credentials["api_key"] = "fixture"
+				account.Credentials["base_url"] = "https://fixture.invalid"
+				account.Extra["openai_passthrough"] = true
+				account.Extra["openai_responses_supported"] = responsesSupported
+				body := []byte(`{"model":"wire-alias","messages":[{"role":"user","content":"hello"}]}`)
+				protocol, path := "openai", "/v1/chat/completions"
+				if incomingResponses {
+					body = []byte(`{"model":"wire-alias","input":"hello","stream":false}`)
+					protocol, path = "responses", "/v1/responses"
+				}
+				responseBody := `{"id":"fixture","model":"declared-model","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}`
+				if responsesSupported {
+					responseBody = `{"id":"fixture","model":"declared-model","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":2,"output_tokens":1}}`
+				}
+				contentType := "application/json"
+				if responsesSupported && !incomingResponses {
+					contentType = "text/event-stream"
+					responseBody = "data: {\"type\":\"response.completed\",\"response\":" + responseBody + "}\n\ndata: [DONE]\n\n"
+				}
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{contentType}}, Body: io.NopCloser(strings.NewReader(responseBody))}}
+				gateway := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+				plan := NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-alias", Protocol: protocol, Action: "chat"})
+				installUnlimitedTPMFixture(plan)
+				ctx := WithGatewayRequestPlan(context.Background(), plan)
+				request, _ := gin.CreateTestContext(httptest.NewRecorder())
+				request.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body))).WithContext(ctx)
+				request.Request.Header.Set("Content-Type", "application/json")
+				upstreamEndpoint := "chat_completions"
+				if responsesSupported {
+					upstreamEndpoint = "responses"
+				}
+				binding := ResolveAccountModelBinding(ctx, &account, "wire-alias", AccountModelBindingOptions{Endpoint: upstreamEndpoint})
+				require.True(t, binding.Supported)
+				expectedModel := "mapped-target"
+				if incomingResponses && responsesSupported {
+					expectedModel = "wire-alias"
+				}
+				require.Equal(t, expectedModel, binding.UpstreamModel)
+				if incomingResponses {
+					selection := ResolveAccountModelBinding(ctx, &account, "wire-alias", AccountModelBindingOptions{Endpoint: "responses"})
+					require.True(t, selection.Supported)
+					require.Equal(t, expectedModel, selection.UpstreamModel)
+				}
+				var err error
+				if incomingResponses {
+					_, err = gateway.Forward(ctx, request, &account, body)
+				} else {
+					_, err = gateway.ForwardAsChatCompletions(ctx, request, &account, body, "", "")
+				}
+				require.NoError(t, err)
+				require.Len(t, upstream.bodies, 1)
+				require.Equal(t, expectedModel, gjson.GetBytes(upstream.lastBody, "model").String())
+			})
+		}
+	}
+}
+
+func TestConfiguredSelectionWebSocketDiagnosisUsesWireScope(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Credentials["model_mapping"] = map[string]string{"wire-name": "ordinary-target"}
+	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"wire-name"}}
+	ctx := WithOpenAIWebSocketSelection(context.Background(), OpenAIWSIngressModeCtxPool)
+	require.True(t, accountModelScopeAllowsDiagnosis(ctx, &account, "wire-name"))
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"ordinary-target"}}
+	require.False(t, accountModelScopeAllowsDiagnosis(ctx, &account, "wire-name"))
 }
 
 type selectionScopeRecorder struct {
@@ -294,6 +464,53 @@ func TestConfiguredSelectionWebSocketModeDoesNotBorrowHTTPMetadata(t *testing.T)
 	pooled := ResolveAccountModelBinding(ctx, &account, "wire-name", options)
 	require.Equal(t, "ordinary-target", pooled.UpstreamModel, "ctx-pool retains its mapped-wire protocol")
 	require.False(t, AccountSupportsResolvedModel(ctx, &account, "wire-name", AccountModelBindingOptions{Endpoint: "responses", FinalModel: "wire-name"}))
+}
+
+func TestConfiguredSelectionHTTPPassthroughDoesNotChangeOtherTransports(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Credentials["model_mapping"] = map[string]string{"wire-name": "mapped-target"}
+	account.Extra["openai_passthrough"] = true
+	account.Extra["openai_responses_supported"] = true
+	for _, mode := range []string{OpenAIWSIngressModeCtxPool, OpenAIWSIngressModeOff, "legacy"} {
+		t.Run(mode, func(t *testing.T) {
+			account.Extra["openai_apikey_responses_websockets_v2_mode"] = mode
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-name", Protocol: "responses", ExecutionKind: "turn"}))
+			if mode != "legacy" {
+				ctx = WithOpenAIWebSocketSelection(ctx, OpenAIWSIngressModeCtxPool)
+			}
+			binding := ResolveAccountModelBinding(ctx, &account, "wire-name", AccountModelBindingOptions{Endpoint: "responses"})
+			require.True(t, binding.Supported)
+			require.Equal(t, "mapped-target", binding.UpstreamModel)
+			require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, "wire-name", "responses"), ErrAccountModelUnsupported)
+			require.NoError(t, validateAccountForwardModel(ctx, nil, &account, "mapped-target", "responses"))
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"mapped-target"}}
+			require.True(t, accountModelScopeAllowsDiagnosis(ctx, &account, "wire-name"))
+			delete(account.Extra, UpstreamModelAllowlistExtraKey)
+		})
+	}
+	for _, endpoint := range []string{"chat_completions", "messages", "embeddings"} {
+		ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-name", Protocol: map[string]string{"chat_completions": "openai", "messages": "anthropic", "embeddings": "embeddings"}[endpoint]}))
+		binding := ResolveAccountModelBinding(ctx, &account, "wire-name", AccountModelBindingOptions{Endpoint: endpoint})
+		require.Equal(t, "mapped-target", binding.UpstreamModel)
+		require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, "wire-name", endpoint), ErrAccountModelUnsupported)
+	}
+}
+
+func TestConfiguredSelectionPassthroughTransportDoesNotShareNameMemo(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Credentials["model_mapping"] = map[string]string{"wire-*": "mapped-target"}
+	account.Extra["openai_passthrough"] = true
+	account.Extra["openai_responses_supported"] = true
+	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModeCtxPool
+	prepareCatalogReadAccount(&account, nil)
+	ctx := context.WithValue(context.Background(), visibleModelRevisionKey{}, visibleModelRevision{generation: 1, authoritative: true})
+	options := AccountModelBindingOptions{Endpoint: "responses"}
+	require.False(t, ResolveAccountModelBinding(ctx, &account, "wire-name", options).Supported, "wildcard is not an exact selected passthrough wire key")
+	websocket := WithOpenAIWebSocketSelection(ctx, OpenAIWSIngressModeCtxPool)
+	binding := ResolveAccountModelBinding(websocket, &account, "wire-name", options)
+	require.True(t, binding.Supported)
+	require.Equal(t, "mapped-target", binding.UpstreamModel)
+	require.False(t, ResolveAccountModelBinding(ctx, &account, "wire-name", options).Supported)
 }
 
 func TestConfiguredSelectionMessagesDispatchSurvivesForwardBoundary(t *testing.T) {
