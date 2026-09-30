@@ -649,7 +649,7 @@ func openAIActionForwardFailure(err error) (int, string, string) {
 	case errors.Is(err, service.ErrOpenAIActionCredential):
 		return http.StatusServiceUnavailable, "api_error", "No OpenAI API key account is available for this action"
 	case errors.Is(err, service.ErrAccountModelUnsupported):
-		return http.StatusBadRequest, "invalid_request_error", "The requested model is not available for this account"
+		return http.StatusUnprocessableEntity, string(service.ModelBindingRejectedReason), service.ModelBindingRejectedClientMessage
 	default:
 		return http.StatusBadGateway, "upstream_error", "Upstream request failed"
 	}

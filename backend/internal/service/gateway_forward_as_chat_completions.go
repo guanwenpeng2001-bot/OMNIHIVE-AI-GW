@@ -134,9 +134,12 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		_ = s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
+		classifiedErr := s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 			UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
 		})
+		if errors.Is(err, ErrAccountModelUnsupported) {
+			return nil, classifiedErr
+		}
 		return nil, fmt.Errorf("upstream POST failed (acceptance unknown): %s", sanitizeUpstreamErrorMessage(err.Error()))
 	}
 	defer func() { _ = resp.Body.Close() }()

@@ -24,6 +24,8 @@ const openAITransportErrorTempUnschedDuration = 10 * time.Minute
 // ultimately exhausted.
 var openAITransportFailoverBody = []byte(`{"error":{"type":"upstream_error","message":"Upstream request failed"}}`)
 
+var openAIModelBindingRejectedBody = []byte(`{"error":{"type":"model_binding_rejected","message":"` + ModelBindingRejectedClientMessage + `"}}`)
+
 // upstreamTransportErrorClass describes how to react to a transport-level upstream
 // failure — i.e. the HTTP round-trip never completed (proxy / DNS / TCP / TLS
 // error, no HTTP status code received).
@@ -115,6 +117,9 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	if errors.Is(err, ErrAccountModelUnsupported) {
+		return modelBindingRejectedFailover(c, account, err, OpsUpstreamErrorEvent{Passthrough: passthrough}, openAIModelBindingRejectedBody)
+	}
 	if IsAttemptAdmissionError(err) || isClientCanceledTransportError(ctx, err) {
 		return err
 	}

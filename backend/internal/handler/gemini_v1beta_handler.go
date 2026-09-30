@@ -644,6 +644,10 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 }
 
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
+	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
+		googleError(c, failoverErr.ClientStatusCode, failoverErr.ClientMessage)
+		return
+	}
 	if failoverErr != nil && failoverErr.TPM != nil {
 		writeGatewayTPMError(c, failoverErr.TPM)
 		return

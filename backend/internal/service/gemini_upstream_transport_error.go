@@ -12,6 +12,8 @@ import (
 // 供 handler 在换号耗尽后做透传规则匹配与错误信息提取。
 var geminiTransportFailoverBody = []byte(`{"error":{"code":502,"message":"Upstream request failed","status":"INTERNAL"}}`)
 
+var geminiModelBindingRejectedBody = []byte(`{"error":{"code":422,"type":"model_binding_rejected","message":"` + ModelBindingRejectedClientMessage + `","status":"INVALID_ARGUMENT"}}`)
+
 // handleUpstreamTransportError 处理 Gemini 三条转发路径（原生 / Claude 兼容 /
 // Chat Completions 兼容）上的传输层失败：Do 返回非 HTTP 错误（代理 / DNS / TCP / TLS /
 // 响应头超时），没有拿到任何上游状态码。
@@ -24,6 +26,9 @@ var geminiTransportFailoverBody = []byte(`{"error":{"code":502,"message":"Upstre
 //
 // 本函数不写响应：响应归 handler 所有（换号，或耗尽后按端点格式渲染错误）。
 func (s *GeminiMessagesCompatService) handleUpstreamTransportError(ctx context.Context, requestContext *gin.Context, account *Account, err error) error {
+	if errors.Is(err, ErrAccountModelUnsupported) {
+		return modelBindingRejectedFailover(requestContext, account, err, OpsUpstreamErrorEvent{}, geminiModelBindingRejectedBody)
+	}
 	if IsAttemptAdmissionError(err) {
 		return err
 	}

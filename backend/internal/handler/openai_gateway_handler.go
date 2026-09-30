@@ -1641,6 +1641,10 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
+		h.anthropicStreamingAwareError(c, failoverErr.ClientStatusCode, string(service.ModelBindingRejectedReason), failoverErr.ClientMessage, streamStarted)
+		return
+	}
 	if failoverErr != nil && failoverErr.TPM != nil {
 		writeGatewayTPMError(c, failoverErr.TPM)
 		return
@@ -3410,6 +3414,10 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
+		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, string(service.ModelBindingRejectedReason), failoverErr.ClientMessage, streamStarted)
+		return
+	}
 	if failoverErr != nil && failoverErr.TPM != nil {
 		writeGatewayTPMError(c, failoverErr.TPM)
 		return
