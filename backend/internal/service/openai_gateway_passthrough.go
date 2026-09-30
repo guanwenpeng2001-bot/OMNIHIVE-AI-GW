@@ -417,6 +417,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					"[OpenAI passthrough] Retrying explicit compact request once with fallback model (account: %s, from: %s, to: %s, upstream_code: %s)",
 					account.Name, fromModel, fallbackModel, extractUpstreamErrorCode(probeBody),
 				)
+				beginUpstreamResponseModelObservation(c)
 				continue
 			}
 
@@ -453,6 +454,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					body = retryBody
 					upstreamPassthroughModel = fallbackModel
 					compactModelFallbackRetried = true
+					beginUpstreamResponseModelObservation(c)
 					continue
 				}
 				if signal, ok := asOpenAICompactFallbackSignal(handleErr); ok {
@@ -495,6 +497,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					body = retryBody
 					upstreamPassthroughModel = fallbackModel
 					compactModelFallbackRetried = true
+					beginUpstreamResponseModelObservation(c)
 					continue
 				}
 				if signal, ok := asOpenAICompactFallbackSignal(handleErr); ok {
