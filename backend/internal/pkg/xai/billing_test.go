@@ -29,7 +29,7 @@ func TestBuildBillingURLWithValidator(t *testing.T) {
 }
 
 func TestApplyCLIBillingHeaders(t *testing.T) {
-	t.Parallel()
+	t.Setenv(CLIVersionEnv, "")
 	req, err := http.NewRequest(http.MethodGet, BuildBillingURL(true), nil)
 	require.NoError(t, err)
 

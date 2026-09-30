@@ -15,10 +15,10 @@ const (
 	// CLIProxyHost is the hostname that requires the official CLI identity headers.
 	CLIProxyHost = "cli-chat-proxy.grok.com"
 
-	// CLIStableVersion is the known-good minimum client version accepted by cli-chat-proxy.
-	CLIStableVersion = "0.2.93"
+	// CLIStableVersion is the minimum required by the CLI proxy's upgrade response.
+	CLIStableVersion = "1.0.13"
 
-	// CLIVersionEnv is the optional operator override for CLIStableVersion.
+	// CLIVersionEnv is the optional operator override for CLIClientVersion.
 	CLIVersionEnv = "XAI_GROK_CLI_VERSION"
 
 	// CLITokenAuth is required by cli-chat-proxy for Grok Build OAuth tokens.
