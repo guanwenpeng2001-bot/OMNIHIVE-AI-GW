@@ -21,6 +21,23 @@ beforeEach(() => {
   preview.mockReset()
 })
 describe('atomic account model selection', () => {
+  it('distinguishes configured aliases and wildcard rules from direct IDs and discovery counts', async () => {
+    catalog.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '3' }, discovered_count: 33, eligible_count: 46 })
+    const modelMappings = Array.from({ length: 62 }, (_, index) => ({ from: index === 0 ? 'family-*' : `Alias/${index}`, to: 'Shared/Target' }))
+    const wrapper = mountSelector({ modelValue: [], modelMappings, modelAllowlist: { enabled: false, models: [] } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="configured-model-summary"]').text()).toContain('"direct":0,"mappings":62,"wildcards":1')
+    expect(wrapper.get('[data-testid="catalog-counts"]').text()).toContain('33')
+    expect(wrapper.get('[data-testid="catalog-counts"]').text()).toContain('46')
+    await wrapper.setProps({ modelMappings: [...modelMappings, { from: 'AnotherAlias', to: 'Shared/Target' }] })
+    expect(wrapper.get('[data-testid="catalog-counts"]').text()).toContain('46')
+    expect(wrapper.text()).not.toContain('modelCatalog.stale')
+    expect(wrapper.text()).not.toContain('modelSync.emptySelection')
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(update).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it('saves an undiscovered exact ID and alias together, without a reason or discovery gate', async () => {
     const mapping = { 'Exact.Case/ID': 'Exact.Case/ID', Alias: 'Private/Target' }
     read.mockResolvedValue(saved(mapping))
@@ -32,6 +49,28 @@ describe('atomic account model selection', () => {
     expect(update.mock.calls).toEqual([[12, { enabled: false, models: [], reason: '', expected_rules_revision: '9007199254740993', model_mapping: mapping }]])
     expect(wrapper.get('[data-testid="selection-warning"]').text()).toContain('Private/Target')
     expect(wrapper.emitted('selection-saved')).toHaveLength(1)
+    wrapper.unmount()
+  })
+  it('reports unsaved, saving, saved and failed model writes without losing a newer draft', async () => {
+    const wrapper = mountSelector()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('unchangedSelection')
+    await wrapper.setProps({ modelValue: ['Changed'] })
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('unsavedSelection')
+    let finish!: (result: unknown) => void
+    update.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    read.mockResolvedValue(saved({ Changed: 'Changed' }))
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('savingSelection')
+    finish({ rules_revision: '4' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('savedSelection')
+    await wrapper.setProps({ modelValue: ['NewerDraft'] })
+    update.mockRejectedValueOnce({ status: 409 })
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('selectionSaveFailed')
+    expect(wrapper.props('modelValue')).toEqual(['NewerDraft'])
     wrapper.unmount()
   })
   it('confirms clearing, then sends one atomic deny-all write and clears aliases in the parent', async () => {
@@ -148,6 +187,28 @@ describe('atomic account model selection', () => {
     expect(wrapper.emitted('selection-saved')).toBeUndefined()
     wrapper.unmount()
   })
+  it('does not let the previous account save lock or unlock the current account save', async () => {
+    let finishPrevious!: (result: unknown) => void
+    let finishCurrent!: (result: unknown) => void
+    update.mockImplementationOnce(() => new Promise(resolve => { finishPrevious = resolve }))
+      .mockImplementationOnce(() => new Promise(resolve => { finishCurrent = resolve }))
+    const wrapper = mountSelector()
+    await flushPromises()
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await wrapper.setProps({ accountId: 13 })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    finishPrevious({ rules_revision: '4' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="model-save-status"]').text()).toContain('savingSelection')
+    finishCurrent({ rules_revision: '5' })
+    await flushPromises()
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(read).toHaveBeenCalledWith(13)
+    wrapper.unmount()
+  })
 })
 
 
@@ -203,6 +264,19 @@ it('filter-only saves do not replace the model or alias draft', async () => {
   wrapper.unmount()
 })
 
+it('does not carry locally refreshed deny-all state to another account without a filter', async () => {
+  read.mockResolvedValue(saved({}, true))
+  const wrapper = mountSelector()
+  await flushPromises()
+  await wrapper.get('[data-testid="save-allowlist"]').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(true)
+  await wrapper.setProps({ accountId: 13 })
+  await flushPromises()
+  expect(wrapper.find('[data-testid="deny-all"]').exists()).toBe(false)
+  wrapper.unmount()
+})
+
 it('does not replace a newer selection with a late save response', async () => {
   let finish!: (result: unknown) => void
   update.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
@@ -216,4 +290,21 @@ it('does not replace a newer selection with a late save response', async () => {
   expect(wrapper.emitted('selection-saved')).toBeUndefined()
   expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('Newer/Selection')
   wrapper.unmount()
+})
+
+it('opens the mapping editor and focuses the rejected row on section save', async () => {
+  const host = mount(AccountModelConfigurationSection, {
+    attachTo: document.body,
+    props: { accountId: 12, platform: 'openai', modelValue: [], mappings: [{ from: 'bad*source', to: 'Target' }] },
+    global: { stubs: { ModelIcon: true } }
+  })
+  await flushPromises()
+  const mappings = host.get<HTMLDetailsElement>('[data-testid="model-mappings"]')
+  expect(mappings.element.open).toBe(false)
+  await host.get('[data-testid="save-model-selection"]').trigger('click')
+  await flushPromises()
+  expect(mappings.element.open).toBe(true)
+  expect(document.activeElement).toBe(mappings.get('input').element)
+  expect(update).not.toHaveBeenCalled()
+  host.unmount()
 })

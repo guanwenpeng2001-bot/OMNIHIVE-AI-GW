@@ -1,16 +1,16 @@
 <template>
-  <section v-if="result || summary" class="mb-3 space-y-2 rounded-lg border p-3 text-sm" :aria-label="t('admin.accounts.modelSync.title')">
+  <section v-if="result || summary" class="mb-4 space-y-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800" :aria-label="t('admin.accounts.modelSync.title')">
     <p role="status">{{ t(`admin.accounts.modelCatalog.${status}`) }}</p>
     <p v-if="result">{{ t('admin.accounts.modelSync.previewOnly') }}</p>
     <p v-if="result && !result.discovery_complete">{{ t('admin.accounts.modelSync.incomplete') }}</p>
-    <dl class="grid grid-cols-2 gap-2" data-testid="catalog-counts">
+    <dl class="grid grid-cols-1 gap-3 text-secondary sm:grid-cols-3 [&_dd]:mt-1 [&_dd]:text-base [&_dd]:font-semibold [&_dd]:text-gray-900 dark:[&_dd]:text-gray-100" data-testid="catalog-counts">
       <div><dt>{{ t('admin.accounts.modelSync.platformCandidates') }}</dt><dd>{{ candidateCount ?? '—' }}</dd></div>
       <div><dt>{{ t('admin.accounts.modelSync.nativeDiscovered') }}</dt><dd>{{ result?.discovered_models?.length ?? summary?.discovered_count ?? '—' }}</dd></div>
       <div><dt>{{ t('admin.accounts.modelSync.accountEffective') }}</dt><dd>{{ stale ? '—' : summary?.eligible_count ?? result?.eligible_models?.length ?? '—' }}</dd></div>
     </dl>
     <p>{{ t('admin.accounts.modelSync.candidatesHint') }}</p>
     <details v-if="capabilities.length" data-testid="capability-details">
-      <summary>{{ t('admin.accounts.modelSync.optionalCapabilities') }}</summary>
+      <summary class="cursor-pointer rounded py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.modelSync.optionalCapabilities') }}</summary>
       <p>{{ t('admin.accounts.modelSync.capabilitiesHint') }}</p>
       <input v-model="query" type="search" class="input" :aria-label="t('admin.accounts.searchModels')" />
       <div class="max-h-64 overflow-y-auto">
@@ -32,12 +32,14 @@ const props = defineProps<{
   mappingTargets?: string[]
   creationContext?: boolean
   stale?: boolean
+  statusOverride?: 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'
   result?: AccountModelCatalog | null
   summary?: AccountModelCatalogDetails | null
   candidateCount: number | null
 }>()
 const { t } = useI18n()
 const status = computed(() => {
+  if (props.statusOverride && ['loading', 'failed', 'stale', 'invalidIdentity'].includes(props.statusOverride)) return props.statusOverride
   if (props.summary?.warnings?.includes('identity_changed')) return 'invalidIdentity'
   if (props.summary?.last_error) return 'failed'
   if (props.stale || props.summary?.staleness === 'stale') return 'stale'

@@ -26,6 +26,7 @@ const metadata = ref<CredentialSecretMetadata | null>(null)
 const inline = ref(false)
 const busy = ref(false)
 const errorKey = ref('')
+const saved = ref(false)
 const rotatePayload = ref('')
 const pending = ref<{ action: 'convert' | 'rotate' | 'revoke'; credentials?: Record<string, unknown> } | null>(null)
 let generation = 0
@@ -52,6 +53,7 @@ watch(() => [props.accountId, props.active] as const, () => {
   inline.value = false
   busy.value = false
   errorKey.value = ''
+  saved.value = false
   rotatePayload.value = ''
   pending.value = null
   if (props.active && props.accountId > 0) void load()
@@ -115,6 +117,7 @@ async function confirm() {
     }
     if (requestGeneration !== generation) return
     rotatePayload.value = ''
+    saved.value = true
     emit('changed')
     await load()
   } catch (error) {
@@ -136,16 +139,18 @@ async function confirm() {
 </script>
 
 <template>
-  <section class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="credential-secret-section">
-    <h3 class="font-medium">{{ t('admin.accounts.credentialSecret.title') }}</h3>
-    <p class="input-hint">{{ t('admin.accounts.credentialSecret.hint') }}</p>
+  <section class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="credential-secret-section">
+    <h3 class="text-base font-semibold">{{ t('admin.accounts.credentialSecret.title') }}</h3>
     <p v-if="busy" role="status">{{ t('common.loading') }}</p>
     <p v-if="errorKey" role="alert">{{ t(`admin.accounts.credentialSecret.${errorKey}`) }}</p>
+    <button v-if="errorKey === 'loadFailed'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="load">{{ t('common.tryAgain') }}</button>
+    <p v-if="saved && !busy && !errorKey && !rotatePayload.trim()" role="status" class="input-hint">{{ t('admin.accounts.credentialSecret.saved') }}</p>
 
     <p v-if="inline && !busy" role="status">{{ t('admin.accounts.credentialSecret.inlineState') }}</p>
     <p v-if="metadata" role="status" data-testid="credential-secret-state">{{ t(revoked ? 'admin.accounts.credentialSecret.revokedState' : 'admin.accounts.credentialSecret.referenceState') }}</p>
     <details :open="!!rotateError || undefined" class="space-y-3" data-testid="credential-secret-management">
-      <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.credentials') }}</summary>
+      <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.editSections.credentials') }}</summary>
+      <p class="input-hint">{{ t('admin.accounts.credentialSecret.hint') }}</p>
     <div v-if="inline && !busy" class="space-y-2" data-testid="credential-secret-inline">
       <p v-if="!accountRevision" role="status" data-testid="credential-secret-revision-missing">
         {{ t('admin.accounts.credentialSecret.revisionUnavailable') }}
@@ -172,7 +177,7 @@ async function confirm() {
           :placeholder="t('admin.accounts.credentialSecret.rotatePlaceholder')"
         />
         <p v-if="rotateError" role="alert">{{ t(`admin.accounts.credentialSecret.${rotateError}`) }}</p>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
           <button type="button" class="btn btn-secondary" data-testid="rotate-credential-secret" :disabled="!canRotate" @click="prepareRotate">
             {{ t('admin.accounts.credentialSecret.rotate') }}
           </button>
