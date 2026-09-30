@@ -1,0 +1,5 @@
+# Opt in ONLY for a host-native development backend. Never bind publicly.
+services:
+  node-proxy:
+    ports:
+      - "127.0.0.1:${NODE_PROXY_PORT_START:-24000}-${NODE_PROXY_PORT_END:-24999}:${NODE_PROXY_PORT_START:-24000}-${NODE_PROXY_PORT_END:-24999}/tcp"

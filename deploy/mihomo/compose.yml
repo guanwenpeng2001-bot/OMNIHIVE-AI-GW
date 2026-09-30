@@ -1,0 +1,20 @@
+# Optional overlay; combine with ../docker-compose.yml in the SAME project.
+services:
+  node-proxy:
+    image: ${MIHOMO_IMAGE:-metacubex/mihomo:v1.19.32}
+    restart: unless-stopped
+    command: ["-d", "/tmp/mihomo", "-f", "/etc/mihomo/config.yaml"]
+    volumes:
+      - type: bind
+        source: ${NODE_PROXY_CONFIG:?Set NODE_PROXY_CONFIG to an absolute generated config.yaml path}
+        target: /etc/mihomo/config.yaml
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks:
+      - sub2api-network
