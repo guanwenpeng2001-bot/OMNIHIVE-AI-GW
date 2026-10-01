@@ -71,11 +71,12 @@ type ProxyWithAccountCount struct {
 }
 
 type ProxyAccountSummary struct {
-	ID       int64
-	Name     string
-	Platform string
-	Type     string
-	Notes    *string
+	ParentAccountID *int64 `json:"-"`
+	ID              int64
+	Name            string
+	Platform        string
+	Type            string
+	Notes           *string
 }
 
 // ProxyUsageTotals 代理名下账号在原始用量账本保留窗口内的真实请求观测。
