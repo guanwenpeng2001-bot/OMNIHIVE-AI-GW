@@ -204,21 +204,67 @@ func TestGrokDirectChatRecordsNormalizedEffort(t *testing.T) {
 
 func TestGrokDirectResponsesPreservesUnlistedEffort(t *testing.T) {
 	for _, model := range []string{"grok-4.7", "private-vendor/unknown-exact-id"} {
-		for _, effort := range []string{"none", "high", "xhigh"} {
-			t.Run(model+"/"+effort, func(t *testing.T) {
-				account := rawChatCompletionsTestAccount()
-				account.Platform = PlatformGrok
-				upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("direct-grok", model)}
-				gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-				body := []byte(`{"model":"` + model + `","input":"hi","reasoning":{"effort":"` + effort + `"}}`)
-				c := adaptiveProtocolTestContext("/v1/responses", body)
-				result, err := gateway.Forward(context.Background(), c, account, body)
-				require.NoError(t, err)
-				require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
-				require.Equal(t, effort, gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
-				require.Equal(t, effort, *result.RequestedReasoningEffort)
-				require.Equal(t, effort, *result.ReasoningEffort)
-			})
+		for _, effort := range []string{"none", "high", "xhigh", "max", "extra-high", "future-effort", "ultra"} {
+			for _, field := range []string{"reasoning.effort", "reasoning_effort"} {
+				t.Run(model+"/"+effort+"/"+field, func(t *testing.T) {
+					account := rawChatCompletionsTestAccount()
+					account.Platform = PlatformGrok
+					upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("direct-grok", model)}
+					gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+					body := []byte(`{"model":"` + model + `","input":"hi","reasoning":{"effort":"` + effort + `"}}`)
+					if field == "reasoning_effort" {
+						body = []byte(`{"model":"` + model + `","input":"hi","reasoning_effort":"` + effort + `"}`)
+					}
+					c := adaptiveProtocolTestContext("/v1/responses", body)
+					result, err := gateway.Forward(context.Background(), c, account, body)
+					require.NoError(t, err)
+					require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
+					outboundEffort := gjson.GetBytes(upstream.lastBody, field).String()
+					require.Equal(t, effort, outboundEffort)
+					requestedEffort := effort
+					switch effort {
+					case "extra-high":
+						requestedEffort = "xhigh"
+					case "future-effort", "ultra":
+						requestedEffort = ""
+					}
+					require.Equal(t, requestedEffort, optionalStringValue(result.RequestedReasoningEffort))
+					require.Equal(t, outboundEffort, optionalStringValue(result.ReasoningEffort))
+				})
+			}
 		}
+	}
+}
+
+func TestGrokDirectResponsesRecordsFinalEffortWithSuffixFallback(t *testing.T) {
+	for _, scenario := range []struct {
+		name, model, controls, outbound, recorded string
+	}{
+		{"known alias normalization", "grok-4.5", `,"reasoning":{"effort":"max"}`, "high", "high"},
+		{"known composer stripping", "grok-composer-2.5-fast", `,"reasoning":{"effort":"high"}`, "", ""},
+		{"omitted effort suffix", "private-vendor/unknown-high", "", "", "high"},
+		{"explicit effort overrides suffix", "private-vendor/unknown-high", `,"reasoning":{"effort":"ultra"}`, "ultra", "ultra"},
+		{"nested effort takes precedence", "grok-4.7", `,"reasoning":{"effort":"max"},"reasoning_effort":"ultra"`, "max", "max"},
+		{"empty nested effort uses flat field", "grok-4.7", `,"reasoning":{"effort":" "},"reasoning_effort":"future-effort"`, "future-effort", "future-effort"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			account := rawChatCompletionsTestAccount()
+			account.Platform = PlatformGrok
+			upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("final-effort", scenario.model)}
+			gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			body := []byte(`{"model":"` + scenario.model + `","input":"hi"` + scenario.controls + `}`)
+			requestContext := adaptiveProtocolTestContext("/v1/responses", body)
+			result, err := gateway.Forward(context.Background(), requestContext, account, body)
+			require.NoError(t, err)
+			outboundEffort := strings.TrimSpace(gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+			if outboundEffort == "" {
+				outboundEffort = strings.TrimSpace(gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+			}
+			require.Equal(t, scenario.outbound, outboundEffort)
+			require.Equal(t, scenario.recorded, optionalStringValue(result.ReasoningEffort))
+			if outboundEffort != "" {
+				require.Equal(t, outboundEffort, optionalStringValue(result.ReasoningEffort))
+			}
+		})
 	}
 }

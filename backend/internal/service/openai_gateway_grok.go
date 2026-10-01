@@ -247,7 +247,15 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	if usage == nil {
 		usage = &OpenAIUsage{}
 	}
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(patchedBody, originalModel)
+	// Record the final wire value, including tokens outside OpenAI's vocabulary.
+	// Only infer a model suffix when the final body has no explicit effort.
+	reasoningEffort := optionalTrimmedStringPtr(gjson.GetBytes(patchedBody, "reasoning.effort").String())
+	if reasoningEffort == nil {
+		reasoningEffort = optionalTrimmedStringPtr(gjson.GetBytes(patchedBody, "reasoning_effort").String())
+	}
+	if reasoningEffort == nil {
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(patchedBody, originalModel)
+	}
 	result := &OpenAIForwardResult{
 		RequestID:                     firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")),
 		UpstreamHeaders:               resp.Header,

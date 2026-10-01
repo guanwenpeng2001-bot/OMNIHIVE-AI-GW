@@ -2144,7 +2144,8 @@ func TestForwardGrokResponsesRetriesInvalidEncryptedContentOnce(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	body := []byte(`{
-		"model":"grok",
+		"model":"grok-4.7",
+		"reasoning":{"effort":"future-effort"},
 		"previous_response_id":"resp_valid_history",
 		"input":[
 			{"type":"reasoning","summary":[{"type":"summary_text","text":"keep this summary"}],"encrypted_content":"encrypted-reasoning"},
@@ -2189,13 +2190,16 @@ func TestForwardGrokResponsesRetriesInvalidEncryptedContentOnce(t *testing.T) {
 	}}
 	svc := &OpenAIGatewayService{httpUpstream: upstream}
 
-	result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok", false, time.Now())
+	result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok-4.7", false, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "resp_recovered", result.ResponseID)
 	require.Equal(t, "recovered-second", result.RequestID)
 	require.Len(t, upstream.requests, 2)
 	require.Len(t, upstream.bodies, 2)
+	outboundEffort := gjson.GetBytes(upstream.bodies[1], "reasoning.effort").String()
+	require.Equal(t, "future-effort", outboundEffort)
+	require.Equal(t, outboundEffort, optionalStringValue(result.ReasoningEffort))
 
 	require.Equal(t, "reasoning", gjson.GetBytes(upstream.bodies[0], "input.0.type").String())
 	require.Equal(t, "resp_valid_history", gjson.GetBytes(upstream.bodies[0], "previous_response_id").String())
