@@ -30,6 +30,21 @@ func TestAccountModelCatalogSpecificationAndReleaseAreVersionedRules(t *testing.
 	}
 }
 
+func TestAccountModelCatalogProbeObservationDoesNotAdvanceSelectionRules(t *testing.T) {
+	for _, supported := range []bool{false, true} {
+		current := &Account{Credentials: map[string]any{}, Extra: map[string]any{}}
+		incoming := &Account{Credentials: map[string]any{}, Extra: map[string]any{"openai_responses_supported": supported}}
+		AdvanceAccountModelCatalogRevisions(current, incoming)
+		require.Equal(t, current.ModelCatalogBaseline(), incoming.ModelCatalogBaseline())
+		require.Zero(t, incoming.ModelCatalogState().LegacyPolicyRevision)
+		// An administrator's explicit routing override is still configuration.
+		changed := &Account{Credentials: map[string]any{}, Extra: map[string]any{"openai_responses_supported": supported, "openai_responses_mode": "force_chat_completions"}}
+		AdvanceAccountModelCatalogRevisions(incoming, changed)
+		require.EqualValues(t, 1, changed.ModelCatalogState().RulesRevision)
+		require.EqualValues(t, 1, changed.ModelCatalogState().LegacyPolicyRevision)
+	}
+}
+
 func TestAccountModelCatalogSchemaSourceVersionProtection(t *testing.T) {
 	previous := AccountModelCatalogSnapshot{SchemaVersion: 2, EnrichmentVersion: "capability-v2", SourceGeneration: 4, SourceVersions: map[string]string{"catalog": "z-old-hash"}}
 	for _, tc := range []struct {
