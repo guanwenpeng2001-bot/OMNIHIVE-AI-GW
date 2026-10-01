@@ -325,7 +325,7 @@ func TestCommandCodeActionCellsTriState(t *testing.T) {
 		require.Contains(t, cell.Evidence, "2026-", cell.Action)
 		byAction[cell.Action] = cell
 	}
-	for _, action := range []string{"chat", "messages", "responses", "count_tokens"} {
+	for _, action := range []string{"chat", "messages", "responses", "count_tokens", "generate_content"} {
 		cell := byAction[action]
 		require.Equal(t, domain.ActionImplemented, cell.Status, action)
 		require.NotEmpty(t, cell.Adapter, action)
@@ -335,7 +335,7 @@ func TestCommandCodeActionCellsTriState(t *testing.T) {
 		require.NotEmpty(t, cell.Lifecycle, action)
 	}
 	for _, action := range []string{
-		"responses.compact", "generate_content", "embeddings", "rerank",
+		"responses.compact", "embeddings", "rerank",
 		"image.generate", "image.edit", "image.variation", "image.async", "image.batch",
 		"video.generate", "video.edit", "video.extend", "video.status", "video.content",
 		"audio.tts", "audio.stt", "audio.translate", "voice", "realtime",

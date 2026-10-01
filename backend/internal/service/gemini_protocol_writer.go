@@ -19,6 +19,7 @@ type GeminiProtocolWriter struct {
 	gin.ResponseWriter
 	model, action                        string
 	stream                               bool
+	includeThoughts                      bool
 	jsonStream, jsonStarted, upstreamSSE bool
 	count                                int
 	status, consumed                     int
@@ -34,6 +35,20 @@ type GeminiProtocolWriter struct {
 // UseJSONStream matches Google's default/alt=json array representation while
 // still forwarding each upstream chunk immediately.
 func (w *GeminiProtocolWriter) UseJSONStream() { w.jsonStream = true }
+
+// Only actual upstream summaries may be returned, and only when requested.
+// Opaque provider signatures are never converted into Google signatures.
+func (w *GeminiProtocolWriter) ConfigureThinking(body []byte) {
+	var request map[string]any
+	if json.Unmarshal(body, &request) != nil || normalizeGeminiProtoJSON(request) != nil {
+		return
+	}
+	if config, ok := request["generationConfig"].(map[string]any); ok {
+		if thinking, ok := config["thinkingConfig"].(map[string]any); ok {
+			w.includeThoughts, _ = thinking["includeThoughts"].(bool)
+		}
+	}
+}
 
 func NewGeminiProtocolWriter(w gin.ResponseWriter, model, action string, stream bool, count int) *GeminiProtocolWriter {
 	return &GeminiProtocolWriter{ResponseWriter: w, model: model, action: action, stream: stream, count: count, status: http.StatusOK, blocks: map[int]*apicompat.AnthropicContentBlock{}, args: map[int]string{}}
@@ -232,6 +247,9 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 			return fmt.Errorf("missing content block")
 		}
 		w.blocks[index] = e.ContentBlock
+		if e.ContentBlock.Type == "thinking" && !w.includeThoughts {
+			return nil
+		}
 		if e.ContentBlock.Type == "tool_use" {
 			return nil
 		}
@@ -250,6 +268,9 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 		case "text_delta":
 			return w.emit(w.chunk([]any{map[string]any{"text": e.Delta.Text}}, ""))
 		case "thinking_delta":
+			if !w.includeThoughts {
+				return nil
+			}
 			return w.emit(w.chunk([]any{map[string]any{"text": e.Delta.Thinking, "thought": true}}, ""))
 		case "input_json_delta":
 			if block := w.blocks[index]; block == nil || block.Type != "tool_use" {
@@ -382,6 +403,9 @@ func (w *GeminiProtocolWriter) Finish() (finishErr error) {
 		}
 		parts := make([]any, 0, len(response.Content))
 		for _, block := range response.Content {
+			if block.Type == "thinking" && !w.includeThoughts {
+				continue
+			}
 			part, err := messagesBlockToGeminiPart(block)
 			if err != nil {
 				return w.fail(err.Error())

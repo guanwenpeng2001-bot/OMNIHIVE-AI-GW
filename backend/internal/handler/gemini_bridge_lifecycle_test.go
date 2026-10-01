@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type geminiBridgeLifecycleUpstream struct {
@@ -26,6 +28,68 @@ type geminiBridgeLifecycleUpstream struct {
 type geminiOpenCodeLifecycleUpstream struct {
 	requestPlanHTTPFixture
 	path string
+}
+
+type geminiControlsLifecycleUpstream struct {
+	requestPlanHTTPFixture
+	body []byte
+	chat bool
+}
+
+func (u *geminiControlsLifecycleUpstream) Do(req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
+	var err error
+	u.body, err = io.ReadAll(req.Body)
+	require.NoError(u.t, err)
+	if u.chat {
+		u.calls++
+		u.plan = service.GatewayRequestPlanFromContext(req.Context())
+		require.Equal(u.t, "/v1/chat/completions", req.URL.Path)
+		require.Equal(u.t, "Bearer fixture", req.Header.Get("Authorization"))
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chat-fixture","model":"mistral-small-latest","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`))}, nil
+	}
+	req.Body = io.NopCloser(bytes.NewReader(u.body))
+	return u.requestPlanHTTPFixture.Do(req, proxy, id, concurrency)
+}
+
+func TestPublicMistralDefaultGroupHandlerLifecycle(t *testing.T) {
+	for _, google := range []bool{false, true} {
+		t.Run(fmt.Sprint(google), func(t *testing.T) {
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformMistral, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"claude-sonnet-4-5": "mistral-small-latest"}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
+			repo := &openAIWSUsageHandlerAccountRepoStub{account: account}
+			usage := &cursorRouteUsageRepo{}
+			receipts := newHunyuanSTTReceiptRepository()
+			upstream := &geminiControlsLifecycleUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}, chat: true}
+			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
+			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+			defer billing.Stop()
+			h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+			group := &service.Group{ID: 3, Platform: service.PlatformMistral, Status: service.StatusActive, Hydrated: true}
+			body := `{"model":"claude-sonnet-4-5","max_tokens":64,"system":"system text","messages":[{"role":"user","content":"hello"}],"stop_sequences":["END"],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`
+			path := "/v1/messages"
+			if google {
+				path = "/v1beta/models/claude-sonnet-4-5:generateContent"
+				body = `{"systemInstruction":{"parts":[{"text":"system text"}]},"contents":[{"parts":[{"text":"hello"}]}],"generationConfig":{"stopSequences":["END"]},"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"OBJECT"}}]}]}`
+			}
+			ctx, recorder := requestPlanHTTPContext(path, body, group)
+			if google {
+				ctx.Params = gin.Params{{Key: "modelAction", Value: "/claude-sonnet-4-5:generateContent"}}
+				GeminiProtocolBridge(h.Messages, h.CountTokens, h.Embeddings)(ctx)
+			} else {
+				h.Messages(ctx)
+			}
+			require.Equal(t, 200, recorder.Code, recorder.Body.String())
+			require.Contains(t, recorder.Body.String(), "hello")
+			require.Contains(t, recorder.Body.String(), "claude-sonnet-4-5")
+			require.Equal(t, 1, upstream.calls)
+			require.Equal(t, "mistral-small-latest", gjson.GetBytes(upstream.body, "model").String())
+			require.Equal(t, "END", gjson.GetBytes(upstream.body, "stop.0").String())
+			require.Equal(t, "lookup", gjson.GetBytes(upstream.body, "tools.0.function.name").String())
+			require.True(t, upstream.plan.State().Finalized)
+			require.True(t, upstream.plan.State().UsageClaimed)
+			require.Equal(t, 1, len(usage.logs)+len(receipts.receipts))
+		})
+	}
 }
 
 func (u *geminiOpenCodeLifecycleUpstream) Do(req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
@@ -130,32 +194,44 @@ func TestGeminiResponsesHandlerLifecycleIntegration(t *testing.T) {
 }
 
 func TestGeminiBridgeExistingOpenAIHandlerLifecycle(t *testing.T) {
-
-	for _, stream := range []bool{false, true} {
-		t.Run(fmt.Sprint(stream), func(t *testing.T) {
+	for _, scenario := range []struct{ stream, allowMessages bool }{{false, false}, {true, false}, {false, true}, {true, true}} {
+		t.Run(fmt.Sprintf("stream=%t/messages=%t", scenario.stream, scenario.allowMessages), func(t *testing.T) {
+			stream := scenario.stream
 			cfg := &config.Config{RunMode: config.RunModeSimple}
 			account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "fixture"}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
 			repo := &openAIWSUsageHandlerAccountRepoStub{account: account}
 			usage := &cursorRouteUsageRepo{}
-			upstream := &requestPlanHTTPFixture{t: t}
+			upstream := &geminiControlsLifecycleUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}}
 			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 			defer billing.Stop()
 			h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
-			group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, AllowMessagesDispatch: true}
+			group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true}
+			if scenario.allowMessages {
+				group.AllowMessagesDispatch = true
+				group.MessagesDispatchModelConfig = service.OpenAIMessagesDispatchModelConfig{ExactModelMappings: map[string]string{"gpt-5.1": "gpt-5.4-mini"}}
+			}
 			action := "generateContent"
 			if stream {
 				action = "streamGenerateContent"
 			}
 			path := "/v1beta/models/gpt-5.1:" + action + "?alt=sse"
-			c, rec := requestPlanHTTPContext(path, `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{"maxOutputTokens":32}}`, group)
+			c, rec := requestPlanHTTPContext(path, `{"systemInstruction":{"parts":[{"text":"Return JSON"}]},"contents":[{"role":"user","parts":[{"text":"hello"}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"OBJECT","properties":{"query":{"type":"STRING"}}}}]}],"generationConfig":{"maxOutputTokens":32,"thinkingConfig":{"thinkingLevel":"HIGH"},"responseMimeType":"application/json","responseJsonSchema":{"type":"object","properties":{"answer":{"type":"string"}}}}}`, group)
 			c.Params = gin.Params{{Key: "modelAction", Value: "/gpt-5.1:" + action}}
 			GeminiProtocolBridge(h.Messages, h.CountTokens, h.Embeddings)(c)
 			require.Equal(t, 200, rec.Code, rec.Body.String())
 			require.Contains(t, rec.Body.String(), "hello")
 			require.Contains(t, rec.Body.String(), "STOP")
 			require.Equal(t, 1, upstream.calls)
+			// The existing OAuth alias normalization maps gpt-5.1 to gpt-5.4;
+			// the Messages-only gpt-5.4-mini override must not replace it.
+			require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.body, "model").String())
+			require.Equal(t, "high", gjson.GetBytes(upstream.body, "reasoning.effort").String())
+			require.Equal(t, "string", gjson.GetBytes(upstream.body, "text.format.schema.properties.answer.type").String())
+			require.Equal(t, "lookup", gjson.GetBytes(upstream.body, "tools.0.name").String())
+			require.Contains(t, string(upstream.body), "Return JSON")
 			require.NotNil(t, upstream.plan)
+			require.Equal(t, "gemini", upstream.plan.Snapshot().Protocol)
 			require.True(t, upstream.plan.State().Finalized)
 			require.True(t, upstream.plan.State().UsageClaimed)
 			require.Len(t, usage.logs, 1)

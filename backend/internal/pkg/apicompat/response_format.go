@@ -1,6 +1,26 @@
 package apicompat
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// Anthropic's schema format has no name; OpenAI requires one. Preserve the
+// caller's schema without imposing strict-mode constraints on its properties.
+func anthropicOutputFormatToResponses(raw json.RawMessage) (json.RawMessage, error) {
+	if len(normalizedRawJSON(raw)) == 0 {
+		return nil, nil
+	}
+	format, ok := rawJSONObject(raw)
+	if !ok || rawString(format["type"]) != "json_schema" {
+		return nil, fmt.Errorf("output_config.format must use json_schema")
+	}
+	if _, ok := rawJSONObject(format["schema"]); !ok || string(format["schema"]) == "null" {
+		return nil, fmt.Errorf("output_config.format.schema must be an object")
+	}
+	format["name"] = rawJSONString("response")
+	return json.Marshal(format)
+}
 
 func chatResponseFormatToResponsesTextFormat(raw json.RawMessage) json.RawMessage {
 	raw = normalizedRawJSON(raw)

@@ -56,6 +56,14 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					// Cursor Responses and TokenHub's non-native Responses branch
 					// bridge through Chat Completions; they do not send /responses.
 					wireEndpoint := endpoint
+					if endpoint == "messages" {
+						switch descriptor.ID {
+						case service.PlatformMistral:
+							wireEndpoint = "chat_completions"
+						case service.PlatformVolcengine, service.PlatformQianfan:
+							wireEndpoint = "responses"
+						}
+					}
 					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral) {
 						wireEndpoint = "chat_completions"
 					}
@@ -235,12 +243,12 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	router.Use(func(requestContext *gin.Context) {
 		requestContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformMistral}})
 	}, service.GatewayActionRequirement)
-	router.POST("/v1/responses", func(requestContext *gin.Context) {
+	router.POST("/v1/responses/compact", func(requestContext *gin.Context) {
 		upstreamCalls++
 		billingCalls++
 		requestContext.Status(http.StatusOK)
 	})
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"fixture"}`)))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses/compact", strings.NewReader(`{"model":"fixture"}`)))
 	require.Zero(test, upstreamCalls)
 	require.Zero(test, billingCalls)
 }

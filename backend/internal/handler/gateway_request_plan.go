@@ -16,6 +16,9 @@ type gatewayPlanCapturer interface {
 // Each adapter calls this once after parsing the inbound model, before waiting
 // or forwarding. It intentionally does not move the platform failover loops.
 func beginGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model, protocol string, switches int, geminiSwitches ...int) func() {
+	if isGeminiMessagesBridge(c) {
+		protocol = "gemini"
+	}
 	finishBudget := installAttemptBudget(c)
 	spec := service.GatewayRequestSpec{WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, Route: c.Request.URL.Path, Protocol: protocol, Model: model, MaxAccountSwitches: switches}
 	if protocol == "media" && c.Request.Method == http.MethodPost && strings.Contains(c.Request.URL.Path, "/videos/") {

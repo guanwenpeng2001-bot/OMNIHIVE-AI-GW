@@ -24,7 +24,7 @@ type commandCodeBinding struct {
 // commandCodeImplemented and commandCodeHardConflicts are the platform cells.
 var (
 	commandCodeImplemented = map[string]commandCodeBinding{
-		"generate_content": {adapter: "gateway.generate_content_compat", evidence: "Public Google text converted onto the account-selected Messages/Chat/Responses trunk; no native Google URL is inferred"},
+		"generate_content": {adapter: "gateway.generate_content_compat", evidence: "Public Google text converted onto the account-selected Messages/Chat/Responses trunk; no native Google URL is inferred (public conversion binding, 2026-10-02)"},
 		"chat": {
 			adapter:  "openai.chat",
 			evidence: "POST /provider/v1/chat/completions, OpenAI Chat Completions schema; account api_protocol/protocol_rules select this endpoint for non-Claude models (official Provider API reference, 2026-09-21)",

@@ -211,6 +211,7 @@ func (h *GatewayHandler) forwardOpenCodeGeminiText(c *gin.Context, account *serv
 		return nil, err
 	}
 	writer := service.NewGeminiProtocolWriter(c.Writer, callerModel, method, stream, 0)
+	writer.ConfigureThinking(body)
 	if stream && c.Query("alt") != "sse" {
 		writer.UseJSONStream()
 	}

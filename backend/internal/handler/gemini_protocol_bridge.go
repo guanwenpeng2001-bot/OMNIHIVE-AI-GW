@@ -92,6 +92,7 @@ func GeminiProtocolBridge(messages, countTokens, embeddings gin.HandlerFunc) gin
 		cachedBody, hadCachedBody := c.Get(gin.BodyBytesKey)
 		c.Set(gin.BodyBytesKey, converted)
 		writer := service.NewGeminiProtocolWriter(c.Writer, callerModel, action, stream, count)
+		writer.ConfigureThinking(body)
 		if stream && c.Query("alt") != "sse" {
 			writer.UseJSONStream()
 		}

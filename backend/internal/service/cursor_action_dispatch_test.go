@@ -28,6 +28,7 @@ func TestCursorActionDispatchReachesOnlyCursorAdapters(t *testing.T) {
 	}
 	for _, adapter := range []string{
 		"gateway.chat", "gateway.messages", "gateway.responses", "cursor.count_tokens",
+		"gateway.generate_content_compat",
 		"openai.chat", "openai.messages", "openai.responses", "openai.count_tokens",
 		"openai.embeddings", "openai.images", "openai.video.generate", "openai.realtime",
 		"grok.images", "grok.video.generate", "grok.realtime", "grok.search",

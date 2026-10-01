@@ -18,7 +18,7 @@ import (
 func TestAllowOpenAICompatibleMessagesDispatch_CNProvidersExempt(t *testing.T) {
 	require.True(t, allowOpenAICompatibleMessagesDispatch(nil, nil), "无 key 保持放行")
 
-	for _, platform := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformGrok} {
+	for _, platform := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformGrok, service.PlatformMistral, service.PlatformVolcengine, service.PlatformQianfan} {
 		apiKey := &service.APIKey{Group: &service.Group{Platform: platform, AllowMessagesDispatch: false}}
 		require.True(t, allowOpenAICompatibleMessagesDispatch(nil, apiKey),
 			"%s 分组必须豁免 allow_messages_dispatch 闸门", platform)
@@ -29,6 +29,19 @@ func TestAllowOpenAICompatibleMessagesDispatch_CNProvidersExempt(t *testing.T) {
 	require.False(t, allowOpenAICompatibleMessagesDispatch(nil, openaiOff))
 	openaiOn := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI, AllowMessagesDispatch: true}}
 	require.True(t, allowOpenAICompatibleMessagesDispatch(nil, openaiOn))
+}
+
+func TestGeminiBridgeDoesNotInheritMessagesDispatchPolicy(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1beta/models/public:generateContent", nil)
+	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI,
+		MessagesDispatchModelConfig: service.OpenAIMessagesDispatchModelConfig{ExactModelMappings: map[string]string{"public": "messages-only-target"}}}}
+	// The same group still denies direct Messages; a URL string alone must
+	// not disable its explicit administrator policy.
+	require.False(t, allowOpenAICompatibleMessagesDispatch(ctx, key))
+	ctx.Writer = service.NewGeminiProtocolWriter(ctx.Writer, "public", "generateContent", false, 0)
+	require.True(t, allowOpenAICompatibleMessagesDispatch(ctx, key))
+	require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(ctx, key, "public"))
 }
 
 func TestAllowOpenAICompatibleMessagesDispatch_CompositeResolvedTargets(t *testing.T) {

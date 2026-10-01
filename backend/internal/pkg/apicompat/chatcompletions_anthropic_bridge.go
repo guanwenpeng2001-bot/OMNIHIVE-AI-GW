@@ -60,6 +60,13 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 		Messages: messages,
 		Stream:   req.Stream,
 	}
+	if req.OutputConfig != nil {
+		format, err := anthropicOutputFormatToResponses(req.OutputConfig.Format)
+		if err != nil {
+			return nil, err
+		}
+		out.ResponseFormat = responsesTextFormatToChatResponseFormat(format)
+	}
 	if len(req.StopSeqs) > 0 {
 		out.Stop, err = json.Marshal(req.StopSeqs)
 		if err != nil {

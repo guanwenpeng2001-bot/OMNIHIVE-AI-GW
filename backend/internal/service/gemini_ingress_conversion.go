@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 )
@@ -25,6 +26,7 @@ func normalizeGeminiProtoJSON(value any) error {
 			"function_declarations": "functionDeclarations", "parameters_json_schema": "parametersJsonSchema", "function_calling_config": "functionCallingConfig", "allowed_function_names": "allowedFunctionNames",
 			"max_output_tokens": "maxOutputTokens", "top_p": "topP", "top_k": "topK", "stop_sequences": "stopSequences", "candidate_count": "candidateCount", "response_schema": "responseSchema", "response_json_schema": "responseJsonSchema", "response_mime_type": "responseMimeType", "response_modalities": "responseModalities", "thinking_config": "thinkingConfig", "speech_config": "speechConfig", "audio_timestamp": "audioTimestamp", "response_logprobs": "responseLogprobs", "presence_penalty": "presencePenalty", "frequency_penalty": "frequencyPenalty",
 			"output_dimensionality": "outputDimensionality", "task_type": "taskType", "will_continue": "willContinue", "executable_code": "executableCode", "code_execution_result": "codeExecutionResult", "video_metadata": "videoMetadata",
+			"thinking_budget": "thinkingBudget", "thinking_level": "thinkingLevel", "include_thoughts": "includeThoughts",
 		} {
 			if item, ok := v[from]; ok {
 				if other, exists := v[to]; exists && !reflect.DeepEqual(item, other) {
@@ -76,13 +78,13 @@ func GeminiToMessages(body []byte, model string, stream bool) ([]byte, error) {
 		if n, exists := cfg["candidateCount"]; exists && n != float64(1) {
 			return nil, fmt.Errorf("candidateCount must be 1 for this bridge")
 		}
-		for _, key := range []string{"responseSchema", "responseJsonSchema", "thinkingConfig", "speechConfig", "audioTimestamp", "seed", "presencePenalty", "frequencyPenalty", "logprobs", "responseLogprobs"} {
+		for _, key := range []string{"speechConfig", "audioTimestamp", "seed", "presencePenalty", "frequencyPenalty", "logprobs", "responseLogprobs"} {
 			if cfg[key] != nil {
 				return nil, fmt.Errorf("generationConfig.%s cannot be represented by this bridge", key)
 			}
 		}
-		if mime, _ := cfg["responseMimeType"].(string); mime != "" && mime != "text/plain" {
-			return nil, fmt.Errorf("responseMimeType %s cannot be represented by this bridge", mime)
+		if err := geminiGenerationControlsToMessages(cfg, out); err != nil {
+			return nil, err
 		}
 		if modes, ok := cfg["responseModalities"].([]any); ok {
 			for _, mode := range modes {
@@ -282,6 +284,97 @@ func GeminiToMessages(body []byte, model string, stream bool) ([]byte, error) {
 	return json.Marshal(out)
 }
 
+func geminiGenerationControlsToMessages(cfg, out map[string]any) error {
+	output := map[string]any{}
+	if raw, exists := cfg["thinkingConfig"]; exists {
+		thinking, ok := raw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("thinkingConfig must be an object")
+		}
+		for key := range thinking {
+			if key != "thinkingBudget" && key != "thinkingLevel" && key != "includeThoughts" {
+				return fmt.Errorf("thinkingConfig.%s cannot be represented by this bridge", key)
+			}
+		}
+		if include, exists := thinking["includeThoughts"]; exists {
+			if _, ok := include.(bool); !ok {
+				return fmt.Errorf("includeThoughts must be a boolean")
+			}
+		}
+		budget, hasBudget := thinking["thinkingBudget"]
+		level, hasLevel := thinking["thinkingLevel"]
+		if hasBudget && hasLevel {
+			return fmt.Errorf("thinkingBudget and thinkingLevel cannot both be set")
+		}
+		if hasBudget {
+			number, ok := budget.(float64)
+			if !ok || math.Trunc(number) != number || number < -1 || number > math.MaxInt32 {
+				return fmt.Errorf("thinkingBudget must be an integer greater than or equal to -1")
+			}
+			switch number {
+			case -1:
+				out["thinking"] = map[string]any{"type": "adaptive"}
+			case 0:
+				out["thinking"] = map[string]any{"type": "disabled"}
+			default:
+				out["thinking"] = map[string]any{"type": "enabled", "budget_tokens": number}
+			}
+		}
+		if hasLevel {
+			text, ok := level.(string)
+			if !ok {
+				return fmt.Errorf("thinkingLevel must be a string")
+			}
+			effort := strings.ToLower(text)
+			switch effort {
+			case "minimal", "low", "medium", "high":
+				output["effort"] = effort
+				out["thinking"] = map[string]any{"type": "adaptive"}
+			default:
+				return fmt.Errorf("thinkingLevel %q cannot be represented by this bridge", text)
+			}
+		}
+	}
+	mime, _ := cfg["responseMimeType"].(string)
+	if value, exists := cfg["responseMimeType"]; exists {
+		if _, ok := value.(string); !ok {
+			return fmt.Errorf("responseMimeType must be a string")
+		}
+	}
+	if mime != "" && mime != "text/plain" && mime != "application/json" {
+		return fmt.Errorf("responseMimeType %s cannot be represented by this bridge", mime)
+	}
+	schema, hasSchema := cfg["responseSchema"]
+	jsonSchema, hasJSONSchema := cfg["responseJsonSchema"]
+	if hasSchema && hasJSONSchema {
+		return fmt.Errorf("responseSchema and responseJsonSchema cannot both be set")
+	}
+	if hasSchema || hasJSONSchema {
+		if mime != "application/json" {
+			return fmt.Errorf("response schema requires responseMimeType application/json")
+		}
+		if hasJSONSchema {
+			schema = jsonSchema
+		} else {
+			schema = geminiSchemaToJSON(schema)
+		}
+		if _, ok := schema.(map[string]any); !ok {
+			return fmt.Errorf("response schema must be an object")
+		}
+	} else if mime == "application/json" {
+		// An unconstrained JSON schema preserves JSON mode without requiring
+		// an object root or manufacturing user-defined properties.
+		schema = map[string]any{}
+	}
+	if schema != nil {
+		output["format"] = map[string]any{"type": "json_schema", "schema": schema}
+	}
+	if len(output) > 0 {
+		out["output_config"] = output
+	}
+	return nil
+}
+
 func geminiSchemaToJSON(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
@@ -304,6 +397,10 @@ func geminiSchemaToJSON(value any) any {
 				item = geminiSchemaToJSON(item)
 			}
 			out[k] = item
+		}
+		if out["nullable"] == true {
+			delete(out, "nullable")
+			return map[string]any{"anyOf": []any{out, map[string]any{"type": "null"}}}
 		}
 		return out
 	case []any:

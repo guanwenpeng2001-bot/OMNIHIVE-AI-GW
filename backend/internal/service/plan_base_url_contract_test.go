@@ -124,6 +124,9 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 				if protocol == APIProtocolAdaptive || (platform == PlatformQianwen && protocol == APIProtocolResponses) {
 					continue
 				}
+				if protocol == APIProtocolAnthropic && (platform == PlatformVolcengine || platform == PlatformQianfan) {
+					continue // Independently pinned plan URLs below.
+				}
 				site := "primary"
 				if platform == PlatformQianfan {
 					site = "personal"
@@ -149,11 +152,10 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 	add(PlatformQianfan, AccountModeCoding, APIProtocolChatCompletions, "team", "accepted", qianfanHost.String(), "qianfanDefaultBaseURL host + qianfanTokenPlanTeamPath")
 	add(PlatformHunyuan, AccountModeCoding, APIProtocolChatCompletions, "token-plan", "backend-only", hunyuanTokenPlanBaseURL,
 		"hunyuanActionBaseURL legacy Token Plan compatibility; deliberately absent from Coding Plan UI")
-	// Parked document inventory has no runtime canonical/default URL. Keep the
-	// independently pinned documentation spelling while exporting actual rejection.
-	add(PlatformVolcengine, AccountModeCoding, APIProtocolAnthropic, "primary", "parked", "https://ark.cn-beijing.volces.com/api/coding", "Ark Coding Plan documentation; native messages hard conflict")
-	add(PlatformQianfan, AccountModeCoding, APIProtocolAnthropic, "personal", "parked", "https://qianfan.baidubce.com/anthropic/tokenplan/personal", "Qianfan personal Token Plan documentation; native messages hard conflict")
-	add(PlatformQianfan, AccountModeCoding, APIProtocolAnthropic, "team", "parked", "https://qianfan.baidubce.com/anthropic/tokenplan/team", "Qianfan team Token Plan documentation; native messages hard conflict")
+	// These documented plan URLs now use the implemented native Messages path.
+	add(PlatformVolcengine, AccountModeCoding, APIProtocolAnthropic, "primary", "accepted", "https://ark.cn-beijing.volces.com/api/coding", "Ark Coding Plan documentation; native Messages")
+	add(PlatformQianfan, AccountModeCoding, APIProtocolAnthropic, "personal", "accepted", "https://qianfan.baidubce.com/anthropic/tokenplan/personal", "Qianfan personal Token Plan documentation; native Messages")
+	add(PlatformQianfan, AccountModeCoding, APIProtocolAnthropic, "team", "accepted", "https://qianfan.baidubce.com/anthropic/tokenplan/team", "Qianfan team Token Plan documentation; native Messages")
 	sort.Slice(entries, func(left, right int) bool { return entries[left].key() < entries[right].key() })
 	require.NoError(t, validatePlanBaseURLContract(entries))
 	return entries
