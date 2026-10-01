@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
@@ -44,11 +45,21 @@ func TestCompositeRouteFailureClassification(t *testing.T) {
 				{"request_deadline", "deadline_exceeded", 500},
 				{"dependency_error", "dependency_error", 500},
 				{"dependency_error_after_cancel", "dependency_error", 500},
+				{"postgres_request_cancel", "dependency_error", 499},
+				{"postgres_active", "dependency_error", 500},
+				{"postgres_deadline", "dependency_error", 500},
+				{"postgres_statement_timeout", "dependency_error", 500},
+				{"postgres_statement_timeout_active", "dependency_error", 500},
+				{"postgres_unrelated", "dependency_error", 500},
+				{"postgres_other_locale", "dependency_error", 500},
+				{"postgres_unknown", "dependency_error", 500},
+				{"postgres_wrong_code", "dependency_error", 500},
+				{"postgres_plain_text", "dependency_error", 500},
 			} {
 				t.Run(ingress.name+"/"+stage+"/"+scenario.name, func(t *testing.T) {
 					ctx, cancel := context.WithCancel(context.Background())
 					defer cancel()
-					if scenario.name == "request_deadline" {
+					if scenario.name == "request_deadline" || scenario.name == "postgres_deadline" {
 						var expire context.CancelFunc
 						ctx, expire = context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 						defer expire()
@@ -66,6 +77,27 @@ func TestCompositeRouteFailureClassification(t *testing.T) {
 							return fmt.Errorf("query failed: %w", context.DeadlineExceeded)
 						case "dependency_error_after_cancel":
 							cancel()
+						}
+						if strings.HasPrefix(scenario.name, "postgres_") {
+							if scenario.name != "postgres_active" && scenario.name != "postgres_deadline" && scenario.name != "postgres_statement_timeout_active" {
+								cancel()
+							}
+							postgresErr := &pq.Error{Code: "57014", Message: "canceling statement due to user request", InternalQuery: "sensitive SQL token=https://private.invalid/secret"}
+							switch scenario.name {
+							case "postgres_statement_timeout", "postgres_statement_timeout_active":
+								postgresErr.Message = "canceling statement due to statement timeout"
+							case "postgres_unrelated":
+								postgresErr.Code, postgresErr.Message = "42P01", "sensitive missing relation"
+							case "postgres_other_locale":
+								postgresErr.Message = "annulation de la requête à la demande de l’utilisateur"
+							case "postgres_unknown":
+								postgresErr.Message = "unknown cancellation"
+							case "postgres_wrong_code":
+								postgresErr.Code = "08006"
+							case "postgres_plain_text":
+								return errors.New("pq: canceling statement due to user request")
+							}
+							return fmt.Errorf("query failed: %w", postgresErr)
 						}
 						return errors.New("sensitive SQL token=https://private.invalid/secret")
 					}
@@ -101,6 +133,14 @@ func TestCompositeRouteFailureClassification(t *testing.T) {
 					require.JSONEq(t, `{"error":{"type":"server_error","message":"Failed to resolve composite model route"}}`, recorder.Body.String())
 					require.Equal(t, 1, logs.Len())
 					fields := logs.All()[0].ContextMap()
+					require.Equal(t, "service.composite_route", fields["component"])
+					requestState := "active"
+					if errors.Is(ctx.Err(), context.Canceled) {
+						requestState = "canceled"
+					} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						requestState = "deadline_exceeded"
+					}
+					require.Equal(t, requestState, fields["request_state"])
 					require.Equal(t, stage, fields["stage"])
 					require.Equal(t, scenario.cause, fields["cause"])
 					require.Equal(t, int64(73), fields["group_id"])
@@ -109,5 +149,30 @@ func TestCompositeRouteFailureClassification(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestCompositeRouteCancellationPreservesWrittenResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, cause := range []error{context.Canceled, fmt.Errorf("query: %w", &pq.Error{Code: "57014", Message: "canceling statement due to user request"})} {
+		t.Run(fmt.Sprintf("%T", cause), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			resolver := NewCompositeRouteResolver(failingCompositeRouteRepository{fail: func(context.Context) error {
+				cancel()
+				return cause
+			}})
+			router := gin.New()
+			router.Use(func(requestContext *gin.Context) {
+				requestContext.Set("api_key", &APIKey{Group: &Group{ID: 73, Platform: PlatformComposite}})
+				requestContext.String(http.StatusAccepted, "already written")
+			})
+			router.POST("/v1/responses", CompositeTargetPlatformMiddleware(resolver), func(*gin.Context) { t.Error("forwarding must not run") })
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"private-alias"}`)).WithContext(ctx)
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusAccepted, recorder.Code)
+			require.Equal(t, "already written", recorder.Body.String())
+		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
@@ -400,12 +401,27 @@ func CompositeGeminiTargetPlatformMiddleware(resolver *CompositeRouteResolver) g
 	}
 }
 
+func requestCanceledDuringQuery(ctx context.Context, err error) bool {
+	if ctx == nil || !errors.Is(ctx.Err(), context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
+	// lib/pq can return the server cancellation error instead of context.Canceled.
+	// SQLSTATE alone also matches statement_timeout, so require the exact message.
+	var postgresErr *pq.Error
+	return errors.As(err, &postgresErr) &&
+		postgresErr.Code == "57014" &&
+		postgresErr.Message == "canceling statement due to user request"
+}
+
 func abortCompositeRouteResolution(requestContext *gin.Context, groupID int64, err error) {
 	ctx := requestContext.Request.Context()
 	// Match the existing client-closed response/ops semantics, but require both
 	// the request and the failed operation to be canceled. An internal query
 	// timeout or an unrelated error racing a disconnect must remain a failure.
-	if errors.Is(ctx.Err(), context.Canceled) && errors.Is(err, context.Canceled) {
+	if requestCanceledDuringQuery(ctx, err) {
 		if !requestContext.Writer.Written() {
 			requestContext.Status(499) // client closed request; no response body
 		}

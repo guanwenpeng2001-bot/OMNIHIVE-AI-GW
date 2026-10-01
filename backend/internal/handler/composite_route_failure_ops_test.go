@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,11 +11,14 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCompositeRouteFailureOpsClassification(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	postgresCancel := fmt.Errorf("query: %w", &pq.Error{Code: "57014", Message: "canceling statement due to user request"})
+	statementTimeout := fmt.Errorf("query: %w", &pq.Error{Code: "57014", Message: "canceling statement due to statement timeout"})
 	for _, scenario := range []struct {
 		name                              string
 		cancelRequest, recordCancellation bool
@@ -23,6 +27,12 @@ func TestCompositeRouteFailureOpsClassification(t *testing.T) {
 		queued                            int64
 	}{
 		{"client_cancel", true, false, context.Canceled, 499, 0},
+		{"postgres_client_cancel", true, false, postgresCancel, 499, 0},
+		{"postgres_client_cancel_recording_enabled", true, true, postgresCancel, 499, 1},
+		{"postgres_internal_cancel", false, false, postgresCancel, 500, 1},
+		{"postgres_statement_timeout_racing_disconnect", true, false, statementTimeout, 500, 1},
+		{"postgres_unrelated_racing_disconnect", true, false, &pq.Error{Code: "42P01", Message: "missing relation"}, 500, 1},
+		{"postgres_unknown_racing_disconnect", true, false, &pq.Error{Code: "57014", Message: "unknown cancellation"}, 500, 1},
 		{"client_cancel_recording_enabled", true, true, context.Canceled, 499, 1},
 		{"internal_cancel", false, false, context.Canceled, 500, 1},
 		{"internal_deadline", false, false, context.DeadlineExceeded, 500, 1},
