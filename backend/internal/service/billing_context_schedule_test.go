@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -15,17 +16,18 @@ import (
 
 // scheduleScenario 阶梯表测试场景：同一份场景既做断言也做与计费函数的对账。
 type scheduleScenario struct {
-	name          string
-	model         string
-	platform      string
-	groupPlatform string
-	group         *Group
-	channel       []ChannelModelPricing
-	catalog       *PricingService
-	wantErr       bool
-	wantNil       bool
-	wantBasis     ContextPricingBasis
-	check         func(t *testing.T, s *ContextPricingSchedule)
+	name                  string
+	model                 string
+	platform              string
+	groupPlatform         string
+	group                 *Group
+	channel               []ChannelModelPricing
+	catalog               *PricingService
+	wantErr               bool
+	wantNil               bool
+	wantBasis             ContextPricingBasis
+	wantMissingCacheWrite bool
+	check                 func(t *testing.T, s *ContextPricingSchedule)
 }
 
 func enabledGroup(platform string) *Group {
@@ -96,7 +98,8 @@ func scheduleScenarios() []scheduleScenario {
 		},
 		{
 			name: "Grok 达到阈值即进高档", model: "grok-4.5", platform: PlatformGrok, groupPlatform: PlatformGrok,
-			group: enabledGroup(PlatformGrok), wantBasis: ContextPricingBasisWholeRequest,
+			wantMissingCacheWrite: true,
+			group:                 enabledGroup(PlatformGrok), wantBasis: ContextPricingBasisWholeRequest,
 			check: func(t *testing.T, s *ContextPricingSchedule) {
 				require.Len(t, s.Tiers, 2)
 				requireTier(t, s.Tiers[0], 0, intPtr(199999), "<200K", p(2e-6), p(6e-6), nil, p(0.3e-6))
@@ -264,7 +267,8 @@ func scheduleScenarios() []scheduleScenario {
 		},
 		{
 			name: "Gemini 目录无阶梯字段时开关开启也无阶梯", model: "gemini-2.5-pro", platform: PlatformGemini, groupPlatform: PlatformGemini,
-			group: enabledGroup(PlatformGemini), catalog: geminiCatalogStub(), wantBasis: ContextPricingBasisWholeRequest,
+			wantMissingCacheWrite: true,
+			group:                 enabledGroup(PlatformGemini), catalog: geminiCatalogStub(), wantBasis: ContextPricingBasisWholeRequest,
 			check: func(t *testing.T, s *ContextPricingSchedule) {
 				require.Len(t, s.Tiers, 1)
 			},
@@ -385,6 +389,66 @@ func TestResolveContextPricingSchedule_NilResolver(t *testing.T) {
 	require.Nil(t, sched)
 }
 
+func TestResolveContextPricingSchedule_PartialAndFreeTariffs(t *testing.T) {
+	for _, fixture := range []struct {
+		name, prices               string
+		input, output, write, read *float64
+	}{
+		{"missing cache", `"input_cost_per_token":0.000002,"output_cost_per_token":0.000006`, testPtrFloat64(2e-6), testPtrFloat64(6e-6), nil, nil},
+		{"explicit free cache", `"input_cost_per_token":0.000002,"output_cost_per_token":0.000006,"cache_creation_input_token_cost":0,"cache_read_input_token_cost":0`, testPtrFloat64(2e-6), testPtrFloat64(6e-6), testPtrFloat64(0), testPtrFloat64(0)},
+		{"free text", `"input_cost_per_token":0,"output_cost_per_token":0`, testPtrFloat64(0), testPtrFloat64(0), nil, nil},
+		{"input only", `"input_cost_per_token":0.000002`, testPtrFloat64(2e-6), nil, nil, nil},
+		{"output only", `"output_cost_per_token":0.000006`, nil, testPtrFloat64(6e-6), nil, nil},
+		{"output and cached context", `"output_cost_per_token":0.000006,"cache_read_input_token_cost":0.000001`, nil, testPtrFloat64(6e-6), nil, testPtrFloat64(1e-6)},
+	} {
+		for _, group := range []*Group{nil, enabledGroup(PlatformOpenAI)} {
+			t.Run(fmt.Sprintf("%s/group=%t", fixture.name, group != nil), func(t *testing.T) {
+				const model = "synthetic-partial-tariff"
+				catalog := mustCatalogFromJSON(`{"` + model + `":{"litellm_provider":"openai","mode":"chat",` + fixture.prices + `}}`)
+				billing, resolver := newScheduleTestEnv(t, scheduleScenario{catalog: catalog, groupPlatform: PlatformOpenAI})
+				schedule, err := billing.ResolveContextPricingSchedule(context.Background(), resolver, ContextPricingScheduleInput{Model: model, Group: group, Platform: PlatformOpenAI})
+				require.NoError(t, err)
+				require.Len(t, schedule.Tiers, 1)
+				requireTier(t, schedule.Tiers[0], 0, nil, "", fixture.input, fixture.output, fixture.write, fixture.read)
+				for _, component := range []struct {
+					price  *float64
+					tokens UsageTokens
+				}{
+					{fixture.input, UsageTokens{InputTokens: 1000}},
+					{fixture.output, UsageTokens{OutputTokens: 1000}},
+					{fixture.write, UsageTokens{CacheCreationTokens: 1000}},
+					{fixture.read, UsageTokens{CacheReadTokens: 1000}},
+				} {
+					cost, err := billing.CalculateTokenCostForRequest(TokenCostRequest{Ctx: context.Background(), Model: model, Group: group, Resolver: resolver, Tokens: component.tokens, RateMultiplier: 1})
+					if component.price == nil {
+						require.ErrorIs(t, err, ErrModelPricingUnavailable)
+						require.Equal(t, PricingStateUnpriced, cost.PricingState)
+						require.Empty(t, cost.PricingSnapshot)
+					} else {
+						require.NoError(t, err)
+						require.InDelta(t, 1000**component.price, cost.ActualCost, 1e-15)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestProbeComponentPricePreservesErrors(t *testing.T) {
+	for _, delta := range []int{0, contextProbeDelta} {
+		for _, probeErr := range []error{ErrModelPricingUnavailable, ErrInvalidBillingAmount} {
+			price, err := probeComponentPrice(func(n int) UsageTokens { return UsageTokens{InputTokens: n} }, 1, delta,
+				func(UsageTokens) (*CostBreakdown, error) { return nil, fmt.Errorf("probe: %w", probeErr) })
+			require.Nil(t, price)
+			if probeErr == ErrModelPricingUnavailable {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, probeErr)
+			}
+		}
+	}
+}
+
 func TestPlazaSchedulePreservesCacheWrite1h(t *testing.T) {
 	cp := sonnetChannel(PricingInterval{MinTokens: 272000, CacheWriteMultiplier: testPtrFloat64(2)})
 	cp[0].CacheWritePrice = testPtrFloat64(12.5e-6)
@@ -501,7 +565,18 @@ func TestResolveContextPricingSchedule_ParityWithBilling(t *testing.T) {
 				}
 				assertCostClose(t, expectedCostFromSchedule(sched, kindInput, c), cost(UsageTokens{InputTokens: c}), "input@%d", c)
 				assertCostClose(t, expectedCostFromSchedule(sched, kindCacheRead, c), cost(UsageTokens{CacheReadTokens: c}), "cache_read@%d", c)
-				assertCostClose(t, expectedCostFromSchedule(sched, kindCacheWrite, c), cost(UsageTokens{CacheCreationTokens: c}), "cache_write@%d", c)
+				if sc.wantMissingCacheWrite {
+					require.Nil(t, tierAt(sched.Tiers, c).CacheWrite)
+					bd, err := bs.CalculateTokenCostForRequest(TokenCostRequest{
+						Ctx: ctx, Model: sc.model, Group: sc.group, Tokens: UsageTokens{CacheCreationTokens: c},
+						RateMultiplier: 1, Resolver: resolver, Resolved: resolved,
+					})
+					require.ErrorIs(t, err, ErrModelPricingUnavailable)
+					require.Equal(t, PricingStateUnpriced, bd.PricingState)
+					require.Empty(t, bd.PricingSnapshot)
+				} else {
+					assertCostClose(t, expectedCostFromSchedule(sched, kindCacheWrite, c), cost(UsageTokens{CacheCreationTokens: c}), "cache_write@%d", c)
+				}
 				wantOutput := float64(outputProbe) * tierPrice(tierAt(sched.Tiers, c), kindOutput)
 				gotOutput := cost(UsageTokens{InputTokens: c, OutputTokens: outputProbe}) - cost(UsageTokens{InputTokens: c})
 				assertCostClose(t, wantOutput, gotOutput, "output@%d", c)

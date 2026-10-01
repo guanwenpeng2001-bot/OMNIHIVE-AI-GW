@@ -23,14 +23,24 @@ func TestBillingDisplayProbePreservesSettlementCalculations(tester *testing.T) {
 				Model: scenario.model, Group: scenario.group, Resolver: resolver,
 				RateMultiplier: 0.8, PricingAt: time.Date(2026, time.September, 28, 12, 0, 0, 0, time.UTC),
 			}
-			for _, tokens := range []UsageTokens{{}, {InputTokens: 1000, OutputTokens: 500}, {InputTokens: 300000, OutputTokens: 1000, CacheReadTokens: 10000, CacheCreationTokens: 2000}} {
+			for _, tokens := range []UsageTokens{{}, {InputTokens: 1000, OutputTokens: 500}, {InputTokens: 300000, OutputTokens: 1000, CacheReadTokens: 10000}, {InputTokens: 300000, OutputTokens: 1000, CacheReadTokens: 10000, CacheCreationTokens: 2000}} {
 				request.Tokens = tokens
 				request.displayProbe = false
-				settlement, err := billing.CalculateTokenCostForRequest(request)
-				require.NoError(tester, err)
-				require.NotEmpty(tester, settlement.PricingSnapshot)
+				settlement, settlementErr := billing.CalculateTokenCostForRequest(request)
 				request.displayProbe = true
 				display, err := billing.CalculateTokenCostForRequest(request)
+				if scenario.wantMissingCacheWrite && tokens.CacheCreationTokens > 0 {
+					// These fixtures have no cache-write tariff. Display optimization
+					// must preserve the settlement failure, not make usage free.
+					require.ErrorIs(tester, settlementErr, ErrModelPricingUnavailable)
+					require.ErrorIs(tester, err, ErrModelPricingUnavailable)
+					require.Equal(tester, PricingStateUnpriced, settlement.PricingState)
+					require.Empty(tester, settlement.PricingSnapshot)
+					require.Equal(tester, settlement, display)
+					continue
+				}
+				require.NoError(tester, settlementErr)
+				require.NotEmpty(tester, settlement.PricingSnapshot)
 				require.NoError(tester, err)
 				if scenario.group != nil {
 					require.Empty(tester, display.PricingSnapshot)

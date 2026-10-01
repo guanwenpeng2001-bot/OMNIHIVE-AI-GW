@@ -19,7 +19,7 @@ type ContextPricingBasis string
 const ContextPricingBasisWholeRequest ContextPricingBasis = "whole_request"
 
 // ContextPricingTier (MinTokens, MaxTokens] 区间内的有效 per-token 单价（USD）。
-// nil 表示该项无价/不计费；MaxTokens 为 nil 表示无上限。
+// nil 表示该项缺价；显式免费为非 nil 的 0。MaxTokens 为 nil 表示无上限。
 type ContextPricingTier struct {
 	MinTokens    int
 	MaxTokens    *int
@@ -130,6 +130,13 @@ func (s *BillingService) ResolveContextPricingSchedule(ctx context.Context, reso
 		tiers = append(tiers, tier)
 	}
 	tiers = mergeEqualContextTiers(tiers)
+	known := false
+	for _, tier := range tiers {
+		known = known || tier.Input != nil || tier.Output != nil || tier.CacheRead != nil || tier.CacheWrite != nil || tier.CacheWrite1h != nil
+	}
+	if !known {
+		return nil, ErrModelPricingUnavailable
+	}
 	applyContextTierLabels(tiers, plan)
 
 	return &ContextPricingSchedule{Basis: ContextPricingBasisWholeRequest, Tiers: tiers, TimePricing: resolvedTimePricingSchedule(resolved)}, nil
@@ -300,7 +307,27 @@ func probeContextTier(seg contextSegment, resolved *ResolvedPricing, probe func(
 	if err != nil {
 		return tier, err
 	}
-	tier.Output, err = probeComponentPrice(func(n int) UsageTokens { return UsageTokens{InputTokens: c, OutputTokens: n} }, 0, contextProbeDelta, probe)
+	// Anchor output probes with a priced context component, so an unknown input
+	// tariff does not hide a known output tariff. Output-only cards can still
+	// expose their base price with an empty context.
+	contextTokens := UsageTokens{}
+	switch {
+	case tier.Input != nil:
+		contextTokens.InputTokens = c
+	case tier.CacheRead != nil:
+		contextTokens.CacheReadTokens = c
+	case tier.CacheWrite != nil:
+		contextTokens.CacheCreationTokens = c
+	case tier.CacheWrite1h != nil:
+		contextTokens.CacheCreationTokens, contextTokens.CacheCreation1hTokens = c, c
+	}
+	if contextTokens != (UsageTokens{}) || seg.min == 0 {
+		tier.Output, err = probeComponentPrice(func(n int) UsageTokens {
+			tokens := contextTokens
+			tokens.OutputTokens = n
+			return tokens
+		}, 0, contextProbeDelta, probe)
+	}
 	if err != nil {
 		return tier, err
 	}
@@ -315,6 +342,8 @@ func probeContextTier(seg contextSegment, resolved *ResolvedPricing, probe func(
 }
 
 // probeComponentPrice 返回 [from, from+delta] 上 ActualCost 的差商；delta 为 0（退化段）时退回平均单价。
+// A synthetic use of an unavailable component means unknown display pricing,
+// not a free tariff or failure of the other components. All other errors remain fatal.
 func probeComponentPrice(tokensAt func(int) UsageTokens, from, delta int, probe func(UsageTokens) (*CostBreakdown, error)) (*float64, error) {
 	if delta <= 0 {
 		n := from
@@ -322,6 +351,9 @@ func probeComponentPrice(tokensAt func(int) UsageTokens, from, delta int, probe 
 			n = 1
 		}
 		cost, err := probe(tokensAt(n))
+		if errors.Is(err, ErrModelPricingUnavailable) {
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -329,10 +361,16 @@ func probeComponentPrice(tokensAt func(int) UsageTokens, from, delta int, probe 
 		return &v, nil
 	}
 	lo, err := probe(tokensAt(from))
+	if errors.Is(err, ErrModelPricingUnavailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
 	hi, err := probe(tokensAt(from + delta))
+	if errors.Is(err, ErrModelPricingUnavailable) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -360,15 +398,25 @@ type explicitContextFields struct {
 // 显式配置为 0 时计费按 $0 收，展示应为 $0 而非“无价”。
 func explicitContextPricingFields(resolved *ResolvedPricing, contextTokens int) explicitContextFields {
 	var out explicitContextFields
-	if resolved == nil || resolved.channelPricing == nil {
+	if resolved == nil {
+		return out
+	}
+	if base := resolved.BasePricing; base != nil {
+		out.input = base.hasTokenPrice("input", base.InputPricePerToken)
+		out.output = base.hasTokenPrice("output", base.OutputPricePerToken)
+		out.cacheRead = base.hasTokenPrice("cache_read", base.CacheReadPricePerToken)
+		out.cacheWrite = base.hasTokenPrice("cache_write", base.CacheCreationPricePerToken)
+		out.cacheWrite1h = out.cacheWrite || base.hasTokenPrice("cache_write_1h", base.CacheCreation1hPrice)
+	}
+	if resolved.channelPricing == nil {
 		return out
 	}
 	cp := resolved.channelPricing
-	out.input = cp.InputPrice != nil
-	out.output = cp.OutputPrice != nil
-	out.cacheWrite = cp.CacheWritePrice != nil
-	out.cacheWrite1h = cp.CacheWrite1hPrice != nil || cp.CacheWritePrice != nil
-	out.cacheRead = cp.CacheReadPrice != nil
+	out.input = out.input || cp.InputPrice != nil
+	out.output = out.output || cp.OutputPrice != nil
+	out.cacheWrite = out.cacheWrite || cp.CacheWritePrice != nil
+	out.cacheWrite1h = out.cacheWrite1h || cp.CacheWrite1hPrice != nil || cp.CacheWritePrice != nil
+	out.cacheRead = out.cacheRead || cp.CacheReadPrice != nil
 	if iv := FindMatchingInterval(resolved.Intervals, contextTokens); iv != nil {
 		out.input = out.input || iv.InputPrice != nil
 		out.output = out.output || iv.OutputPrice != nil

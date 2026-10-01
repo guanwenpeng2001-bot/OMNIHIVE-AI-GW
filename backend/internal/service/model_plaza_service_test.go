@@ -450,7 +450,7 @@ func TestListGroups_ImageModelKeepsTierSynthesisWithBilling(t *testing.T) {
 }
 
 func TestListGroups_CatalogMissingStillShowsChannelFlatPricing(t *testing.T) {
-	// 目录查不到的模型：计费按渠道平价（未配置项 $0），广场单档展示渠道平价，官方价为空。
+	// 目录查不到的模型：已配置项按渠道平价，未配置项保持缺价，官方价为空。
 	channels := []Channel{plazaPricedChannel(1, "ch", []int64{10}, PlatformAnthropic, "unknown-model-xyz")}
 	groups := []Group{{ID: 10, Name: "g", Platform: PlatformAnthropic, RateMultiplier: 1, LongContextPricingEnabled: true}}
 	svc := newPlazaServiceWithBilling(channels, groups, map[int64]string{10: PlatformAnthropic}, nil)
@@ -484,5 +484,10 @@ func TestListGroups_TimePricingPassthrough(t *testing.T) {
 	require.Len(t, m.TimePricing.Periods, 1)
 	require.InDelta(t, 0.5, m.TimePricing.Periods[0].Multiplier, 1e-12)
 	// 展示单价为标准时段价
+	require.NotNil(t, m.Pricing)
+	require.NotNil(t, m.Pricing.InputPrice)
 	require.InDelta(t, 0.28e-6, *m.Pricing.InputPrice, 1e-15)
+	require.NotNil(t, m.Pricing.OutputPrice)
+	require.InDelta(t, 0.42e-6, *m.Pricing.OutputPrice, 1e-15)
+	require.Nil(t, m.Pricing.CacheWritePrice, "unused missing cache tariff must not discard time pricing or known text prices")
 }

@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -205,21 +204,15 @@ func catalogPerformanceRequest(router *gin.Engine, path, role string) *httptest.
 
 func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 	router, accounts := newCatalogPerformanceRouter(tester)
-	// Full response digests protect all fields, model counts, prices and user
-	// multipliers, cold and warm. The plaza digest includes unknown guarantees
-	// for this fixture's metadata without field evidence.
-	baselineDigests := map[string]string{
-		"/v1/models":          "1976b5508d2ea65c4453b461eec40b2c63343b4b20bc47b2b74f8810d49025ed",
-		"/api/v1/model-plaza": "12bca976eabaf8e4a3ca2b452bb05a1c3024b63ece0a31b489dfa6b0b2e65028",
-	}
+	// Assert the public contract directly: additive metadata can evolve without
+	// replacing opaque snapshots, while cold/warm responses must remain identical.
 	for _, path := range []string{"/v1/models", "/api/v1/model-plaza"} {
 		cold := catalogPerformanceRequest(router, path, "user")
 		require.Equal(tester, http.StatusOK, cold.Code, cold.Body.String())
 		warm := catalogPerformanceRequest(router, path, "user")
+		require.Equal(tester, http.StatusOK, warm.Code)
+		require.Equal(tester, cold.Body.String(), warm.Body.String())
 		require.JSONEq(tester, cold.Body.String(), warm.Body.String())
-		tester.Logf("path=%s cold_sha256=%x warm_sha256=%x", path, sha256.Sum256(cold.Body.Bytes()), sha256.Sum256(warm.Body.Bytes()))
-		require.Equal(tester, baselineDigests[path], fmt.Sprintf("%x", sha256.Sum256(cold.Body.Bytes())))
-		require.Equal(tester, baselineDigests[path], fmt.Sprintf("%x", sha256.Sum256(warm.Body.Bytes())))
 		var payload struct {
 			Data json.RawMessage `json:"data"`
 		}
@@ -228,12 +221,36 @@ func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 			var models []publicOpenAIModel
 			require.NoError(tester, json.Unmarshal(payload.Data, &models))
 			require.Len(tester, models, 100)
+			for index, model := range models {
+				require.Equal(tester, fmt.Sprintf("model-%04d", index), model.ID)
+				require.Equal(tester, model.ID, model.Name)
+				require.Equal(tester, "model", model.Object)
+				require.Equal(tester, service.PlatformOpenAI, model.OwnedBy)
+				// Metadata observations lack binding field evidence: they must not
+				// turn into guaranteed limits or reasoning capabilities.
+				require.Nil(tester, model.Created)
+				require.Empty(tester, model.CreatedAtSource)
+				require.Equal(tester, publicClientModelMetadata{}, model.publicClientModelMetadata)
+			}
 		} else {
 			var plaza modelPlazaResponse
 			require.NoError(tester, json.Unmarshal(payload.Data, &plaza))
 			require.Len(tester, plaza.Groups, 20)
 			for _, group := range plaza.Groups {
 				require.Len(tester, group.Models, 100)
+				require.Equal(tester, service.PlatformOpenAI, group.Platform)
+				require.Equal(tester, float64(1), group.RateMultiplier)
+				for index, model := range group.Models {
+					require.Equal(tester, fmt.Sprintf("model-%04d", index), model.Name)
+					require.Equal(tester, service.PlatformOpenAI, model.Platform)
+					require.NotNil(tester, model.Pricing)
+					require.NotNil(tester, model.Pricing.InputPrice)
+					require.NotNil(tester, model.Pricing.OutputPrice)
+					require.InDelta(tester, 0.000003, *model.Pricing.InputPrice, 1e-15)
+					require.InDelta(tester, 0.000015, *model.Pricing.OutputPrice, 1e-15)
+					require.Nil(tester, model.Pricing.CacheWritePrice)
+					require.Nil(tester, model.Pricing.CacheReadPrice)
+				}
 				require.NotNil(tester, group.Models[0].Pricing)
 				capabilities := group.Models[0].Capabilities
 				require.NotNil(tester, capabilities)
