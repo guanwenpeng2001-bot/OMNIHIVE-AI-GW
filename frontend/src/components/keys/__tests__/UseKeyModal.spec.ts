@@ -25,6 +25,79 @@ vi.mock('file-saver', () => ({
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
+import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
+
+const exportPlatforms = GROUP_PLATFORM_OPTIONS.map(option => option.value)
+
+describe('emitted client URL contracts', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it.each([
+    ['gemini', 'https://gateway.example/proxy/v1beta/'],
+    ['antigravity', 'https://gateway.example/proxy/antigravity/v1/']
+  ] as const)('fetches the %s Codex catalog from the same Responses base as the export', async (platform, baseUrl) => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [{ slug: 'exact-visible-model' }] }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'dummy-export-key', baseUrl, platform },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    await wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.cliTabs.codexCli')!.trigger('click')
+    await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith('https://gateway.example/proxy/v1/models?client_version=0.147.0', expect.anything())
+    expect(wrapper.findAll('pre code').map(code => code.text()).join('\n')).toContain('model = "exact-visible-model"')
+    wrapper.unmount()
+  })
+
+  it.each(exportPlatforms)('normalizes every offered %s client without changing config settings', async (platform) => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'dummy-export-key', baseUrl: 'https://gateway.example/proxy', platform, allowMessagesDispatch: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    const clientButtons = wrapper.findAll('button').filter(button => button.text().startsWith('keys.useKeyModal.cliTabs.'))
+    expect(clientButtons.length).toBeGreaterThanOrEqual(3)
+    for (const clientButton of clientButtons) {
+      await clientButton.trigger('click')
+      const client = clientButton.text().split('.').at(-1)!
+      const shellButtons = wrapper.findAll('button').filter(button => ['macOS / Linux', 'Windows', 'Windows CMD', 'PowerShell'].includes(button.text()))
+      for (const shellButton of shellButtons.length ? shellButtons : [null]) {
+        if (shellButton) await shellButton.trigger('click')
+        await wrapper.setProps({ baseUrl: 'https://gateway.example/proxy' })
+        const original = wrapper.findAll('pre code').map(code => code.text())
+        const nativeRoot = `https://gateway.example/proxy${platform === 'antigravity' ? '/antigravity' : ''}`
+        if (client === 'claudeCode') {
+          expect(original.join('\n')).toMatch(new RegExp(`ANTHROPIC_BASE_URL["= :]*${nativeRoot}`))
+          expect(original.join('\n')).not.toContain(`${nativeRoot}/v1`)
+        } else if (client === 'geminiCli') {
+          expect(original.join('\n')).toContain(`GOOGLE_GEMINI_BASE_URL`)
+          expect(original.join('\n')).toContain(nativeRoot)
+          expect(original.join('\n')).not.toContain(`${nativeRoot}/v1`)
+        } else if (client === 'opencode') {
+          for (const content of original) {
+            const provider = Object.values(JSON.parse(content).provider)[0] as { npm: string; options: { baseURL: string; apiKey: string } }
+            const version = provider.npm === '@ai-sdk/google' ? 'v1beta' : 'v1'
+            expect(provider.options).toEqual({ baseURL: `${nativeRoot}/${version}`, apiKey: 'dummy-export-key' })
+          }
+        } else {
+          expect(original.join('\n')).toContain('https://gateway.example/proxy/v1')
+          if (client.startsWith('codex')) {
+            expect(original.join('\n')).toContain('base_url = "https://gateway.example/proxy/v1"')
+            expect(original.join('\n')).toContain('wire_api = "responses"')
+          }
+        }
+        // Compare the entire emitted content, including model IDs, keys and settings.
+        const variants = ['/','///','/v1','/v1/','/v1///','/v1beta/']
+        if (platform === 'antigravity') variants.push('/antigravity', '/antigravity/', '/antigravity/v1///', '/antigravity/v1beta/')
+        for (const suffix of variants) {
+          await wrapper.setProps({ baseUrl: `https://gateway.example/proxy${suffix}` })
+          expect(wrapper.findAll('pre code').map(code => code.text()), `${platform}/${client}/${suffix}`).toEqual(original)
+        }
+      }
+    }
+    wrapper.unmount()
+  })
+})
 
 function readBlobAsText(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {

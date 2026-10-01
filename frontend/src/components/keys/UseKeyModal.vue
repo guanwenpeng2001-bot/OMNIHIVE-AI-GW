@@ -288,6 +288,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
 import { getPlatformLabel } from '@/constants/platforms'
+import { buildClientBaseUrl } from '@/utils/url'
 import {
   findCodexCatalogModel,
   formatCodexReasoningEffortTomlLine,
@@ -340,6 +341,12 @@ let codexModelManifestRequestID = 0
 
 /** A client config needs the address this deployment publishes; the console origin is never assumed. */
 const hasBaseUrl = computed(() => props.baseUrl.trim() !== '')
+
+// Responses and its Codex catalog use the shared gateway, not Antigravity-only routes.
+const responsesBaseUrl = computed(() => {
+  const root = buildClientBaseUrl(props.baseUrl)
+  return buildClientBaseUrl(props.platform === 'antigravity' ? root.replace(/\/antigravity$/, '') : root, 'v1')
+})
 
 const showCodexModelCatalog = computed(() =>
   props.show &&
@@ -683,7 +690,7 @@ async function loadCodexModelManifest() {
   codexModelManifestState.value = 'loading'
 
   try {
-    const result = await fetchCodexModelsManifest(props.baseUrl, props.apiKey, controller.signal)
+    const result = await fetchCodexModelsManifest(responsesBaseUrl.value, props.apiKey, controller.signal)
     if (requestID !== codexModelManifestRequestID) return
     codexModelManifestContent.value = result.content
     codexModelManifestModelCount.value = result.modelCount
@@ -747,21 +754,12 @@ const currentFiles = computed((): FileConfig[] => {
   // Without a configured public API base URL there is nothing truthful to copy.
   if (!baseUrl) return []
   const apiKey = props.apiKey
-  const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
-  const ensureV1 = (value: string) => {
-    const trimmed = value.replace(/\/+$/, '')
-    return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
-  }
-  const apiBase = ensureV1(baseRoot)
-  const antigravityBase = ensureV1(`${baseRoot}/antigravity`)
-  const antigravityGeminiBase = (() => {
-    const trimmed = `${baseRoot}/antigravity`.replace(/\/+$/, '')
-    return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
-  })()
-  const geminiBase = (() => {
-    const trimmed = baseRoot.replace(/\/+$/, '')
-    return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
-  })()
+  const baseRoot = buildClientBaseUrl(baseUrl)
+  const apiBase = responsesBaseUrl.value
+  const antigravityRoot = buildClientBaseUrl(baseUrl, '', 'antigravity')
+  const antigravityBase = buildClientBaseUrl(antigravityRoot, 'v1')
+  const antigravityGeminiBase = buildClientBaseUrl(antigravityRoot, 'v1beta')
+  const geminiBase = buildClientBaseUrl(baseRoot, 'v1beta')
 
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
@@ -789,25 +787,25 @@ const currentFiles = computed((): FileConfig[] => {
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
-        return generateAnthropicFiles(baseUrl, apiKey)
+        return generateAnthropicFiles(baseRoot, apiKey)
       }
       if (activeClientTab.value === 'codex-ws') {
-        return generateOpenAIWsFiles(baseUrl, apiKey)
+        return generateOpenAIWsFiles(apiBase, apiKey)
       }
-      return generateOpenAIFiles(baseUrl, apiKey)
+      return generateOpenAIFiles(apiBase, apiKey)
     case 'gemini':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'gemini')
       }
-      return [generateGeminiCliContent(baseUrl, apiKey)]
+      return [generateGeminiCliContent(baseRoot, apiKey)]
     case 'antigravity':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'antigravity')
       }
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
+        return [generateGeminiCliContent(antigravityRoot, apiKey)]
       }
-      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+      return generateAnthropicFiles(antigravityRoot, apiKey)
     case 'grok':
       if (activeClientTab.value === 'claude') {
         return generateGrokClaudeFiles(baseRoot, apiKey)
@@ -835,7 +833,7 @@ const currentFiles = computed((): FileConfig[] => {
       if (activeClientTab.value === 'codex' && props.platform) {
         return generateRoutedCodexFiles(apiBase, apiKey, props.platform)
       }
-      return generateAnthropicFiles(baseUrl, apiKey)
+      return generateAnthropicFiles(baseRoot, apiKey)
   }
 })
 
