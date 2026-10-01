@@ -608,9 +608,10 @@ type ProxyBatchDeleteSkipped struct {
 
 // ProxyTestResult represents the result of testing a proxy
 type ProxyTestResult struct {
+	ProxyProbeMeasurement
 	Success     bool   `json:"success"`
 	Message     string `json:"message"`
-	LatencyMs   int64  `json:"latency_ms,omitempty"`
+	LatencyMs   *int64 `json:"latency_ms,omitempty"`
 	IPAddress   string `json:"ip_address,omitempty"`
 	City        string `json:"city,omitempty"`
 	Region      string `json:"region,omitempty"`
@@ -619,6 +620,7 @@ type ProxyTestResult struct {
 }
 
 type ProxyQualityCheckResult struct {
+	ProxyProbeMeasurement
 	ProxyID        int64                   `json:"proxy_id"`
 	Score          int                     `json:"score"`
 	Grade          string                  `json:"grade"`
@@ -626,7 +628,7 @@ type ProxyQualityCheckResult struct {
 	ExitIP         string                  `json:"exit_ip,omitempty"`
 	Country        string                  `json:"country,omitempty"`
 	CountryCode    string                  `json:"country_code,omitempty"`
-	BaseLatencyMs  int64                   `json:"base_latency_ms,omitempty"`
+	BaseLatencyMs  *int64                  `json:"base_latency_ms,omitempty"`
 	PassedCount    int                     `json:"passed_count"`
 	WarnCount      int                     `json:"warn_count"`
 	FailedCount    int                     `json:"failed_count"`
@@ -646,6 +648,7 @@ type ProxyQualityCheckItem struct {
 
 // ProxyExitInfo represents proxy exit information from ip-api.com
 type ProxyExitInfo struct {
+	ProxyProbeMeasurement
 	IP          string
 	City        string
 	Region      string

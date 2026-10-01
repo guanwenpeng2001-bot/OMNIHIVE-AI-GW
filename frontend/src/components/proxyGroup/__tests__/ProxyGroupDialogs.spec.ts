@@ -54,6 +54,19 @@ describe('group management dialogs', () => {
     expect(proxyGroupsAPI.setMembers).toHaveBeenCalledWith(5, [2, 3, 1])
     wrapper.unmount()
   })
+  it('shows only warmed node latency in observations, including zero', async () => {
+    vi.mocked(list).mockResolvedValue({ items: [
+      { ...nodes[0], latency_ms: 432 },
+      { ...nodes[1], latency_ms: 0, latency_method: 'warmed_http' },
+      { ...nodes[2], latency_ms: 234, latency_method: 'unavailable' }
+    ], total: 3 } as never)
+    const wrapper = mount(ProxyGroupMembersModal, { props: { groupId: 5 }, global })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('432 ms')
+    expect(wrapper.text()).not.toContain('234 ms')
+    expect(wrapper.text()).toContain('0 ms')
+    wrapper.unmount()
+  })
   it('blocks member replacement if loading failed rather than clearing the group', async () => {
     vi.mocked(list).mockRejectedValueOnce(new Error('offline'))
     const wrapper = mount(ProxyGroupMembersModal, { props: { groupId: 5 }, global })

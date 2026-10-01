@@ -7,6 +7,7 @@ import { apiClient } from '../client'
 import type {
   Proxy,
   ProxyAccountSummary,
+  ProxyProbeMeasurement,
   ProxyQualityCheckResult,
   CreateProxyRequest,
   UpdateProxyRequest,
@@ -132,7 +133,7 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
  * @param id - Proxy ID
  * @returns Test result with IP info
  */
-export async function testProxy(id: number): Promise<{
+export async function testProxy(id: number): Promise<ProxyProbeMeasurement & {
   success: boolean
   message: string
   latency_ms?: number
@@ -142,7 +143,7 @@ export async function testProxy(id: number): Promise<{
   country?: string
   country_code?: string
 }> {
-  const { data } = await apiClient.post<{
+  const { data } = await apiClient.post<ProxyProbeMeasurement & {
     success: boolean
     message: string
     latency_ms?: number

@@ -55,6 +55,7 @@ func NewProxyExitInfoProber(cfg *config.Config) service.ProxyExitInfoProber {
 const (
 	defaultProxyProbeTimeout          = 10 * time.Second
 	defaultProxyProbeResponseMaxBytes = int64(1024 * 1024)
+	proxyLatencyTestURL               = "https://www.gstatic.com/generate_204"
 )
 
 // probeURLs 按优先级排列的内置探测 URL 列表。
@@ -91,7 +92,65 @@ func (s *proxyProbeService) ProbeProxy(ctx context.Context, proxyURL string) (*s
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create proxy client: %w", err)
 	}
+	return s.probeWithClient(ctx, client, proxyLatencyTestURL)
+}
 
+func (s *proxyProbeService) probeWithClient(ctx context.Context, client *http.Client, latencyTarget string) (*service.ProxyExitInfo, int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultProxyProbeTimeout)
+	defer cancel()
+	// Leave time for a separate IP lookup if the timing target is blocked.
+	latencyCtx, cancelLatency := context.WithTimeout(ctx, defaultProxyProbeTimeout/2)
+	measurement, latency, latencyErr := measureProxyLatency(latencyCtx, client, latencyTarget)
+	cancelLatency()
+	exitInfo, _, exitErr := s.probeExitInfo(ctx, client)
+	available := exitErr == nil
+	measurement.ExitInfoAvailable = &available
+	if exitInfo == nil {
+		exitInfo = &service.ProxyExitInfo{}
+	}
+	exitInfo.ProxyProbeMeasurement = measurement
+	if latencyErr != nil && exitErr != nil {
+		return exitInfo, 0, fmt.Errorf("all probe URLs failed: latency target: %v; exit lookup: %w", latencyErr, exitErr)
+	}
+	// Exit information is optional. Conversely, an IP lookup can establish
+	// reachability without being misreported as a warmed node measurement.
+	return exitInfo, latency, nil
+}
+
+func measureProxyLatency(ctx context.Context, client *http.Client, target string) (measurement service.ProxyProbeMeasurement, latency int64, err error) {
+	measurement = service.ProxyProbeMeasurement{LatencyTestURL: target, LatencyMethod: "unavailable"}
+	defer func() {
+		now := time.Now()
+		measurement.LatencyCheckedAt = &now
+	}()
+	probeClient := *client
+	probeClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	for attempt := 0; attempt < 2; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, target, nil)
+		if err != nil {
+			return measurement, 0, err
+		}
+		started := time.Now()
+		resp, err := probeClient.Do(req)
+		elapsed := time.Since(started).Milliseconds()
+		if err != nil {
+			return measurement, 0, err
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return measurement, 0, fmt.Errorf("latency target returned HTTP %d", resp.StatusCode)
+		}
+		if attempt == 0 {
+			measurement.FirstRequestLatencyMs = &elapsed
+			continue
+		}
+		latency = elapsed
+	}
+	measurement.LatencyMethod = "warmed_http"
+	return measurement, latency, nil
+}
+
+func (s *proxyProbeService) probeExitInfo(ctx context.Context, client *http.Client) (*service.ProxyExitInfo, int64, error) {
 	var lastErr error
 	if len(s.configuredProbeURLs) > 0 {
 		for _, probe := range s.configuredProbeURLs {

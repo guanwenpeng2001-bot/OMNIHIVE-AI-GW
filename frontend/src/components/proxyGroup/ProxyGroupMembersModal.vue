@@ -69,7 +69,7 @@ async function save() {
           <label v-for="node in filtered" :key="node.id" class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <input v-model="selected" type="checkbox" :value="node.id" class="mt-1" />
             <span class="min-w-0 flex-1 space-y-1"><span class="block break-words font-medium">{{ node.name }}</span><span class="block text-sm text-gray-500 dark:text-gray-400">{{ node.region || node.country || '—' }} · {{ t(`admin.proxyGroups.${nodeStatus(node)}`) }}</span>
-              <span class="block border-t border-gray-100 pt-1 text-xs text-gray-500 dark:text-gray-400 dark:border-dark-700">{{ t('admin.proxyGroups.observations') }}: {{ node.quality_status ? t(`admin.proxyGroups.health.${node.quality_status}`) : t('admin.proxyGroups.unknown') }}<span v-if="node.latency_ms != null"> · {{ node.latency_ms }} ms</span></span>
+              <span class="block border-t border-gray-100 pt-1 text-xs text-gray-500 dark:text-gray-400 dark:border-dark-700">{{ t('admin.proxyGroups.observations') }}: {{ node.quality_status ? t(`admin.proxyGroups.health.${node.quality_status}`) : t('admin.proxyGroups.unknown') }}<span v-if="node.latency_method === 'warmed_http' && node.latency_ms != null"> · {{ node.latency_ms }} ms</span></span>
               <span v-if="cooldown(node.id)?.cooldown_until && Date.parse(cooldown(node.id)!.cooldown_until!) > Date.now()" class="block text-xs text-amber-700 dark:text-amber-400">{{ t('admin.proxyGroups.cooldown', { time: new Date(cooldown(node.id)!.cooldown_until!).toLocaleString() }) }} · {{ cooldown(node.id)?.cooldown_reason }}</span>
             </span>
           </label>
