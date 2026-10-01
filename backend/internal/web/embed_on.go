@@ -88,8 +88,13 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
+		if isUsagePanelRequest(c.Request) {
+			s.serveIndexHTML(c)
+			return
+		}
+
 		// Skip API routes
-		if shouldBypassEmbeddedFrontend(path) {
+		if c.FullPath() != "" || shouldBypassEmbeddedFrontend(path) {
 			c.Next()
 			return
 		}
@@ -313,7 +318,12 @@ func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		if shouldBypassEmbeddedFrontend(path) {
+		if isUsagePanelRequest(c.Request) {
+			serveIndexHTML(c, distFS)
+			return
+		}
+
+		if c.FullPath() != "" || shouldBypassEmbeddedFrontend(path) {
 			c.Next()
 			return
 		}
@@ -352,6 +362,14 @@ func tryServeOverrideFile(c *gin.Context, overrideDir, cleanPath string) bool {
 	c.File(filePath)
 	c.Abort()
 	return true
+}
+
+// /usage is both a historical root API alias and a panel history route. In
+// embedded builds document reads retain the panel; API callers use /v1/usage.
+// Keep this collision exception shared, without duplicating either route table.
+func isUsagePanelRequest(request *http.Request) bool {
+	return (request.Method == http.MethodGet || request.Method == http.MethodHead) &&
+		strings.TrimRight(request.URL.Path, "/") == "/usage"
 }
 
 func shouldBypassEmbeddedFrontend(path string) bool {
