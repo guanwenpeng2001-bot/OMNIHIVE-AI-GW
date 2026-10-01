@@ -93,7 +93,7 @@ func NewCursorGatewayService(sessions *CursorSessionProvider, settings SettingRe
 }
 
 func cursorFailover(err error) error {
-	if IsTPMAdmissionError(err) {
+	if IsAttemptAdmissionError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	status := http.StatusBadGateway
@@ -104,10 +104,11 @@ func cursorFailover(err error) error {
 	var connect *cursor.ConnectError
 	if errors.As(err, &connect) && connect.Code == "resource_exhausted" {
 		return &UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, ClientStatusCode: http.StatusTooManyRequests,
+			Cause:  err,
 			Reason: "resource_exhausted", ClientMessage: "Cursor upstream resource_exhausted",
 			ResponseBody: []byte(`{"error":{"type":"rate_limit_error","code":"resource_exhausted","message":"Cursor upstream resource_exhausted"}}`)}
 	}
-	return &UpstreamFailoverError{StatusCode: status, ResponseBody: []byte("Cursor upstream request failed")}
+	return &UpstreamFailoverError{StatusCode: status, Cause: err, Reason: GatewayFailureReason(cursor.DiagnosticCode(err)), ResponseBody: []byte("Cursor upstream request failed: " + cursor.DiagnosticCode(err))}
 }
 
 func cursorAuthFailure(err error) bool {
@@ -256,6 +257,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	started := time.Now()
 	token, err := gateway.sessions.GetSessionToken(ctx, account, "")
 	if err != nil {
+		appendCursorNativeFailure(ctx, requestContext, account, "session", err)
 		return nil, cursorFailover(err)
 	}
 	credentials := gateway.credentials(ctx, account, token)
@@ -369,26 +371,26 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	}
 	usage, err := run()
 	if err != nil && !emitted && text.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && cursorAuthFailure(err) {
+		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err)
 		token, refreshErr := gateway.sessions.GetSessionToken(ctx, account, token)
 		if refreshErr != nil {
+			appendCursorNativeFailure(ctx, requestContext, account, "session_refresh", refreshErr)
 			return nil, cursorFailover(refreshErr)
 		}
 		credentials.AccessToken = token
 		usage, err = run()
 	}
-	// The wire driver deliberately sanitizes transport errors. Preserve a local
-	// send-hook rejection so sanitization cannot turn revocation into a 502.
+	// Keep send-time binding rejection authoritative, including injected drivers
+	// that do not retain a typed cause when returning a hook error.
 	if sendBindingError != nil {
 		err = sendBindingError
+	}
+	if err != nil && !errors.Is(err, ErrAccountModelUnsupported) {
+		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err)
 	}
 	if err != nil && !emitted {
 		if errors.Is(err, ErrAccountModelUnsupported) {
 			return nil, modelBindingRejectedFailover(requestContext, account, err, OpsUpstreamErrorEvent{}, gatewayModelBindingRejectedBody)
-		}
-		var connect *cursor.ConnectError
-		if errors.As(err, &connect) && connect.Code == "resource_exhausted" {
-			appendOpsUpstreamError(requestContext, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID,
-				Kind: "connect_error", Message: "Cursor upstream resource_exhausted"})
 		}
 		return nil, cursorFailover(err)
 	}

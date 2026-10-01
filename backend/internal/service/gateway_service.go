@@ -693,6 +693,7 @@ const RequestCompatibilityRejectedReason GatewayFailureReason = "request_compati
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	Cause                    error `json:"-"` // Typed local cause; never serialized or rendered in client messages.
 	TPM                      *TPMLimitExceeded
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
@@ -713,8 +714,11 @@ type UpstreamFailoverError struct {
 }
 
 func (e *UpstreamFailoverError) Unwrap() error {
-	if e == nil || e.TPM == nil {
+	if e == nil {
 		return nil
+	}
+	if e.TPM == nil {
+		return e.Cause
 	}
 	return e.TPM
 }

@@ -54,7 +54,9 @@ type ConnectError struct {
 	Message string `json:"message"`
 }
 
-func (failure *ConnectError) Error() string { return "cursor Connect error: " + failure.Code }
+func (failure *ConnectError) Error() string {
+	return "cursor Connect error: " + SafeConnectCode(failure.Code)
+}
 func (failure *ConnectError) Authentication() bool {
 	return failure.Code == "unauthenticated" || failure.Code == "permission_denied"
 }
