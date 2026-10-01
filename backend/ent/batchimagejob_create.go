@@ -62,6 +62,12 @@ func (_c *BatchImageJobCreate) SetNillableAccountID(v *int64) *BatchImageJobCrea
 	return _c
 }
 
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (_c *BatchImageJobCreate) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobCreate {
+	_c.mutation.SetEgressSnapshot(v)
+	return _c
+}
+
 // SetProvider sets the "provider" field.
 func (_c *BatchImageJobCreate) SetProvider(v string) *BatchImageJobCreate {
 	_c.mutation.SetProvider(v)
@@ -796,6 +802,10 @@ func (_c *BatchImageJobCreate) createSpec() (*BatchImageJob, *sqlgraph.CreateSpe
 		_spec.SetField(batchimagejob.FieldAccountID, field.TypeInt64, value)
 		_node.AccountID = &value
 	}
+	if value, ok := _c.mutation.EgressSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldEgressSnapshot, field.TypeJSON, value)
+		_node.EgressSnapshot = value
+	}
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
 		_node.Provider = value
@@ -1055,6 +1065,24 @@ func (u *BatchImageJobUpsert) AddAccountID(v int64) *BatchImageJobUpsert {
 // ClearAccountID clears the value of the "account_id" field.
 func (u *BatchImageJobUpsert) ClearAccountID() *BatchImageJobUpsert {
 	u.SetNull(batchimagejob.FieldAccountID)
+	return u
+}
+
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (u *BatchImageJobUpsert) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobUpsert {
+	u.Set(batchimagejob.FieldEgressSnapshot, v)
+	return u
+}
+
+// UpdateEgressSnapshot sets the "egress_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsert) UpdateEgressSnapshot() *BatchImageJobUpsert {
+	u.SetExcluded(batchimagejob.FieldEgressSnapshot)
+	return u
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (u *BatchImageJobUpsert) ClearEgressSnapshot() *BatchImageJobUpsert {
+	u.SetNull(batchimagejob.FieldEgressSnapshot)
 	return u
 }
 
@@ -1786,6 +1814,27 @@ func (u *BatchImageJobUpsertOne) UpdateAccountID() *BatchImageJobUpsertOne {
 func (u *BatchImageJobUpsertOne) ClearAccountID() *BatchImageJobUpsertOne {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (u *BatchImageJobUpsertOne) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetEgressSnapshot(v)
+	})
+}
+
+// UpdateEgressSnapshot sets the "egress_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertOne) UpdateEgressSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateEgressSnapshot()
+	})
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (u *BatchImageJobUpsertOne) ClearEgressSnapshot() *BatchImageJobUpsertOne {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearEgressSnapshot()
 	})
 }
 
@@ -2784,6 +2833,27 @@ func (u *BatchImageJobUpsertBulk) UpdateAccountID() *BatchImageJobUpsertBulk {
 func (u *BatchImageJobUpsertBulk) ClearAccountID() *BatchImageJobUpsertBulk {
 	return u.Update(func(s *BatchImageJobUpsert) {
 		s.ClearAccountID()
+	})
+}
+
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (u *BatchImageJobUpsertBulk) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.SetEgressSnapshot(v)
+	})
+}
+
+// UpdateEgressSnapshot sets the "egress_snapshot" field to the value that was provided on create.
+func (u *BatchImageJobUpsertBulk) UpdateEgressSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.UpdateEgressSnapshot()
+	})
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (u *BatchImageJobUpsertBulk) ClearEgressSnapshot() *BatchImageJobUpsertBulk {
+	return u.Update(func(s *BatchImageJobUpsert) {
+		s.ClearEgressSnapshot()
 	})
 }
 
