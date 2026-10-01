@@ -232,9 +232,50 @@ func isQianwenVideoResultHost(host string) bool {
 // OpenQianwenVideoContent downloads a settled video result. Like the ASR
 // transcript fetch, this is an unsigned request to a documented provider
 // result host (regional dashscope-result or accelerated dashscope buckets, per the Wan
-// API references): no account headers, cookies, proxy credentials or redirects
-// cross this boundary. The caller must close Body.
+// API references): no account headers, cookies or proxy credentials reach the
+// result origin, and redirects are forbidden. The caller must close Body.
 func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response, error) {
+	return openQianwenVideoContent(ctx, nil, rawURL)
+}
+
+// OpenQianwenVideoContentForAccount uses the operation's selected route without
+// copying provider credentials or header overrides onto the signed result URL.
+// Durable callers must first restore the server-owned job egress snapshot.
+func OpenQianwenVideoContentForAccount(ctx context.Context, account *Account, rawURL string) (*http.Response, error) {
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	return openQianwenVideoContent(ctx, account, rawURL)
+}
+
+var qianwenResultProxyClient = httpclient.GetClient
+
+func qianwenResultDownloadClient(ctx context.Context, account *Account, timeout time.Duration) (*http.Client, error) {
+	transport := qianwenVideoContentTransport
+	if account != nil {
+		// The legacy resolver treats a missing single-node relation as direct.
+		// A configured result-download route must instead fail before any IO.
+		if account.ProxyID != nil && (account.Proxy == nil || account.Proxy.ID != *account.ProxyID || !account.Proxy.IsActive()) {
+			return nil, ErrProxyGroupUnavailable
+		}
+		proxyURL, err := account.EgressProxyURL(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if proxyURL != "" {
+			client, err := qianwenResultProxyClient(httpclient.Options{ProxyURL: proxyURL, Timeout: timeout, ValidateResolvedIP: true})
+			if err != nil {
+				return nil, fmt.Errorf("result download route unavailable")
+			}
+			transport = client.Transport
+		}
+	}
+	// A private client retains the pooled transport but never inherits a cookie
+	// jar or changes the shared client's redirect policy.
+	return &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
+}
+
+func openQianwenVideoContent(ctx context.Context, account *Account, rawURL string) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.User != nil || strings.Contains(rawURL, "#") || u.Host != u.Hostname() || !isQianwenVideoResultHost(u.Hostname()) {
 		return nil, fmt.Errorf("unsupported video result origin")
@@ -243,7 +284,10 @@ func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response
 	if err != nil {
 		return nil, fmt.Errorf("video result unavailable")
 	}
-	client := &http.Client{Transport: qianwenVideoContentTransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client, err := qianwenResultDownloadClient(ctx, account, 30*time.Second)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("video result unavailable")

@@ -62,10 +62,12 @@ func TestQianwenStandardVideoCreateUsesDurableNativeSubmission(t *testing.T) {
 func TestQianwenStandardVideoOwnerIsolation(t *testing.T) {
 	job := &service.UpstreamJob{PublicRequestID: "public", UpstreamTaskID: "private-task", UserID: 1, APIKeyID: 2, AccountID: 56, Platform: service.PlatformQianwen, Family: "video", Status: "succeeded", ResultRef: "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/video.mp4"}
 	repo := &videoJobReadRepository{job: job}
-	handler := &OpenAIGatewayHandler{upstreamJobs: service.NewUpstreamJobService(repo, nil, nil), gatewayService: &service.OpenAIGatewayService{}}
+	handler := newQianwenStandardTestHandler(t, nil, []service.Account{qianwenCatalogAccount(56, "wan2.6-t2v")})
+	handler.upstreamJobs = service.NewUpstreamJobService(repo, nil, nil)
 	opener := qianwenVideoContentOpener
 	downloads := 0
-	qianwenVideoContentOpener = func(context.Context, string) (*http.Response, error) {
+	qianwenVideoContentOpener = func(_ context.Context, account *service.Account, _ string) (*http.Response, error) {
+		require.Equal(t, int64(56), account.ID)
 		downloads++
 		return &http.Response{Header: http.Header{"Content-Type": []string{"video/mp4"}}, ContentLength: 9, Body: io.NopCloser(strings.NewReader("mp4-bytes"))}, nil
 	}

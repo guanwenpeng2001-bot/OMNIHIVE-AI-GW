@@ -280,7 +280,9 @@ func (s *OpenAIGatewayService) PollQianwenAsyncJob(ctx context.Context, j *Upstr
 	if err != nil || u.Status != "succeeded" || u.TaskID != j.UpstreamTaskID || j.Family != "asr" {
 		return u, err
 	}
-	return completeQianwenASR(ctx, u, fetchQianwenTranscript)
+	return completeQianwenASR(ctx, u, func(ctx context.Context, rawURL string) ([]byte, error) {
+		return fetchQianwenTranscriptForAccount(ctx, a, rawURL)
+	})
 }
 
 func completeQianwenASR(ctx context.Context, u UpstreamJobUpdate, fetch func(context.Context, string) ([]byte, error)) (UpstreamJobUpdate, error) {
@@ -305,17 +307,26 @@ func completeQianwenASR(ctx context.Context, u UpstreamJobUpdate, fetch func(con
 }
 
 // Provider result downloads are unsigned requests to one documented OSS bucket.
-// No account headers, cookies, proxy credentials or redirects cross this boundary.
+// No account headers, cookies or proxy credentials reach the result origin.
 func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) {
+	return fetchQianwenTranscriptForAccount(ctx, nil, rawURL)
+}
+
+func fetchQianwenTranscriptForAccount(ctx context.Context, account *Account, rawURL string) ([]byte, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.Host != "dashscope-result-bj.oss-cn-beijing.aliyuncs.com" || u.User != nil || u.Fragment != "" {
+	if err != nil || u.Scheme != "https" || u.Host != "dashscope-result-bj.oss-cn-beijing.aliyuncs.com" || u.User != nil || strings.Contains(rawURL, "#") {
 		return nil, fmt.Errorf("unsupported ASR result origin")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(withQianwenResultLookup(ctx, rawURL), http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("ASR result unavailable")
+	}
+	// Share routing and public-IP validation, but retain the transcript-specific
+	// byte limit below, including support for unknown-length/chunked JSON.
+	client, err := qianwenResultDownloadClient(ctx, account, 15*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ASR result unavailable")
