@@ -819,10 +819,10 @@ func warnLopsidedLongContextLadders(entries []string) {
 }
 
 // orphanCacheTierFields 返回条目中没有对应基础价的 cache 侧 above 档字段名。
-// cache 侧 above 档不参与计费取值，计费按"基础价 × 输入倍率"；基础价缺失或为 0 时，
-// 该缓存分项在整个阶梯上都按 0 计。计费对变体有回落：服务档变体（_priority/_flex）
-// 缺自身基础价时用标准基础价，1h 缓存写入缺 above_1hr 价时全部按 5m 价——因此沿
-// 回落链任一基础价存在即不算孤儿。
+// cache 侧 above 档不参与计费取值，计费按"基础价 × 输入倍率"；实际使用的分项
+// 缺少有效基础价时结算待审，明确的 0 价仍免费。计费对变体有回落：服务档变体（_priority/_flex）
+// 缺自身基础价时用标准基础价，1h 缓存写入缺 above_1hr 价时全部按 5m 价。
+// 本告警沿回落链检查正基础价；显式 0 仍可能触发告警，但不改变免费计价语义。
 func orphanCacheTierFields(rawEntry json.RawMessage) []string {
 	if !bytes.Contains(rawEntry, []byte("_above_")) {
 		return nil
@@ -852,7 +852,7 @@ func orphanCacheTierFields(rawEntry json.RawMessage) []string {
 }
 
 // warnOrphanCacheTierFields 对带 cache 侧 above 档却没有基础价的条目打 WARN：
-// 该缓存分项按 0 计费，目录或 pricing.override_file 补上基础价即可消除。
+// 实际使用的缺价分项会结算待审，需由目录或 pricing.override_file 提供有依据的基础价。
 func warnOrphanCacheTierFields(entries []string) {
 	if len(entries) == 0 {
 		return
