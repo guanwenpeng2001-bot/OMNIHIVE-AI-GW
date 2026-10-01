@@ -114,10 +114,10 @@ func (r *ProxyGroupRuntime) ApplyEgress(ctx context.Context, account *Account) (
 }
 
 func (r *ProxyGroupRuntime) resolve(ctx context.Context, a *Account) (EgressTarget, error) {
-	return r.resolveExcluding(ctx, a, 0)
+	return r.resolveExcluding(ctx, a, 0, false)
 }
 
-func (r *ProxyGroupRuntime) resolveExcluding(ctx context.Context, a *Account, excludedProxyID int64) (EgressTarget, error) {
+func (r *ProxyGroupRuntime) resolveExcluding(ctx context.Context, a *Account, excludedProxyID int64, advanceAfterFailure bool) (EgressTarget, error) {
 	if a.ProxyGroupID == nil {
 		if a.ProxyID != nil && a.Proxy != nil {
 			return EgressTarget{a.Proxy.URL(), *a.ProxyID, EgressSourceSingleProxy, true}, nil
@@ -135,7 +135,7 @@ func (r *ProxyGroupRuntime) resolveExcluding(ctx context.Context, a *Account, ex
 	if workspaceID <= 0 {
 		workspaceID = domain.ResourceWorkspaceID(ctx)
 	}
-	return r.selectTargetExcluding(ctx, *a.ProxyGroupID, workspaceID, bindingID, strconv.FormatInt(bindingID, 10), excludedProxyID)
+	return r.selectTargetExcluding(ctx, *a.ProxyGroupID, workspaceID, bindingID, strconv.FormatInt(bindingID, 10), excludedProxyID, advanceAfterFailure)
 }
 
 func eligibleProxy(p *Proxy, workspaceID int64, now time.Time) bool {
@@ -196,10 +196,34 @@ func rendezvousProxy(groupID int64, seed string, nodes map[int64]*Proxy) int64 {
 }
 
 func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspaceID, accountID int64, seed string) (EgressTarget, error) {
-	return r.selectTargetExcluding(ctx, groupID, workspaceID, accountID, seed, 0)
+	return r.selectTargetExcluding(ctx, groupID, workspaceID, accountID, seed, 0, false)
 }
 
-func (r *ProxyGroupRuntime) selectTargetExcluding(ctx context.Context, groupID, workspaceID, accountID int64, seed string, excludedProxyID int64) (EgressTarget, error) {
+// rendezvousProxyAfter advances in the same descending score / ascending ID order
+// as initial allocation. The failed node's score remains a cursor even if it has
+// left the group; wrap only when no eligible node follows it.
+func rendezvousProxyAfter(groupID int64, seed string, nodes map[int64]*Proxy, failedProxyID int64) int64 {
+	failedScore := sha256.Sum256([]byte(strconv.FormatInt(groupID, 10) + "/" + seed + "/" + strconv.FormatInt(failedProxyID, 10)))
+	var next int64
+	var nextScore [32]byte
+	for id := range nodes {
+		h := sha256.Sum256([]byte(strconv.FormatInt(groupID, 10) + "/" + seed + "/" + strconv.FormatInt(id, 10)))
+		comparison := bytes.Compare(h[:], failedScore[:])
+		if comparison > 0 || (comparison == 0 && id <= failedProxyID) {
+			continue
+		}
+		comparison = bytes.Compare(h[:], nextScore[:])
+		if next == 0 || comparison > 0 || (comparison == 0 && id < next) {
+			next, nextScore = id, h
+		}
+	}
+	if next != 0 {
+		return next
+	}
+	return rendezvousProxy(groupID, seed, nodes)
+}
+
+func (r *ProxyGroupRuntime) selectTargetExcluding(ctx context.Context, groupID, workspaceID, accountID int64, seed string, excludedProxyID int64, advanceAfterFailure bool) (EgressTarget, error) {
 	// Retry only cache contention/revocation, never network operations. Every
 	// winner is revalidated against a fresh atomic group membership snapshot.
 	for attempt := 0; attempt < 4; attempt++ {
@@ -220,6 +244,9 @@ func (r *ProxyGroupRuntime) selectTargetExcluding(ctx context.Context, groupID, 
 		}
 		if bound == 0 {
 			selected := rendezvousProxy(groupID, seed, nodes)
+			if advanceAfterFailure && excludedProxyID > 0 {
+				selected = rendezvousProxyAfter(groupID, seed, nodes, excludedProxyID)
+			}
 			if selected == 0 {
 				fallback, err := r.fallbackExcluding(ctx, g, excludedProxyID)
 				if err != nil || fallback.ProxyID == 0 {
