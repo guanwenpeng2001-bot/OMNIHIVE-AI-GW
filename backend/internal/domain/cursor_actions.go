@@ -88,19 +88,21 @@ func cursorAbsenceEvidence(claim string, anchors ...string) string {
 // asserts these stay identical to the adapters the shared matrix already
 // resolves for Cursor.
 var cursorActionAdapters = map[string]string{
-	"chat":         "gateway.chat",
-	"messages":     "gateway.messages",
-	"responses":    "gateway.responses",
-	"count_tokens": "cursor.count_tokens",
+	"generate_content": "gateway.generate_content_compat",
+	"chat":             "gateway.chat",
+	"messages":         "gateway.messages",
+	"responses":        "gateway.responses",
+	"count_tokens":     "cursor.count_tokens",
 }
 
 // cursorActionEvidence documents the serving adapter and its saved evidence for
 // every implemented Cursor cell.
 var cursorActionEvidence = map[string]string{
-	"chat":         "CursorGatewayService.ForwardAsChatCompletions on the shared gateway trunk (Cursor keeps gateway.chat, never openai.chat); text content parts are flattened to the Run text contract and media content parts fail closed for native accounts (internal/pkg/cursor/chat_content.go), while relay accounts forward the body to their configured upstream; native Connect AgentService Run contract in internal/pkg/cursor/client.go and internal/pkg/cursor/nal.go, verified on real accounts 2026-09-12/2026-09-13 (.pi/cursor-delivery-summary.md); " + cursorPublicAPIAnchor + " The trunk therefore keeps serving this cell; reviewed 2026-09-21",
-	"messages":     "CursorGatewayService.ForwardAsAnthropic on the shared messages trunk; three-protocol real-machine verification recorded 2026-09-13 (.pi/cursor-delivery-summary.md) with Anthropic event shapes and tool/thinking translation; non-text content blocks are rejected by cursorNormalizeRequest; reviewed 2026-09-21",
-	"responses":    "CursorGatewayService.ForwardAsResponses on the shared responses trunk; PlatformDescriptor responsesPost=bridge and docs/gateway-platform-protocol-matrix.md Cursor row; streamed response.created/response.completed shapes recorded 2026-09-13; reviewed 2026-09-21",
-	"count_tokens": "cursor.count_tokens local estimator (internal/handler/openai_gateway_count_tokens.go CursorCountTokens, registered in routes/gateway.go, exercised by routes/cursor_count_tokens_test.go); no Cursor token-count endpoint exists, so the cell is a non-billable local estimate; reviewed 2026-09-21",
+	"generate_content": "Public Google text converted onto the existing Cursor Messages trunk; native Run credential, media, usage and cancellation boundaries remain in the existing forwarder verified 2026-09-13 (public conversion binding, 2026-10-02)",
+	"chat":             "CursorGatewayService.ForwardAsChatCompletions on the shared gateway trunk (Cursor keeps gateway.chat, never openai.chat); text content parts are flattened to the Run text contract and media content parts fail closed for native accounts (internal/pkg/cursor/chat_content.go), while relay accounts forward the body to their configured upstream; native Connect AgentService Run contract in internal/pkg/cursor/client.go and internal/pkg/cursor/nal.go, verified on real accounts 2026-09-12/2026-09-13 (.pi/cursor-delivery-summary.md); " + cursorPublicAPIAnchor + " The trunk therefore keeps serving this cell; reviewed 2026-09-21",
+	"messages":         "CursorGatewayService.ForwardAsAnthropic on the shared messages trunk; three-protocol real-machine verification recorded 2026-09-13 (.pi/cursor-delivery-summary.md) with Anthropic event shapes and tool/thinking translation; non-text content blocks are rejected by cursorNormalizeRequest; reviewed 2026-09-21",
+	"responses":        "CursorGatewayService.ForwardAsResponses on the shared responses trunk; PlatformDescriptor responsesPost=bridge and docs/gateway-platform-protocol-matrix.md Cursor row; streamed response.created/response.completed shapes recorded 2026-09-13; reviewed 2026-09-21",
+	"count_tokens":     "cursor.count_tokens local estimator (internal/handler/openai_gateway_count_tokens.go CursorCountTokens, registered in routes/gateway.go, exercised by routes/cursor_count_tokens_test.go); no Cursor token-count endpoint exists, so the cell is a non-billable local estimate; reviewed 2026-09-21",
 }
 
 // cursorHardConflicts records Cursor cells whose native or faithful bridge
@@ -112,9 +114,6 @@ var cursorHardConflicts = map[string]string{
 	"responses.compact": cursorAbsenceEvidence(
 		"Cursor serves Responses as a bridge over the verified Run protocol and has no compact subpath: PlatformDescriptor responsesCompact=false (domain/platform_capabilities.go) and docs/gateway-platform-protocol-matrix.md records bridge/rejected/rejected for Cursor.",
 		cursorPublicAPIAnchor),
-	"generate_content": cursorAbsenceEvidence(
-		"Google generativelanguage surface: neither the published API nor the wired Connect families expose a generativelanguage endpoint.",
-		cursorPublicAPIAnchor, cursorConnectEvidence),
 	"embeddings": cursorAbsenceEvidence(
 		"No embeddings endpoint exists in Cursor's published or verified surface; the Run data plane carries text and tool turns only (internal/pkg/cursor/nal.go).",
 		cursorPublicAPIAnchor, cursorCloudAgentAnchor, cursorSnapshotEvidence),

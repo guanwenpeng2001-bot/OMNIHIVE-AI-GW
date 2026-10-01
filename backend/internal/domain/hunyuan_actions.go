@@ -124,7 +124,6 @@ var hunyuanActionEvidence = map[string]string{
 // action to a platform that implements it.
 var hunyuanHardConflicts = map[string]string{
 	"responses.compact":   "TokenHub Responses compatibility mode is documented as an OpenAI Responses mapping served over HTTP/SSE and publishes no compact subpath (1823/133813 and the 1823/130077 index, captured 2026-09-21); compact is an OpenAI proprietary extension",
-	"generate_content":    "Gemini generativelanguage protocol surface; the TokenHub 调用指南 index (1823/130077) and the API 使用说明 (1823/130078) publish no Google-protocol endpoint (captured 2026-09-21)",
 	"rerank":              "The vector family documents text embeddings and multimodal embeddings only, with no rerank endpoint (1823/133515), the model list carries no rerank model (1823/130051) and the 调用指南 index has no rerank family (1823/130077); all captured 2026-09-21",
 	"image.variation":     "Hy-Image-3.0 requires prompt and uses images[] as 参考生图 reference images, so there is no prompt-free variation semantic and no /images/variations path (1823/135745 and the 1823/135744 family list, captured 2026-09-21)",
 	"image.batch":         "TokenHub batch inference is a JSONL /v1/batches job family whose lines are /v1/chat/completions requests (documented model glm-5.1) and the image families publish no batch image job (1823/130849, 1823/135744, 1823/130077, captured 2026-09-21); the standard /images/batches contract belongs to the gateway resource-actions task",

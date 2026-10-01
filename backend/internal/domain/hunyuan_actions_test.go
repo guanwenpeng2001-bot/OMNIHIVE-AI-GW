@@ -10,7 +10,7 @@ import (
 // explicit unverified row naming the adapter and the gate blocking the bind.
 func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 	hardConflict := []string{
-		"responses.compact", "generate_content", "rerank", "image.variation",
+		"responses.compact", "rerank", "image.variation",
 		"image.batch", "video.extend", "audio.translate", "realtime", "search",
 		"alpha_search", "live", "responses.websocket",
 	}

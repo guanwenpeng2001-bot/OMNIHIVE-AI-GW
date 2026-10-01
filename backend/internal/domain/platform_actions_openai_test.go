@@ -88,7 +88,7 @@ func TestOpenAIActionMatrixHardConflictsKeepEvidence(t *testing.T) {
 // flipping these cells before multimodal-ingress re-registers the routes would
 // leak OpenAI keys into the Grok voice handler, so they stay unverified here.
 func TestOpenAIActionMatrixPreIngressCellsStayUnverified(t *testing.T) {
-	for _, action := range []string{"audio.tts", "audio.stt", "voice", "generate_content", "native"} {
+	for _, action := range []string{"audio.tts", "audio.stt", "voice", "native"} {
 		cell := PlatformAction(ActionIdentity{Platform: PlatformOpenAI, HostedAccountType: AccountTypeAPIKey}, action)
 		if cell.Status != ActionUnverified || cell.Adapter != "" {
 			t.Fatalf("pre-ingress cell moved early: %+v", cell)

@@ -37,7 +37,6 @@ var qianwenActionEvidence = map[string]string{
 // the action.
 var qianwenHardConflicts = map[string]string{
 	"responses.compact":   "compatible-mode Responses documentation (2026-09-22) lists no compact subpath; OpenAI proprietary extension without a DashScope equivalent",
-	"generate_content":    "Gemini protocol surface; DashScope documents no Google-generativelanguage endpoint (2026-09-22)",
 	"image.variation":     "OpenAI /images/variations shape has no DashScope equivalent; compatible-mode documents only /images/generations and no edits/variations endpoints (2026-09-22); Wanx image editing is instruction-based, not variation semantics",
 	"image.batch":         "DashScope Batch API supports text chat completions only (official batch compatibility doc and dev-docs/qianwen-file-batch.md); no batch image generation API is documented (2026-09-22)",
 	"audio.translate":     "No synchronous speech-translation endpoint (OpenAI /audio/translations shape) is documented; DashScope speech translation exists only as gummy realtime WebSocket sessions (2026-09-22)",

@@ -523,6 +523,11 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 	}
 	for _, method := range metadata.SupportedMethods {
 		action := chatOnlyCatalogEndpointAction(method)
+		// Catalog families describe upstream wire endpoints. A public converted
+		// capability does not establish that the vendor serves that protocol.
+		if (action == "messages" || action == "responses" || action == "generate_content") && !slices.Contains(chatOnlyPublishedTextFamilies(account), method) {
+			continue
+		}
 		if !textTask && chatOnlyCatalogHasTextMethod([]string{method}) {
 			// An explicit non-text task must not gain a conflicting text family.
 			continue
@@ -558,10 +563,10 @@ func chatOnlyPublishedTextFamilies(account *Account) []string {
 		return nil
 	}
 	families := make([]string, 0, 2)
-	if descriptor.ResponsesPOST != domain.EndpointRejected {
+	if descriptor.ResponsesPOST == domain.EndpointNative {
 		families = append(families, CompositeRouteEndpointResponses)
 	}
-	if descriptor.MessagesPOST != domain.EndpointRejected {
+	if descriptor.MessagesPOST == domain.EndpointNative || ((account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol()) && account.GetAnthropicProtocolBaseURL() != "") {
 		families = append(families, CompositeRouteEndpointMessages)
 	}
 	return families
@@ -880,7 +885,7 @@ func accountCatalogNativeTextEndpoints(account *Account, model string) []string 
 		}
 		// ForwardAsAnthropic dispatches adaptive CN accounts to native Messages;
 		// model-routed platforms above retain their per-model protocol rules.
-		if platformActionAdapterBound(account, "messages") {
+		if platformActionAdapterBound(account, "messages") && account.GetAnthropicProtocolBaseURL() != "" {
 			endpoints = append(endpoints, CompositeRouteEndpointMessages)
 		}
 		return endpoints

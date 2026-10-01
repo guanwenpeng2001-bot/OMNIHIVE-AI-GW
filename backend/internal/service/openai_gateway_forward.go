@@ -1389,6 +1389,20 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
+	if account.Platform == PlatformMistral {
+		// Public Responses/Messages are converted; Mistral has no Responses URL.
+		return true
+	}
+	if account.Platform == PlatformVolcengine || account.Platform == PlatformQianfan {
+		switch account.GetAPIProtocol() {
+		case APIProtocolChatCompletions:
+			return true
+		case APIProtocolAdaptive:
+			return !account.UsesNativeCNResponses()
+		default:
+			return false
+		}
+	}
 	if account.IsOpenCodeGo() || account.IsCommandCode() {
 		// Model protocol_rules are the authority. Probe Extra must not collapse
 		// Grok/GPT/Muse into Chat Completions.

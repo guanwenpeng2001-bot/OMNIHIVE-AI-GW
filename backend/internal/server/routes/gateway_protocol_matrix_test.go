@@ -56,8 +56,21 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					// Cursor Responses and TokenHub's non-native Responses branch
 					// bridge through Chat Completions; they do not send /responses.
 					wireEndpoint := endpoint
-					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan) {
+					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral) {
 						wireEndpoint = "chat_completions"
+					}
+					if endpoint == "responses" && descriptor.ID == service.PlatformGemini {
+						wireEndpoint = "generate_content"
+					}
+					if endpoint == "generate_content" && domain.PlatformAction(domain.ActionIdentity{Platform: descriptor.ID}, endpoint).Adapter == "gateway.generate_content_compat" {
+						switch descriptor.ID {
+						case service.PlatformAnthropic, service.PlatformBedrock:
+							wireEndpoint = "messages"
+						case service.PlatformCursor, service.PlatformMistral, service.PlatformHunyuan:
+							wireEndpoint = "chat_completions"
+						default:
+							wireEndpoint = "responses"
+						}
 					}
 					if account.IsMultiProtocolAPIKey() {
 						if wireEndpoint == "messages" {

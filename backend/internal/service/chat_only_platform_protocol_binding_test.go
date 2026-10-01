@@ -39,7 +39,7 @@ func TestChatOnlyPlatformTextCellsReachOnlyBoundAdapters(t *testing.T) {
 		"qianfan.video.generate", "qianfan.video.status", "qianfan.video.content", "qianfan.video.cancel",
 		"qianfan.audio.tts", "qianfan.voice", "qianfan.search",
 		"mistral.embeddings", "mistral.audio.stt", "mistral.audio.tts", "mistral.voice",
-		"grok.video.generate", "gateway.messages",
+		"grok.video.generate", "gateway.messages", "gateway.generate_content_compat",
 	} {
 		handlers[adapter] = record(adapter)
 	}
@@ -134,17 +134,14 @@ func TestChatOnlyPlatformWithoutPublishedTextProtocolStaysSelectable(t *testing.
 	require.Equal(t, CompositeRouteEndpointChatCompletions, openAICompatiblePlanCatalogEndpoint(ctx, &account),
 		"a chat-only entry without a native text protocol is judged on its chat trunk")
 
-	// The chat trunk default must not open mistral's verified protocol absences:
-	// its Responses and Messages cells stay hard conflicts, so the action gate
-	// still refuses those planned requests instead of routing them to the trunk.
+	// Public Messages and Responses convert to the native Chat family; absent
+	// vendor URLs must not reject these equivalent text requests.
 	for _, spec := range []GatewayRequestSpec{
 		{Action: "responses", Protocol: "responses", Route: "/v1/responses", Model: "text-model"},
 		{Action: "messages", Protocol: "anthropic", Route: "/v1/messages", Model: "text-model"},
 	} {
 		absentCtx := requestPlanGateContext(spec)
-		require.Equal(t, "model_not_supported",
-			requestPlanGateReason(absentCtx, &account, PlatformMistral, "text-model", OpenAIEndpointCapabilityChatCompletions),
-			"mistral publishes no %s path, so the planned %s request stays refused", spec.Protocol, spec.Protocol)
+		require.Empty(t, requestPlanGateReason(absentCtx, &account, PlatformMistral, "text-model", OpenAIEndpointCapabilityChatCompletions), "public %s converts through the existing chat family", spec.Protocol)
 	}
 }
 

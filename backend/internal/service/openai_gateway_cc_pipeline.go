@@ -207,6 +207,15 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
+	if account.Platform == PlatformMistral {
+		// Messages and Responses conversions share the same native Chat schema
+		// as direct Chat callers, including the absence of stream_options.
+		prepared, err := prepareMistralChatRequest(body)
+		if err != nil {
+			return nil, err
+		}
+		body = prepared
+	}
 	// Fill only missing replay reasoning at the final shared chat boundary.
 	body = ensureDeepSeekChatReasoningPlaceholders(account, body)
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
@@ -286,6 +295,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 
 // ccStreamScanState 是 scanCCStream 返回的读取状态快照。
 type ccStreamScanState struct {
+	UsageKnown bool
 	// Usage 为 include_usage chunk 中最近一次出现的用量（上游可能重复发送，
 	// 总是保留最新值）；终态事件中的用量由调用方在 finalize 阶段自行覆盖。
 	Usage OpenAIUsage
@@ -306,6 +316,7 @@ type ccStreamScanState struct {
 func (s *OpenAIGatewayService) scanCCStream(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	logPrefix string,
 	requestID string,
 	startTime time.Time,
@@ -336,7 +347,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 
 		if u := extractCCStreamUsage(payload); u != nil {
-			st.Usage = *u
+			if account.Platform != PlatformMistral || mistralChatUsageKnown([]byte(payload)) {
+				st.Usage = *u
+				st.UsageKnown = true
+			}
 		}
 
 		var chunk apicompat.ChatCompletionsChunk
@@ -378,6 +392,7 @@ func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
 func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	writeError compatErrorWriter,
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
@@ -388,6 +403,10 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
 	}
 
+	if account.Platform == PlatformMistral && !mistralChatUsageKnown(respBody) {
+		writeError(c, http.StatusBadGateway, "upstream_error", "Mistral usage is unknown")
+		return nil, OpenAIUsage{}, fmt.Errorf("mistral usage is unknown")
+	}
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
 		writeError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")

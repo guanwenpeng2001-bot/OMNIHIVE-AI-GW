@@ -5,49 +5,24 @@ import (
 	"testing"
 )
 
-// The two protocol cells Mistral provably does not publish must be recorded as
-// hard conflicts with dated first-party evidence instead of reading as unbound
-// adapters, so no Composite group routes them to a Mistral account and the
-// gateway answers with an explicit action rejection.
-func TestMistralAbsentProtocolCellsAreHardConflicts(t *testing.T) {
+// Public text conversion does not imply native vendor protocol support.
+func TestMistralPublicTextProtocolsUseChatBridge(t *testing.T) {
 	for _, action := range []string{"messages", "responses"} {
-		descriptor := PlatformAction(ActionIdentity{Platform: PlatformMistral, HostedAccountType: AccountTypeAPIKey}, action)
-		if descriptor.Status != ActionHardConflict {
-			t.Fatalf("mistral %s: got %s, want hard_conflict with evidence", action, descriptor.Status)
-		}
-		if descriptor.Adapter != "" {
-			t.Fatalf("mistral %s must not advertise an adapter: %+v", action, descriptor)
-		}
-		if !strings.Contains(descriptor.Evidence, "mistralai/platform-docs-public") || !strings.Contains(descriptor.Evidence, "2026-09-21") {
-			t.Fatalf("mistral %s hard conflict lacks dated first-party evidence: %s", action, descriptor.Evidence)
-		}
-		if !strings.Contains(descriptor.Evidence, "no native or faithful") {
-			t.Fatalf("mistral %s hard conflict must state the verified absence: %s", action, descriptor.Evidence)
+		cell := PlatformAction(ActionIdentity{Platform: PlatformMistral, HostedAccountType: AccountTypeAPIKey}, action)
+		if cell.Status != ActionImplemented || cell.Adapter != "openai."+action || !strings.Contains(cell.Evidence, "converted") {
+			t.Fatalf("missing public %s bridge: %+v", action, cell)
 		}
 	}
-	// Nothing was added to the platform: the protocol facts stay rejected and the
-	// chat trunk stays where it was.
-	platform, known := LookupPlatform(PlatformMistral)
-	if !known || platform.ResponsesPOST != EndpointRejected || platform.MessagesPOST != EndpointRejected {
-		t.Fatalf("mistral protocol facts moved: %+v", platform)
-	}
-	chat := PlatformAction(ActionIdentity{Platform: PlatformMistral, HostedAccountType: AccountTypeAPIKey}, "chat")
-	if chat.Status != ActionImplemented || chat.Adapter != "openai.chat" {
-		t.Fatalf("mistral chat trunk moved: %+v", chat)
-	}
-	// A recorded absence never leaks into another platform's cell.
-	for _, other := range []string{PlatformHunyuan, PlatformVolcengine, PlatformQianfan} {
-		cell := PlatformAction(ActionIdentity{Platform: other}, "responses")
-		if cell.Status != ActionImplemented {
-			t.Fatalf("%s responses must not inherit the mistral absence: %+v", other, cell)
-		}
+	platform, _ := LookupPlatform(PlatformMistral)
+	if platform.MessagesPOST != EndpointBridge || platform.ResponsesPOST != EndpointBridge || platform.NativeMultiProtocolResponses {
+		t.Fatalf("public bridges must not claim native protocols: %+v", platform)
 	}
 }
 
 // The four Mistral data-plane actions that service/mistral_actions.go implements
 // must be reachable through the action matrix: implemented, bound to their own
 // mistral.* adapter and anchored on the dated official specification. The two
-// protocol cells stay hard conflicts.
+// protocol cells use the existing text converters.
 func TestMistralActionMatrixIsFullyEvidenced(t *testing.T) {
 	implementedWithAdapter := []string{"embeddings", "audio.stt", "audio.tts", "voice"}
 
@@ -105,11 +80,11 @@ func TestMistralActionMatrixIsFullyEvidenced(t *testing.T) {
 	// The two verified protocol absences are untouched by this task.
 	for _, action := range []string{"messages", "responses"} {
 		cell := seen[action]
-		if cell.Status != ActionHardConflict || cell.Adapter != "" {
-			t.Fatalf("mistral %s must stay a hard conflict without an adapter: %+v", action, cell)
+		if cell.Status != ActionImplemented || cell.Adapter != "openai."+action {
+			t.Fatalf("mistral %s must use the existing text converter: %+v", action, cell)
 		}
-		if cell.Evidence != mistralHardConflicts[action] {
-			t.Fatalf("mistral %s hard conflict evidence moved: %s", action, cell.Evidence)
+		if cell.Evidence != mistralActionEvidence[action] {
+			t.Fatalf("mistral %s conversion evidence moved: %s", action, cell.Evidence)
 		}
 	}
 

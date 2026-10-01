@@ -25,10 +25,13 @@ import (
 func TestMistralActionsReachOnlyTheirBoundAdapters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	bound := map[string]string{
-		"embeddings": "mistral.embeddings",
-		"audio.stt":  "mistral.audio.stt",
-		"audio.tts":  "mistral.audio.tts",
-		"voice":      "mistral.voice",
+		"messages":         "openai.messages",
+		"responses":        "openai.responses",
+		"generate_content": "gateway.generate_content_compat",
+		"embeddings":       "mistral.embeddings",
+		"audio.stt":        "mistral.audio.stt",
+		"audio.tts":        "mistral.audio.tts",
+		"voice":            "mistral.voice",
 	}
 	called := ""
 	handlers := GatewayActionHandlers{}

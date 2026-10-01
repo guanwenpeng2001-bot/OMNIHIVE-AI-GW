@@ -15,23 +15,24 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 	// dispatch key and lifted the chat-only platform lock, so these cells are
 	// executable by a Volcengine Ark API-key account now. The responses cell
 	// binds the shared OpenAI responses trunk on the native Ark Responses API;
-	// the messages cell stays a hard conflict because the Ark data plane
-	// publishes no Anthropic Messages endpoint for CN.
+	// Messages converts to this trunk or uses the configured plan Anthropic base.
 	implemented := map[string]string{
-		"chat":           "openai.chat",
-		"responses":      "openai.responses",
-		"count_tokens":   "openai.count_tokens",
-		"embeddings":     "volcengine.embeddings",
-		"image.generate": "volcengine.images",
-		"image.edit":     "volcengine.images",
-		"video.generate": "volcengine.video.generate",
-		"video.edit":     "volcengine.video.edit",
-		"video.extend":   "volcengine.video.extend",
-		"video.status":   "volcengine.video.status",
-		"video.content":  "volcengine.video.content",
+		"messages":         "openai.messages",
+		"generate_content": "gateway.generate_content_compat",
+		"chat":             "openai.chat",
+		"responses":        "openai.responses",
+		"count_tokens":     "openai.count_tokens",
+		"embeddings":       "volcengine.embeddings",
+		"image.generate":   "volcengine.images",
+		"image.edit":       "volcengine.images",
+		"video.generate":   "volcengine.video.generate",
+		"video.edit":       "volcengine.video.edit",
+		"video.extend":     "volcengine.video.extend",
+		"video.status":     "volcengine.video.status",
+		"video.content":    "volcengine.video.content",
 	}
 	hardConflict := []string{
-		"messages", "responses.compact", "generate_content", "image.variation", "image.async",
+		"responses.compact", "image.variation", "image.async",
 		"image.batch", "search", "alpha_search", "live", "responses.websocket",
 	}
 	unverified := []string{

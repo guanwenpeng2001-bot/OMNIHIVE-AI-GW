@@ -195,6 +195,7 @@ func writeOpenAIResponsesInputTokensFallback(c *gin.Context, account *Account, p
 		zap.String("upstream_model", upstreamModel),
 		zap.String("reason", reason),
 	)
+	c.Header("X-Token-Count-Estimated", "true")
 	c.JSON(http.StatusOK, gin.H{
 		"object":       "response.input_tokens",
 		"input_tokens": estimated,
@@ -287,6 +288,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 			zap.Int64("account_id", account.ID),
 			zap.Int("estimated_input_tokens", estimated),
 		)
+		c.Header("X-Token-Count-Estimated", "true")
 		c.JSON(http.StatusOK, gin.H{
 			"input_tokens": estimated,
 		})
@@ -525,6 +527,7 @@ func writeOpenAIOAuthInputTokensFallback(c *gin.Context, account *Account, prepa
 		)
 	}
 
+	c.Header("X-Token-Count-Estimated", "true")
 	c.JSON(http.StatusOK, gin.H{
 		"input_tokens": estimated,
 	})

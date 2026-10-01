@@ -24,6 +24,7 @@ type commandCodeBinding struct {
 // commandCodeImplemented and commandCodeHardConflicts are the platform cells.
 var (
 	commandCodeImplemented = map[string]commandCodeBinding{
+		"generate_content": {adapter: "gateway.generate_content_compat", evidence: "Public Google text converted onto the account-selected Messages/Chat/Responses trunk; no native Google URL is inferred"},
 		"chat": {
 			adapter:  "openai.chat",
 			evidence: "POST /provider/v1/chat/completions, OpenAI Chat Completions schema; account api_protocol/protocol_rules select this endpoint for non-Claude models (official Provider API reference, 2026-09-21)",
@@ -44,7 +45,6 @@ var (
 	commandCodeHardConflicts = map[string]string{
 		"video.cancel":        "the Provider API reference (2026-09-21) documents only chat/completions, responses, messages and models; no video job API exists to cancel",
 		"responses.compact":   "the Provider API reference (2026-09-21) documents four endpoints only; no Responses compact subpath exists",
-		"generate_content":    "Gemini generativelanguage surface; the Provider API exposes no Google-native endpoint (2026-09-21)",
 		"embeddings":          "no embeddings endpoint appears in the documented endpoint table; the catalog is a chat/responses proxy (2026-09-21)",
 		"rerank":              "no rerank endpoint is documented for the Provider API (2026-09-21)",
 		"image.generate":      "the FAQ states a message may carry text and images only, so images are input; no image generation endpoint is documented (2026-09-21)",

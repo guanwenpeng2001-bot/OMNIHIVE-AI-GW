@@ -20,30 +20,35 @@ func TestChatOnlyPlatformProtocolGuard(test *testing.T) {
 		}
 		for _, endpoint := range []struct {
 			method, path string
-			allowed      bool
 		}{
-			{http.MethodPost, "/v1/chat/completions", true},
-			{http.MethodPost, "/chat/completions", true},
-			{http.MethodPost, "/v1/responses", platform == service.PlatformBedrock},
-			{http.MethodPost, "/v1/responses/compact", false},
-			{http.MethodPost, "/v1/messages", platform == service.PlatformBedrock},
-			{http.MethodPost, "/v1/images/generations", false},
-			{http.MethodPost, "/v1/embeddings", false},
-			{http.MethodPost, "/v1/audio/speech", false},
-			{http.MethodGet, "/models", true},
-			{http.MethodGet, "/models/:model", true},
-			{http.MethodGet, "/v1/models", true},
-			{http.MethodGet, "/v1/models/:model", true},
-			{http.MethodGet, "/v1beta/models", true},
-			{http.MethodGet, "/v1beta/models/:model", true},
-			{http.MethodGet, "/backend-api/codex/models", true},
-			{http.MethodGet, "/v1/usage", true},
-			{http.MethodGet, "/v1/images/batches/models", false},
-			{http.MethodGet, "/images/batches/models", false},
-			{http.MethodGet, "/v1/images/batches/models/:model", false},
-			{http.MethodGet, "/v1/other/models", false},
-			{http.MethodGet, "/v1/other/usage", false},
-			{http.MethodGet, "/v1/models/:model/extra", false},
+			{http.MethodPost, "/v1/chat/completions"},
+			{http.MethodPost, "/chat/completions"},
+			{http.MethodPost, "/v1/responses"},
+			{http.MethodPost, "/v1/responses/compact"},
+			{http.MethodPost, "/v1/messages"},
+			{http.MethodPost, "/v1/images/generations"},
+			{http.MethodPost, "/v1/embeddings"},
+			{http.MethodPost, "/v1/rerank"},
+			{http.MethodPost, "/v1/images/edits"},
+			{http.MethodPost, "/v1/videos"},
+			{http.MethodGet, "/v1/videos/:request_id"},
+			{http.MethodGet, "/v1/videos/:request_id/content"},
+			{http.MethodPost, "/v1/videos/:request_id/cancel"},
+			{http.MethodPost, "/v1/audio/speech"},
+			{http.MethodGet, "/models"},
+			{http.MethodGet, "/models/:model"},
+			{http.MethodGet, "/v1/models"},
+			{http.MethodGet, "/v1/models/:model"},
+			{http.MethodGet, "/v1beta/models"},
+			{http.MethodGet, "/v1beta/models/:model"},
+			{http.MethodGet, "/backend-api/codex/models"},
+			{http.MethodGet, "/v1/usage"},
+			{http.MethodGet, "/v1/images/batches/models"},
+			{http.MethodGet, "/images/batches/models"},
+			{http.MethodGet, "/v1/images/batches/models/:model"},
+			{http.MethodGet, "/v1/other/models"},
+			{http.MethodGet, "/v1/other/usage"},
+			{http.MethodGet, "/v1/models/:model/extra"},
 		} {
 			test.Run(platform+"/"+endpoint.method+endpoint.path, func(test *testing.T) {
 				calls := 0
@@ -65,5 +70,37 @@ func TestChatOnlyPlatformProtocolGuard(test *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestQianfanPublicActionRoutes(t *testing.T) {
+	for _, route := range []struct{ method, path, adapter string }{
+		{http.MethodPost, "/v1/embeddings", "qianfan.embeddings"},
+		{http.MethodPost, "/v1/rerank", "qianfan.rerank"},
+		{http.MethodPost, "/v1/images/generations", "qianfan.images"},
+		{http.MethodPost, "/v1/images/edits", "qianfan.image.edit"},
+		{http.MethodPost, "/v1/videos", "qianfan.video.generate"},
+		{http.MethodGet, "/v1/videos/:request_id", "qianfan.video.status"},
+		{http.MethodGet, "/v1/videos/:request_id/content", "qianfan.video.content"},
+		{http.MethodPost, "/v1/videos/:request_id/cancel", "qianfan.video.cancel"},
+	} {
+		t.Run(route.method+route.path, func(t *testing.T) {
+			action := service.GatewayActionForRoute(route.method, route.path)
+			cell := domain.PlatformAction(domain.ActionIdentity{Platform: service.PlatformQianfan, HostedAccountType: service.AccountTypeAPIKey}, action)
+			require.Equal(t, domain.ActionImplemented, cell.Status)
+			require.Equal(t, route.adapter, cell.Adapter)
+			// Pin the expected adapter independently of the matrix used by the guard.
+			calls := 0
+			dispatch := service.NewGatewayActionDispatch(service.GatewayActionHandlers{route.adapter: func(c *gin.Context) { calls++; c.Status(http.StatusNoContent) }})
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformQianfan}})
+			}, service.GatewayActionRequirement)
+			router.Handle(route.method, route.path, dispatch.Handler(action))
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(route.method, concreteMatrixPath(route.path), nil))
+			require.Equal(t, http.StatusNoContent, recorder.Code)
+			require.Equal(t, 1, calls)
+		})
 	}
 }

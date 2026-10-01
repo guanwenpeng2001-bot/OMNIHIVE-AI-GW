@@ -10,7 +10,7 @@ import (
 // explicit unverified row that names the adapter and gate blocking a bind.
 func TestQianfanActionMatrixIsFullyEvidenced(t *testing.T) {
 	hardConflict := []string{
-		"messages", "responses.compact", "generate_content", "image.variation",
+		"responses.compact", "image.variation",
 		"image.async", "video.edit", "video.extend", "alpha_search", "live",
 		"responses.websocket",
 	}

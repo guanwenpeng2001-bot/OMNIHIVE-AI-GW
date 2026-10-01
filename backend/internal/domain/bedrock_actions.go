@@ -42,7 +42,6 @@ var bedrockHardConflicts = map[string]string{
 	"alpha_search":        "The alpha_search action is the Codex proprietary /alpha/search contract; Bedrock documents no equivalent endpoint (captured 2026-09-21)",
 	"live":                "The live action is the Codex realtime calls contract; Bedrock documents no equivalent endpoint (captured 2026-09-21)",
 	"responses.websocket": "Bedrock publishes no Responses-over-WebSocket operation, and the platform descriptor rejects ResponsesWS for this platform (captured 2026-09-21)",
-	"generate_content":    "generate_content is the Google generativelanguage surface; Bedrock documents no such endpoint, and its conversational equivalent is Converse through the messages action (captured 2026-09-21)",
 	"native":              "The native action is the DashScope /api/v1, /api-ws/v1 and /compatible-mode/v1 ingress, which belongs to the Qianwen platform entry; the Amazon Bedrock Runtime operation set is InvokeModel, InvokeModelWithResponseStream, Converse, ConverseStream, CountTokens, StartAsyncInvoke, GetAsyncInvoke and ListAsyncInvokes (captured 2026-09-21)",
 }
 
