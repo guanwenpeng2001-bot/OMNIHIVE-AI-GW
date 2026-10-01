@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ type BatchImageJob struct {
 	APIKeyID *int64 `json:"api_key_id,omitempty"`
 	// AccountID holds the value of the "account_id" field.
 	AccountID *int64 `json:"account_id,omitempty"`
+	// Server-owned egress identifiers and mode only; never proxy URLs, credentials, or tokens.
+	EgressSnapshot map[string]interface{} `json:"-"`
 	// Provider holds the value of the "provider" field.
 	Provider string `json:"provider,omitempty"`
 	// Model holds the value of the "model" field.
@@ -105,6 +108,8 @@ func (*BatchImageJob) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case batchimagejob.FieldEgressSnapshot:
+			values[i] = new([]byte)
 		case batchimagejob.FieldEstimatedCost, batchimagejob.FieldHoldAmount, batchimagejob.FieldActualCost:
 			values[i] = new(sql.NullFloat64)
 		case batchimagejob.FieldID, batchimagejob.FieldUserID, batchimagejob.FieldAPIKeyID, batchimagejob.FieldAccountID, batchimagejob.FieldItemCount, batchimagejob.FieldSuccessCount, batchimagejob.FieldFailCount, batchimagejob.FieldCancelledCount, batchimagejob.FieldRetryCount, batchimagejob.FieldVersion:
@@ -159,6 +164,14 @@ func (_m *BatchImageJob) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.AccountID = new(int64)
 				*_m.AccountID = value.Int64
+			}
+		case batchimagejob.FieldEgressSnapshot:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field egress_snapshot", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.EgressSnapshot); err != nil {
+					return fmt.Errorf("unmarshal field egress_snapshot: %w", err)
+				}
 			}
 		case batchimagejob.FieldProvider:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -449,6 +462,9 @@ func (_m *BatchImageJob) String() string {
 		builder.WriteString("account_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("egress_snapshot=")
+	builder.WriteString(fmt.Sprintf("%v", _m.EgressSnapshot))
 	builder.WriteString(", ")
 	builder.WriteString("provider=")
 	builder.WriteString(_m.Provider)

@@ -459,6 +459,16 @@ func AccountIDNotNil() predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldNotNull(FieldAccountID))
 }
 
+// EgressSnapshotIsNil applies the IsNil predicate on the "egress_snapshot" field.
+func EgressSnapshotIsNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldIsNull(FieldEgressSnapshot))
+}
+
+// EgressSnapshotNotNil applies the NotNil predicate on the "egress_snapshot" field.
+func EgressSnapshotNotNil() predicate.BatchImageJob {
+	return predicate.BatchImageJob(sql.FieldNotNull(FieldEgressSnapshot))
+}
+
 // ProviderEQ applies the EQ predicate on the "provider" field.
 func ProviderEQ(v string) predicate.BatchImageJob {
 	return predicate.BatchImageJob(sql.FieldEQ(FieldProvider, v))

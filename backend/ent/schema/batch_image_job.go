@@ -32,6 +32,11 @@ func (BatchImageJob) Fields() []ent.Field {
 		field.Int64("user_id"),
 		field.Int64("api_key_id").Optional().Nillable(),
 		field.Int64("account_id").Optional().Nillable(),
+		field.JSON("egress_snapshot", map[string]any{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			StructTag(`json:"-"`).
+			Comment("Server-owned egress identifiers and mode only; never proxy URLs, credentials, or tokens."),
 		field.String("provider").MaxLen(32),
 		field.String("model").MaxLen(128),
 		field.String("task_name").MaxLen(255).Default(""),
