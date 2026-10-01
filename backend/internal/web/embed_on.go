@@ -89,7 +89,7 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		// Skip API routes
-		if shouldBypassEmbeddedFrontend(path) {
+		if c.FullPath() != "" || shouldBypassEmbeddedFrontend(path) {
 			c.Next()
 			return
 		}
@@ -313,7 +313,7 @@ func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		if shouldBypassEmbeddedFrontend(path) {
+		if c.FullPath() != "" || shouldBypassEmbeddedFrontend(path) {
 			c.Next()
 			return
 		}

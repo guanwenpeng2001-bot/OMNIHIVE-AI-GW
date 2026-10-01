@@ -69,6 +69,9 @@ func SetupRouter(
 		return nil
 	}))
 	r.Use(middleware2.ServerTiming(cfg.Server.EnableServerTiming))
+	// This must precede the SPA fallback and also cover requests that never
+	// match a route group (for example a Base URL mistaken for a full endpoint).
+	r.Use(middleware2.GatewayUnknownRouteProtocol())
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {

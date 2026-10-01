@@ -9,20 +9,24 @@ import (
 
 // Public observations preserve uncertainty instead of treating absent facts as zero.
 type publicFact[Value comparable] struct {
-	Guaranteed *Value  `json:"guaranteed"`
-	Available  []Value `json:"available"`
-	Unknown    bool    `json:"unknown"`
+	Guaranteed *Value   `json:"guaranteed"`
+	Available  []Value  `json:"available"`
+	Unknown    bool     `json:"unknown"`
+	Sources    []string `json:"sources,omitempty"`
 }
 type publicLimit struct {
 	Kind string `json:"kind,omitempty"`
 	publicFact[int64]
 	ObservedMinimum *int64 `json:"observed_minimum"`
 }
-type publicModalities struct {
+type publicStringSet struct {
 	Guaranteed *[]string `json:"guaranteed"`
 	Available  []string  `json:"available"`
 	Unknown    bool      `json:"unknown"`
+	Sources    []string  `json:"sources,omitempty"`
 }
+
+type publicModalities = publicStringSet
 type publicModelMetadata struct {
 	InputContext            publicLimit       `json:"input_context"`
 	TotalContext            publicLimit       `json:"total_context"`
@@ -30,18 +34,20 @@ type publicModelMetadata struct {
 	MaxOutputTokens         publicLimit       `json:"max_output_tokens"`
 	EmbeddingDimensions     publicFact[int64] `json:"embedding_dimensions"`
 	Reasoning               publicFact[bool]  `json:"reasoning"`
+	ReasoningLevels         publicStringSet   `json:"supported_reasoning_levels"`
 	SupportsVision          publicFact[bool]  `json:"supports_vision"`
 	SupportsFunctionCalling publicFact[bool]  `json:"supports_function_calling"`
 	SupportsPromptCaching   publicFact[bool]  `json:"supports_prompt_caching"`
 	SupportsPDF             publicFact[bool]  `json:"supports_pdf"`
-	InputModalities         publicModalities  `json:"input_modalities"`
-	OutputModalities        publicModalities  `json:"output_modalities"`
+	InputModalities         publicStringSet   `json:"input_modalities"`
+	OutputModalities        publicStringSet   `json:"output_modalities"`
 }
 
 // Each eligible binding keeps a position even when only general information is known.
 type publicObservation[Value any] struct {
 	value         *Value
 	authoritative bool
+	source        string
 }
 
 // The resolver has already matched the current account profile. Native facts and
@@ -65,7 +71,31 @@ func authoritativePublicField(metadata service.UpstreamModelMetadata, field stri
 }
 
 func observePublicField[Value any](metadata service.UpstreamModelMetadata, field string, value *Value) publicObservation[Value] {
-	return publicObservation[Value]{value: value, authoritative: authoritativePublicField(metadata, field)}
+	return publicObservation[Value]{value: value, authoritative: authoritativePublicField(metadata, field), source: publicCapabilitySource(metadata.FieldEvidence[field].Source)}
+}
+
+// Publish source categories only, never arbitrary URLs, identities or evidence.
+// Sources explain available observations; only Guaranteed establishes a binding
+// guarantee, and Unknown remains true for reference-only or incomplete evidence.
+func publicCapabilitySource(source string) string {
+	switch source {
+	case "upstream", "account-declaration", "models.dev", "litellm", "platform-preset", "registry":
+		return source
+	default:
+		return "unavailable"
+	}
+}
+
+func appendPublicSource(sources []string, source string) []string {
+	if source == "" {
+		return sources
+	}
+	for _, existing := range sources {
+		if existing == source {
+			return sources
+		}
+	}
+	return append(sources, source)
 }
 
 // Identity serialization also uses this helper; retain its existing contract.
@@ -93,7 +123,9 @@ func aggregatePublicObservedFact[Value comparable](values []publicObservation[Va
 			result.Available = append(result.Available, *value)
 			seen[*value] = true
 		}
+		result.Sources = appendPublicSource(result.Sources, observation.source)
 	}
+	sort.Strings(result.Sources)
 	if !result.Unknown && len(result.Available) == 1 {
 		value := result.Available[0]
 		result.Guaranteed = &value
@@ -147,8 +179,38 @@ func publicModelModalities(values []string) *[]string {
 	sort.Strings(result)
 	return &result
 }
-func aggregatePublicModalities(values []publicObservation[[]string]) publicModalities {
-	result := publicModalities{Available: []string{}, Unknown: len(values) == 0}
+func publicReasoningLevels(values []string) *[]string {
+	if values == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	result := []string{}
+	for _, value := range values {
+		value = strings.ToLower(strings.TrimSpace(value))
+		switch value {
+		case "off", "disabled":
+			value = "none"
+		case "extra-high", "extra_high":
+			value = "xhigh"
+		case "none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
+		default:
+			return nil
+		}
+		if !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return &result
+}
+
+func aggregatePublicModalities(values []publicObservation[[]string]) publicStringSet {
+	return aggregatePublicStringSet(values, publicModelModalities)
+}
+
+func aggregatePublicStringSet(values []publicObservation[[]string], normalize func([]string) *[]string) publicStringSet {
+	result := publicStringSet{Available: []string{}, Unknown: len(values) == 0}
 	counts := map[string]int{}
 	for _, observation := range values {
 		if !observation.authoritative {
@@ -156,24 +218,26 @@ func aggregatePublicModalities(values []publicObservation[[]string]) publicModal
 		}
 		var normalized *[]string
 		if observation.value != nil {
-			normalized = publicModelModalities(*observation.value)
+			normalized = normalize(*observation.value)
 		}
 		if normalized == nil {
 			result.Unknown = true
 			continue
 		}
-		for _, modality := range *normalized {
-			counts[modality]++
+		result.Sources = appendPublicSource(result.Sources, observation.source)
+		for _, value := range *normalized {
+			counts[value]++
 		}
 	}
 	intersection := []string{}
-	for modality, count := range counts {
-		result.Available = append(result.Available, modality)
+	for value, count := range counts {
+		result.Available = append(result.Available, value)
 		if count == len(values) {
-			intersection = append(intersection, modality)
+			intersection = append(intersection, value)
 		}
 	}
 	sort.Strings(result.Available)
+	sort.Strings(result.Sources)
 	sort.Strings(intersection)
 	if !result.Unknown {
 		result.Guaranteed = &intersection
@@ -190,6 +254,7 @@ func aggregatePublicMetadata(observations []service.UpstreamModelMetadata) publi
 	input, total, unspecified, output, dimensions := []publicObservation[int64]{}, []publicObservation[int64]{}, []publicObservation[int64]{}, []publicObservation[int64]{}, []publicObservation[int64]{}
 	reasoning, vision, functions, caching, pdf := []publicObservation[bool]{}, []publicObservation[bool]{}, []publicObservation[bool]{}, []publicObservation[bool]{}, []publicObservation[bool]{}
 	inputModalities, outputModalities := []publicObservation[[]string]{}, []publicObservation[[]string]{}
+	reasoningLevels := []publicObservation[[]string]{}
 	for _, observation := range observations {
 		var inputValue, totalValue, unspecifiedValue *int64
 		switch observation.ContextLimitKind {
@@ -205,12 +270,14 @@ func aggregatePublicMetadata(observations []service.UpstreamModelMetadata) publi
 		if observation.ContextLimitKind == "input" || observation.ContextLimitKind == "total" {
 			contextAuthoritative = contextAuthoritative && authoritativePublicField(observation, "context_limit_kind")
 		}
-		input = append(input, publicObservation[int64]{value: inputValue, authoritative: contextAuthoritative})
-		total = append(total, publicObservation[int64]{value: totalValue, authoritative: contextAuthoritative})
-		unspecified = append(unspecified, publicObservation[int64]{value: unspecifiedValue, authoritative: contextAuthoritative})
+		contextSource := publicCapabilitySource(observation.FieldEvidence["context_window"].Source)
+		input = append(input, publicObservation[int64]{value: inputValue, authoritative: contextAuthoritative, source: contextSource})
+		total = append(total, publicObservation[int64]{value: totalValue, authoritative: contextAuthoritative, source: contextSource})
+		unspecified = append(unspecified, publicObservation[int64]{value: unspecifiedValue, authoritative: contextAuthoritative, source: contextSource})
 		output = append(output, observePublicField(observation, "max_output_tokens", positivePublicValue(observation.MaxOutputTokens)))
 		dimensions = append(dimensions, observePublicField(observation, "embedding_dimensions", positivePublicValue(observation.EmbeddingDimensions)))
 		reasoning = append(reasoning, observePublicField(observation, "reasoning", observation.Reasoning))
+		reasoningLevels = append(reasoningLevels, observePublicField(observation, "supported_reasoning_levels", &observation.SupportedReasoningLevels))
 		vision = append(vision, observePublicField(observation, "supports_vision", observation.SupportsVision))
 		functions = append(functions, observePublicField(observation, "supports_function_calling", observation.SupportsFunctionCalling))
 		caching = append(caching, observePublicField(observation, "supports_prompt_caching", observation.SupportsPromptCaching))
@@ -227,6 +294,7 @@ func aggregatePublicMetadata(observations []service.UpstreamModelMetadata) publi
 		MaxOutputTokens:         aggregatePublicLimit(output),
 		EmbeddingDimensions:     dimensionFact,
 		Reasoning:               aggregatePublicBoolean(reasoning),
+		ReasoningLevels:         aggregatePublicStringSet(reasoningLevels, publicReasoningLevels),
 		SupportsVision:          aggregatePublicBoolean(vision),
 		SupportsFunctionCalling: aggregatePublicBoolean(functions),
 		SupportsPromptCaching:   aggregatePublicBoolean(caching),

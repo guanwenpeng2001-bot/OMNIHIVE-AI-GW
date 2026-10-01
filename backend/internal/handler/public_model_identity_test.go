@@ -69,3 +69,16 @@ func TestPublicGoogleMethodsAndVersionStayWithBindings(t *testing.T) {
 	require.Nil(t, entry.InputTokenLimit)
 	require.Empty(t, entry.SupportedGenerationMethods)
 }
+
+func TestPublicCreationRequiresIdentifiableCurrentSource(t *testing.T) {
+	for _, evidence := range []service.ModelCapabilityEvidence{
+		{}, {Source: "https://private.example/evidence"}, {Source: "upstream", Stale: true},
+	} {
+		created, source := publicModelCreatedAt([]service.UpstreamModelMetadata{{
+			CreatedAt: "2026-01-01T00:00:00Z", CreatedAtStatus: "available",
+			FieldEvidence: map[string]service.ModelCapabilityEvidence{"created_at": evidence},
+		}})
+		require.Nil(t, created)
+		require.Equal(t, "unavailable", source)
+	}
+}

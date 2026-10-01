@@ -188,7 +188,7 @@ func publicMetadataWithEvidence(metadata service.UpstreamModelMetadata, source s
 	if source == "account-declaration" {
 		rule = "identity_bound_exact"
 	}
-	for _, field := range []string{"context_window", "context_limit_kind", "max_output_tokens", "embedding_dimensions", "reasoning", "supports_vision", "supports_function_calling", "supports_prompt_caching", "supports_pdf", "input_modalities", "output_modalities"} {
+	for _, field := range []string{"context_window", "context_limit_kind", "max_output_tokens", "embedding_dimensions", "reasoning", "supported_reasoning_levels", "supports_vision", "supports_function_calling", "supports_prompt_caching", "supports_pdf", "input_modalities", "output_modalities"} {
 		metadata.FieldEvidence[field] = service.ModelCapabilityEvidence{Source: source, ProviderProfile: metadata.ProviderProfile, MatchedModelID: metadata.ID, MatchRule: rule}
 	}
 	return metadata

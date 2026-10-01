@@ -17,13 +17,23 @@ func GatewayUnknownRouteProtocol() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		path := strings.TrimRight(ctx.Request.URL.Path, "/")
 		if ctx.FullPath() == "" {
-			for _, prefix := range []string{"/v1", "/v1beta", "/antigravity/v1", "/antigravity/v1beta", "/backend-api/codex", "/models", "/messages", "/responses", "/chat/completions"} {
+			apiRequest := ctx.Request.Method != http.MethodGet && ctx.Request.Method != http.MethodHead && ctx.Request.Method != http.MethodOptions
+			for _, prefix := range []string{
+				"/v1", "/v1beta", "/antigravity", "/backend-api/codex", "/api", "/api-ws", "/compatible-mode",
+				"/models", "/messages", "/responses", "/chat/completions", "/images", "/videos", "/audio",
+				"/embeddings", "/rerank", "/files", "/batches", "/moderations", "/tools/search", "/tools/search_pro",
+				"/alpha/search", "/live", "/realtime", "/tts", "/stt", "/custom-voices", "/web_search", "/x_search", "/sub2api/billing",
+			} {
 				if path == prefix || strings.HasPrefix(path, prefix+"/") {
-					ctx.Header("Cache-Control", "private, no-store")
-					gatewayerror.Write(ctx, http.StatusNotFound, "not_found_error", "Endpoint not found")
-					ctx.Abort()
-					return
+					apiRequest = true
+					break
 				}
+			}
+			if apiRequest {
+				ctx.Header("Cache-Control", "private, no-store")
+				gatewayerror.Write(ctx, http.StatusNotFound, "not_found_error", "API endpoint not found. Use the full request endpoint, such as /v1/messages, /v1/chat/completions or /v1/responses; /v1 alone is a Base URL.")
+				ctx.Abort()
+				return
 			}
 		}
 		ctx.Next()

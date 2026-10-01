@@ -24,17 +24,52 @@ import (
 )
 
 type publicOpenAIModel struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created *int64 `json:"created,omitempty"`
-	OwnedBy string `json:"owned_by"`
+	publicClientModelMetadata
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Object          string `json:"object"`
+	Created         *int64 `json:"created,omitempty"`
+	OwnedBy         string `json:"owned_by"`
+	CreatedAtSource string `json:"created_at_source,omitempty"`
 }
 type publicAnthropicModel struct {
+	publicClientModelMetadata
 	ID          string  `json:"id"`
 	Type        string  `json:"type"`
 	DisplayName string  `json:"display_name"`
 	CreatedAt   *string `json:"created_at,omitempty"`
+	MaxTokens   *int64  `json:"max_tokens,omitempty"`
 }
+
+// Additive discovery fields let clients consume known limits without knowing
+// our richer catalog endpoint. Unknown or reference-only facts remain omitted.
+type publicClientModelMetadata struct {
+	ContextWindow            *int64    `json:"context_window,omitempty"`
+	ContextLength            *int64    `json:"context_length,omitempty"`
+	MaxInputTokens           *int64    `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens          *int64    `json:"max_output_tokens,omitempty"`
+	SupportsReasoning        *bool     `json:"supports_reasoning,omitempty"`
+	SupportedReasoningLevels *[]string `json:"supported_reasoning_levels,omitempty"`
+	SupportsFunctionCalling  *bool     `json:"supports_function_calling,omitempty"`
+	InputModalities          *[]string `json:"input_modalities,omitempty"`
+	OutputModalities         *[]string `json:"output_modalities,omitempty"`
+}
+
+func clientModelMetadata(observations []service.UpstreamModelMetadata) publicClientModelMetadata {
+	facts := aggregatePublicMetadata(observations)
+	return publicClientModelMetadata{
+		ContextWindow:            facts.TotalContext.Guaranteed,
+		ContextLength:            facts.TotalContext.Guaranteed,
+		MaxInputTokens:           facts.InputContext.Guaranteed,
+		MaxOutputTokens:          facts.MaxOutputTokens.Guaranteed,
+		SupportsReasoning:        facts.Reasoning.Guaranteed,
+		SupportedReasoningLevels: facts.ReasoningLevels.Guaranteed,
+		SupportsFunctionCalling:  facts.SupportsFunctionCalling.Guaranteed,
+		InputModalities:          facts.InputModalities.Guaranteed,
+		OutputModalities:         facts.OutputModalities.Guaranteed,
+	}
+}
+
 type publicCatalogModel struct {
 	ID              string              `json:"id"`
 	CanonicalID     string              `json:"canonical_id"`
@@ -244,7 +279,8 @@ func (h *GatewayHandler) publicModels(ctx *gin.Context) {
 				value := created.Format(time.RFC3339Nano)
 				stamp = &value
 			}
-			entries = append(entries, publicAnthropicModel{ID: id, Type: "model", DisplayName: id, CreatedAt: stamp})
+			clientMetadata := clientModelMetadata(metadata[id])
+			entries = append(entries, publicAnthropicModel{publicClientModelMetadata: clientMetadata, ID: id, Type: "model", DisplayName: id, CreatedAt: stamp, MaxTokens: clientMetadata.MaxOutputTokens})
 		}
 		if ctx.Param("model") != "" {
 			ctx.JSON(200, entries[0])
@@ -260,13 +296,16 @@ func (h *GatewayHandler) publicModels(ctx *gin.Context) {
 	}
 	entries := make([]publicOpenAIModel, 0, len(ids))
 	for _, id := range ids {
-		created, _ := publicModelCreatedAt(metadata[id])
+		created, source := publicModelCreatedAt(metadata[id])
 		var stamp *int64
 		if created != nil {
 			value := created.Unix()
 			stamp = &value
 		}
-		entries = append(entries, publicOpenAIModel{ID: id, Object: "model", OwnedBy: platform, Created: stamp})
+		if created == nil {
+			source = ""
+		}
+		entries = append(entries, publicOpenAIModel{publicClientModelMetadata: clientModelMetadata(metadata[id]), ID: id, Name: id, Object: "model", OwnedBy: platform, Created: stamp, CreatedAtSource: source})
 	}
 	if ctx.Param("model") != "" {
 		ctx.JSON(200, entries[0])
@@ -407,12 +446,21 @@ func publicModelCreatedAt(observations []service.UpstreamModelMetadata) (*time.T
 		if err != nil {
 			continue
 		}
-		evidence := observation.FieldEvidence["created_at"].Source
+		evidence := observation.FieldEvidence["created_at"]
+		if evidence.Stale {
+			continue
+		}
 		priority := 1
 		publicSource := "registry"
-		if evidence == "upstream" {
+		switch evidence.Source {
+		case "upstream":
 			priority = 2
 			publicSource = "upstream"
+		case "platform-preset", "models.dev", "litellm", "registry":
+			// Approved registry facts retain their existing public category.
+		default:
+			// A date without identifiable evidence is not a creation fact.
+			continue
 		}
 		if selected == nil || priority > selectedPriority || (priority == selectedPriority && parsed.Before(*selected)) {
 			selected = &parsed
