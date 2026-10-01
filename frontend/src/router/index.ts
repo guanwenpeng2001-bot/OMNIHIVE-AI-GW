@@ -585,6 +585,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/proxy-groups',
+    name: 'AdminProxyGroups',
+    component: () => import('@/views/admin/ProxyGroupsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'IP Groups',
+      titleKey: 'admin.proxyGroups.title',
+      descriptionKey: 'admin.proxyGroups.description'
+    }
+  },
+  {
     path: '/admin/redeem',
     name: 'AdminRedeem',
     component: () => import('@/views/admin/RedeemView.vue'),
@@ -749,7 +761,7 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
 for (const resourceRoute of [...routes]) {
   if (!workspaceResourcePaths.has(resourceRoute.path)) continue
   const suffix = resourceRoute.path.replace(/^\/admin/, '')

@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
@@ -23,7 +24,7 @@ export function useGeminiOAuth() {
   const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   const generateAuthUrl = async (
-    proxyId: number | null | undefined,
+    proxyId: OAuthProxySelection | undefined,
     projectId?: string | null,
     oauthType?: string,
     tierId?: string
@@ -36,7 +37,7 @@ export function useGeminiOAuth() {
 
     try {
       const payload: Record<string, unknown> = {}
-      if (proxyId) payload.proxy_id = proxyId
+      Object.assign(payload, oauthProxyPayload(proxyId))
       const trimmedProjectID = projectId?.trim()
       if (trimmedProjectID) payload.project_id = trimmedProjectID
       if (oauthType) payload.oauth_type = oauthType
@@ -62,7 +63,7 @@ export function useGeminiOAuth() {
     code: string
     sessionId: string
     state: string
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
     oauthType?: string
     tierId?: string
   }): Promise<GeminiTokenInfo | null> => {
@@ -81,7 +82,7 @@ export function useGeminiOAuth() {
         state: params.state,
         code
       }
-      if (params.proxyId) payload.proxy_id = params.proxyId
+      Object.assign(payload, oauthProxyPayload(params.proxyId))
       if (params.oauthType) payload.oauth_type = params.oauthType
       const trimmedTierID = params.tierId?.trim()
       if (trimmedTierID) payload.tier_id = trimmedTierID

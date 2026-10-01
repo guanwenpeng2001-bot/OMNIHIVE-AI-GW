@@ -1,7 +1,9 @@
+vi.mock('@/api/admin/proxyGroups', () => ({ proxyGroupsAPI: { list: vi.fn().mockResolvedValue({ items: [], total: 0 }), get: vi.fn().mockRejectedValue(new Error('unavailable')) } }))
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { adminAPI } from '@/api/admin'
@@ -131,6 +133,38 @@ describe('BulkEditAccountModal', () => {
     await flushPromises()
     expect(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))).toContain('"tpm_limit":0')
     next.unmount()
+  })
+
+  it('omits both proxy fields unless enabled, then explicitly clears both for no proxy', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const first = JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))
+    expect(first).not.toContain('proxy_id')
+    expect(first).not.toContain('proxy_group_id')
+    wrapper.unmount()
+    const next = mountModal()
+    await next.get('#bulk-edit-proxy-enabled').setValue(true)
+    await next.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const cleared = JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))
+    expect(cleared).toContain('"proxy_id":0')
+    expect(cleared).toContain('"proxy_group_id":0')
+    next.unmount()
+  })
+
+  it('submits a logical group and clears a single-node choice in bulk', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-proxy-enabled').setValue(true)
+    wrapper.getComponent(AccountProxySelector).vm.$emit('update:proxyGroupId', 71)
+    await flushPromises()
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))
+    expect(payload).toContain('"proxy_id":0')
+    expect(payload).toContain('"proxy_group_id":71')
+    wrapper.unmount()
   })
 
   it('批量修改倍率时提示自动同步账号需要先关闭同步', async () => {

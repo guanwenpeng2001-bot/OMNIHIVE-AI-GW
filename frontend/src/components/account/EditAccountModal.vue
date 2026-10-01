@@ -1167,7 +1167,7 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+        <AccountProxySelector @valid="proxySelectionValid = $event" :key="`${account?.id}-${show}`" v-model:proxy-id="form.proxy_id" v-model:proxy-group-id="form.proxy_group_id" :proxies="proxies" :group-name="account?.proxy_group_name" />
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -2509,7 +2509,8 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
-import ProxySelector from '@/components/common/ProxySelector.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
+import { accountProxyPayload } from '@/utils/accountProxy'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 
@@ -2747,6 +2748,7 @@ interface TempUnschedRuleForm {
 }
 
 // State
+const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
@@ -3518,6 +3520,7 @@ const form = reactive({
   name: '',
   notes: '',
   proxy_id: null as number | null,
+  proxy_group_id: null as number | null,
   concurrency: 1,
   load_factor: null as number | null,
   priority: 1,
@@ -3660,7 +3663,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedChannelWarningAction.value = null
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
-  form.proxy_id = newAccount.proxy_id
+  form.proxy_id = newAccount.proxy_id ?? null
+  form.proxy_group_id = newAccount.proxy_group_id ?? null
   cursorKeyMode.value = newAccount.type === 'oauth' ? 'auto' : newAccount.type === 'upstream' ? 'relay' : 'official'
   if (newAccount.platform === 'cursor') {
     // 一级类型只读回填（回填不等于用户动作，不触发切换才该有的清空）。协议状态只服务 Relay：
@@ -4627,6 +4631,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 }
 
 const handleSubmit = async (confirmation?: { payload: string }) => {
+  if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   accountForm.value?.querySelectorAll<HTMLElement>('[aria-invalid="true"]').forEach(revealField)
   if (!confirmation) antigravityMixedChannelConfirmed.value = false
   const restrictionErrors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
@@ -4648,6 +4653,10 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
 	}
 
   const updatePayload: Record<string, unknown> = { ...form }
+  if ((form.proxy_id || 0) === (props.account.proxy_id || 0) && (form.proxy_group_id || 0) === (props.account.proxy_group_id || 0)) {
+    delete updatePayload.proxy_id
+    delete updatePayload.proxy_group_id
+  } else Object.assign(updatePayload, accountProxyPayload(form.proxy_id, form.proxy_group_id))
   try {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     if (updatePayload.proxy_id === null) {

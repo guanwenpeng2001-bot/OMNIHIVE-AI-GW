@@ -592,6 +592,8 @@ export interface AccountListItem {
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: AccountExtra
   proxy_id: number | null
+  proxy_group_id?: number | null
+  proxy_group_name?: string
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
@@ -904,6 +906,7 @@ export interface CreateAccountRequest {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  proxy_group_id?: number | null
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -923,6 +926,7 @@ export interface UpdateAccountRequest {
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  proxy_group_id?: number | null
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -1053,6 +1057,7 @@ export interface CodexSessionImportRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
+  proxy_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number
@@ -1073,6 +1078,7 @@ export interface OpenAICodexPATCreateRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
+  proxy_group_id?: number | null
   concurrency?: number
   priority?: number
   rate_multiplier?: number

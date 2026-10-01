@@ -2522,7 +2522,7 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+        <AccountProxySelector @valid="proxySelectionValid = $event" :key="String(show)" v-model:proxy-id="form.proxy_id" v-model:proxy-group-id="form.proxy_group_id" :proxies="proxies" />
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -3466,7 +3466,8 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import ProxySelector from '@/components/common/ProxySelector.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
+import { accountProxyPayload, oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
@@ -3715,6 +3716,7 @@ interface TempUnschedRuleForm {
 
 // State
 const step = ref(1)
+const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account' | 'upstream'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
@@ -4386,6 +4388,7 @@ const form = reactive({
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
   proxy_id: null as number | null,
+  proxy_group_id: null as number | null,
   concurrency: 10,
   load_factor: null as number | null,
   priority: 1,
@@ -4882,7 +4885,7 @@ const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccount
 const credentialPreview = computed(() => {
   const payload = reviewedRequests.value[selectedReviewIndex.value]
   if (!payload) return undefined
-  return { platform: payload.platform, type: payload.type, proxy_id: payload.proxy_id ?? form.proxy_id ?? null, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
+  return { platform: payload.platform, type: payload.type, proxy_id: (payload.proxy_id ?? form.proxy_id) || null, proxy_group_id: (payload.proxy_group_id ?? form.proxy_group_id) || null, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
     ...(!payload.credential_draft ? {
       base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
       api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
@@ -4893,7 +4896,7 @@ const credentialPreview = computed(() => {
 // 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
 // 复用 ModelWhitelistSelector 已有的上下文修订栅栏，不新增全局状态。
 const previewConnectionContext = computed(() => [
-  form.platform, form.type, form.proxy_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
+  form.platform, form.type, form.proxy_id, form.proxy_group_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
 ])
 async function cancelAccountReview() {
   if (reviewSubmitting.value) return
@@ -4957,6 +4960,8 @@ async function stageCursorAuthorization(draft: AccountCredentialDraft) {
   catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error)) }
 }
 const createWithOptions = async (payload: CreateAccountRequest) => {
+  if (!proxySelectionValid.value) throw new Error(t('admin.proxyGroups.selectionRequired'))
+  payload = { ...payload, ...accountProxyPayload(payload.proxy_id, payload.proxy_group_id) }
   const generation = reviewGeneration
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
@@ -5033,6 +5038,7 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
+  form.proxy_group_id = null
   form.tpm_limit = 0
   form.concurrency = 10
   form.load_factor = null
@@ -5340,6 +5346,7 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
@@ -5648,22 +5655,25 @@ const goBackToBasicInfo = () => {
   oauthFlowRef.value?.reset()
 }
 
+const oauthProxy = computed<OAuthProxySelection>(() => form.proxy_group_id ? { proxy_group_id: form.proxy_group_id } : form.proxy_id)
+
 const handleGenerateUrl = async () => {
+  if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   if (form.platform === 'openai') {
-    await openaiOAuth.generateAuthUrl(form.proxy_id)
+    await openaiOAuth.generateAuthUrl(oauthProxy.value)
   } else if (form.platform === 'gemini') {
     await geminiOAuth.generateAuthUrl(
-      form.proxy_id,
+      oauthProxy.value,
       oauthFlowRef.value?.projectId,
       geminiOAuthType.value,
       geminiSelectedTier.value
     )
   } else if (form.platform === 'antigravity') {
-    await antigravityOAuth.generateAuthUrl(form.proxy_id)
+    await antigravityOAuth.generateAuthUrl(oauthProxy.value)
   } else if (form.platform === 'grok') {
-    await grokOAuth.generateAuthUrl(form.proxy_id)
+    await grokOAuth.generateAuthUrl(oauthProxy.value)
   } else {
-    await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
+    await oauth.generateAuthUrl(addMethod.value, oauthProxy.value)
   }
 }
 
@@ -5755,7 +5765,7 @@ const createAccountAndFinish = async (
     type,
     credentials,
     extra: finalExtra,
-    proxy_id: form.proxy_id,
+    ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
     tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
@@ -5795,7 +5805,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
   try {
     for (let i = 0; i < refreshTokens.length; i++) {
       try {
-        const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], form.proxy_id)
+        const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], oauthProxy.value)
         if (!tokenInfo) {
           failedCount++
           errors.push(`#${i + 1}: ${grokOAuth.error.value || t('admin.accounts.oauth.authFailed')}`)
@@ -5823,7 +5833,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: form.proxy_id,
+          ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
           tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
@@ -5895,7 +5905,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       sso_tokens: ssoTokens,
       name: form.name || undefined,
       notes: form.notes || undefined,
-      proxy_id: form.proxy_id,
+      ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
       group_ids: form.group_ids,
       credentials,
       tpm_limit: form.tpm_limit,
@@ -5959,7 +5969,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
   try {
     for (let i = 0; i < lines.length; i++) {
       try {
-        const tokenInfo = await grokOAuth.authorizePassword(lines[i], form.proxy_id)
+        const tokenInfo = await grokOAuth.authorizePassword(lines[i], oauthProxy.value)
         if (!tokenInfo) {
           failedCount++
           errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Authorization failed'}`)
@@ -5993,7 +6003,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: form.proxy_id,
+          ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
           tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
@@ -6062,7 +6072,7 @@ const handleOpenAIExchange = async (authCode: string) => {
       authCode.trim(),
       oauthClient.sessionId.value,
       stateToUse,
-      form.proxy_id
+      oauthProxy.value
     )
     if (!tokenInfo) return
 
@@ -6098,7 +6108,7 @@ const handleOpenAIExchange = async (authCode: string) => {
         type: 'oauth',
         credentials,
         extra: withUpstreamRequestIdHeader(extra),
-        proxy_id: form.proxy_id,
+        ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
         tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
         load_factor: form.load_factor ?? undefined,
@@ -6205,7 +6215,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       content: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: form.proxy_id,
+      ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
       tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
@@ -6257,7 +6267,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: form.proxy_id,
+      ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
       tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
@@ -6311,7 +6321,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
       try {
         const tokenInfo = await oauthClient.validateRefreshToken(
           refreshTokens[i],
-          form.proxy_id,
+          oauthProxy.value,
           clientId
         )
         if (!tokenInfo) {
@@ -6354,7 +6364,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             type: 'oauth',
             credentials,
             extra: withUpstreamRequestIdHeader(extra),
-            proxy_id: form.proxy_id,
+            ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
             tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
             load_factor: form.load_factor ?? undefined,
@@ -6436,7 +6446,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
       try {
         const tokenInfo = await antigravityOAuth.validateRefreshToken(
           refreshTokens[i],
-          form.proxy_id
+          oauthProxy.value
         )
         if (!tokenInfo) {
           failedCount++
@@ -6459,7 +6469,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader({}),
-          proxy_id: form.proxy_id,
+          ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
           tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
@@ -6527,7 +6537,7 @@ const handleGeminiExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: geminiOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id,
+      proxyId: oauthProxy.value,
       oauthType: geminiOAuthType.value,
       tierId: geminiSelectedTier.value
     })
@@ -6565,7 +6575,7 @@ const handleAntigravityExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: antigravityOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id
+      proxyId: oauthProxy.value
     })
 		if (!tokenInfo) return
 
@@ -6610,7 +6620,7 @@ const handleGrokExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: grokOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id
+      proxyId: oauthProxy.value
     })
     if (!tokenInfo) return
 
@@ -6635,7 +6645,7 @@ const handleAnthropicExchange = async (authCode: string) => {
   oauth.error.value = ''
 
   try {
-    const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
+    const proxyConfig = oauthProxyPayload(oauthProxy.value)
     const endpoint =
       addMethod.value === 'oauth'
         ? '/admin/accounts/exchange-code'
@@ -6740,7 +6750,7 @@ const handleCookieAuth = async (sessionKey: string) => {
   oauth.error.value = ''
 
   try {
-    const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
+    const proxyConfig = oauthProxyPayload(oauthProxy.value)
     const keys = oauth.parseSessionKeys(sessionKey)
 
     if (keys.length === 0) {
@@ -6847,7 +6857,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           type: addMethod.value, // Use addMethod as type: 'oauth' or 'setup-token'
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: form.proxy_id,
+          ...accountProxyPayload(form.proxy_id, form.proxy_group_id),
           tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,

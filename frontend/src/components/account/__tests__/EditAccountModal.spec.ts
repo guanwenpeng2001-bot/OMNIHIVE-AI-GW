@@ -1,3 +1,4 @@
+vi.mock('@/api/admin/proxyGroups', () => ({ proxyGroupsAPI: { list: vi.fn().mockResolvedValue({ items: [], total: 0 }), get: vi.fn().mockRejectedValue(new Error('unavailable')) } }))
 import createAccountSource from '../CreateAccountModal.vue?raw'
 import editAccountSource from '../EditAccountModal.vue?raw'
 import englishAccounts from '@/i18n/locales/en/admin/accounts'
@@ -86,6 +87,7 @@ vi.mock('vue-i18n', async () => {
 import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
 import { accountsAPI } from '@/api/admin/accounts'
 import EditAccountModal from '../EditAccountModal.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
 import CursorKeyFields from '../CursorKeyFields.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -369,6 +371,45 @@ function mountModal(account = buildAccount(), renderGroupSelector = false, realC
     }
   })
 }
+
+describe('IP group account configuration', () => {
+  it.each([null, 41])('omits unchanged proxy fields when editing an account with group %s', async groupId => {
+    const account = { ...buildAccount(), proxy_group_id: groupId }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = updateAccountMock.mock.calls[0][1]
+    expect(payload).not.toHaveProperty('proxy_id')
+    expect(payload).not.toHaveProperty('proxy_group_id')
+    wrapper.unmount()
+  })
+  it.each([{ proxy_id: 18, proxy_group_id: null }, { proxy_id: null, proxy_group_id: 41 }])('explicitly clears both fields when selecting no proxy from %j', async selection => {
+    const account = { ...buildAccount(), ...selection }
+    updateAccountMock.mockReset().mockResolvedValue({ ...account, proxy_id: null, proxy_group_id: null })
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.getComponent(AccountProxySelector).get('select').setValue('direct')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1]).toMatchObject({ proxy_id: 0, proxy_group_id: 0 })
+    wrapper.unmount()
+  })
+  it('does not mutate the account while changing the draft and closing', async () => {
+    const account = { ...buildAccount(), proxy_group_id: 41 }
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.getComponent(AccountProxySelector).get('select').setValue('direct')
+    await wrapper.setProps({ show: false })
+    expect(account.proxy_group_id).toBe(41)
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
 
 describe('model selection saves preserve unrelated account drafts', () => {
   it('preserves unsaved account fields after the parent echoes an independently saved credential change', async () => {

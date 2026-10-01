@@ -1,5 +1,5 @@
 const delegatedResources = new Set([
-  'model-access-groups', 'accounts', 'groups', 'channels', 'proxies', 'api-keys', 'channel-monitors',
+  'model-access-groups', 'accounts', 'groups', 'channels', 'proxies', 'proxy-groups', 'api-keys', 'channel-monitors',
   'channel-monitor-templates', 'channel-monitor-v2', 'scheduled-test-plans',
   'platform-model-presets', 'openai', 'gemini', 'antigravity', 'grok', 'cn-providers',
 ])

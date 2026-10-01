@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
@@ -9,7 +10,7 @@ export function useGrokOAuth() {
 
   const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
-  const generateAuthUrl = async (proxyId: number | null | undefined): Promise<boolean> => {
+  const generateAuthUrl = async (proxyId: OAuthProxySelection | undefined): Promise<boolean> => {
     const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
@@ -18,7 +19,7 @@ export function useGrokOAuth() {
 
     try {
       const payload: Record<string, unknown> = {}
-      if (proxyId) payload.proxy_id = proxyId
+      Object.assign(payload, oauthProxyPayload(proxyId))
 
       const response = await request.wait(adminAPI.grok.generateAuthUrl(payload))
       authUrl.value = response.auth_url
@@ -39,7 +40,7 @@ export function useGrokOAuth() {
     code: string
     sessionId: string
     state: string
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   }): Promise<GrokTokenInfo | null> => {
     const code = params.code?.trim()
     if (!code || !params.sessionId || !params.state) {
@@ -56,7 +57,7 @@ export function useGrokOAuth() {
         state: params.state,
         code
       }
-      if (params.proxyId) payload.proxy_id = params.proxyId
+      Object.assign(payload, oauthProxyPayload(params.proxyId))
 
       return await request.wait(adminAPI.grok.exchangeCode(payload as any))
     } catch (err: unknown) {
@@ -76,7 +77,7 @@ export function useGrokOAuth() {
 
   const validateRefreshToken = async (
     refreshToken: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<GrokTokenInfo | null> => {
     if (!refreshToken.trim()) {
       error.value = t('admin.accounts.oauth.grok.pleaseEnterRefreshToken')
@@ -139,7 +140,7 @@ export function useGrokOAuth() {
 
   const validateSSOToken = async (
     ssoToken: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<GrokTokenInfo | null> => {
     if (!ssoToken.trim()) {
       error.value = t('admin.accounts.oauth.grok.pleaseEnterSSOToken', 'Please enter an SSO token')
@@ -166,7 +167,7 @@ export function useGrokOAuth() {
 
   const authorizePassword = async (
     emailAndPassword: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<GrokTokenInfo | null> => {
     if (!emailAndPassword.trim()) {
       error.value = t('admin.accounts.oauth.grok.pleaseEnterPassword', 'Please enter email----password')
