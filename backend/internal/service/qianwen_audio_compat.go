@@ -183,7 +183,7 @@ func (s *OpenAIGatewayService) ForwardQianwenAudioCompat(ctx context.Context, c 
 		c.JSON(http.StatusOK, gin.H{"text": gjson.GetBytes(capture.body.Bytes(), "output.choices.0.message.content.0.text").String()})
 		return result, nil
 	}
-	audio, err := downloadQianwenSpeech(ctx, gjson.GetBytes(capture.body.Bytes(), "output.audio.url").String())
+	audio, err := downloadQianwenSpeechForAccount(ctx, account, gjson.GetBytes(capture.body.Bytes(), "output.audio.url").String())
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Qwen speech was generated but its audio download failed")
 		return result, nil
@@ -194,6 +194,10 @@ func (s *OpenAIGatewayService) ForwardQianwenAudioCompat(ctx context.Context, c 
 }
 
 func downloadQianwenSpeech(ctx context.Context, rawURL string) ([]byte, error) {
+	return downloadQianwenSpeechForAccount(ctx, nil, rawURL)
+}
+
+func downloadQianwenSpeechForAccount(ctx context.Context, account *Account, rawURL string) ([]byte, error) {
 	// Official TTS responses can contain HTTP links. Upgrade them to HTTPS;
 	// the shared video downloader enforces provider hosts and forbids redirects.
 	parsed, err := url.Parse(rawURL)
@@ -205,7 +209,7 @@ func downloadQianwenSpeech(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	response, err := OpenQianwenVideoContent(ctx, parsed.String())
+	response, err := openQianwenVideoContent(ctx, account, parsed.String())
 	if err != nil {
 		return nil, err
 	}

@@ -105,15 +105,17 @@ func TestQianwenNativeVideoUnavailableBeforeAdmission(t *testing.T) {
 func TestQianwenNativeVideoContentOwnerOnlyDownload(t *testing.T) {
 	video := []byte("mp4-bytes")
 	opener := qianwenVideoContentOpener
-	qianwenVideoContentOpener = func(_ context.Context, rawURL string) (*http.Response, error) {
+	qianwenVideoContentOpener = func(_ context.Context, account *service.Account, rawURL string) (*http.Response, error) {
+		require.Equal(t, int64(56), account.ID)
 		if rawURL != "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.mp4" {
 			return nil, service.ErrUpstreamJobNotFound
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"video/mp4"}}, ContentLength: int64(len(video)), Body: io.NopCloser(bytes.NewReader(video))}, nil
 	}
 	t.Cleanup(func() { qianwenVideoContentOpener = opener })
-	repo := &videoJobReadRepository{job: &service.UpstreamJob{PublicRequestID: "public-1", UpstreamTaskID: "secret-upstream", UserID: 1, APIKeyID: 2, Platform: service.PlatformQianwen, Family: "video", Status: "succeeded", ResultRef: "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.mp4"}}
-	h := &OpenAIGatewayHandler{upstreamJobs: service.NewUpstreamJobService(repo, nil, nil)}
+	repo := &videoJobReadRepository{job: &service.UpstreamJob{PublicRequestID: "public-1", UpstreamTaskID: "secret-upstream", UserID: 1, APIKeyID: 2, AccountID: 56, Platform: service.PlatformQianwen, Family: "video", Status: "succeeded", ResultRef: "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.mp4"}}
+	h := newQianwenStandardTestHandler(t, nil, []service.Account{qianwenCatalogAccount(56, "wan2.6-t2v")})
+	h.upstreamJobs = service.NewUpstreamJobService(repo, nil, nil)
 	for _, tc := range []struct {
 		key    int64
 		status int
@@ -158,5 +160,82 @@ func TestQianwenNativeAsyncDoesNotClaimOtherFamilies(t *testing.T) {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest("POST", path, nil)
 		require.False(t, h.handleQianwenNativeAsyncJobs(c))
+	}
+}
+
+type qianwenVideoEgressGroups struct {
+	service.ProxyGroupRepository
+	group *service.ProxyGroup
+}
+
+func (repo *qianwenVideoEgressGroups) GetByID(context.Context, int64) (*service.ProxyGroup, error) {
+	return repo.group, nil
+}
+
+type qianwenVideoEgressCache struct{ service.ProxyGroupCache }
+
+func (*qianwenVideoEgressCache) GetCooldown(context.Context, int64) (*service.ProxyCooldown, error) {
+	return nil, nil
+}
+
+func TestQianwenVideoContentRestoresPinnedRouteBeforeDownload(t *testing.T) {
+	for _, native := range []bool{true, false} {
+		name := "standard"
+		if native {
+			name = "native"
+		}
+		t.Run(name, func(t *testing.T) {
+			groupID := int64(7)
+			proxy := &service.Proxy{ID: 11, WorkspaceID: 1, Status: service.StatusActive, Protocol: "http", Host: "proxy.test", Port: 3128}
+			groups := &qianwenVideoEgressGroups{group: &service.ProxyGroup{ID: groupID, WorkspaceID: 1, Status: service.StatusActive, Members: []service.ProxyGroupMember{{GroupID: groupID, WorkspaceID: 1, ProxyID: proxy.ID, Proxy: proxy}}}}
+			account := qianwenCatalogAccount(56, "wan2.6-t2v")
+			account.WorkspaceID, account.ProxyGroupID = 1, &groupID
+			account.AttachEgress(service.NewProxyGroupRuntime(groups, nil, &qianwenVideoEgressCache{}))
+			handler := newQianwenStandardTestHandler(t, nil, []service.Account{account})
+			job := &service.UpstreamJob{PublicRequestID: "public", UpstreamTaskID: "private-task", UserID: 1, APIKeyID: 2, AccountID: account.ID, Platform: service.PlatformQianwen, Family: "video", Status: "succeeded", ResultRef: "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/video?Signature=private", Billing: service.UpstreamJobBilling{Egress: &service.ProxyGroupJobEgress{ProxyGroupID: groupID, ProxyID: proxy.ID, Source: service.EgressSourceGroupBinding}}}
+			handler.upstreamJobs = service.NewUpstreamJobService(&videoJobReadRepository{job: job}, nil, nil)
+			previous := qianwenVideoContentOpener
+			t.Cleanup(func() { qianwenVideoContentOpener = previous })
+			downloads := 0
+			qianwenVideoContentOpener = func(_ context.Context, restored *service.Account, _ string) (*http.Response, error) {
+				downloads++
+				route, resolved := restored.ResolvedEgress()
+				require.True(t, resolved)
+				require.Equal(t, proxy.ID, route.ProxyID)
+				require.Equal(t, proxy.URL(), route.URL)
+				return &http.Response{Header: make(http.Header), ContentLength: 5, Body: io.NopCloser(strings.NewReader("video"))}, nil
+			}
+			for _, state := range []string{"pinned", "revoked-node", "revoked-group", "missing-snapshot", "missing-account"} {
+				switch state {
+				case "revoked-node":
+					groups.group.Members = nil
+				case "revoked-group":
+					groups.group.Status = "disabled"
+				case "missing-snapshot":
+					job.Billing.Egress = nil
+				case "missing-account":
+					job.AccountID = 999
+				}
+				writer := httptest.NewRecorder()
+				ctx, _ := gin.CreateTestContext(writer)
+				ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/tasks/public/content", nil)
+				ctx.Params = gin.Params{{Key: "request_id", Value: "public"}}
+				ctx.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, Group: &service.Group{}})
+				if native {
+					handler.QianwenNative(ctx)
+				} else {
+					handler.QianwenVideoContent(ctx)
+				}
+				if state == "pinned" {
+					require.Equal(t, 200, writer.Code, writer.Body.String())
+				} else {
+					require.Equal(t, 502, writer.Code, state)
+					require.Contains(t, writer.Body.String(), "resource_content_unavailable")
+				}
+				require.NotContains(t, writer.Body.String(), "Signature")
+				require.NotContains(t, writer.Body.String(), "private-task")
+			}
+			require.Equal(t, 1, downloads)
+		})
 	}
 }

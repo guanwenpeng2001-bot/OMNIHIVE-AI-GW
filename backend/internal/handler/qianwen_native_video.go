@@ -147,7 +147,7 @@ func (h *OpenAIGatewayHandler) submitQianwenAsyncJob(c *gin.Context, key *servic
 
 // qianwenVideoContentOpener is the provider result download boundary; tests
 // substitute it to keep owner-permission flows off the network.
-var qianwenVideoContentOpener = service.OpenQianwenVideoContent
+var qianwenVideoContentOpener = service.OpenQianwenVideoContentForAccount
 
 // writeQianwenVideoContent streams a settled video result to the task owner.
 // Only succeeded video jobs with a single recorded provider URL qualify; the
@@ -161,7 +161,12 @@ func (h *OpenAIGatewayHandler) writeQianwenVideoContent(c *gin.Context, j *servi
 		h.errorResponse(c, 409, "resource_not_ready", "Task content is not ready")
 		return
 	}
-	resp, err := qianwenVideoContentOpener(c.Request.Context(), j.ResultRef)
+	account, err := h.gatewayService.QianwenResourceAccount(c.Request.Context(), j, false)
+	if err != nil {
+		h.errorResponse(c, 502, "resource_content_unavailable", "Task content unavailable")
+		return
+	}
+	resp, err := qianwenVideoContentOpener(c.Request.Context(), account, j.ResultRef)
 	if err != nil {
 		h.errorResponse(c, 502, "resource_content_unavailable", "Task content unavailable")
 		return
