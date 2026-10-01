@@ -118,14 +118,10 @@ const (
 	// OpenCode Go Anthropic 基址不含 /v1：nativeAnthropicTargetURL 会再拼 /v1/messages。
 	DefaultOpenCodeGoAnthropicBaseURL  = "https://opencode.ai/zen/go"
 	DefaultOpenCodeZenAnthropicBaseURL = "https://opencode.ai/zen"
-	// 后期平台套餐的 Anthropic 兼容路径（同样由 nativeAnthropicTargetURL 拼 /v1/messages）。
-	// 只给混元：火山方舟与千帆的 messages 格子在能力矩阵里是 hard_conflict，账号选不到
-	// anthropic 协议（GetAPIProtocol 对非多协议平台固定 chat_completions，
-	// GetAnthropicProtocolBaseURL 直接返回空串），写了也走不到。它们的 /v1/messages
-	// 走既有 Claude→chat 兼容桥，落到 GetOpenAIBaseURL()，同样按模式选套餐端点。
-	// 矩阵格子改成 implemented 时再补：火山方舟 https://ark.cn-beijing.volces.com/api/coding、
-	// 千帆 https://qianfan.baidubce.com/anthropic/tokenplan/personal。
-	DefaultHunyuanCodingAnthropicBaseURL = "https://api.lkeap.cloud.tencent.com/coding/anthropic"
+	// Documented plan Anthropic roots; nativeAnthropicTargetURL appends /v1/messages.
+	DefaultVolcengineCodingAnthropicBaseURL = "https://ark.cn-beijing.volces.com/api/coding"
+	DefaultQianfanCodingAnthropicBaseURL    = "https://qianfan.baidubce.com/anthropic/tokenplan/personal"
+	DefaultHunyuanCodingAnthropicBaseURL    = "https://api.lkeap.cloud.tencent.com/coding/anthropic"
 )
 
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax/qianwen）。

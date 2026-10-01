@@ -169,12 +169,6 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, fmt.Errorf("sanitize Grok unsupported fields: %w", err)
 		}
 	}
-	if account.Platform == PlatformMistral {
-		upstreamBody, err = prepareMistralChatRequest(upstreamBody)
-		if err != nil {
-			return nil, err
-		}
-	}
 	upstreamBody = applyOllamaCloudRawChatCompletionsRequest(account, upstreamBody)
 	upstreamBody = clampOllamaCloudUpstreamMaxTokens(account, upstreamBody)
 

@@ -10,13 +10,14 @@ import (
 // listed explicitly as still pending verification.
 func TestCursorActionMatrixIsFullyTriStated(t *testing.T) {
 	implemented := map[string]string{
-		"chat":         "gateway.chat",
-		"messages":     "gateway.messages",
-		"responses":    "gateway.responses",
-		"count_tokens": "cursor.count_tokens",
+		"chat":             "gateway.chat",
+		"generate_content": "gateway.generate_content_compat",
+		"messages":         "gateway.messages",
+		"responses":        "gateway.responses",
+		"count_tokens":     "cursor.count_tokens",
 	}
 	hardConflict := []string{
-		"responses.compact", "generate_content", "embeddings", "rerank",
+		"responses.compact", "embeddings", "rerank",
 		"image.generate", "image.edit", "image.variation", "image.async", "image.batch",
 		"video.generate", "video.edit", "video.extend", "video.status", "video.content",
 		"audio.tts", "audio.stt", "audio.translate", "voice", "realtime",

@@ -16,7 +16,7 @@ import (
 // platform×action cell resolves to a registered handler") can be asserted
 // against the authoritative action matrix instead of a copied table.
 func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
-	return service.GatewayActionHandlers{
+	handlers := service.GatewayActionHandlers{
 		"gateway.chat":              h.Gateway.ChatCompletions,
 		"openai.chat":               h.OpenAIGateway.ChatCompletions,
 		"gateway.messages":          h.Gateway.Messages,
@@ -98,6 +98,15 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 		"image.async":               h.AsyncImage.Submit,
 		"image.batch":               h.BatchImage.Submit,
 	}
+	// Build callbacks from the existing action bindings. The dispatcher copies
+	// its map, so install the public Google converter before returning the final
+	// registry used by route dispatch. Native Gemini/Antigravity/OpenCode retain
+	// their own registered adapters.
+	text := service.NewGatewayActionDispatch(handlers)
+	handlers["gateway.generate_content_compat"] = handler.GeminiProtocolBridge(
+		text.Handler("messages"), text.Handler("count_tokens"), text.Handler("embeddings"),
+	)
+	return handlers
 }
 
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）

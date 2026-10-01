@@ -160,9 +160,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 
 	var result *OpenAIForwardResult
 	if clientStream {
-		result, err = s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, err = s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	} else {
-		result, err = s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, err = s.bufferChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
 		result.ThinkingEnabled = thinking
@@ -177,6 +177,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	customTools map[string]bool,
 	functionTools map[string]bool,
@@ -189,7 +190,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
-	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, writeOpenAIResponsesFallbackError)
+	ccResp, usage, err := s.readCCUpstreamJSONResponse(c, resp, account, writeOpenAIResponsesFallbackError)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +220,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	customTools map[string]bool,
 	functionTools map[string]bool,
@@ -267,12 +269,15 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Writer.Flush()
 	}
 
-	scan := s.scanCCStream(c, resp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
+	scan := s.scanCCStream(c, resp, account, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
 		events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
 		s.cacheReasoningItemsFromEvents(events)
 		writeEvents(events)
 	})
 
+	if account.Platform == PlatformMistral && !scan.UsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	}
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
 			RequestID:                   requestID,

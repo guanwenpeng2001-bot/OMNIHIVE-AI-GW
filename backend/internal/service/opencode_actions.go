@@ -135,6 +135,27 @@ func openCodeGoogleActionAccount(account *Account) error {
 	return nil
 }
 
+// NativeOpenCodeGoogleModel checks the selected account's native Google column,
+// not the public Google-to-text conversion capability. ResolveAccountModelBinding
+// retains alias, catalog membership and account authorization checks.
+func NativeOpenCodeGoogleModel(ctx context.Context, account *Account, model string) bool {
+	if openCodeGoogleActionAccount(account) != nil || account.IsOpenCodeGoPlan() || !account.IsAdaptiveAPIProtocol() {
+		return false
+	}
+	binding := ResolveAccountModelBinding(ctx, account, model, AccountModelBindingOptions{Endpoint: "generate_content"})
+	if !binding.Supported {
+		return false
+	}
+	if snapshot := account.EffectiveUpstreamModelCatalog(); snapshot != nil {
+		for _, member := range snapshot.EligibleModels {
+			if member.ID == binding.UpstreamModel && catalogEndpointsContain(member.Endpoints, "generate_content") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // openCodeGoogleBaseURL 解析 Google 协议面的 base URL。OpenCode 把该面挂在
 // /zen/v1 下（不是 Google 的 /v1beta：探测 /zen/v1beta/models/{model}:generateContent
 // 是站点 404，而 /zen/v1/models/{model}:generateContent 是 401 鉴权拒绝），

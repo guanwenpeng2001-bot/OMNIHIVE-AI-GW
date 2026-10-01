@@ -64,7 +64,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		default:
 			return s.forwardAnthropicViaRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 		}
-	} else if account.IsAnthropicProtocol() || account.IsAdaptiveAPIProtocol() {
+	} else if account.IsAnthropicProtocol() || (account.IsAdaptiveAPIProtocol() && account.GetAnthropicProtocolBaseURL() != "") {
 		// 入口分流（国产供应商 Anthropic 协议）：上游为供应商原生 Anthropic 端点时，
 		// /v1/messages 请求零转换直通（仅模型名映射 + 少量 body 清洗），完整保留
 		// thinking / tool_use / cache 语义，适配 Claude Code 等原生客户端。

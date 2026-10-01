@@ -207,30 +207,17 @@ func TestLatePlatformPlanModeAnthropicBaseURLs(t *testing.T) {
 	require.Equal(t, "https://relay.example/anthropic", explicit.GetAnthropicProtocolBaseURL())
 }
 
-// 火山方舟与千帆的 messages 格子在能力矩阵里仍是 hard_conflict，账号选不到
-// anthropic 协议（非多协议平台的 GetAPIProtocol 固定 chat_completions，
-// GetAnthropicProtocolBaseURL 直接返回空串），所以这里钉住当前可达的那条路：
-// Claude→chat 兼容桥落到 GetOpenAIBaseURL()，coding 模式下同样是套餐端点。
-// 这不是永久不变量：一旦产品决定把这两格改成 implemented，本用例应改为断言
-// 套餐的 Anthropic 兼容根（火山 https://ark.cn-beijing.volces.com/api/coding、
-// 千帆 https://qianfan.baidubce.com/anthropic/tokenplan/personal，均 2026-09-23 抓取）。
-func TestLatePlatformPlanModeAnthropicSurfaceStaysParkedForArkAndQianfan(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		platform      string
-		codingChatURL string
-	}{
-		{PlatformVolcengine, DefaultVolcengineCodingBaseURL},
-		{PlatformQianfan, DefaultQianfanCodingBaseURL},
-	}
-	for _, testCase := range cases {
-		account := &Account{Platform: testCase.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{
-			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "api_protocol": APIProtocolAnthropic,
+// Explicit plan Anthropic protocols use the documented native plan roots.
+func TestLatePlatformPlanModeAnthropicSurface(t *testing.T) {
+	for _, tc := range []struct{ platform, base string }{
+		{PlatformVolcengine, DefaultVolcengineCodingAnthropicBaseURL},
+		{PlatformQianfan, DefaultQianfanCodingAnthropicBaseURL},
+	} {
+		account := &Account{Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{
+			"api_key": "fixture", "account_mode": AccountModeCoding, "api_protocol": APIProtocolAnthropic,
 		}}
-		require.Equal(t, APIProtocolChatCompletions, account.GetAPIProtocol(), testCase.platform)
-		require.Empty(t, account.GetAnthropicProtocolBaseURL(), testCase.platform)
-		require.Equal(t, testCase.codingChatURL, account.GetOpenAIBaseURL(), testCase.platform)
+		require.Equal(t, APIProtocolAnthropic, account.GetAPIProtocol())
+		require.Equal(t, tc.base, account.GetAnthropicProtocolBaseURL())
 	}
 }
 

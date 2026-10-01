@@ -33,6 +33,7 @@ import "strings"
 // evidence-driven chat-only gates; count_tokens uses the shared non-billable
 // local estimation adapter because no /v2 token-count route exists.
 var qianfanActionAdapters = map[string]string{
+	"messages":       "openai.messages",
 	"chat":           "openai.chat",
 	"responses":      "openai.responses",
 	"count_tokens":   "openai.count_tokens",
@@ -53,6 +54,7 @@ var qianfanActionAdapters = map[string]string{
 // first-party protocol evidence. It is applied when a cell is bound to the
 // adapter named in its key.
 var qianfanAdapterEvidence = map[string]string{
+	"messages":       "Public Messages converted through the existing Chat/Responses trunk for pay-as-you-go accounts; configured Anthropic plan protocol uses its stored or documented plan base, never a fabricated pay-as-you-go Messages URL",
 	"video.cancel":   "qianfan.video.cancel handler performs owner-bound DELETE https://qianfan.baidubce.com/video/generations?task_id= (official 取消视频生成任务 cloud.baidu.com/doc/qianfan-api/s/Cmhbm0afu, captured 2026-09-21: data-method=DELETE; debugDesc=根据task_id取消视频生成任务; response status Terminated)",
 	"chat":           "openai.chat trunk through buildQianfanRequest to POST https://qianfan.baidubce.com/v2/chat/completions with Authorization: Bearer bce-v3/ALTAK (official API Key 鉴权 doc and 文本生成 reference, captured 2026-09-21; live probe 401 invalid_iam_token). Token Plan accounts use the plan data plane instead: the official OpenAI-compatible base is https://qianfan.baidubce.com/v2/tokenplan/personal (企业版 https://qianfan.baidubce.com/v2/tokenplan/team) with a dedicated API key isolated from pay-as-you-go keys (千帆《Token Plan 个人版》cloud.baidu.com/doc/qianfan/s/Dmrabu8b6、《Token Plan 企业版》/ymq8wwch2, captured 2026-09-23); buildQianfanRequest resolves the personal base from credentials.account_mode when base_url is empty and accepts the tokenplan path as a version root, while an explicit base_url still wins",
 	"responses":      "openai.responses trunk on the native Qianfan Responses API: POST https://qianfan.baidubce.com/v2/responses with Authorization: Bearer bce-v3/ALTAK, derived by the shared trunk from the version-suffixed /v2 base (official 创建模型响应 doc and live probe 2026-09-21: 401 invalid_iam_token, i.e. a live route; the shared Responses settlement bills the upstream usage fields)",
@@ -73,9 +75,7 @@ var qianfanAdapterEvidence = map[string]string{
 // surface and without a faithful bridge. These must not be selected as
 // Composite targets for this platform.
 var qianfanHardConflicts = map[string]string{
-	"messages":            "POST /v2/messages returns 404 ResourceNotFound (live probe 2026-09-21); the pay-as-you-go /v2 ModelBuilder surface publishes no Anthropic Messages endpoint (the official /v2 API reference covers chat/completions, responses, embeddings, rerank, images and video, captured 2026-09-21), and the OpenAI-compatible /v2/chat/completions trunk already serves chat. A verified absence rather than a deferred integration: no native or faithful Messages contract exists to bind on that surface. Token Plan additionally publishes an Anthropic-compatible base, https://qianfan.baidubce.com/anthropic/tokenplan/personal (千帆《Token Plan 个人版》, captured 2026-09-23), so re-adjudicating this cell for plan accounts is a product decision; the status stays unchanged here",
 	"responses.compact":   "POST /v2/responses/compact returns 404 page not found (live probe 2026-09-21); compact is an OpenAI Responses extension with no Qianfan equivalent",
-	"generate_content":    "Gemini generativelanguage surface; the Qianfan v2 probe set (2026-09-21) publishes no equivalent endpoint",
 	"image.variation":     "POST /v2/images/variations returns 404 page not found (live probe 2026-09-21); the documented iRAG variation feature is an instruction-driven images/edits mode that requires a prompt, so the OpenAI variations shape has no faithful bridge",
 	"image.async":         "POST /v2/images/generations/async and /v2/images/edits/async return 404 page not found (live probes 2026-09-21); Qianfan image generation is documented as synchronous",
 	"video.edit":          "POST /video/edits returns 404 ResourceNotFound (live probe 2026-09-21); the documented Qianfan video families expose generation, query and cancel only",

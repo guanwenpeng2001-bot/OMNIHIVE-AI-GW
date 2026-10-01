@@ -21,7 +21,7 @@ func TestBedrockActionMatrix(t *testing.T) {
 		"image.edit":      "bedrock.images",
 		"image.variation": "bedrock.image.variation",
 	}
-	hardConflicts := []string{"image.async", "image.batch", "video.edit", "video.extend", "audio.tts", "audio.stt", "audio.translate", "voice", "search", "alpha_search", "live", "responses.websocket", "generate_content", "native"}
+	hardConflicts := []string{"image.async", "image.batch", "video.edit", "video.extend", "audio.tts", "audio.stt", "audio.translate", "voice", "search", "alpha_search", "live", "responses.websocket", "native"}
 	deferred := map[string]string{"video.generate": "StartAsyncInvoke", "video.status": "GetAsyncInvoke", "video.content": "output.mp4", "realtime": "InvokeModelWithBidirectionalStream", "responses.compact": "compact-2026-01-12"}
 
 	for _, hostedType := range []string{"", AccountTypeBedrock} {

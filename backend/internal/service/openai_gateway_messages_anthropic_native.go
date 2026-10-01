@@ -263,6 +263,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 		contentType = "application/json"
 	}
 	body = reverseToolNamesIfPresent(c, body)
+	if originalModel != upstreamModel && gjson.GetBytes(body, "model").String() == upstreamModel {
+		body = ReplaceModelInBody(body, originalModel)
+	}
 	c.Data(resp.StatusCode, contentType, body)
 
 	return &OpenAIForwardResult{
@@ -465,6 +468,11 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 					firstTokenMs = &ms
 				}
 				parseSSEUsagePassthrough(data, usage)
+				if originalModel != upstreamModel && gjson.Get(data, "message.model").String() == upstreamModel {
+					if restored, err := sjson.Set(data, "message.model", originalModel); err == nil {
+						line = "data: " + restored
+					}
+				}
 			} else {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {

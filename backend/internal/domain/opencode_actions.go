@@ -33,7 +33,7 @@ var openCodeActionEvidence = map[string]string{
 	"messages":         "OpenCode Zen and Go endpoint tables publish /zen/v1/messages and /zen/go/v1/messages for the Anthropic-shaped models; the probe accepts x-api-key and answers Missing API key for Bearer (docs pages, " + openCodeActionEvidenceDate + ")",
 	"responses":        "OpenCode Zen and Go endpoint tables publish /zen/v1/responses and /zen/go/v1/responses for the GPT/Grok/Muse Spark models; the probe accepts Bearer and answers Missing API key for x-api-key (docs pages, " + openCodeActionEvidenceDate + ")",
 	"count_tokens":     "The gateway token-count estimate remains the adapter: OpenCode publishes no Anthropic-shaped /zen/v1/messages/count_tokens (site 404, " + openCodeActionEvidenceDate + "), and the Google-shape :countTokens is part of the generate_content ingress (free estimate, never billed)",
-	"generate_content": "The Zen endpoint table publishes the Google-protocol column /zen/v1/models/{model} for its Gemini models (docs page, " + openCodeActionEvidenceDate + "); probes confirm :generateContent, :streamGenerateContent and :countTokens answer behind x-goog-api-key, an unknown model answers ModelError before auth, and every /v1beta and /zen/go/v1/models/... shape returns the site 404. The adapter is implemented and tested against a redacted upstream fixture, but the inbound /v1beta route and the opencode.generate_content dispatch registration are still owed by the route/registration task, and the Gemini-model candidates by the model-data task - until those land, the action is not user-reachable",
+	"generate_content": "The Zen endpoint table publishes the Google-protocol column /zen/v1/models/{model} for its Gemini models (docs page, " + openCodeActionEvidenceDate + "); probes confirm :generateContent, :streamGenerateContent and :countTokens answer behind x-goog-api-key, an unknown model answers ModelError before auth, and every /v1beta and /zen/go/v1/models/... shape returns the site 404. The registered opencode.generate_content ingress retains this native Google column for selected Zen accounts; Go and other text models convert through their account-selected Messages/Chat/Responses trunk without adding a Go Google URL",
 }
 
 // openCodeHardConflicts records actions verified as absent from the OpenCode
@@ -119,7 +119,7 @@ func openCodeActionDescriptor(descriptor ActionDescriptor, action, adapter strin
 		descriptor.Lifecycle = "synchronous request; no upstream call"
 	case "generate_content":
 		descriptor.UsagePolicy = "Google usageMetadata with frozen request pricing; promptTokenCount is the total input (the OpenAI-shaped settlement subtracts the cached bucket itself), candidatesTokenCount plus thoughtsTokenCount are billed output, and the :countTokens method is a free estimate that must not be billed"
-		descriptor.Lifecycle = "request plan; streamGenerateContent relays alt=sse; Zen plan only, since the Go plan publishes no Google-shaped route"
+		descriptor.Lifecycle = "request plan; native Zen Google SSE or converted text SSE through the existing account-selected text forwarder"
 	}
 	return descriptor
 }

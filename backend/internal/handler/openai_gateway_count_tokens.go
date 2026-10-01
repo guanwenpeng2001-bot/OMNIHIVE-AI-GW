@@ -174,6 +174,7 @@ func (h *OpenAIGatewayHandler) localCountTokens(c *gin.Context) {
 
 	setOpsRequestContext(c, parsedReq.Model, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
+	c.Header("X-Token-Count-Estimated", "true")
 	c.JSON(http.StatusOK, gin.H{"input_tokens": estimated})
 }
 

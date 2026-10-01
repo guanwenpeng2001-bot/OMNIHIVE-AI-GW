@@ -1531,6 +1531,14 @@ func (a *Account) GetAPIProtocol() string {
 	if a.IsOpenCodeGo() || a.Platform == PlatformQianwen || a.IsCommandCode() {
 		return APIProtocolAdaptive
 	}
+	if a.Platform == PlatformVolcengine || a.Platform == PlatformQianfan {
+		// Preserve the existing pay-as-you-go Responses trunk. Plan accounts
+		// default to Chat; native Messages requires an explicit protocol choice.
+		if a.IsCodingPlan() {
+			return APIProtocolChatCompletions
+		}
+		return APIProtocolAdaptive
+	}
 	return APIProtocolChatCompletions
 }
 
@@ -1552,7 +1560,7 @@ func (a *Account) UsesNativeCNResponses() bool {
 		return false
 	}
 	// Coding Plan documents Chat/Messages only; adaptive Responses uses the existing Chat bridge.
-	if a.Platform == PlatformQianwen && a.IsCodingPlan() && a.IsAdaptiveAPIProtocol() {
+	if (a.Platform == PlatformQianwen || a.Platform == PlatformVolcengine || a.Platform == PlatformQianfan) && a.IsCodingPlan() && a.IsAdaptiveAPIProtocol() {
 		if bases, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if base, ok := bases[APIProtocolResponses].(string); ok && strings.TrimSpace(base) != "" {
 				return true // Preserve an explicit per-protocol custom endpoint.
@@ -1599,7 +1607,7 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 				return strings.TrimSpace(baseURL)
 			}
 		}
-		if protocol == APIProtocolChatCompletions || a.IsCommandCode() || (a.IsZhipu() && protocol == APIProtocolResponses) {
+		if protocol == APIProtocolChatCompletions || a.IsCommandCode() || ((a.IsZhipu() || a.Platform == PlatformVolcengine || a.Platform == PlatformQianfan) && protocol == APIProtocolResponses) {
 			if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
 				if a.IsZhipu() && protocol == APIProtocolResponses {
 					// Legacy adaptive accounts stored the default Chat base before
@@ -1621,6 +1629,16 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 	switch protocol {
 	case APIProtocolAnthropic:
 		switch a.Platform {
+		case PlatformVolcengine:
+			if a.IsCodingPlan() {
+				return DefaultVolcengineCodingAnthropicBaseURL
+			}
+			return ""
+		case PlatformQianfan:
+			if a.IsCodingPlan() {
+				return DefaultQianfanCodingAnthropicBaseURL
+			}
+			return ""
 		case PlatformKimi:
 			if a.GetAccountMode() == AccountModeCoding {
 				return DefaultKimiCodingAnthropicBaseURL
@@ -1654,6 +1672,8 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 		}
 	case APIProtocolChatCompletions, APIProtocolResponses:
 		switch a.Platform {
+		case PlatformVolcengine, PlatformQianfan:
+			return a.GetOpenAIBaseURL()
 		case PlatformKimi:
 			if a.GetAccountMode() == AccountModeCoding {
 				return DefaultKimiCodingBaseURL
@@ -1724,7 +1744,7 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
 	case PlatformQianfan:
-		return qianfanDefaultBaseURL
+		return a.defaultCNProtocolBaseURL(APIProtocolAnthropic)
 	case PlatformHunyuan:
 		// 套餐（Coding Plan）账号的 Anthropic 兼容路径与按量付费的 TokenHub 站点不同；
 		// 上游路径由 nativeAnthropicTargetURL 版本感知拼接为 {base}/v1/messages。
@@ -1735,7 +1755,7 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	case PlatformMistral:
 		return mistralDefaultBaseURL
 	case PlatformVolcengine:
-		return volcengineRuntimeBaseURL
+		return a.defaultCNProtocolBaseURL(APIProtocolAnthropic)
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
 	case PlatformOpenCodeGo:

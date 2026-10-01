@@ -19,9 +19,8 @@ type PlatformDescriptor struct {
 	// ResponsesPOST describes an available protocol path; multi-protocol accounts resolve
 	// their actual native protocol in the existing account/model services.
 	ResponsesPOST EndpointSupport `json:"responsesPost"`
-	// MessagesPOST describes an available Anthropic Messages protocol path on the
-	// same trunk (TokenHub publishes POST {base}/v1/messages with x-api-key). It is
-	// the protocol fact a chat-only entry needs before its messages cell can bind.
+	// MessagesPOST describes the public Messages path, including conversion to
+	// the account's existing text endpoint. Bridge does not imply a vendor URL.
 	MessagesPOST                 EndpointSupport `json:"messagesPost"`
 	ResponsesWS                  EndpointSupport `json:"responsesWS"`
 	ResponsesCompact             bool            `json:"responsesCompact"`
@@ -41,7 +40,7 @@ type PlatformDescriptor struct {
 
 var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformAnthropic, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformGemini, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformGemini, ResponsesPOST: EndpointBridge, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenAI, ResponsesCompact: true, ResponsesWS: EndpointNative, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformAntigravity, ResponsesPOST: EndpointBridge, OAuth: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformGrok, ResponsesCompact: true, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
@@ -53,22 +52,21 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCommandCode, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	// The late-platform rows keep the protocol facts they were adjudicated with: the
-	// plan (Coding Plan / Token Plan) data planes published by Ark, Qianfan and
-	// TokenHub change an account's default base URL by account_mode, not the
-	// protocol surface these descriptors declare. Official captures 2026-09-23:
+	// Public Messages can convert onto pay-as-you-go text trunks; plan accounts
+	// additionally select their native Anthropic base through account_mode and
+	// api_protocol. These ingress bounds do not invent vendor URLs. Captures 2026-09-23:
 	// ark.cn-beijing.volces.com/api/coding/v3 (Ark Coding Plan, OpenAI-compatible;
 	// the Anthropic-compatible root is .../api/coding),
 	// qianfan.baidubce.com/v2/tokenplan/personal (Qianfan Token Plan 个人版),
 	// api.lkeap.cloud.tencent.com/coding/v3 and .../coding/anthropic (TokenHub
 	// Coding Plan). Evidence rows live in the three *_actions.go files.
-	{ID: PlatformVolcengine, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformQianfan, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformVolcengine, ResponsesPOST: EndpointNative, MessagesPOST: EndpointBridge, MultiProtocol: true, NativeMultiProtocolResponses: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformQianfan, ResponsesPOST: EndpointNative, MessagesPOST: EndpointBridge, MultiProtocol: true, NativeMultiProtocolResponses: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	// TokenHub publishes Chat Completions, Responses and Anthropic Messages on the
 	// same site, so Hunyuan is a multi-protocol API-key entry whose base URL stays
 	// the OpenAI-shaped chat trunk the other two protocols share (1823/130078).
 	{ID: PlatformHunyuan, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, MultiProtocol: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformMistral, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
 
@@ -202,7 +200,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 	}
 	adapter := ""
-	openAITrunk := platform.ResponsesPOST == EndpointNative || identity.Platform == PlatformZhipu || identity.Platform == PlatformCommandCode
+	openAITrunk := platform.ResponsesPOST == EndpointNative || platform.ChatOnly || identity.Platform == PlatformZhipu || identity.Platform == PlatformCommandCode
 	switch action {
 	case "chat":
 		adapter = "gateway.chat"
@@ -210,14 +208,11 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			adapter = "openai.chat"
 		}
 	case "messages", "responses", "count_tokens":
-		// A chat-only entry is defined by its OpenAI-shaped chat trunk, so these
-		// text cells stay unbound unless the platform also publishes the native
-		// protocol the action executes on. That published protocol is the evidence
-		// a chat-only entry needs; the classification alone is not a permanent
-		// capability denial (the account and catalog gates read the same matrix).
-		publishedNativeProtocol := (action == "messages" && platform.MessagesPOST != EndpointRejected) ||
+		// Public protocol support may be converted; the account's selected native
+		// protocol and base still determine which upstream URL is used.
+		publicProtocol := (action == "messages" && platform.MessagesPOST != EndpointRejected) ||
 			(action == "responses" && platform.ResponsesPOST != EndpointRejected)
-		if !platform.ChatOnly || publishedNativeProtocol {
+		if !platform.ChatOnly || publicProtocol {
 			adapter = "gateway." + action
 			if openAITrunk {
 				adapter = "openai." + action
@@ -230,6 +225,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			}
 		}
 	case "generate_content":
+		// The public Google envelope is converted onto the existing text trunk.
+		adapter = "gateway.generate_content_compat"
 		if identity.Platform == PlatformGemini || identity.Platform == PlatformAntigravity {
 			adapter = "gateway.generate_content"
 		}
@@ -351,13 +348,6 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		return hunyuanActionDescriptor(descriptor, action, adapter)
 	}
 	if identity.Platform == PlatformMistral {
-		// Mistral's protocol absences replace only an unbound cell, so the chat
-		// trunk keeps the generic resolution below. Every remaining cell is then
-		// finalized by the Mistral authority rows: a bound native adapter is
-		// implemented, everything else stays explicitly unverified.
-		if recorded, absent := mistralAbsentProtocolCell(descriptor, action, adapter); absent {
-			return recorded
-		}
 		return mistralActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {

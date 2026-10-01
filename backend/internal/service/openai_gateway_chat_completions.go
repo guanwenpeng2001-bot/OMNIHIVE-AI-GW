@@ -71,7 +71,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
-	if IsChatOnlyPlatform(account.Platform) {
+	if IsChatOnlyPlatform(account.Platform) && !account.IsAnthropicProtocol() && account.GetAPIProtocol() != APIProtocolResponses {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 	rememberOpenCodeInboundBody(c, body)

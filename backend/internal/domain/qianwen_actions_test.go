@@ -28,7 +28,7 @@ func TestQianwenActionMatrixMatchesImplementedAdapters(t *testing.T) {
 		"native":         "qianwen.native",
 	}
 	hardConflict := []string{
-		"responses.compact", "generate_content", "image.variation", "image.batch",
+		"responses.compact", "image.variation", "image.batch",
 		"audio.translate", "search", "alpha_search", "live", "responses.websocket",
 	}
 	matrix := PlatformActionMatrix(ActionIdentity{Platform: PlatformQianwen})

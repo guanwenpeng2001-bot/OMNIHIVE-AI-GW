@@ -39,7 +39,7 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "chat_completions"}))
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}), "saved selection can use the installed Responses transport")
 	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "unselected", AccountModelBindingOptions{Endpoint: "responses"}))
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}))
+	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}), "public conversion does not declare a native Messages endpoint")
 	discoveryTransport := &httpUpstreamRecorder{}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)

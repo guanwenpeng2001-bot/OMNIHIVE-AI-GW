@@ -80,7 +80,7 @@ func TestPlatformResponsesSurfaces(t *testing.T) {
 		// Context Compaction, retrieved 2026-09-21), served through the
 		// existing Grok compact bridge on the responses trunk.
 		{PlatformGrok, EndpointNative, EndpointBridge, true},
-		{PlatformGemini, EndpointRejected, EndpointRejected, false},
+		{PlatformGemini, EndpointBridge, EndpointRejected, false},
 		{PlatformAnthropic, EndpointBridge, EndpointRejected, false},
 		{PlatformCursor, EndpointBridge, EndpointRejected, false},
 		{PlatformKimi, EndpointNative, EndpointRejected, false},
@@ -93,7 +93,7 @@ func TestPlatformResponsesSurfaces(t *testing.T) {
 		{PlatformVolcengine, EndpointNative, EndpointRejected, false},
 		{PlatformQianfan, EndpointNative, EndpointRejected, false},
 		{PlatformHunyuan, EndpointNative, EndpointRejected, false},
-		{PlatformMistral, EndpointRejected, EndpointRejected, false},
+		{PlatformMistral, EndpointBridge, EndpointRejected, false},
 		{PlatformComposite, EndpointRejected, EndpointRejected, false},
 		{"unknown", EndpointRejected, EndpointRejected, false},
 	} {

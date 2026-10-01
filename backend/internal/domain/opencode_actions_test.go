@@ -93,25 +93,23 @@ func TestOpenCodeActionMatrixIsFullyVerified(t *testing.T) {
 		t.Fatalf("opencode OAuth chat must keep the shared trunk adapter, got %q", got)
 	}
 	// A non-OpenCode platform must not inherit any of these rows.
-	if got := PlatformAction(ActionIdentity{Platform: PlatformMistral}, "generate_content"); got.Status != ActionUnverified || got.Adapter != "" {
+	if got := PlatformAction(ActionIdentity{Platform: PlatformMistral}, "generate_content"); got.Status != ActionImplemented || got.Adapter != "gateway.generate_content_compat" {
 		t.Fatalf("openCode rows leaked into another platform: %+v", got)
 	}
 }
 
-// generate_content 的适配器已实现，但入口（/v1beta 路由 + opencode.generate_content
-// 分派注册）与 Gemini 模型候选仍由路由写者与模型数据写者补入。这条把「已实现 ≠ 已
-// 可达」写进矩阵：后续若要把它当成上线能力，必须先删掉这里的缺席声明。
-func TestOpenCodeGoogleCellStatesItsWiringDependency(t *testing.T) {
+// Native Zen Google and converted Go/text calls share one public ingress.
+func TestOpenCodeGoogleCellDistinguishesNativeAndConvertedPaths(t *testing.T) {
 	cell := PlatformAction(ActionIdentity{Platform: PlatformOpenCodeGo}, "generate_content")
 	if cell.Status != ActionImplemented || cell.Adapter != "opencode.generate_content" {
 		t.Fatalf("google cell must stay bound to the OpenCode adapter: %+v", cell)
 	}
-	for _, anchor := range []string{"/v1beta", "opencode.generate_content", "not user-reachable"} {
+	for _, anchor := range []string{"opencode.generate_content", "native Google column", "convert through"} {
 		if !strings.Contains(cell.Evidence, anchor) {
-			t.Fatalf("google cell must name its missing ingress wiring %q: %s", anchor, cell.Evidence)
+			t.Fatalf("google cell must explain its native and converted paths %q: %s", anchor, cell.Evidence)
 		}
 	}
-	if !strings.Contains(cell.Lifecycle, "Zen plan only") {
+	if !strings.Contains(cell.Lifecycle, "native Zen Google SSE") {
 		t.Fatalf("google cell must state the plan scoping of the Google surface: %s", cell.Lifecycle)
 	}
 	if !strings.Contains(cell.UsagePolicy, ":countTokens") {
