@@ -94,7 +94,7 @@ func (u *groupAccountUpstream) do(req *http.Request, proxyURL string, send func(
 			return nil, deleteErr
 		}
 	}
-	target, resolveErr := state.runtime.resolveExcluding(req.Context(), u.account, state.target.ProxyID)
+	target, resolveErr := state.runtime.resolveExcluding(req.Context(), u.account, state.target.ProxyID, routeFailure && !proxyOwnFailure)
 	if resolveErr != nil || target.ProxyID == state.target.ProxyID {
 		if retry.Body != nil {
 			_ = retry.Body.Close()
