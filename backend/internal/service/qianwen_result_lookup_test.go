@@ -27,6 +27,10 @@ import (
 )
 
 func installQianwenFakeResultDNS(t *testing.T) *int {
+	return installQianwenFakeResultDNSForHost(t, qianwenLookupTestHost)
+}
+
+func installQianwenFakeResultDNSForHost(t *testing.T, host string) *int {
 	t.Helper()
 	previousLookup, previousClient := qianwenResultSystemLookup, qianwenResultDNSClient
 	t.Cleanup(func() { qianwenResultSystemLookup, qianwenResultDNSClient = previousLookup, previousClient })
@@ -37,7 +41,7 @@ func installQianwenFakeResultDNS(t *testing.T) *int {
 	client := *previousClient
 	client.Transport = qianwenSpeechRoundTripper(func(request *http.Request) (*http.Response, error) {
 		queries++
-		require.Equal(t, qianwenLookupTestHost, request.URL.Query().Get("name"))
+		require.Equal(t, host, request.URL.Query().Get("name"))
 		require.Len(t, request.URL.Query(), 2, "never send the signed media URL to DNS")
 		require.Equal(t, http.Header{"Accept": []string{"application/dns-json"}}, request.Header)
 		body := `{"Status":0,"Answer":[{"type":1,"data":"93.184.216.34"}]}`
@@ -232,6 +236,71 @@ func TestQianwenResultLookupHTTPSBootstrapAndTLS(t *testing.T) {
 }
 
 const qianwenLookupTestHost = "dashscope-a717.oss-accelerate.aliyuncs.com"
+
+func TestQianwenResultLookupRegionalEditHost(t *testing.T) {
+	const host = "dashscope-a717.oss-cn-beijing.aliyuncs.com"
+	queries := installQianwenFakeResultDNSForHost(t, host)
+	ctx := withQianwenResultLookup(context.Background(), "https://"+host+"/synthetic.png?Signature=synthetic")
+	require.True(t, httpclient.HasPublicIPLookup(ctx), "actual edit result host must receive the scoped lookup")
+	ips, err := lookupQianwenResultIP(ctx, "ip", host)
+	require.NoError(t, err)
+	require.Equal(t, []net.IP{net.ParseIP("93.184.216.34")}, ips)
+	require.Equal(t, 2, *queries)
+}
+
+type qianwenResultLifecycleUpstream struct {
+	*qianwenResultImageUpstream
+}
+
+type qianwenResultLifecycleBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (body *qianwenResultLifecycleBody) Close() error {
+	body.cancel()
+	return body.ReadCloser.Close()
+}
+
+func (upstream *qianwenResultLifecycleUpstream) Do(request *http.Request, proxy string, accountID int64, concurrency int) (*http.Response, error) {
+	if request.Method == http.MethodGet {
+		require.NoError(upstream.test, request.Context().Err(), "native response close must not cancel media delivery")
+		budget := AttemptBudgetFromContext(request.Context())
+		require.NotNil(upstream.test, budget)
+		require.NoError(upstream.test, budget.root.Err())
+	}
+	// Match repository request/response cancellation around both generation and
+	// download, including cancellation when the native response body is closed.
+	ctx, cancel := AttemptExecutionContext(request.Context())
+	response, err := upstream.qianwenResultImageUpstream.Do(request.WithContext(ctx), proxy, accountID, concurrency)
+	if err != nil || response == nil || response.Body == nil {
+		cancel()
+		return response, err
+	}
+	response.Body = &qianwenResultLifecycleBody{ReadCloser: response.Body, cancel: cancel}
+	return response, nil
+}
+
+func TestQianwenResultLookupPostNativeForwardAttemptContext(t *testing.T) {
+	queries := installQianwenFakeResultDNS(t)
+	upstream := &qianwenResultLifecycleUpstream{qianwenResultImageUpstream: &qianwenResultImageUpstream{test: t}}
+	gateway := &OpenAIGatewayService{httpUpstream: upstream}
+	writer := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(writer)
+	ctx, cancel := WithAttemptBudget(context.Background(), 1, time.Minute)
+	defer cancel()
+	ginContext.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil).WithContext(ctx)
+	body, err := BuildQianwenImageEditBody("qwen-image-edit-plus", "edit", "", 1, []string{"data:image/png;base64,iVBORw0KGgoAAAAA"})
+	require.NoError(t, err)
+	result, err := gateway.ForwardQianwenImageEdit(ctx, ginContext, qianwenTestAccount(), body)
+	require.NoError(t, err)
+	require.Equal(t, 1, result.ImageCount)
+	require.Equal(t, http.StatusOK, writer.Code)
+	require.Equal(t, 1, upstream.downloads)
+	require.Equal(t, 2, *queries)
+	require.NoError(t, ctx.Err())
+	require.Equal(t, base64.StdEncoding.EncodeToString(b64BackfillPNGBytes), gjson.GetBytes(writer.Body.Bytes(), "data.0.b64_json").String())
+}
 
 func TestQianwenResultLookupSystemAnswerPolicy(t *testing.T) {
 	for _, scenario := range []struct {

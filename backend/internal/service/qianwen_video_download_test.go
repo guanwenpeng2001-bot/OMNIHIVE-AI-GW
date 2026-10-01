@@ -24,7 +24,7 @@ func TestQianwenVideoAcceleratedOrigin(t *testing.T) {
 		require.Empty(t, request.Header.Get("Proxy-Authorization"))
 		return &http.Response{StatusCode: 200, Header: make(http.Header), ContentLength: 5, Body: io.NopCloser(strings.NewReader("video"))}, nil
 	})
-	for _, host := range []string{"dashscope-result-bj.oss-cn-beijing.aliyuncs.com", "dashscope-result-sh.oss-accelerate.aliyuncs.com", "dashscope-a717.oss-accelerate.aliyuncs.com", "dashscope-other-bucket.oss-accelerate.aliyuncs.com"} {
+	for _, host := range []string{"dashscope-result-bj.oss-cn-beijing.aliyuncs.com", "dashscope-result-sh.oss-accelerate.aliyuncs.com", "dashscope-a717.oss-accelerate.aliyuncs.com", "dashscope-other-bucket.oss-accelerate.aliyuncs.com", "dashscope-a717.oss-cn-beijing.aliyuncs.com", "dashscope-other-bucket.oss-cn-hangzhou.aliyuncs.com"} {
 		t.Run(host, func(t *testing.T) {
 			response, err := OpenQianwenVideoContent(context.Background(), "https://"+host+"/synthetic.mp4?Expires=123&Signature=synthetic")
 			require.NoError(t, err)
@@ -34,7 +34,7 @@ func TestQianwenVideoAcceleratedOrigin(t *testing.T) {
 			require.Equal(t, "video", string(body))
 		})
 	}
-	require.Equal(t, 4, calls)
+	require.Equal(t, 6, calls)
 }
 
 func TestQianwenVideoRejectsUntrustedOriginsBeforeHTTP(t *testing.T) {
@@ -50,7 +50,15 @@ func TestQianwenVideoRejectsUntrustedOriginsBeforeHTTP(t *testing.T) {
 		"https://dashscope-a717.evil.oss-accelerate.aliyuncs.com/video.mp4",
 		"https://attacker.oss-accelerate.aliyuncs.com/video.mp4",
 		"https://dashscope-a717.aliyuncs.com/video.mp4",
-		"https://dashscope-a717.oss-cn-beijing.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn-beijing-internal.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn-.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn--beijing.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn-beijing1.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn-beijing.aliyuncs.com.evil.test/video.mp4",
+		"https://dashscope-a717.evil.oss-cn-beijing.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-ap-southeast-1.aliyuncs.com/video.mp4",
+		"https://other-bucket.oss-cn-beijing.aliyuncs.com/video.mp4",
+		"https://dashscope-a717.oss-cn-" + strings.Repeat("a", 57) + ".aliyuncs.com/video.mp4",
 		"https://dashscope-.oss-accelerate.aliyuncs.com/video.mp4",
 		"https://dashscope--a.oss-accelerate.aliyuncs.com/video.mp4",
 		"https://dashscope-a_.oss-accelerate.aliyuncs.com/video.mp4",

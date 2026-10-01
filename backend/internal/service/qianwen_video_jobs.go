@@ -194,10 +194,27 @@ func isQianwenVideoResultHost(host string) bool {
 	if strings.HasPrefix(host, "dashscope-result-") && strings.HasSuffix(host, ".aliyuncs.com") {
 		return true // Retain the existing regional result-host policy.
 	}
-	// Official Wan results also use dashscope-<identifier> accelerated buckets:
-	// https://help.aliyun.com/en/model-studio/wan-video-editing-api-reference
-	bucket, accelerated := strings.CutSuffix(host, ".oss-accelerate.aliyuncs.com")
-	if !accelerated || len(bucket) > 63 || !strings.HasPrefix(bucket, "dashscope-") {
+	// Qwen output buckets use accelerated or China-region OSS endpoints:
+	// https://help.aliyun.com/zh/model-studio/qwen-image-edit-guide
+	labels := strings.Split(host, ".")
+	if len(labels) != 4 || labels[2] != "aliyuncs" || labels[3] != "com" {
+		return false
+	}
+	bucket, endpoint := labels[0], labels[1]
+	if endpoint != "oss-accelerate" {
+		region, regional := strings.CutPrefix(endpoint, "oss-cn-")
+		if !regional || region == "" || len(endpoint) > 63 {
+			return false
+		}
+		// Add only the ordinary alphabetic China-region form, not internal,
+		// alternate-service, nested-host or arbitrary endpoint suffixes.
+		for _, character := range region {
+			if character < 'a' || character > 'z' {
+				return false
+			}
+		}
+	}
+	if len(bucket) > 63 || !strings.HasPrefix(bucket, "dashscope-") {
 		return false
 	}
 	identifier := strings.TrimPrefix(bucket, "dashscope-")
