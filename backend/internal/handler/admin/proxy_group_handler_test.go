@@ -450,6 +450,58 @@ func TestProxyGroupShadowBindingsUseCanonicalOwner(t *testing.T) {
 	require.NotContains(t, string(encoded), "ParentAccountID")
 }
 
+func TestProxyGroupExplicitBackupBindingEligibility(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		configure func(*groupAdminFixture)
+		eligible  bool
+	}{
+		{name: "configured nonmember backup", eligible: true},
+		{name: "unconfigured nonmember", configure: func(fixture *groupAdminFixture) { fixture.repo.group.FallbackProxyID = nil }},
+		{name: "different configured backup", configure: func(fixture *groupAdminFixture) {
+			differentID := int64(212)
+			fixture.repo.group.FallbackProxyID = &differentID
+		}},
+		{name: "proxy fallback mode required", configure: func(fixture *groupAdminFixture) { fixture.repo.group.FallbackMode = service.FallbackModeDirect }},
+		{name: "inactive group", configure: func(fixture *groupAdminFixture) { fixture.repo.group.Status = "inactive" }},
+		{name: "inactive backup", configure: func(fixture *groupAdminFixture) { fixture.repo.nodes[213].Status = "inactive" }},
+		{name: "expired backup", configure: func(fixture *groupAdminFixture) {
+			expired := time.Now().Add(-time.Minute)
+			fixture.repo.nodes[213].ExpiresAt = &expired
+		}},
+		{name: "cooled backup", configure: func(fixture *groupAdminFixture) {
+			fixture.cache.cooldowns[213] = &service.ProxyCooldown{ProxyID: 213, ExpiresAt: time.Now().Add(time.Minute)}
+		}},
+		{name: "foreign workspace backup", configure: func(fixture *groupAdminFixture) { fixture.repo.nodes[213].WorkspaceID = 1 }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newGroupAdminFixture(t)
+			backupID := int64(213)
+			fixture.repo.group.FallbackMode = service.FallbackModeProxy
+			fixture.repo.group.FallbackProxyID = &backupID
+			fixture.repo.nodes[backupID] = &service.Proxy{ID: backupID, WorkspaceID: 2, Name: "explicit backup", Status: service.StatusActive}
+			fixture.repo.members = []service.ProxyGroupMember{{ProxyID: 211, Proxy: fixture.repo.nodes[211]}}
+			fixture.repo.accounts = []service.ProxyAccountSummary{{ID: 221, Name: "bound account"}}
+			fixture.cache.bindings[221] = backupID
+			fixture.cache.ttls[221] = time.Minute
+			if testCase.configure != nil {
+				testCase.configure(fixture)
+			}
+			code, data, _ := fixture.request(t, "GET", "proxy-groups/201/bindings", "")
+			require.Equal(t, 200, code)
+			items := data["items"].([]any)
+			require.Len(t, items, 1)
+			observation := items[0].(map[string]any)
+			require.Equal(t, testCase.eligible, observation["eligible"])
+			if testCase.eligible {
+				require.Equal(t, float64(backupID), observation["proxy_id"])
+				require.Equal(t, "explicit backup", observation["proxy_name"])
+				require.NotNil(t, observation["expires_at"])
+			}
+		})
+	}
+}
+
 func TestProxyGroupNonpositiveParentFallsBackAndMissingOwnerIsDeduplicated(t *testing.T) {
 	f := newGroupAdminFixture(t)
 	zero, negative, missing := int64(0), int64(-1), int64(229)

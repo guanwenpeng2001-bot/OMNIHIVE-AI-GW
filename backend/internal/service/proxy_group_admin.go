@@ -311,7 +311,8 @@ func (s *ProxyGroupAdminService) Bindings(ctx context.Context, id int64) ([]Prox
 					if err != nil {
 						return nil, err
 					}
-					item.Eligible = g.Status == StatusActive && memberIDs[proxyID] && proxyGroupAdminCandidate(p, g.WorkspaceID, cooldown, now)
+					configuredBackup := g.FallbackMode == FallbackModeProxy && g.FallbackProxyID != nil && *g.FallbackProxyID == proxyID
+					item.Eligible = g.Status == StatusActive && (memberIDs[proxyID] || configuredBackup) && proxyGroupAdminCandidate(p, g.WorkspaceID, cooldown, now)
 				}
 			}
 		}
