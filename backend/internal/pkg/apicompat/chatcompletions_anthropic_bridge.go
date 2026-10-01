@@ -149,6 +149,19 @@ func anthropicMsgToChatMessages(m AnthropicMessage) ([]ChatMessage, error) {
 	switch m.Role {
 	case "assistant":
 		return anthropicAssistantToChatMessages(m.Content)
+	case "system", "developer":
+		// Mid-conversation instructions retain their role and position. Unlike
+		// the top-level system field, these are not billing-header metadata.
+		var text string
+		if err := json.Unmarshal(m.Content, &text); err != nil {
+			var blocks []AnthropicContentBlock
+			if err := json.Unmarshal(m.Content, &blocks); err != nil {
+				return nil, err
+			}
+			text = extractAnthropicTextFromBlocks(blocks)
+		}
+		content, _ := json.Marshal(text)
+		return []ChatMessage{{Role: m.Role, Content: content}}, nil
 	default: // "user" and any unknown role
 		return anthropicUserToChatMessages(m.Content)
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -427,6 +428,12 @@ type OpsUpstreamErrorEvent struct {
 	Stage  string `json:"stage,omitempty"`
 	Scope  string `json:"scope,omitempty"`
 	Reason string `json:"reason,omitempty"`
+
+	// Cursor diagnostics are content-free observations, never routing inputs.
+	CursorRun           *cursor.RunDiagnostics `json:"cursor_run,omitempty"`
+	ConnectMessageClass string                 `json:"connect_message_class,omitempty"`
+	ConnectMessageBytes *int                   `json:"connect_message_bytes,omitempty"`
+	CredentialLike      *bool                  `json:"credential_like,omitempty"`
 
 	Message string `json:"message,omitempty"`
 	Detail  string `json:"detail,omitempty"`

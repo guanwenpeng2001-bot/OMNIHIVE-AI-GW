@@ -163,6 +163,52 @@ func TestCursorNativeGatewayAdmissionAndDuplex(t *testing.T) {
 	}
 }
 
+func TestCursorMessagesNativeFailureShape(t *testing.T) {
+	var encodedBytes atomic.Int64
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		require.Equal(t, cursor.RunEndpoint, request.URL.Path)
+		payload, err := cursorMCPRead(request.Body)
+		require.NoError(t, err)
+		encodedBytes.Store(int64(len(payload)))
+		frame := cursorMCPFrame([]byte(`{"error":{"code":"internal","message":"invalid tool schema sk-fakeIncidentCredential123456"}}`))
+		frame[0] = 2
+		_, _ = writer.Write(frame)
+		flusher, ok := writer.(http.Flusher)
+		require.True(t, ok)
+		flusher.Flush()
+	}))
+	server.EnableHTTP2 = true
+	server.StartTLS()
+	defer server.Close()
+	gateway, account, _ := cursorTestGateway()
+	gateway.native = &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL}
+	gateway.catalog[cursorSessionKey(account)] = cursorCatalogEntry{models: []cursor.AvailableModel{{ID: "composer-2.5", RunSlug: "composer-2.5-fast"}}, expires: time.Now().Add(time.Hour)}
+	requestContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+	requestContext.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	_, err := gateway.ForwardAsAnthropic(context.Background(), requestContext, account, []byte(`{"model":"composer-2.5","max_tokens":128,"system":"PRIVATE_STATIC","messages":[{"role":"user","content":"PRIVATE_USER"},{"role":"system","content":[{"type":"text","text":"PRIVATE_DYNAMIC"}]}],"tools":[{"name":"lookup","description":"PRIVATE_TOOL","input_schema":{"type":"object"}}]}`))
+	require.Error(t, err)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Equal(t, http.StatusBadGateway, failover.StatusCode, "heuristic must not change internal status")
+	raw, exists := requestContext.Get(OpsUpstreamErrorsKey)
+	require.True(t, exists)
+	storedEvents, ok := raw.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	entry := &OpsInsertErrorLogInput{UpstreamErrors: storedEvents}
+	require.NoError(t, SanitizeOpsUpstreamErrorsForQueue(entry))
+	for _, private := range []string{"PRIVATE_", "sk-fakeIncidentCredential123456", server.URL} {
+		require.NotContains(t, *entry.UpstreamErrorsJSON, private)
+	}
+	events, err := ParseOpsUpstreamErrors(*entry.UpstreamErrorsJSON)
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	event := events[0]
+	require.Equal(t, "tool_or_schema", event.ConnectMessageClass)
+	require.True(t, *event.CredentialLike)
+	require.Equal(t, &cursor.RunDiagnostics{Model: "composer-2.5-fast", ToolCount: 1, InstructionPresent: true, MessageCount: 3, EncodedBytes: int(encodedBytes.Load())}, event.CursorRun)
+	require.Positive(t, event.CursorRun.EncodedBytes)
+}
+
 type cursorBoundaryTransport struct {
 	sends     int
 	operation string

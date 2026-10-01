@@ -113,6 +113,7 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool)
 		{name: "after_output_partial_usage_once", path: EndpointChatCompletions, stream: true, interrupted: true},
 		{name: "messages_non_stream", path: EndpointMessages},
 		{name: "messages_stream", path: EndpointMessages, stream: true},
+		{name: "messages_before_output_failover", path: EndpointMessages, stream: true, preFailure: true},
 		{name: "responses_non_stream", path: EndpointResponses},
 		{name: "responses_stream", path: EndpointResponses, stream: true},
 		{name: "responses_partial_usage_once", path: EndpointResponses, stream: true, interrupted: true},
@@ -200,6 +201,9 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool)
 					}))
 				}
 				requestContext.Next()
+				if scenario.path == EndpointMessages {
+					require.Equal(t, "/agent.v1.AgentService/Run", GetUpstreamEndpoint(requestContext, group.Platform))
+				}
 				plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
 				require.NotNil(t, plan)
 				require.Equal(t, scenario.path, plan.Snapshot().Route)

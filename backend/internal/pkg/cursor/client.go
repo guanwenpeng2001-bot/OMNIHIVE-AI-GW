@@ -92,6 +92,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	})
 	defer stop()
 	payload, runID := encodeRun(messages, model, options.Definitions...)
+	recordRunDiagnostics(ctx, messages, model, len(options.Definitions), len(payload))
 	var writeMu sync.Mutex
 	write := func(payload []byte) error {
 		writeMu.Lock()

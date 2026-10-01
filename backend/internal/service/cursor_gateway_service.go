@@ -352,7 +352,10 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		}
 		return generationHTTP(request, account.ID, send)
 	})
+	var runDiagnostic *cursor.RunDiagnostics
+	ctx = cursor.WithRunDiagnosticsHook(ctx, func(diagnostic cursor.RunDiagnostics) { runDiagnostic = &diagnostic })
 	run := func() (cursor.TokenUsage, error) {
+		runDiagnostic = nil
 		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
 			if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, selectedModel, "chat_completions"); err != nil {
 				return cursor.TokenUsage{}, err
@@ -371,7 +374,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	}
 	usage, err := run()
 	if err != nil && !emitted && text.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && cursorAuthFailure(err) {
-		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err)
+		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err, runDiagnostic)
 		token, refreshErr := gateway.sessions.GetSessionToken(ctx, account, token)
 		if refreshErr != nil {
 			appendCursorNativeFailure(ctx, requestContext, account, "session_refresh", refreshErr)
@@ -386,7 +389,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		err = sendBindingError
 	}
 	if err != nil && !errors.Is(err, ErrAccountModelUnsupported) {
-		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err)
+		appendCursorNativeFailure(ctx, requestContext, account, "native_run", err, runDiagnostic)
 	}
 	if err != nil && !emitted {
 		if errors.Is(err, ErrAccountModelUnsupported) {
