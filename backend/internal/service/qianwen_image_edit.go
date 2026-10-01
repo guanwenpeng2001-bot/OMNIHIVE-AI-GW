@@ -155,7 +155,7 @@ func (s *OpenAIGatewayService) forwardQianwenStandardNativeImage(ctx context.Con
 				items = append(items, map[string]string{"url": image})
 				continue
 			}
-			encoded, err := s.fetchOpenAIImageURLBase64(ctx, account, image)
+			encoded, err := s.fetchOpenAIImageURLBase64(withQianwenResultLookup(ctx, image), account, image)
 			if err == nil && strings.HasPrefix(strings.ToLower(image), "data:") {
 				decoded, decodeErr := base64.StdEncoding.DecodeString(encoded)
 				if decodeErr != nil || !isBackfillImageContent(decoded) {
