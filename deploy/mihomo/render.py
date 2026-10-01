@@ -407,8 +407,9 @@ def resolver_config(servers, bootstrap_servers=None):
             "nameserver": list(servers), "proxy-server-nameserver": list(servers)}
 
 
-def construct(nodes, manifest, host, dns=None, hosts=None):
+def construct(nodes, manifest, host, dns=None, hosts=None, display_names=None):
     require(text_value(host) and not any(char in host for char in "/@?# "), "Invalid export host.")
+    display_names = display_names or {}
     by_identity = {identity(node): node for node in nodes}
     listeners, proxies, entries = [], [], []
     for record in manifest["nodes"]:
@@ -418,7 +419,8 @@ def construct(nodes, manifest, host, dns=None, hosts=None):
         proxies.append({**by_identity[record["identity"]], "name": outbound})
         listeners.append({"name": "in-" + record["identity"], "type": "http",
                           "listen": "0.0.0.0", "port": record["port"], "proxy": outbound})
-        entries.append({"name": record["name"], "protocol": "http", "host": host, "port": record["port"]})
+        entries.append({"name": display_names.get(record["identity"], record["name"]),
+                        "protocol": "http", "host": host, "port": record["port"]})
     config = {"mode": "rule", "log-level": "silent", "ipv6": False,
               "allow-lan": True, "listeners": listeners, "proxies": proxies,
               "rules": ["MATCH,REJECT"]}
@@ -497,10 +499,16 @@ def render(args):
     manifest_path = output / "manifest.json"
     previous = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
     nodes, hosts, summary = combine_sources(read_source(args), additions, previous)
+    # Only the canonical source owns its display name; duplicate aliases may
+    # have different names. Reconstruct our prefix from provenance, never strip
+    # arbitrary brackets from an original name or add metadata to outbounds.
+    display_names = {alias["canonical_identity"]: alias["name"] for alias in summary["aliases"]
+                     if alias["canonical_name"] == (alias["name"] if alias["source"] == "primary"
+                        else f"[{alias['source']}] {alias['name']}")}
     manifest = allocate(nodes, previous, args.port_start, args.port_end)
-    config, selected = construct(nodes, manifest, args.export_host, dns, hosts)
-    _, server = construct(nodes, manifest, args.server_host)
-    _, development = construct(nodes, manifest, "127.0.0.1")
+    config, selected = construct(nodes, manifest, args.export_host, dns, hosts, display_names)
+    _, server = construct(nodes, manifest, args.server_host, display_names=display_names)
+    _, development = construct(nodes, manifest, "127.0.0.1", display_names=display_names)
     artifacts = {"config.yaml": serialize_config(config)}
     for prefix, entries in [("selected", selected), ("server", server), ("development", development)]:
         artifacts[prefix + ".create.json"] = json.dumps(entries, ensure_ascii=False, indent=2) + "\n"
