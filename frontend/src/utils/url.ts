@@ -9,6 +9,20 @@ type SanitizeOptions = {
   allowDataUrl?: boolean
 }
 
+/** Client bases share a deployment prefix, but differ in who appends the API version. */
+export function buildClientBaseUrl(
+  baseUrl: string,
+  apiVersion: '' | 'v1' | 'v1beta' = '',
+  namespace?: 'antigravity'
+): string {
+  // Only remove a terminal gateway version; preserve reverse-proxy path prefixes.
+  let root = baseUrl.trim().replace(/\/+$/, '').replace(/\/(v1|v1beta)$/, '')
+  if (namespace && !root.endsWith(`/${namespace}`)) {
+    root += `/${namespace}`
+  }
+  return apiVersion ? `${root}/${apiVersion}` : root
+}
+
 export function sanitizeUrl(value: string, options: SanitizeOptions = {}): string {
   const trimmed = value.trim()
   if (!trimmed) {

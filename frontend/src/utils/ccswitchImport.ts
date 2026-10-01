@@ -1,4 +1,5 @@
 import type { GroupPlatform } from '@/types'
+import { buildClientBaseUrl } from '@/utils/url'
 
 export type CcSwitchClientType = 'claude' | 'gemini'
 
@@ -40,11 +41,6 @@ export const CC_SWITCH_USAGE_SCRIPT = `({
       };
     }
   })`
-
-function withV1Endpoint(baseUrl: string): string {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '')
-  return normalizedBaseUrl.endsWith('/v1') ? normalizedBaseUrl : `${normalizedBaseUrl}/v1`
-}
 
 /** Media/utility ids must never become a client's default chat model. */
 const NON_CHAT_MODEL_PREFIXES = [
@@ -103,29 +99,29 @@ export function resolveCcSwitchImportConfig(
     case 'antigravity':
       return {
         app: clientType === 'gemini' ? 'gemini' : 'claude',
-        endpoint: `${baseUrl.replace(/\/+$/, '')}/antigravity`
+        endpoint: buildClientBaseUrl(baseUrl, '', 'antigravity')
       }
     case 'openai':
       return {
         app: 'codex',
-        endpoint: baseUrl.replace(/\/+$/, ''),
+        endpoint: buildClientBaseUrl(baseUrl, 'v1'),
         model: preferredCcSwitchModel(visibleModels, 'codex')
       }
     case 'gemini':
       return {
         app: 'gemini',
-        endpoint: baseUrl
+        endpoint: buildClientBaseUrl(baseUrl)
       }
     case 'grok':
       return {
         app: 'grokbuild',
-        endpoint: withV1Endpoint(baseUrl),
+        endpoint: buildClientBaseUrl(baseUrl, 'v1'),
         model: preferredCcSwitchModel(visibleModels, 'grok')
       }
     default:
       return {
         app: 'claude',
-        endpoint: baseUrl
+        endpoint: buildClientBaseUrl(baseUrl)
       }
   }
 }

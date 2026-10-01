@@ -61,7 +61,7 @@ describe('ccswitchImport utils', () => {
 
     expect(params.get('resource')).toBe('provider')
     expect(params.get('app')).toBe('codex')
-    expect(params.get('endpoint')).toBe(baseInput.baseUrl)
+    expect(params.get('endpoint')).toBe(`${baseInput.baseUrl}/v1`)
     expect(params.get('model')).toBe('gpt-5.5')
     expect(params.get('apiKey')).toBe(baseInput.apiKey)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
@@ -156,6 +156,18 @@ describe('CC Switch usage script', () => {
   })
 })
 
-it.each(['https://api.example.com/', 'https://api.example.com///'])('keeps Codex at the provider root for %s', (baseUrl) => {
-  expect(resolveCcSwitchImportConfig('openai', 'claude', baseUrl, ['gpt-5']).endpoint).toBe('https://api.example.com')
+it.each(['https://api.example.com/', 'https://api.example.com///', 'https://api.example.com/v1///'])('gives Codex its Responses base for %s', (baseUrl) => {
+  expect(resolveCcSwitchImportConfig('openai', 'claude', baseUrl, ['gpt-5']).endpoint).toBe('https://api.example.com/v1')
 })
+
+it.each(['anthropic', 'composite', 'gemini', 'deepseek', 'minimax', 'kimi', 'zhipu', 'qianwen', 'commandcode', 'cursor', 'opencode_go'] as const)(
+  'exports the native client root for %s without changing other import settings', (platform) => {
+    const input = { ...baseInput, platform, clientType: 'claude' as const }
+    const original = paramsFromDeeplink(buildCcSwitchImportDeeplink(input))
+    const versioned = paramsFromDeeplink(buildCcSwitchImportDeeplink({ ...input, baseUrl: `${baseInput.baseUrl}/v1///` }))
+    expect(versioned.get('endpoint')).toBe(baseInput.baseUrl)
+    versioned.delete('homepage')
+    original.delete('homepage')
+    expect([...versioned]).toEqual([...original])
+  }
+)
