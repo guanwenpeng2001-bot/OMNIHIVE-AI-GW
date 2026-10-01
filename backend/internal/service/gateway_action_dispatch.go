@@ -6,10 +6,12 @@ import (
 	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 	"net/http"
 	"slices"
 	"strings"
@@ -321,7 +323,7 @@ func CompositeTargetPlatformMiddleware(resolver *CompositeRouteResolver) gin.Han
 				model := c.Query("model")
 				decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, CompositeRouteEndpointAny)
 				if err != nil {
-					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
+					abortCompositeRouteResolution(c, apiKey.Group.ID, err)
 					return
 				}
 				if decision.Matched {
@@ -353,8 +355,7 @@ func CompositeTargetPlatformMiddleware(resolver *CompositeRouteResolver) gin.Han
 		if model != "" {
 			decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, CompositeRouteEndpointForPath(c.Request.URL.Path))
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
-				c.Abort()
+				abortCompositeRouteResolution(c, apiKey.Group.ID, err)
 				return
 			}
 			if decision.Matched {
@@ -384,8 +385,7 @@ func CompositeGeminiTargetPlatformMiddleware(resolver *CompositeRouteResolver) g
 			if model != "" {
 				decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, CompositeRouteEndpointGemini)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
-					c.Abort()
+					abortCompositeRouteResolution(c, apiKey.Group.ID, err)
 					return
 				}
 				if decision.Matched {
@@ -398,6 +398,44 @@ func CompositeGeminiTargetPlatformMiddleware(resolver *CompositeRouteResolver) g
 		}
 		c.Next()
 	}
+}
+
+func abortCompositeRouteResolution(requestContext *gin.Context, groupID int64, err error) {
+	ctx := requestContext.Request.Context()
+	// Match the existing client-closed response/ops semantics, but require both
+	// the request and the failed operation to be canceled. An internal query
+	// timeout or an unrelated error racing a disconnect must remain a failure.
+	if errors.Is(ctx.Err(), context.Canceled) && errors.Is(err, context.Canceled) {
+		if !requestContext.Writer.Written() {
+			requestContext.Status(499) // client closed request; no response body
+		}
+		requestContext.Abort()
+		return
+	}
+	stage := "unknown"
+	var resolutionError *compositeRouteResolutionError
+	if errors.As(err, &resolutionError) {
+		stage = resolutionError.stage
+	}
+	cause := "dependency_error"
+	if errors.Is(err, context.DeadlineExceeded) {
+		cause = "deadline_exceeded"
+	} else if errors.Is(err, context.Canceled) {
+		cause = "canceled"
+	}
+	requestState := "active"
+	if errors.Is(ctx.Err(), context.Canceled) {
+		requestState = "canceled"
+	} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		requestState = "deadline_exceeded"
+	}
+	// The context logger carries request correlation. Never include raw errors,
+	// model/body/header values, URLs, or SQL in this diagnostic.
+	logger.FromContext(ctx).Error("Failed to resolve composite model route",
+		zap.String("component", "service.composite_route"),
+		zap.Int64("group_id", groupID), zap.String("stage", stage),
+		zap.String("cause", cause), zap.String("request_state", requestState))
+	requestContext.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
 }
 
 // GrokCustomVoiceEndpoint derives the upstream Voice endpoint for the
