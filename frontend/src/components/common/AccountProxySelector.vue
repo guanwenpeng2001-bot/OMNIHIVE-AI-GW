@@ -33,14 +33,14 @@ function selectNode(value: number | null) {
       <option value="single">{{ t('admin.proxyGroups.single') }}</option>
       <option value="group">{{ t('admin.proxyGroups.group') }}</option>
     </select>
-    <p v-if="mode === 'direct'" class="text-sm text-gray-500">{{ t('admin.proxyGroups.defaultEgress') }}</p>
+    <p v-if="mode === 'direct'" class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.defaultEgress') }}</p>
     <template v-if="mode === 'single'">
       <ProxySelector :model-value="proxyId" :proxies="proxies" :disabled="disabled" @update:model-value="selectNode" />
       <input class="sr-only" tabindex="-1" :value="proxyId || ''" required :aria-label="t('admin.proxyGroups.chooseNode')" />
     </template>
     <template v-if="mode === 'group'">
       <ProxyGroupSelector :model-value="proxyGroupId" :selected-name="groupName" :disabled="disabled" @update:model-value="emit('update:proxyGroupId', $event)" />
-      <p class="text-sm text-gray-500">{{ t('admin.proxyGroups.groupHint') }}</p>
+      <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.groupHint') }}</p>
     </template>
   </fieldset>
 </template>

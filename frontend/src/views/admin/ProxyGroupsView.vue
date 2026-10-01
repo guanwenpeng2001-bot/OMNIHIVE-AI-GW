@@ -69,18 +69,18 @@ function saved() { editor.value = null; memberGroup.value = null; void load() }
             <datalist id="proxy-group-services"><option v-for="name in ['grok', 'chatgpt', 'gemini', 'google']" :key="name" :value="name" /></datalist>
             <button class="btn btn-secondary" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
           </form>
-          <p class="text-sm text-gray-500">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
-          <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
+          <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
         </div>
       </template>
       <template #table>
         <div class="table-wrapper" :aria-busy="loading">
           <p v-if="loading" role="status" class="p-6">{{ t('common.loading') }}</p>
-          <p v-else-if="!groups.length && !error" class="p-6 text-gray-500">{{ t('admin.proxyGroups.empty') }}</p>
+          <p v-else-if="!groups.length && !error" class="p-6 text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.empty') }}</p>
           <div v-else class="divide-y divide-gray-200 dark:divide-dark-700">
-            <div class="hidden grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] gap-4 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:bg-dark-800 lg:grid"><span>{{ t('admin.proxyGroups.name') }} / {{ t('admin.proxyGroups.services') }}</span><span>{{ t('admin.proxyGroups.counts') }}</span><span>{{ t('admin.proxyGroups.accounts') }}</span><span>{{ t('admin.proxyGroups.fallback') }}</span><span>{{ t('common.actions') }}</span></div>
+            <div class="hidden grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] gap-4 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 dark:bg-dark-800 lg:grid"><span>{{ t('admin.proxyGroups.name') }} / {{ t('admin.proxyGroups.services') }}</span><span>{{ t('admin.proxyGroups.counts') }}</span><span>{{ t('admin.proxyGroups.accounts') }}</span><span>{{ t('admin.proxyGroups.fallback') }}</span><span>{{ t('common.actions') }}</span></div>
             <article v-for="group in groups" :key="group.id" class="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] lg:items-center lg:gap-4">
-              <div class="min-w-0 space-y-2"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words font-medium">{{ group.name }}</h2><span class="badge" :class="group.status === 'active' ? 'badge-success' : 'badge-gray'">{{ t(`admin.proxyGroups.${group.status}`) }}</span></div><p v-if="group.region" class="text-sm text-gray-500">{{ group.region }}</p><div class="flex flex-wrap gap-1"><span v-for="tag in group.target_services" :key="tag" class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ tag }}</span></div></div>
+              <div class="min-w-0 space-y-2"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words font-medium">{{ group.name }}</h2><span class="badge" :class="group.status === 'active' ? 'badge-success' : 'badge-gray'">{{ t(`admin.proxyGroups.${group.status}`) }}</span></div><p v-if="group.region" class="text-sm text-gray-500 dark:text-gray-400">{{ group.region }}</p><div class="flex flex-wrap gap-1"><span v-for="tag in group.target_services" :key="tag" class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ tag }}</span></div></div>
               <p class="text-sm" :class="group.schedulable_member_count === 0 && 'text-red-600 dark:text-red-400'"><span class="mr-2 lg:hidden">{{ t('admin.proxyGroups.counts') }}</span>{{ group.schedulable_member_count }} / {{ group.member_count }}</p>
               <p class="text-sm"><span class="mr-2 lg:hidden">{{ t('admin.proxyGroups.accounts') }}</span>{{ group.bound_account_count }}</p>
               <p class="text-sm">{{ t(`admin.proxyGroups.${group.fallback_mode}`) }}</p>

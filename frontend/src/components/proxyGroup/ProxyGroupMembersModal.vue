@@ -57,9 +57,9 @@ async function save() {
 
 <template>
   <BaseDialog :show="true" :title="t('admin.proxyGroups.members')" width="extra-wide" @close="!busy && emit('close')">
-    <p class="mb-4 text-sm text-gray-500">{{ t('admin.proxyGroups.membersHint') }}</p>
+    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.membersHint') }}</p>
     <p v-if="loading" role="status">{{ t('common.loading') }}</p>
-    <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
+    <p v-if="error" role="alert" class="text-red-600 dark:text-red-400">{{ error }}</p>
     <div v-if="ready" class="grid gap-4 md:grid-cols-[2fr_1fr]">
       <section class="min-w-0 space-y-3">
         <input v-model="search" class="input" :placeholder="t('admin.proxyGroups.memberSearch')" :aria-label="t('admin.proxyGroups.memberSearch')" />
@@ -68,12 +68,12 @@ async function save() {
         <div class="max-h-96 space-y-2 overflow-y-auto">
           <label v-for="node in filtered" :key="node.id" class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <input v-model="selected" type="checkbox" :value="node.id" class="mt-1" />
-            <span class="min-w-0 flex-1 space-y-1"><span class="block break-words font-medium">{{ node.name }}</span><span class="block text-sm text-gray-500">{{ node.region || node.country || '—' }} · {{ t(`admin.proxyGroups.${nodeStatus(node)}`) }}</span>
-              <span class="block border-t border-gray-100 pt-1 text-xs text-gray-500 dark:border-dark-700">{{ t('admin.proxyGroups.observations') }}: {{ node.quality_status ? t(`admin.proxyGroups.health.${node.quality_status}`) : t('admin.proxyGroups.unknown') }}<span v-if="node.latency_ms != null"> · {{ node.latency_ms }} ms</span></span>
+            <span class="min-w-0 flex-1 space-y-1"><span class="block break-words font-medium">{{ node.name }}</span><span class="block text-sm text-gray-500 dark:text-gray-400">{{ node.region || node.country || '—' }} · {{ t(`admin.proxyGroups.${nodeStatus(node)}`) }}</span>
+              <span class="block border-t border-gray-100 pt-1 text-xs text-gray-500 dark:text-gray-400 dark:border-dark-700">{{ t('admin.proxyGroups.observations') }}: {{ node.quality_status ? t(`admin.proxyGroups.health.${node.quality_status}`) : t('admin.proxyGroups.unknown') }}<span v-if="node.latency_ms != null"> · {{ node.latency_ms }} ms</span></span>
               <span v-if="cooldown(node.id)?.cooldown_until && Date.parse(cooldown(node.id)!.cooldown_until!) > Date.now()" class="block text-xs text-amber-700 dark:text-amber-400">{{ t('admin.proxyGroups.cooldown', { time: new Date(cooldown(node.id)!.cooldown_until!).toLocaleString() }) }} · {{ cooldown(node.id)?.cooldown_reason }}</span>
             </span>
           </label>
-          <p v-if="!filtered.length" class="p-4 text-sm text-gray-500">{{ t('admin.proxyGroups.noNodes') }}</p>
+          <p v-if="!filtered.length" class="p-4 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.noNodes') }}</p>
         </div>
       </section>
       <section class="min-w-0 space-y-3"><h4 class="font-medium">{{ t('admin.proxyGroups.selected', { count: selected.length }) }}</h4><button class="btn btn-secondary" @click="selected = []">{{ t('admin.proxyGroups.clearSelection') }}</button><ul class="max-h-96 space-y-2 overflow-y-auto"><li v-for="node in chosen" :key="node.id" class="flex items-start justify-between gap-2 text-sm"><span class="break-words">{{ node.name }}</span><button class="shrink-0 underline" @click="selected = selected.filter(id => id !== node.id)">{{ t('common.remove') }}</button></li></ul></section>

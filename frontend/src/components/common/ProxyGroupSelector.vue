@@ -40,6 +40,6 @@ watch(() => props.modelValue, load, { immediate: true })
       <option v-if="modelValue && !groups.some(g => g.id === modelValue)" :value="modelValue">{{ selectedName || t('admin.proxyGroups.unavailableGroup', { id: modelValue }) }}</option>
       <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ t(`admin.proxyGroups.${group.status}`) }} · {{ group.schedulable_member_count }}/{{ group.member_count }}</option>
     </select>
-    <p v-if="failed" role="alert" class="text-sm text-red-600">{{ t('admin.proxyGroups.groupLoadFailed') }} <button type="button" class="underline" @click="load">{{ t('admin.proxyGroups.retry') }}</button></p>
+    <p v-if="failed" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ t('admin.proxyGroups.groupLoadFailed') }} <button type="button" class="underline" @click="load">{{ t('admin.proxyGroups.retry') }}</button></p>
   </div>
 </template>
