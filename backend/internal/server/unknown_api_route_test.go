@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/web"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -67,6 +68,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		{"GET", "/models"}, {"POST", "/images/generations"}, {"POST", "/embeddings"},
 		{"POST", "/audio/speech"}, {"POST", "/v1/messages"},
 		{"GET", "/backend-api/codex/unknown"},
+		{"GET", "/v1/usage"}, {"GET", "/antigravity/v1/usage"},
 	} {
 		t.Run("registered "+route.path, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -84,6 +86,22 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 	// replayable POST bodies and query preservation on both invalid and valid URLs.
 	httpServer := httptest.NewServer(router)
 	defer httpServer.Close()
+	if web.HasEmbeddedFrontend() {
+		t.Run("embedded panel document reads", func(t *testing.T) {
+			for _, path := range []string{"/usage", "/usage/", "/usage/?range=week", "/admin/usage", "/dashboard", "/workspaces", "/setup", "/model-plaza"} {
+				for _, method := range []string{http.MethodGet, http.MethodHead} {
+					request, err := http.NewRequest(method, httpServer.URL+path, nil)
+					require.NoError(t, err)
+					request.Header.Set("Accept", "text/html")
+					response, err := httpServer.Client().Do(request)
+					require.NoError(t, err)
+					_ = response.Body.Close()
+					require.Equal(t, http.StatusOK, response.StatusCode, method+path)
+					require.Contains(t, response.Header.Get("Content-Type"), "text/html", method+path)
+				}
+			}
+		})
+	}
 	for _, test := range []struct {
 		path   string
 		status int

@@ -450,6 +450,16 @@ func publicModelCreatedAt(observations []service.UpstreamModelMetadata) (*time.T
 		if evidence.Stale {
 			continue
 		}
+		// Reject contradictory identities when present, but retain older native
+		// facts without identity stamps and the resolver's reviewed registry aliases.
+		if observation.ID != "" && evidence.MatchedModelID != "" &&
+			observation.ID != evidence.MatchedModelID && (evidence.Source == "upstream" || evidence.MatchRule != "reviewed_alias") {
+			continue
+		}
+		if observation.ProviderProfile != "" && evidence.ProviderProfile != "" &&
+			observation.ProviderProfile != evidence.ProviderProfile {
+			continue
+		}
 		priority := 1
 		publicSource := "registry"
 		switch evidence.Source {

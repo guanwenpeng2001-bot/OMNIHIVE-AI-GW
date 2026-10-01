@@ -82,3 +82,37 @@ func TestPublicCreationRequiresIdentifiableCurrentSource(t *testing.T) {
 		require.Equal(t, "unavailable", source)
 	}
 }
+
+func TestPublicCreationRejectsContradictoryIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name, source, model, profile, rule string
+		want                               bool
+	}{
+		{"native match", "upstream", "native-model", "openai", "native_id", true},
+		{"legacy native", "upstream", "", "", "", true},
+		{"wrong native model", "upstream", "another-model", "openai", "native_id", false},
+		{"native cannot claim registry alias", "upstream", "another-model", "openai", "reviewed_alias", false},
+		{"wrong native profile", "upstream", "native-model", "anthropic", "native_id", false},
+		{"registry match", "platform-preset", "native-model", "openai", "exact", true},
+		{"wrong registry model", "platform-preset", "another-model", "openai", "exact", false},
+		{"reviewed registry alias", "platform-preset", "canonical-model", "openai", "reviewed_alias", true},
+		{"wrong alias profile", "platform-preset", "canonical-model", "anthropic", "reviewed_alias", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			observation := service.UpstreamModelMetadata{
+				ID: "native-model", ProviderProfile: "openai", CreatedAt: "2026-01-01T00:00:00Z", CreatedAtStatus: "available",
+				FieldEvidence: map[string]service.ModelCapabilityEvidence{"created_at": {
+					Source: test.source, MatchedModelID: test.model, ProviderProfile: test.profile, MatchRule: test.rule,
+				}},
+			}
+			created, source := publicModelCreatedAt([]service.UpstreamModelMetadata{observation})
+			if test.want {
+				require.NotNil(t, created)
+				require.Equal(t, 2026, created.Year())
+			} else {
+				require.Nil(t, created)
+				require.Equal(t, "unavailable", source)
+			}
+		})
+	}
+}
