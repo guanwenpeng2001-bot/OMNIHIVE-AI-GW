@@ -18,7 +18,18 @@ import (
 )
 
 // Forward forwards request to OpenAI API
-func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (forwarded *OpenAIForwardResult, forwardErr error) {
+	requestedEffort := CanonicalRequestedReasoningEffort(body, gjson.GetBytes(body, "model").String())
+	if c != nil && c.Request != nil {
+		if original := RequestedReasoningEffortFromContext(c.Request.Context()); original != nil {
+			requestedEffort = original
+		}
+	}
+	defer func() {
+		if forwarded != nil && forwarded.RequestedReasoningEffort == nil {
+			forwarded.RequestedReasoningEffort = requestedEffort
+		}
+	}()
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {

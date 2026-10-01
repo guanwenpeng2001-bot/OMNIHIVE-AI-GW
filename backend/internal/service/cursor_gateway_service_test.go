@@ -221,3 +221,33 @@ func TestCursorMissingTurnEndedMarksEstimates(t *testing.T) {
 	require.Equal(t, "estimated_missing_turn_ended", writer.Header().Get("X-Sub2API-Usage-Source"))
 	require.Contains(t, writer.Body.String(), `"estimated":true`)
 }
+
+func TestCursorVariantFailureCanFallbackBeforeSubmission(t *testing.T) {
+	for _, tc := range []struct {
+		options string
+		retry   bool
+	}{
+		{`,"fast":false`, true},
+		{`,"reasoning_effort":"bogus"`, false},
+	} {
+		gateway, account, _ := cursorTestGateway()
+		calls := 0
+		gateway.native = cursorDriverStub{run: func(context.Context, cursor.Credentials, []cursor.ChatMessage, string, func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+			calls++
+			return cursor.TokenUsage{}, nil
+		}}
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		_, err := gateway.ForwardAsChatCompletions(context.Background(), c, account, []byte(`{"model":"composer-2.5","messages":[{"role":"user","content":"hi"}]`+tc.options+`}`))
+		require.Error(t, err)
+		require.Zero(t, calls)
+		var failure *UpstreamFailoverError
+		require.Equal(t, tc.retry, errors.As(err, &failure))
+		if tc.retry {
+			require.True(t, failure.ShouldRetryNextAccount())
+			require.False(t, failure.ShouldReportAccountScheduleFailure())
+			require.False(t, c.Writer.Written())
+		} else {
+			require.Equal(t, 400, c.Writer.Status())
+		}
+	}
+}

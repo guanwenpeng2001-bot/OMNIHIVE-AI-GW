@@ -162,10 +162,6 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort
 			}
 
 			out, err := AnthropicToChatCompletionsRequest(req)
-			if effort != "" {
-				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
-				return
-			}
 			require.NoError(t, err)
 			require.Equal(t, "none", out.ReasoningEffort)
 		})
@@ -262,17 +258,17 @@ func TestAnthropicToChatCompletionsRequest_TemperaturePreservedForNonReasoningMo
 	require.Equal(t, 0.9, *out.TopP)
 }
 
-func TestAnthropicToChatCompletionsRequest_MaxTokensFloor(t *testing.T) {
+func TestAnthropicToChatCompletionsRequest_PreservesSmallMaxTokens(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "claude-sonnet-4-20250514",
-		MaxTokens: 10, // below minMaxOutputTokens (128)
+		MaxTokens: 10, // a total output cap must not be increased by the bridge
 		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}},
 	}
 
 	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 	require.NotNil(t, out.MaxCompletionTokens)
-	require.Equal(t, minMaxOutputTokens, *out.MaxCompletionTokens)
+	require.Equal(t, 10, *out.MaxCompletionTokens)
 }
 
 func TestAnthropicToChatCompletionsRequest_ReasoningEffortMapping(t *testing.T) {
@@ -288,7 +284,7 @@ func TestAnthropicToChatCompletionsRequest_ReasoningEffortMapping(t *testing.T) 
 	require.Equal(t, "xhigh", out.ReasoningEffort)
 }
 
-func TestAnthropicToChatCompletionsRequest_ReasoningEffortDefaultMedium(t *testing.T) {
+func TestAnthropicToChatCompletionsRequest_ReasoningEffortOmitted(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "gpt-5.4",
 		MaxTokens: 100,
@@ -297,7 +293,7 @@ func TestAnthropicToChatCompletionsRequest_ReasoningEffortDefaultMedium(t *testi
 
 	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.Equal(t, "medium", out.ReasoningEffort)
+	require.Empty(t, out.ReasoningEffort)
 }
 
 func TestAnthropicToChatCompletionsRequest_ServerToolDropped(t *testing.T) {

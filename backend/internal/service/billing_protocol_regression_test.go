@@ -18,8 +18,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-func TestCommandCodeKimiMessagesDoesNotInjectUnsupportedEffort(t *testing.T) {
-	for _, effort := range []string{"", "low", "medium", "high"} {
+func TestCommandCodeMessagesPreservesExplicitEffort(t *testing.T) {
+	for _, effort := range []string{"", "none", "minimal", "low", "medium", "high"} {
 		body := []byte(`{"model":"moonshotai/Kimi-K2.7-Code-Highspeed","max_tokens":32,"messages":[{"role":"user","content":"OK"}]}`)
 		if effort != "" {
 			body, _ = sjson.SetBytes(body, "output_config.effort", effort)
@@ -34,9 +34,6 @@ func TestCommandCodeKimiMessagesDoesNotInjectUnsupportedEffort(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		want := effort
-		if effort == "medium" {
-			want = ""
-		}
 		require.Equal(t, want, gjson.GetBytes(u.lastBody, "reasoning_effort").String())
 		require.Equal(t, want, optionalStringValue(result.ReasoningEffort))
 	}

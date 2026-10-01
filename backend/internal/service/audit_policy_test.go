@@ -43,8 +43,11 @@ func TestNativeReasoningPolicyCapabilities(t *testing.T) {
 	_, err = normalizeCommandCodeReasoningWithPolicy(c, body, "moonshotai/kimi-k2.7-code-highspeed")
 	require.True(t, IsReasoningEffortPolicyDenied(err))
 	updated, err = normalizeCommandCodeReasoningWithPolicy(c, body, "unknown")
+	require.True(t, IsReasoningEffortPolicyDenied(err), "explicit group restrictions also apply to models with unknown metadata")
+	group.ReasoningEffortMappings = nil
+	updated, err = normalizeCommandCodeReasoningWithPolicy(c, body, "unknown")
 	require.NoError(t, err)
-	require.False(t, gjson.GetBytes(updated, "reasoning_effort").Exists())
+	require.Equal(t, "low", gjson.GetBytes(updated, "reasoning_effort").String())
 	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
 		_, err := normalizeMaxReasoningEffortForPlatform(platform, "low")
 		require.NoError(t, err)

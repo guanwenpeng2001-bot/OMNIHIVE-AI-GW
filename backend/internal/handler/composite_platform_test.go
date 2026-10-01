@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"net/http/httptest"
 	"testing"
 
@@ -148,10 +150,10 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	omittedCtx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 	omittedCtx.Request = omittedCtx.Request.WithContext(service.WithResolvedTargetPlatform(omittedCtx.Request.Context(), service.PlatformOpenAI))
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(omittedCtx, apiKey, []byte(`{"model":"gpt-5"}`))
-	omitted, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(omittedCtx.Request.Context(), body)
+	omitted, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(omittedCtx.Request.Context(), []byte(`{"model":"gpt-5"}`))
 	require.NoError(t, err)
 	require.False(t, changed)
-	require.Equal(t, body, omitted)
+	require.JSONEq(t, `{"model":"gpt-5"}`, string(omitted))
 
 	denyGroup := *group
 	denyGroup.MaxReasoningEffortOverLimit = service.ReasoningEffortOverLimitDeny
@@ -279,4 +281,48 @@ func TestClientRequestedModelUsesCompositePublicModel(t *testing.T) {
 	require.Equal(t, "public-alias", fields.OriginalModel)
 	require.Equal(t, "public-alias", fields.ChannelMappedModel)
 	require.Equal(t, "public-alias\u2192gpt-5", fields.ModelMappingChain)
+}
+
+func TestMessagesBudgetBindsGroupPolicyAfterConversion(t *testing.T) {
+	for _, mode := range []string{"cap", "deny", "mapping"} {
+		for _, chat := range []bool{false, true} {
+			t.Run(mode+map[bool]string{true: "/chat", false: "/responses"}[chat], func(t *testing.T) {
+				group := &service.Group{Platform: service.PlatformComposite, MaxReasoningEffort: "medium"}
+				if mode == "deny" {
+					group.MaxReasoningEffortOverLimit = service.ReasoningEffortOverLimitDeny
+				}
+				if mode == "mapping" {
+					group.ReasoningEffortMappings = []service.ReasoningEffortMapping{{From: "high", To: service.ReasoningEffortMappingDeny}}
+				}
+				body := []byte(`{"model":"test","max_tokens":64000,"thinking":{"type":"enabled","budget_tokens":32768},"messages":[{"role":"user","content":"hi"}]}`)
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformOpenAI))
+				bindOpenAIReasoningEffortPolicyForMessagesRequest(c, &service.APIKey{Group: group}, body)
+				require.Nil(t, service.RequestedReasoningEffortFromContext(c.Request.Context()))
+				var req apicompat.AnthropicRequest
+				require.NoError(t, json.Unmarshal(body, &req))
+				var converted any
+				var err error
+				field := "reasoning.effort"
+				if chat {
+					converted, err = apicompat.AnthropicToChatCompletionsRequest(&req)
+					field = "reasoning_effort"
+				} else {
+					converted, err = apicompat.AnthropicToResponses(&req)
+				}
+				require.NoError(t, err)
+				out, err := json.Marshal(converted)
+				require.NoError(t, err)
+				out, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(c.Request.Context(), out)
+				if mode != "cap" {
+					require.True(t, service.IsReasoningEffortPolicyDenied(err))
+					return
+				}
+				require.NoError(t, err)
+				require.True(t, changed)
+				require.Equal(t, "medium", gjson.GetBytes(out, field).String())
+			})
+		}
+	}
 }

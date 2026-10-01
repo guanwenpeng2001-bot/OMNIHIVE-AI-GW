@@ -686,6 +686,9 @@ const (
 
 type GatewayFailureReason string
 
+// RequestCompatibilityRejectedReason is only emitted before inference submission.
+const RequestCompatibilityRejectedReason GatewayFailureReason = "request_compatibility_rejected"
+
 // UpstreamFailoverError indicates an upstream or credential error that may
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
@@ -738,7 +741,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	return e.TPM == nil && e.Reason != ModelBindingRejectedReason && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
+	return e.TPM == nil && e.Reason != ModelBindingRejectedReason && e.Reason != RequestCompatibilityRejectedReason && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
 }
 
 // sseStreamErrorEventError 表示上游 SSE 流体内出现 event:error 帧。

@@ -59,16 +59,16 @@ func TestReasoningTransparencyResponsesReplay(testingT *testing.T) {
 	}
 }
 
-// R05-R06: unsupported controls must not silently become medium or none.
+// Positive budgets become approximate effort preferences in either OpenAI bridge.
 func TestReasoningTransparencyMessagesReplay(testingT *testing.T) {
 	for _, budget := range []int{2048, 4096} {
 		request := &AnthropicRequest{Model: "gpt-5.2", MaxTokens: 8192, Messages: []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}}, Thinking: &AnthropicThinking{Type: "enabled", BudgetTokens: budget}}
 		responses, err := AnthropicToResponses(request)
-		require.ErrorContains(testingT, err, "unsupported thinking.budget_tokens")
-		require.Nil(testingT, responses)
+		require.NoError(testingT, err)
+		require.Equal(testingT, "low", responses.Reasoning.Effort)
 		chat, err := AnthropicToChatCompletionsRequest(request)
-		require.ErrorContains(testingT, err, "unsupported thinking.budget_tokens")
-		require.Nil(testingT, chat)
+		require.NoError(testingT, err)
+		require.Equal(testingT, "low", chat.ReasoningEffort)
 		require.Equal(testingT, budget, request.Thinking.BudgetTokens)
 	}
 }

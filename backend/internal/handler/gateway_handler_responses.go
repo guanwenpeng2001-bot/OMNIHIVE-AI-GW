@@ -422,7 +422,9 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		statusCode = lastErr.StatusCode
 	}
 	status, code, message := statusCode, "server_error", "All available accounts exhausted"
-	if lastErr != nil && lastErr.Reason == service.ModelBindingRejectedReason {
+	if lastErr != nil && lastErr.Reason == service.RequestCompatibilityRejectedReason {
+		status, code, message = lastErr.ClientStatusCode, "invalid_request_error", lastErr.ClientMessage
+	} else if lastErr != nil && lastErr.Reason == service.ModelBindingRejectedReason {
 		status, code, message = lastErr.ClientStatusCode, string(service.ModelBindingRejectedReason), lastErr.ClientMessage
 	} else if lastErr != nil && lastErr.IsCredentialFailure() {
 		status, message = credentialFailoverClientResponse(lastErr)

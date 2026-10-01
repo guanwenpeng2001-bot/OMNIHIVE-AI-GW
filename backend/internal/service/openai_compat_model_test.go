@@ -274,11 +274,11 @@ func TestForwardAsAnthropic_PreservesMaxForFinalGPT56ResponsesModel(t *testing.T
 			wantEffort: "xhigh",
 		},
 		{
-			name:       "GPT56 default remains medium",
+			name:       "GPT56 omitted effort preserves upstream default",
 			account:    rawGPT56ResponsesAPIKeyAccount("gpt-5.6-sol", "gpt-5.6-sol"),
 			model:      "gpt-5.6-sol",
 			wantModel:  "gpt-5.6-sol",
-			wantEffort: "medium",
+			wantEffort: "",
 		},
 	}
 
@@ -307,13 +307,17 @@ func TestForwardAsAnthropic_PreservesMaxForFinalGPT56ResponsesModel(t *testing.T
 			require.Equal(t, tt.wantModel, result.UpstreamModel)
 			require.Equal(t, tt.wantModel, gjson.GetBytes(upstream.lastBody, "model").String())
 			require.Equal(t, tt.wantEffort, gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
-			require.NotNil(t, result.ReasoningEffort)
-			require.Equal(t, tt.wantEffort, *result.ReasoningEffort)
+			if tt.wantEffort == "" {
+				require.Nil(t, result.ReasoningEffort)
+			} else {
+				require.NotNil(t, result.ReasoningEffort)
+				require.Equal(t, tt.wantEffort, *result.ReasoningEffort)
+			}
 		})
 	}
 }
 
-func TestForwardAsAnthropic_DisabledThinkingWithEffortRejectedForResponses(t *testing.T) {
+func TestForwardAsAnthropic_DisabledThinkingOverridesEffortForResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"sol","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"disabled"},"output_config":{"effort":"max"},"stream":false}`)
@@ -330,11 +334,10 @@ func TestForwardAsAnthropic_DisabledThinkingWithEffortRejectedForResponses(t *te
 	account := rawGPT56ResponsesOAuthAccount("sol", "gpt-5.6-sol")
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), ginContext, account, body, "", "")
-	require.ErrorContains(t, err, "unsupported thinking.type=disabled")
-	require.Nil(t, result)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "unsupported thinking.type=disabled")
-	require.Nil(t, upstream.lastReq)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
 }
 
 func rawGPT56ResponsesAPIKeyAccount(requestedModel, mappedModel string) *Account {

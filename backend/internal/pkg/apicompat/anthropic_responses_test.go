@@ -197,16 +197,16 @@ func TestAnthropicToResponses_ThinkingSignatureBecomesReasoning(t *testing.T) {
 	assert.Equal(t, "function_call", items[3].Type)
 }
 
-func TestAnthropicToResponses_MaxTokensFloor(t *testing.T) {
+func TestAnthropicToResponses_PreservesSmallMaxTokens(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "gpt-5.2",
-		MaxTokens: 10, // below minMaxOutputTokens (128)
+		MaxTokens: 10, // a total output cap must not be increased by the bridge
 		Messages:  []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
 	}
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	assert.Equal(t, 128, *resp.MaxOutputTokens)
+	assert.Equal(t, 10, *resp.MaxOutputTokens)
 }
 
 // ---------------------------------------------------------------------------
@@ -1098,8 +1098,9 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
-	require.Nil(t, resp)
+	require.NoError(t, err)
+	require.Equal(t, "medium", resp.Reasoning.Effort)
+	require.Equal(t, req.MaxTokens, *resp.MaxOutputTokens)
 }
 
 func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
@@ -1111,8 +1112,9 @@ func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
-	require.Nil(t, resp)
+	require.NoError(t, err)
+	require.Equal(t, "medium", resp.Reasoning.Effort)
+	require.Equal(t, req.MaxTokens, *resp.MaxOutputTokens)
 }
 
 func TestAnthropicToResponses_ThinkingDisabled(t *testing.T) {
@@ -1142,10 +1144,6 @@ func TestAnthropicToResponses_ThinkingDisabledOverridesOutputEffort(t *testing.T
 			}
 
 			resp, err := AnthropicToResponses(req)
-			if effort != "" {
-				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
-				return
-			}
 			require.NoError(t, err)
 			require.NotNil(t, resp.Reasoning)
 			assert.Equal(t, "none", resp.Reasoning.Effort)
@@ -1163,9 +1161,8 @@ func TestAnthropicToResponses_NoThinking(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	// Default effort applies (medium) when no thinking/output_config is set.
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
+	// No preference must leave the upstream model default intact.
+	require.Nil(t, resp.Reasoning)
 }
 
 // ---------------------------------------------------------------------------
@@ -1183,8 +1180,9 @@ func TestAnthropicToResponses_OutputConfigOverridesDefault(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
-	require.Nil(t, resp)
+	require.NoError(t, err)
+	require.Equal(t, "low", resp.Reasoning.Effort)
+	require.Equal(t, req.MaxTokens, *resp.MaxOutputTokens)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutThinking(t *testing.T) {
@@ -1237,7 +1235,7 @@ func TestAnthropicToResponses_OutputConfigMax(t *testing.T) {
 }
 
 func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {
-	// No output_config → default medium regardless of thinking.type.
+	// A 10000-token budget maps approximately to medium without explicit effort.
 	req := &AnthropicRequest{
 		Model:     "gpt-5.2",
 		MaxTokens: 1024,
@@ -1246,12 +1244,13 @@ func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
-	require.Nil(t, resp)
+	require.NoError(t, err)
+	require.Equal(t, "medium", resp.Reasoning.Effort)
+	require.Equal(t, req.MaxTokens, *resp.MaxOutputTokens)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {
-	// output_config present but effort empty (e.g. only format set) → default medium.
+	// Format-only output_config must not introduce a reasoning preference.
 	req := &AnthropicRequest{
 		Model:        "gpt-5.2",
 		MaxTokens:    1024,
@@ -1261,8 +1260,7 @@ func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
+	require.Nil(t, resp.Reasoning)
 }
 
 // ---------------------------------------------------------------------------
