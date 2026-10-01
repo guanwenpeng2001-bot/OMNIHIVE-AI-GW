@@ -126,7 +126,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	request.Header = headers(credentials, runID)
 	response, err := sendGeneration(client.HTTPClient, request)
 	if err != nil {
-		return TokenUsage{}, fmt.Errorf("cursor: Run transport failed")
+		return TokenUsage{}, &TransportError{cause: err}
 	}
 	defer func() {
 		if err := response.Body.Close(); err != nil {
@@ -144,7 +144,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		frame, err := readFrame(response.Body)
 		if err != nil {
 			if err == io.EOF {
-				return usage, fmt.Errorf("cursor: stream ended before turn_ended")
+				return usage, fmt.Errorf("cursor: stream ended before turn_ended: %w", io.ErrUnexpectedEOF)
 			}
 			return usage, err
 		}

@@ -101,7 +101,8 @@ func (cache *cursorRouteSlotCache) ReleaseUserSlot(context.Context, int64, strin
 
 func TestCursorRoutes(t *testing.T)                        { testCursorRequestPlanRoutes(t, false) }
 func TestGatewayRequestPlanSharedHTTPIngress(t *testing.T) { testCursorRequestPlanRoutes(t, true) }
-func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
+func TestCursorCompositeNativeRoutes(t *testing.T)         { testCursorRequestPlanRoutes(t, false, true) }
+func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool) {
 	for _, scenario := range []struct {
 		name, path                      string
 		stream, preFailure, interrupted bool
@@ -163,6 +164,10 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
 			defer server.Close()
 			groupID := int64(81)
 			group := &service.Group{ID: groupID, Hydrated: true, Platform: service.PlatformCursor, Status: service.StatusActive}
+			isComposite := len(composite) > 0 && composite[0]
+			if isComposite {
+				group.Platform = service.PlatformComposite
+			}
 			accounts := []*service.Account{}
 			for _, accountID := range []int64{1, 2} {
 				accounts = append(accounts, &service.Account{ID: accountID, Platform: service.PlatformCursor, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: int(accountID), Credentials: map[string]any{"api_key": "synthetic-key", "machine_id": fmt.Sprint(accountID)}, AccountGroups: []service.AccountGroup{{AccountID: accountID, GroupID: groupID}}})
@@ -188,12 +193,27 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
 				requestContext.Set(string(middleware2.ContextKeyAPIKey), apiKey)
 				requestContext.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 83, Concurrency: 10})
 				requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), ctxkey.Group, group))
+				if isComposite {
+					requestContext.Request = requestContext.Request.WithContext(service.WithCompositeRouteDecision(requestContext.Request.Context(), service.CompositeRouteDecision{
+						Matched: true, PublicModel: "default", TargetPlatform: service.PlatformCursor, UpstreamModel: "default",
+						Targets: []service.CompositeRouteTarget{{Position: 0, TargetPlatform: service.PlatformCursor, UpstreamModel: "default", Enabled: true}, {Position: 1, TargetPlatform: service.PlatformGrok, UpstreamModel: "default", Enabled: true}},
+					}))
+				}
 				requestContext.Next()
 				plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
 				require.NotNil(t, plan)
 				require.Equal(t, scenario.path, plan.Snapshot().Route)
 				require.True(t, plan.State().Finalized)
 				require.True(t, plan.State().UsageClaimed)
+				if scenario.preFailure {
+					events, exists := requestContext.Get(service.OpsUpstreamErrorsKey)
+					require.True(t, exists)
+					encoded, err := json.Marshal(events)
+					require.NoError(t, err)
+					require.Contains(t, string(encoded), `"upstream_status_code":503`)
+					require.Contains(t, string(encoded), `"account_id":1`)
+					require.NotContains(t, string(encoded), "synthetic-key")
+				}
 
 			})
 			router.POST(EndpointChatCompletions, handler.ChatCompletions)

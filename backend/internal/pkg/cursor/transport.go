@@ -90,7 +90,7 @@ func Do(client HTTPDoer, request *http.Request, native bool) (*http.Response, er
 	response, err := selected.Do(request) //nolint:gosec // G704: upstream target validation belongs to the calling native/relay service.
 	if err != nil {
 		closeIdle()
-		return nil, fmt.Errorf("cursor: account proxy transport failed")
+		return nil, &TransportError{cause: err}
 	}
 	response.Body = &routeResponseBody{ReadCloser: response.Body, closeIdle: closeIdle}
 	return response, nil
