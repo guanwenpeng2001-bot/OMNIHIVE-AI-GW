@@ -173,6 +173,9 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 
 	account.Extra = service.StripAccountModelCatalogExtra(account.Extra)
 	service.NormalizeEmptyAccountModelSelection(account)
+	for key, value := range service.ConfiguredCNResponsesSupport(account) {
+		account.Extra[key] = value
+	}
 	builder := client.Account.Create().
 		SetName(account.Name).
 		SetTpmLimit(account.TPMLimit).
@@ -4486,20 +4489,21 @@ func (r *accountRepository) ReplaceAccountModelSelectionScope(ctx context.Contex
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Selection is explicit configuration, independent of discovery snapshots.
+	// Identity and rules still serialize genuine concurrent configuration edits.
 	result, err := tx.ExecContext(ctx, `UPDATE accounts SET
- credentials = CASE WHEN $6::boolean THEN jsonb_set(COALESCE(credentials,'{}'::jsonb),'{model_mapping}',$7::jsonb) ELSE credentials END,
+ credentials = CASE WHEN $5::boolean THEN jsonb_set(COALESCE(credentials,'{}'::jsonb),'{model_mapping}',$6::jsonb) ELSE credentials END,
  extra = COALESCE(extra,'{}'::jsonb) || jsonb_build_object(
  'upstream_model_allowlist', CASE
- WHEN ($6::boolean AND $7::jsonb = '{}'::jsonb) OR
- (NOT $6::boolean AND (COALESCE(credentials->'model_mapping','{}'::jsonb) IN ('{}'::jsonb,'null'::jsonb) OR
+ WHEN ($5::boolean AND $6::jsonb = '{}'::jsonb) OR
+ (NOT $5::boolean AND (COALESCE(credentials->'model_mapping','{}'::jsonb) IN ('{}'::jsonb,'null'::jsonb) OR
  (COALESCE((extra->'upstream_model_allowlist'->>'enabled')::boolean,false) AND COALESCE(extra->'upstream_model_allowlist'->'models','[]'::jsonb) IN ('[]'::jsonb,'null'::jsonb))))
  THEN $2::jsonb || '{"enabled":true,"models":[]}'::jsonb ELSE $2::jsonb END,
  'upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('rules_revision',$4::bigint+1)
- ) || CASE WHEN $6::boolean THEN '{"model_selection_baseline_frozen":true}'::jsonb ELSE '{}'::jsonb END,
+ ) || CASE WHEN $5::boolean THEN '{"model_selection_baseline_frozen":true}'::jsonb ELSE '{}'::jsonb END,
  updated_at = NOW() WHERE id=$1 AND deleted_at IS NULL
  AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0)=$3
- AND COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0)=$4
- AND COALESCE((extra->'upstream_model_catalog'->>'revision')::bigint,0)=$5`, id, string(encoded), baseline.IdentityRevision, baseline.RulesRevision, baseline.SnapshotRevision, mapping != nil, string(mappingJSON))
+ AND COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0)=$4`, id, string(encoded), baseline.IdentityRevision, baseline.RulesRevision, mapping != nil, string(mappingJSON))
 	if err != nil {
 		return nil, err
 	}

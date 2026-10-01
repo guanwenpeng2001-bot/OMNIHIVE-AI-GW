@@ -212,7 +212,9 @@ func AccountCatalogRuleCredentialFields() []string {
 }
 
 func AccountCatalogRuleExtraFields() []string {
-	return []string{"mixed_scheduling", "openai_passthrough", "openai_oauth_passthrough", "anthropic_passthrough", "openai_responses_supported", "openai_responses_mode", ModelCapabilityDefaultsExtraKey, ModelCapabilityReleaseExtraKey}
+	// Probe support is an observation, not an administrator's selection rule.
+	// The explicit protocol override remains a versioned rule.
+	return []string{"mixed_scheduling", "openai_passthrough", "openai_oauth_passthrough", "anthropic_passthrough", "openai_responses_mode", ModelCapabilityDefaultsExtraKey, ModelCapabilityReleaseExtraKey}
 }
 
 // AdvanceAccountModelCatalogRevisions runs under the account row lock.
