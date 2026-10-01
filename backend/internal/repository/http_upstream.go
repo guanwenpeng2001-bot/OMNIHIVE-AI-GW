@@ -225,7 +225,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// 执行请求
 	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
-	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req)
+	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req, proxyURL)
 	resp, err := servertiming.Do(client, tracedRequest)
 	err = classifyProxyFailure(err)
 	if err != nil {
@@ -300,7 +300,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 
 	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
-	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req)
+	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req, proxyURL)
 	resp, err := servertiming.Do(client, tracedRequest)
 	err = classifyProxyFailure(err)
 	if err != nil {

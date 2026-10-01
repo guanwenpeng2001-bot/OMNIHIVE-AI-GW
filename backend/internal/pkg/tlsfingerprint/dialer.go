@@ -49,11 +49,18 @@ type HTTPProxyDialer struct {
 
 // ProxyConnectError marks only failure to reach the proxy itself or an explicit
 // CONNECT authentication rejection, before any provider application write.
-// Destination CONNECT failures and tunneled TLS errors must remain unmarked.
+// Destination CONNECT failures and tunneled TLS errors are not proxy-own faults.
 type ProxyConnectError struct{ Err error }
 
 func (e *ProxyConnectError) Error() string { return e.Err.Error() }
 func (e *ProxyConnectError) Unwrap() error { return e.Err }
+
+// ProxyTLSHandshakeError proves that a tunneled destination handshake failed
+// before this dial returned a usable connection. It does not prove proxy health.
+type ProxyTLSHandshakeError struct{ Err error }
+
+func (e *ProxyTLSHandshakeError) Error() string { return e.Err.Error() }
+func (e *ProxyTLSHandshakeError) Unwrap() error { return e.Err }
 
 // SOCKS5ProxyDialer creates TLS connections through SOCKS5 proxies with custom fingerprints.
 // It uses golang.org/x/net/proxy to establish the SOCKS5 tunnel.
@@ -186,7 +193,7 @@ func (d *SOCKS5ProxyDialer) DialTLSContext(ctx context.Context, network, addr st
 	slog.Debug("tls_fingerprint_socks5_tunnel_established")
 
 	// Step 3: Perform TLS handshake on the tunnel with utls fingerprint
-	return performTLSHandshake(ctx, conn, d.profile, addr)
+	return performTLSHandshake(ctx, conn, d.profile, addr, true)
 }
 
 // DialTLSContext establishes a TLS connection through HTTP proxy with the configured fingerprint.
@@ -265,7 +272,7 @@ func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr stri
 	slog.Debug("tls_fingerprint_http_proxy_tunnel_established")
 
 	// Step 4: Perform TLS handshake on the tunnel with utls fingerprint
-	return performTLSHandshake(ctx, conn, d.profile, addr)
+	return performTLSHandshake(ctx, conn, d.profile, addr, true)
 }
 
 // DialTLSContext establishes a TLS connection with the configured fingerprint.
@@ -281,13 +288,13 @@ func (d *Dialer) DialTLSContext(ctx context.Context, network, addr string) (net.
 	slog.Debug("tls_fingerprint_tcp_connected", "addr", addr)
 
 	// Perform TLS handshake with utls fingerprint
-	return performTLSHandshake(ctx, conn, d.profile, addr)
+	return performTLSHandshake(ctx, conn, d.profile, addr, false)
 }
 
 // performTLSHandshake performs the uTLS handshake on an established connection.
 // It builds a ClientHello spec from the profile, applies it, and completes the handshake.
 // On failure, conn is closed and an error is returned.
-func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, addr string) (net.Conn, error) {
+func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, addr string, throughProxy bool) (net.Conn, error) {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
@@ -308,7 +315,11 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("TLS handshake failed: %w", err)
+		failure := fmt.Errorf("TLS handshake failed: %w", err)
+		if throughProxy && ctx.Err() == nil {
+			return nil, &ProxyTLSHandshakeError{Err: failure}
+		}
+		return nil, failure
 	}
 
 	state := tlsConn.ConnectionState()
