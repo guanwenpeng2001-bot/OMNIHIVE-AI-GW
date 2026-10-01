@@ -222,7 +222,7 @@ func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response
 	if err != nil || u.Scheme != "https" || u.User != nil || strings.Contains(rawURL, "#") || u.Host != u.Hostname() || !isQianwenVideoResultHost(u.Hostname()) {
 		return nil, fmt.Errorf("unsupported video result origin")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(withQianwenResultLookup(ctx, rawURL), http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("video result unavailable")
 	}

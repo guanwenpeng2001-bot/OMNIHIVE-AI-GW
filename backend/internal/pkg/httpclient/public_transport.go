@@ -13,6 +13,25 @@ import (
 )
 
 type originalHostnameKey struct{}
+type publicIPLookupKey struct{}
+
+// WithPublicIPLookup installs a trusted, request-local resolver. Its answers
+// still pass the transport's complete public-IP validation and address pinning.
+// It never changes the resolver or connection policy of other requests.
+func WithPublicIPLookup(ctx context.Context, lookup func(context.Context, string, string) ([]net.IP, error)) context.Context {
+	if lookup == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, publicIPLookupKey{}, lookup)
+}
+
+// HasPublicIPLookup lets callers defer redundant DNS prechecks only when they
+// already guarantee that this request will use PublicTransport.
+func HasPublicIPLookup(ctx context.Context) bool {
+	lookup, ok := ctx.Value(publicIPLookupKey{}).(func(context.Context, string, string) ([]net.IP, error))
+	return ok && lookup != nil
+}
+
 type pinnedAddressesKey struct{}
 type pinnedAddresses struct {
 	primary   string
@@ -51,7 +70,11 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	host := req.URL.Hostname()
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
-	ips, err := t.lookupIP(ctx, "ip", host)
+	lookup := t.lookupIP
+	if override, ok := ctx.Value(publicIPLookupKey{}).(func(context.Context, string, string) ([]net.IP, error)); ok && override != nil {
+		lookup = override
+	}
+	ips, err := lookup(ctx, "ip", host)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution failed: %w", err)

@@ -653,6 +653,15 @@ func (s *httpUpstreamService) validateRequestHost(req *http.Request) error {
 	if host == "" {
 		return errors.New("request host is empty")
 	}
+	if httpclient.HasPublicIPLookup(req.Context()) {
+		if urlvalidator.IsBlockedHost(host) {
+			return errors.New("request host is not allowed")
+		}
+		// The guard above matches requestClient's public-client predicate for
+		// both Do and DoWithTLS. Let that transport resolve once, validate every
+		// answer and pin the destination, instead of rechecking system DNS here.
+		return nil
+	}
 	if err := urlvalidator.ValidateResolvedIP(host); err != nil {
 		return err
 	}
