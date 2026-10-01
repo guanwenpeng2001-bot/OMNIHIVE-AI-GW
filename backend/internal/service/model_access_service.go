@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -132,6 +134,61 @@ func intersectAccessModels(models, allowed []string) []string {
 
 type modelAccessSnapshotKey struct{}
 
+type authenticatedModelAccessKey struct{}
+type authenticatedModelAccess struct {
+	keyID              int64
+	service            *APIKeyService
+	reader             ModelAccessPolicyReader
+	attachmentAttempts int
+}
+
+// Model rules alone do not authenticate a key. Retry authorization bypasses
+// credential caches and reloads the user's full allowed-group membership.
+// Billing checks remain with the middleware, including its read-only exceptions.
+func (access authenticatedModelAccess) authorize(ctx context.Context, groupID *int64, checkGroup bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	key, err := access.service.apiKeyRepo.GetByID(ctx, access.keyID)
+	if err != nil {
+		return err
+	}
+	if key == nil || key.ID != access.keyID || (!key.IsActive() && key.Status != StatusAPIKeyExpired && key.Status != StatusAPIKeyQuotaExhausted) {
+		return ErrAPIKeyNotFound
+	}
+	if userID, ok := ctx.Value(ctxkey.UserID).(int64); ok && userID != key.UserID {
+		return ErrAPIKeyNotFound
+	}
+	if checkGroup && catalogGroupID(groupID) != catalogGroupID(key.GroupID) {
+		return ErrGroupNotAllowed
+	}
+	if access.service.userRepo == nil {
+		return ErrUserNotActive
+	}
+	user, err := access.service.userRepo.GetByID(ctx, key.UserID)
+	if err != nil {
+		return err
+	}
+	if user == nil || user.ID != key.UserID || !user.IsActive() {
+		return ErrUserNotActive
+	}
+	current := *key
+	current.User = user
+	if key.GroupID != nil {
+		if access.service.groupRepo == nil {
+			return ErrGroupNotAllowed
+		}
+		current.Group, err = access.service.groupRepo.GetByIDLite(ctx, *key.GroupID)
+		if err != nil {
+			return err
+		}
+	}
+	if _, unavailable := current.groupUnavailableReason(); unavailable {
+		return ErrGroupNotAllowed
+	}
+	return ctx.Err()
+}
+
 func withModelAccessSnapshot(ctx context.Context, snapshot ModelAccessSnapshot) context.Context {
 	ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 	return WithVisibleModelKeyPolicy(ctx, snapshot.Key)
@@ -165,11 +222,33 @@ func (s *APIKeyService) AttachModelAccessPolicy(ctx context.Context, keyID int64
 	if !ok {
 		return ctx, nil
 	}
-	snapshot, err := reader.ReadModelAccessSnapshot(ctx, keyID)
-	if err != nil {
-		return ctx, err
+	access := authenticatedModelAccess{keyID: keyID, service: s, reader: reader}
+	_, preFrozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
+	for attempt := 1; ; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return ctx, err
+		}
+		snapshot, err := reader.ReadModelAccessSnapshot(ctx, keyID)
+		if canceled := ctx.Err(); canceled != nil {
+			return ctx, canceled
+		}
+		if err == nil {
+			if attempt > 1 {
+				if err := access.authorize(ctx, nil, false); err != nil {
+					return ctx, err
+				}
+			}
+			access.attachmentAttempts = attempt
+			ctx = withModelAccessSnapshot(ctx, snapshot)
+			if keyID > 0 {
+				ctx = context.WithValue(ctx, authenticatedModelAccessKey{}, access)
+			}
+			return ctx, ctx.Err()
+		}
+		if keyID <= 0 || preFrozen || attempt >= visibleModelResolveMaxAttempts || !errors.Is(err, ErrVisibleModelRevisionChanged) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return ctx, err
+		}
 	}
-	return withModelAccessSnapshot(ctx, snapshot), nil
 }
 
 type ModelAccessImpact struct {
