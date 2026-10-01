@@ -70,6 +70,188 @@ func TestProxyGroupTransportOneSafeAlternatePinsOperation(t *testing.T) {
 	require.Equal(t, int64(7), *a.ProxyGroupID)
 }
 
+func TestProxyGroupTLSAlternateKeepsHealthyBindingWithoutCooldown(t *testing.T) {
+	r, _, cache, account := runtimeFixture()
+	ctx := context.Background()
+	a, target, err := r.ApplyEgress(ctx, account)
+	require.NoError(t, err)
+	base := &egressRecordingUpstream{fail: &ProxyTLSHandshakeFailure{Cause: io.EOF}}
+	request, _ := http.NewRequest(http.MethodPost, "https://provider.invalid/generate", strings.NewReader("reconstructed payload"))
+	response, err := accountHTTPUpstream(base, a).Do(request, target.URL, a.ID, 1)
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Len(t, base.urls, 2)
+	require.NotEqual(t, base.urls[0], base.urls[1])
+	require.Equal(t, []string{"reconstructed payload", "reconstructed payload"}, base.bodies)
+	require.Empty(t, cache.cooldowns)
+	nextAccount, nextTarget, err := r.ApplyEgress(ctx, account)
+	require.NoError(t, err)
+	require.Equal(t, base.urls[1], nextTarget.URL)
+	require.Equal(t, a.egress.target.ProxyID, cache.bindings[[2]int64{7, account.ID}])
+	require.Nil(t, nextAccount.ProxyID)
+	require.Equal(t, *account.ProxyGroupID, *nextAccount.ProxyGroupID)
+	request, _ = http.NewRequest(http.MethodGet, "https://provider.invalid/status", nil)
+	response, err = accountHTTPUpstream(base, a).Do(request, target.URL, a.ID, 1)
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, base.urls[1], base.urls[2], "stale caller URL must use the updated operation pin")
+}
+
+func TestProxyGroupTLSAlternateDoesNotMutateIneligibleOperations(t *testing.T) {
+	for _, scenario := range []string{"no GetBody", "GetBody fails", "committed", "job pin", "already alternated", "cancelled", "deadline error", "relay", "response"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, _, cache, a := runtimeFixture()
+			a, target, err := r.ApplyEgress(context.Background(), a)
+			require.NoError(t, err)
+			request, _ := http.NewRequest(http.MethodPost, "https://provider.invalid/generate", strings.NewReader("paid"))
+			failure := &ProxyTLSHandshakeFailure{Cause: io.EOF}
+			switch scenario {
+			case "no GetBody":
+				request.GetBody = nil
+			case "GetBody fails":
+				request.GetBody = func() (io.ReadCloser, error) { return nil, errors.New("body factory failed") }
+			case "committed":
+				a.egress.committed = true
+			case "job pin":
+				_, err = a.PinJobEgress(context.Background())
+				require.NoError(t, err)
+			case "already alternated":
+				a.egress.alternated = true
+			case "cancelled":
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				request = request.WithContext(ctx)
+			case "deadline error":
+				failure.Cause = context.DeadlineExceeded
+			case "relay":
+				a.Platform, a.Type = PlatformAnthropic, AccountTypeOAuth
+				a.Extra = map[string]any{"custom_base_url_enabled": true}
+				q := request.URL.Query()
+				q.Set("proxy", target.URL)
+				request.URL.RawQuery = q.Encode()
+			}
+			calls := 0
+			_, err = (&groupAccountUpstream{account: a}).do(request, target.URL, func(*http.Request, string) (*http.Response, error) {
+				calls++
+				if scenario == "response" {
+					return &http.Response{StatusCode: 500}, failure
+				}
+				return nil, failure
+			})
+			require.Error(t, err)
+			require.Equal(t, 1, calls)
+			require.Equal(t, target.ProxyID, cache.bindings[[2]int64{7, a.ID}])
+			require.Empty(t, cache.cooldowns)
+		})
+	}
+}
+
+func TestProxyGroupTLSAlternateRespectsConcurrentWinnerAndFallback(t *testing.T) {
+	for _, scenario := range []string{"concurrent winner", "no fallback", "failed backup", "direct fallback", "second failure"} {
+		t.Run(scenario, func(t *testing.T) {
+			r, g, cache, a := runtimeFixture()
+			a, target, err := r.ApplyEgress(context.Background(), a)
+			require.NoError(t, err)
+			var concurrent int64
+			for _, member := range g.group.Members {
+				if member.ProxyID != target.ProxyID {
+					concurrent = member.ProxyID
+					break
+				}
+			}
+			if scenario == "no fallback" || scenario == "failed backup" || scenario == "direct fallback" {
+				for _, member := range g.group.Members {
+					if member.ProxyID == target.ProxyID {
+						g.group.Members = []ProxyGroupMember{member}
+						break
+					}
+				}
+				if scenario == "failed backup" {
+					g.group.FallbackMode = FallbackModeProxy
+					g.group.FallbackProxyID = &target.ProxyID
+				}
+				if scenario == "direct fallback" {
+					g.group.FallbackMode = FallbackModeDirect
+				}
+			}
+			failure := &ProxyTLSHandshakeFailure{Cause: io.EOF}
+			calls := 0
+			request, _ := http.NewRequest(http.MethodGet, "https://provider.invalid/", nil)
+			_, err = (&groupAccountUpstream{account: a}).do(request, target.URL, func(_ *http.Request, p string) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					if scenario == "concurrent winner" {
+						cache.bindings[[2]int64{7, a.ID}] = concurrent
+					}
+					return nil, failure
+				}
+				require.NotEqual(t, target.URL, p)
+				if scenario == "direct fallback" {
+					require.Empty(t, p)
+				}
+				if scenario == "second failure" {
+					return nil, failure
+				}
+				return &http.Response{StatusCode: 204}, nil
+			})
+			if scenario == "no fallback" || scenario == "failed backup" {
+				require.Same(t, failure, err)
+				require.Equal(t, 1, calls)
+			} else {
+				require.Equal(t, 2, calls)
+				if scenario == "second failure" {
+					require.Same(t, failure, err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+			if scenario == "concurrent winner" {
+				require.Equal(t, concurrent, cache.bindings[[2]int64{7, a.ID}])
+				require.Equal(t, concurrent, a.egress.target.ProxyID)
+			}
+			require.Empty(t, cache.cooldowns)
+		})
+	}
+}
+
+type handshakeNXWinnerCache struct {
+	*runtimeCache
+	winner int64
+}
+
+func (c *handshakeNXWinnerCache) TrySetBindingNX(ctx context.Context, groupID, accountID, _ int64, ttl time.Duration) (int64, error) {
+	return c.runtimeCache.TrySetBindingNX(ctx, groupID, accountID, c.winner, ttl)
+}
+
+func TestProxyGroupTLSAlternateUsesActualNXWinner(t *testing.T) {
+	r, group, cache, account := runtimeFixture()
+	a, failed, err := r.ApplyEgress(context.Background(), account)
+	require.NoError(t, err)
+	nodes := map[int64]*Proxy{}
+	for _, member := range group.group.Members {
+		if member.ProxyID != failed.ProxyID {
+			nodes[member.ProxyID] = member.Proxy
+		}
+	}
+	proposed := rendezvousProxy(7, "91", nodes)
+	var winner int64
+	for id := range nodes {
+		if id != proposed {
+			winner = id
+		}
+	}
+	require.NotZero(t, winner)
+	r.cache = &handshakeNXWinnerCache{runtimeCache: cache, winner: winner}
+	base := &egressRecordingUpstream{fail: &ProxyTLSHandshakeFailure{Cause: io.EOF}}
+	request, _ := http.NewRequest(http.MethodGet, "https://provider.invalid/", nil)
+	response, err := accountHTTPUpstream(base, a).Do(request, failed.URL, a.ID, 1)
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, nodes[winner].URL(), base.urls[1])
+	require.Equal(t, winner, cache.bindings[[2]int64{7, a.ID}])
+	require.Empty(t, cache.cooldowns)
+}
+
 func TestProxyGroupTransportNeverReplaysProviderOrAmbiguousFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

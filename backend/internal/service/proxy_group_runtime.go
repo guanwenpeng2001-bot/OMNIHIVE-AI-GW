@@ -114,6 +114,10 @@ func (r *ProxyGroupRuntime) ApplyEgress(ctx context.Context, account *Account) (
 }
 
 func (r *ProxyGroupRuntime) resolve(ctx context.Context, a *Account) (EgressTarget, error) {
+	return r.resolveExcluding(ctx, a, 0)
+}
+
+func (r *ProxyGroupRuntime) resolveExcluding(ctx context.Context, a *Account, excludedProxyID int64) (EgressTarget, error) {
 	if a.ProxyGroupID == nil {
 		if a.ProxyID != nil && a.Proxy != nil {
 			return EgressTarget{a.Proxy.URL(), *a.ProxyID, EgressSourceSingleProxy, true}, nil
@@ -131,7 +135,7 @@ func (r *ProxyGroupRuntime) resolve(ctx context.Context, a *Account) (EgressTarg
 	if workspaceID <= 0 {
 		workspaceID = domain.ResourceWorkspaceID(ctx)
 	}
-	return r.selectTarget(ctx, *a.ProxyGroupID, workspaceID, bindingID, strconv.FormatInt(bindingID, 10))
+	return r.selectTargetExcluding(ctx, *a.ProxyGroupID, workspaceID, bindingID, strconv.FormatInt(bindingID, 10), excludedProxyID)
 }
 
 func eligibleProxy(p *Proxy, workspaceID int64, now time.Time) bool {
@@ -192,6 +196,10 @@ func rendezvousProxy(groupID int64, seed string, nodes map[int64]*Proxy) int64 {
 }
 
 func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspaceID, accountID int64, seed string) (EgressTarget, error) {
+	return r.selectTargetExcluding(ctx, groupID, workspaceID, accountID, seed, 0)
+}
+
+func (r *ProxyGroupRuntime) selectTargetExcluding(ctx context.Context, groupID, workspaceID, accountID int64, seed string, excludedProxyID int64) (EgressTarget, error) {
 	// Retry only cache contention/revocation, never network operations. Every
 	// winner is revalidated against a fresh atomic group membership snapshot.
 	for attempt := 0; attempt < 4; attempt++ {
@@ -199,11 +207,12 @@ func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspace
 		if err != nil {
 			return EgressTarget{}, err
 		}
+		delete(nodes, excludedProxyID)
 		if accountID == 0 {
 			if id := rendezvousProxy(groupID, seed, nodes); id > 0 {
 				return EgressTarget{nodes[id].URL(), id, EgressSourceGroupBinding, true}, nil
 			}
-			return r.fallback(ctx, g)
+			return r.fallbackExcluding(ctx, g, excludedProxyID)
 		}
 		bound, err := r.cache.GetBinding(ctx, groupID, accountID)
 		if err != nil {
@@ -212,7 +221,7 @@ func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspace
 		if bound == 0 {
 			selected := rendezvousProxy(groupID, seed, nodes)
 			if selected == 0 {
-				fallback, err := r.fallback(ctx, g)
+				fallback, err := r.fallbackExcluding(ctx, g, excludedProxyID)
 				if err != nil || fallback.ProxyID == 0 {
 					return fallback, err
 				}
@@ -227,9 +236,10 @@ func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspace
 		if err != nil {
 			return EgressTarget{}, err
 		}
+		delete(nodes, excludedProxyID)
 		p := nodes[bound]
 		source := EgressSourceGroupBinding
-		if p == nil && g.FallbackMode == FallbackModeProxy && g.FallbackProxyID != nil && *g.FallbackProxyID == bound {
+		if p == nil && bound != excludedProxyID && g.FallbackMode == FallbackModeProxy && g.FallbackProxyID != nil && *g.FallbackProxyID == bound {
 			p, err = r.fallbackProxy(ctx, g)
 			if err != nil {
 				return EgressTarget{}, err
@@ -254,10 +264,17 @@ func (r *ProxyGroupRuntime) selectTarget(ctx context.Context, groupID, workspace
 }
 
 func (r *ProxyGroupRuntime) fallback(ctx context.Context, g *ProxyGroup) (EgressTarget, error) {
+	return r.fallbackExcluding(ctx, g, 0)
+}
+
+func (r *ProxyGroupRuntime) fallbackExcluding(ctx context.Context, g *ProxyGroup, excludedProxyID int64) (EgressTarget, error) {
 	switch g.FallbackMode {
 	case FallbackModeDirect:
 		return EgressTarget{Source: EgressSourceGroupFallbackDirect, Resolved: true}, nil
 	case FallbackModeProxy:
+		if g.FallbackProxyID != nil && *g.FallbackProxyID == excludedProxyID {
+			return EgressTarget{}, ErrProxyGroupUnavailable
+		}
 		p, err := r.fallbackProxy(ctx, g)
 		if err != nil {
 			return EgressTarget{}, err
@@ -337,6 +354,14 @@ func (r *ProxyGroupRuntime) confirmSessionBinding(ctx context.Context, group *Pr
 // endpoint itself failed before any application bytes were sent. Destination
 // CONNECT failures, HTTP status codes and cancellation cannot construct it.
 type ProxyConnectFailure struct{ Cause error }
+
+// ProxyTLSHandshakeFailure permits only an operation-local alternate. A
+// destination handshake failure is never evidence for global node cooldown.
+// Producers must prove no connection or application write on any prior attempt.
+type ProxyTLSHandshakeFailure struct{ Cause error }
+
+func (e *ProxyTLSHandshakeFailure) Error() string { return e.Cause.Error() }
+func (e *ProxyTLSHandshakeFailure) Unwrap() error { return e.Cause }
 
 func (e *ProxyConnectFailure) Error() string {
 	if e.Cause != nil {

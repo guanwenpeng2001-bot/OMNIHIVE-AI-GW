@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"sync"
 	"sync/atomic"
 )
 
@@ -50,9 +52,24 @@ func markProxyConnectionFailures(transport *http.Transport, proxy *url.URL) {
 // Reused-connection retries inside net/http can dial after a prior write. Keep
 // one trace across the entire client.Do, stripping the prewrite classification
 // whenever any attempt wrote headers/request bytes or cancellation occurred.
-func traceProxyApplicationWrite(req *http.Request) (*http.Request, func(error) error) {
-	var wrote atomic.Bool
-	trace := &httptrace.ClientTrace{WroteHeaders: func() { wrote.Store(true) }, WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) }}
+// Route-only TLS eligibility additionally requires positive handshake evidence
+// and no GotConn event on any attempt, even when no write callback was observed.
+func traceProxyApplicationWrite(req *http.Request, proxyURL string) (*http.Request, func(error) error) {
+	var wrote, gotConn atomic.Bool
+	var handshakeMu sync.Mutex
+	var handshakeErrors []error
+	trace := &httptrace.ClientTrace{
+		GotConn:      func(httptrace.GotConnInfo) { gotConn.Store(true) },
+		WroteHeaders: func() { wrote.Store(true) },
+		WroteRequest: func(httptrace.WroteRequestInfo) { wrote.Store(true) },
+		TLSHandshakeDone: func(_ tls.ConnectionState, err error) {
+			if err != nil {
+				handshakeMu.Lock()
+				handshakeErrors = append(handshakeErrors, err)
+				handshakeMu.Unlock()
+			}
+		},
+	}
 	traced := req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 	return traced, func(err error) error {
 		var fingerprintFailure *tlsfingerprint.ProxyConnectError
@@ -60,8 +77,27 @@ func traceProxyApplicationWrite(req *http.Request) (*http.Request, func(error) e
 			err = &service.ProxyConnectFailure{Cause: err}
 		}
 		var failure *service.ProxyConnectFailure
-		if errors.As(err, &failure) && (wrote.Load() || req.Context().Err() != nil) {
-			return fmt.Errorf("upstream transport failed without safe replay: %w", failure.Cause)
+		cancelled := req.Context().Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+		if errors.As(err, &failure) {
+			if wrote.Load() || cancelled {
+				return fmt.Errorf("upstream transport failed without safe replay: %w", failure.Cause)
+			}
+			return err
+		}
+		if err == nil || proxyURL == "" || gotConn.Load() || wrote.Load() || cancelled {
+			return err
+		}
+		var handshakeFailure *tlsfingerprint.ProxyTLSHandshakeError
+		proven := errors.As(err, &handshakeFailure)
+		handshakeMu.Lock()
+		for _, handshakeErr := range handshakeErrors {
+			// A speculative or unrelated handshake callback cannot authorize
+			// retry of a different terminal error from client.Do.
+			proven = proven || errors.Is(err, handshakeErr)
+		}
+		handshakeMu.Unlock()
+		if proven {
+			return &service.ProxyTLSHandshakeFailure{Cause: err}
 		}
 		return err
 	}

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"net/http"
@@ -49,12 +50,17 @@ func (u *groupAccountUpstream) do(req *http.Request, proxyURL string, send func(
 	canAlternate := !state.committed && !state.alternated && resolved == proxyURL && proxyURL != "" && state.runtime != nil
 	response, err := send(req, proxyURL)
 	var proxyFailure *ProxyConnectFailure
-	if err == nil || response != nil || resolved != proxyURL || proxyURL == "" || state.runtime == nil || req.Context().Err() != nil || !errors.As(err, &proxyFailure) {
+	var handshakeFailure *ProxyTLSHandshakeFailure
+	proxyOwnFailure := errors.As(err, &proxyFailure)
+	routeFailure := errors.As(err, &handshakeFailure)
+	if err == nil || response != nil || resolved != proxyURL || proxyURL == "" || state.runtime == nil || req.Context().Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (!proxyOwnFailure && !routeFailure) {
 		state.committed = true
 		return response, err
 	}
-	if reportErr := state.runtime.ReportTransportFailure(req.Context(), *u.account.ProxyGroupID, egressBindingAccountID(u.account), state.target.ProxyID, err); reportErr != nil {
-		return nil, reportErr
+	if proxyOwnFailure {
+		if reportErr := state.runtime.ReportTransportFailure(req.Context(), *u.account.ProxyGroupID, egressBindingAccountID(u.account), state.target.ProxyID, err); reportErr != nil {
+			return nil, reportErr
+		}
 	}
 	// A transport may have consumed the body while failing to connect. Replay
 	// only a body with an explicit reconstruction function (or no body).
@@ -63,13 +69,7 @@ func (u *groupAccountUpstream) do(req *http.Request, proxyURL string, send func(
 		return response, err
 	}
 	state.alternated = true
-	target, resolveErr := state.runtime.resolve(req.Context(), u.account)
-	if resolveErr != nil {
-		return nil, resolveErr
-	}
-	if target.ProxyID == state.target.ProxyID {
-		return response, err
-	}
+	state.committed = true
 	retry := req.Clone(req.Context())
 	if req.GetBody != nil {
 		body, bodyErr := req.GetBody()
@@ -78,7 +78,32 @@ func (u *groupAccountUpstream) do(req *http.Request, proxyURL string, send func(
 		}
 		retry.Body = body
 	}
+	if req.Context().Err() != nil {
+		if retry.Body != nil {
+			_ = retry.Body.Close()
+		}
+		return response, err
+	}
+	// Reconstruct before mutating route-only bindings. A body factory failure
+	// must not move a binding for an operation that cannot be retried.
+	if routeFailure && !proxyOwnFailure {
+		if _, deleteErr := state.runtime.cache.DeleteBindingIfValue(req.Context(), *u.account.ProxyGroupID, egressBindingAccountID(u.account), state.target.ProxyID); deleteErr != nil {
+			if retry.Body != nil {
+				_ = retry.Body.Close()
+			}
+			return nil, deleteErr
+		}
+	}
+	target, resolveErr := state.runtime.resolveExcluding(req.Context(), u.account, state.target.ProxyID)
+	if resolveErr != nil || target.ProxyID == state.target.ProxyID {
+		if retry.Body != nil {
+			_ = retry.Body.Close()
+		}
+		if routeFailure || resolveErr == nil {
+			return response, err
+		}
+		return nil, resolveErr
+	}
 	state.target = target
-	state.committed = true
 	return send(retry, target.URL)
 }
