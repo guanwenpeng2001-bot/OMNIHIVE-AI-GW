@@ -179,12 +179,15 @@ func TestProxyGroupRepositoryDedicatedPostgres(t *testing.T) {
 		copy.ID = 0
 		copy.Name = "copy-account"
 		require.NoError(t, accounts.CreateWithAccountGroups(ctx, &copy, nil))
+		require.NoError(t, c.Account.UpdateOneID(copy.ID).SetParentAccountID(a.ID).SetQuotaDimension(account.QuotaDimensionSpark).Exec(ctx))
 		n, err := repo.CountAccountsByGroupID(ctx, group.ID)
 		require.NoError(t, err)
 		require.EqualValues(t, 2, n)
 		summaries, err := repo.ListAccountSummariesByGroupID(ctx, group.ID)
 		require.NoError(t, err)
 		require.Len(t, summaries, 2)
+		require.Nil(t, summaries[0].ParentAccountID)
+		require.Equal(t, &a.ID, summaries[1].ParentAccountID)
 		require.ErrorIs(t, repo.Delete(ctx, group.ID), service.ErrProxyGroupInUse)
 		got.ProxyGroupID = nil
 		got.ProxyGroup = nil

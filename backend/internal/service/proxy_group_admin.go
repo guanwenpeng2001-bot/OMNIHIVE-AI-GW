@@ -275,19 +275,26 @@ func (s *ProxyGroupAdminService) Bindings(ctx context.Context, id int64) ([]Prox
 		memberIDs[m.ProxyID] = true
 	}
 	out := make([]ProxyGroupBindingObservation, 0, len(accounts))
+	owners := make(map[int64]ProxyGroupBindingObservation, len(accounts))
 	for _, account := range accounts {
+		ownerID := proxyGroupBindingOwner(account)
+		if observed, ok := owners[ownerID]; ok {
+			observed.AccountID, observed.AccountName = account.ID, account.Name
+			out = append(out, observed)
+			continue
+		}
 		item := ProxyGroupBindingObservation{AccountID: account.ID, AccountName: account.Name}
-		proxyID, err := s.cache.GetBinding(ctx, id, account.ID)
+		proxyID, err := s.cache.GetBinding(ctx, id, ownerID)
 		if err != nil {
 			return nil, err
 		}
 		if proxyID > 0 {
 			observedAt := time.Now()
-			ttl, err := s.cache.GetBindingTTL(ctx, id, account.ID)
+			ttl, err := s.cache.GetBindingTTL(ctx, id, ownerID)
 			if err != nil {
 				return nil, err
 			}
-			current, err := s.cache.GetBinding(ctx, id, account.ID)
+			current, err := s.cache.GetBinding(ctx, id, ownerID)
 			if err != nil {
 				return nil, err
 			}
@@ -308,6 +315,7 @@ func (s *ProxyGroupAdminService) Bindings(ctx context.Context, id int64) ([]Prox
 				}
 			}
 		}
+		owners[ownerID] = item
 		out = append(out, item)
 	}
 	return out, nil
@@ -322,15 +330,21 @@ func (s *ProxyGroupAdminService) ResetBindings(ctx context.Context, id int64) (i
 		return 0, err
 	}
 	cleared := 0
+	owners := make(map[int64]bool, len(accounts))
 	for _, account := range accounts {
-		proxyID, err := s.cache.GetBinding(ctx, id, account.ID)
+		ownerID := proxyGroupBindingOwner(account)
+		if owners[ownerID] {
+			continue
+		}
+		owners[ownerID] = true
+		proxyID, err := s.cache.GetBinding(ctx, id, ownerID)
 		if err != nil {
 			return cleared, err
 		}
 		if proxyID == 0 {
 			continue
 		}
-		deleted, err := s.cache.DeleteBindingIfValue(ctx, id, account.ID, proxyID)
+		deleted, err := s.cache.DeleteBindingIfValue(ctx, id, ownerID, proxyID)
 		if err != nil {
 			return cleared, err
 		}
@@ -343,4 +357,11 @@ func (s *ProxyGroupAdminService) ResetBindings(ctx context.Context, id int64) (i
 
 func (s *ProxyGroupAdminService) ClearCooldown(ctx context.Context, proxyID int64) error {
 	return s.cache.ClearCooldown(ctx, proxyID)
+}
+
+func proxyGroupBindingOwner(account ProxyAccountSummary) int64 {
+	if account.ParentAccountID != nil && *account.ParentAccountID > 0 {
+		return *account.ParentAccountID
+	}
+	return account.ID
 }
