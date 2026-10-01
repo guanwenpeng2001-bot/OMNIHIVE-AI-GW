@@ -138,8 +138,8 @@ var (
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
 	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
-	// sourceQuotes retain missing versus explicit zero for read-only comparisons.
-	// They never participate in billing or capability approval.
+	// sourceQuotes retain missing versus explicit zero for comparisons and billing.
+	// Billing reads field presence only; capability approval never uses them.
 	sourceQuotes                        map[string]PricingQuote
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
@@ -162,7 +162,7 @@ type LiteLLMModelPricing struct {
 	InputCostPerImageToken              float64 `json:"input_cost_per_image_token"`  // 图片输入 token 价格（如 gpt-image-2 图片编辑）
 	CacheReadInputImageTokenCost        float64 `json:"cache_read_input_image_token_cost"`
 
-	// TokenPricingAbsent 表示源数据中 input/output token 价格均缺失（仅有图片价）。
+	// TokenPricingAbsent marks entries without any token tariff (e.g. per-image only).
 	// 此类条目只可用于图片计费，token 计费必须回退到 fallback 或 fail-closed，
 	// 否则 token 流量会被按 $0 计费。零值（false）表示条目具备 token 价格。
 	TokenPricingAbsent bool `json:"-"`
@@ -618,7 +618,12 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		if err := validateModelPriceVariants(entry.PriceVariants); err != nil {
 			return nil, fmt.Errorf("model %s: %w", modelName, err)
 		}
-		if len(entry.PriceVariants) == 0 && entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil && entry.InputCostPerImageToken == nil {
+		tokenPricingAbsent := entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil &&
+			entry.CacheCreationInputTokenCost == nil && entry.CacheCreationInputTokenCostAbove1hr == nil && entry.CacheReadInputTokenCost == nil &&
+			entry.InputCostPerTokenPriority == nil && entry.OutputCostPerTokenPriority == nil &&
+			entry.CacheCreationInputTokenCostPriority == nil && entry.CacheReadInputTokenCostPriority == nil &&
+			entry.InputCostPerImageToken == nil && entry.OutputCostPerImageToken == nil && entry.CacheReadInputImageTokenCost == nil
+		if len(entry.PriceVariants) == 0 && tokenPricingAbsent && entry.OutputCostPerImage == nil {
 			continue
 		}
 
@@ -629,7 +634,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			Mode:                  entry.Mode,
 			SupportsPromptCaching: entry.SupportsPromptCaching != nil && *entry.SupportsPromptCaching,
 			SupportsServiceTier:   entry.SupportsServiceTier,
-			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil,
+			TokenPricingAbsent:    tokenPricingAbsent,
 		}
 
 		if entry.InputCostPerToken != nil {
@@ -857,7 +862,7 @@ func warnOrphanCacheTierFields(entries []string) {
 	if total > 20 {
 		entries = append(entries[:20], "...")
 	}
-	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: %d model(s) carry cache above-tier prices without a base cache price; that cache item bills at $0 until the catalog/override supplies the base: %s", total, strings.Join(entries, ", "))
+	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: %d model(s) carry cache above-tier prices without a base cache price; used cache dimensions without a tariff require settlement review: %s", total, strings.Join(entries, ", "))
 }
 
 // applyPricingOverrides 把 override 文件的条目逐字段修补进原始目录数据。目录与回退
@@ -1095,8 +1100,8 @@ func warnDroppedLongContextLadders(old, next map[string]*LiteLLMModelPricing) {
 
 // warnDroppedCacheBasePrices 对比新旧目录数据：上一份里基础缓存价为正、新数据里该基础价
 // 缺失或为 0 的条目打 WARN。cache 基础价已完全数据驱动（无代码兜底：mergeFallbackPricingData
-// 对已存在条目整条跳过，override 也只是数据层），数据源一次误提交就会让该缓存分项静默按 $0
-// 计——与长上下文阶梯丢失同一形态，这里是唯一的哨兵。
+// 对已存在条目整条跳过，override 也只是数据层）。缺失且实际使用的缓存分项会
+// 进入结算待审；本告警让运营者在该分项被使用之前发现目录变化。
 //
 // 只对比基础价。计费对变体有回落：服务档变体（_priority，_flex 不参与本服务的取值）与 1h
 // 缓存写入变体缺自身价时取标准基础价（见 computeTokenBreakdown/computeCacheCreationCost），
@@ -1106,7 +1111,7 @@ func warnDroppedCacheBasePrices(old, next map[string]*LiteLLMModelPricing) {
 	if len(old) == 0 {
 		return
 	}
-	// 计费在这两个字段缺失时没有下一档可取：该缓存分项直接按 $0 计。
+	// 这两个基础字段缺失时，普通缓存用量没有下一档可取，需要结算待审。
 	basePriceFields := []struct {
 		name  string
 		price func(*LiteLLMModelPricing) float64
@@ -1139,7 +1144,7 @@ func warnDroppedCacheBasePrices(old, next map[string]*LiteLLMModelPricing) {
 	if total > 20 {
 		dropped = append(dropped[:20], "...")
 	}
-	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: base cache price dropped for %d item(s) after reload: %s (that cache item bills at $0 until the catalog or pricing.override_file supplies the base)", total, strings.Join(dropped, ", "))
+	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: base cache price dropped for %d item(s) after reload: %s (missing used cache tariffs require settlement review; explicit zero remains free)", total, strings.Join(dropped, ", "))
 }
 
 // useFallbackPricing 使用回退价格文件

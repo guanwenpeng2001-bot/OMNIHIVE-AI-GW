@@ -312,10 +312,12 @@ func (d *ModelPricingDescriptor) tokenPricing() *ModelPricing {
 			continue
 		}
 		var input, output *float64
+		hasTokenPrice := false
 		for _, price := range variant.Prices {
-			if price.Unit != "token" || price.Conditions != "" || price.Currency != "USD" {
+			if price.Unit != "token" || price.Conditions != "" || price.Currency != "USD" || price.Sales == nil {
 				continue
 			}
+			hasTokenPrice = true
 			switch price.Dimension {
 			case "input":
 				input = price.Sales
@@ -323,14 +325,21 @@ func (d *ModelPricingDescriptor) tokenPricing() *ModelPricing {
 				output = price.Sales
 			}
 		}
-		if input == nil || output == nil {
+		if !hasTokenPrice {
 			continue
 		}
 		if selected != nil {
 			return nil
 		}
-		selected = &ModelPricing{Source: d.Source, InputPricePerToken: *input, OutputPricePerToken: *output,
-			TokenDimensions: map[string]bool{"input": true, "output": true}}
+		selected = &ModelPricing{Source: d.Source, TokenDimensions: map[string]bool{}}
+		if input != nil {
+			selected.InputPricePerToken = *input
+			selected.TokenDimensions["input"] = true
+		}
+		if output != nil {
+			selected.OutputPricePerToken = *output
+			selected.TokenDimensions["output"] = true
+		}
 		for _, price := range variant.Prices {
 			if price.Unit == "token" && price.Dimension == "cache_write_1h" && price.Conditions == "" {
 				selected.SupportsCacheBreakdown = true
@@ -396,11 +405,15 @@ func (d *ModelPricingDescriptor) resolvePricing(mode BillingMode) *ResolvedPrici
 	return resolved
 }
 
-// Variant cards are complete facts, so absent dimensions cannot inherit a zero
-// value or a model-specific fallback. Legacy cards keep their existing policy.
-func validateTokenDimensions(pricing *ModelPricing, tokens UsageTokens) error {
+// Variant cards require explicit dimensions. Legacy cards allow their existing
+// image/priority/cache fallbacks, but must still have a tariff for used tokens.
+func validateTokenDimensions(pricing *ModelPricing, tokens UsageTokens, serviceTiers ...string) error {
 	if pricing.TokenDimensions == nil {
-		return nil
+		tier := ""
+		if len(serviceTiers) > 0 {
+			tier = serviceTiers[0]
+		}
+		return validateLegacyTokenPrices(pricing, tokens, tier)
 	}
 	for dimension, quantity := range variantTokenQuantities(tokens, pricing.SupportsCacheBreakdown) {
 		if quantity != 0 && !pricing.TokenDimensions[dimension] {

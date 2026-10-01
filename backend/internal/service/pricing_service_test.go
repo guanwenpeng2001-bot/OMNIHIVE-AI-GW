@@ -1133,7 +1133,7 @@ func TestLoadPricingData_WarnsDroppedCacheBasePrice(t *testing.T) {
 	require.True(t, logSink.ContainsMessageAtLevel("base cache price dropped for 2 item(s)", "warn"))
 	require.True(t, logSink.ContainsMessage("cache-price-dropped-model(cache_creation_input_token_cost)"))
 	require.True(t, logSink.ContainsMessage("cache-price-dropped-model(cache_read_input_token_cost)"))
-	require.True(t, logSink.ContainsMessage("bills at $0 until the catalog or pricing.override_file supplies the base"))
+	require.True(t, logSink.ContainsMessage("missing used cache tariffs require settlement review; explicit zero remains free"))
 	require.False(t, logSink.ContainsMessage("carry cache above-tier prices"),
 		"条目没有 above 档，parse 期哨兵覆盖不到，这正是本条哨兵要补的静默路径")
 }
