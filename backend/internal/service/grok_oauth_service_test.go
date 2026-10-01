@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,6 +60,57 @@ func TestGrokOAuthServiceRefreshTokenPreservesOriginalRefreshTokenWhenNotRotated
 	require.Equal(t, "new-access-token", info.AccessToken)
 	require.Equal(t, "original-refresh-token", info.RefreshToken)
 	require.Equal(t, "client-id", info.ClientID)
+}
+
+func TestGrokOAuthServiceRefreshAccountTokenProxyResolution(t *testing.T) {
+	proxyID := int64(41)
+	proxy := &Proxy{ID: proxyID, Protocol: "http", Host: "127.0.0.1", Port: 8080}
+	for _, tt := range []struct {
+		name       string
+		repo       ProxyRepository
+		hydrated   *Proxy
+		wantCode   string
+		wantReason GatewayFailureReason
+		wantScope  GatewayFailureScope
+	}{
+		{name: "repository outage", repo: &grokCredentialProxyRepoStub{err: errors.New("database unavailable")}, hydrated: proxy, wantCode: "GROK_OAUTH_PROXY_LOOKUP_FAILED", wantReason: GrokCredentialReasonProviderDown, wantScope: GatewayFailureScopeProvider},
+		{name: "repository error cannot impersonate credential revocation", repo: &grokCredentialProxyRepoStub{err: errors.New("invalid_grant internal diagnostic")}, hydrated: proxy, wantCode: "GROK_OAUTH_PROXY_LOOKUP_FAILED", wantReason: GrokCredentialReasonProviderDown, wantScope: GatewayFailureScopeProvider},
+		{name: "missing node", repo: &grokCredentialProxyRepoStub{err: ErrProxyNotFound}, hydrated: proxy, wantCode: "GROK_OAUTH_PROXY_NOT_FOUND", wantReason: GrokCredentialReasonProxyInvalid, wantScope: GatewayFailureScopeAccount},
+		{name: "nil node", repo: &grokCredentialProxyRepoStub{}, hydrated: proxy, wantCode: "GROK_OAUTH_PROXY_NOT_FOUND", wantReason: GrokCredentialReasonProxyInvalid, wantScope: GatewayFailureScopeAccount},
+		{name: "repository unavailable", wantCode: "GROK_OAUTH_PROXY_NOT_AVAILABLE", wantReason: GrokCredentialReasonProviderConfig, wantScope: GatewayFailureScopeProvider},
+		{name: "mismatched hydrated node", hydrated: &Proxy{ID: 42}, wantCode: "GROK_OAUTH_PROXY_NOT_AVAILABLE", wantReason: GrokCredentialReasonProviderConfig, wantScope: GatewayFailureScopeProvider},
+		{name: "repository node", repo: &grokCredentialProxyRepoStub{proxy: proxy}},
+		{name: "hydrated node without repository", hydrated: proxy},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			account := expiredGrokOAuthAccountForCredentialTest(709)
+			account.ProxyID, account.Proxy = &proxyID, tt.hydrated
+			client := &egressGrokOAuthClient{}
+			svc := NewGrokOAuthService(tt.repo, client)
+			defer svc.Stop()
+			info, err := svc.RefreshAccountToken(context.Background(), account)
+			if tt.wantCode == "" {
+				require.NoError(t, err)
+				require.NotNil(t, info)
+				require.Equal(t, []string{proxy.URL()}, client.urls)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantCode)
+			require.Nil(t, info)
+			require.Empty(t, client.urls, "proxy resolution failure must not contact the token endpoint directly")
+			class := classifyGrokCredentialFailure(account, err)
+			require.Equal(t, tt.wantScope, class.scope)
+			require.Equal(t, tt.wantReason, class.reason)
+			if tt.wantScope == GatewayFailureScopeProvider {
+				require.Equal(t, NextAccountStop, class.action)
+				require.False(t, class.permanent)
+				require.False(t, class.transient)
+			} else {
+				require.Equal(t, NextAccountRetry, class.action)
+				require.True(t, class.permanent)
+			}
+		})
+	}
 }
 
 func TestGrokOAuthServiceRefreshTokenRejectsEmptyUpstreamResponse(t *testing.T) {

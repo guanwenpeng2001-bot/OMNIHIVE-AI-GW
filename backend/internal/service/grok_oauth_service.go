@@ -347,7 +347,7 @@ func (s *GrokOAuthService) RefreshAccountToken(ctx context.Context, account *Acc
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_INVALID_ACCOUNT_TYPE", "account is not an OAuth account")
 	}
 
-	proxyURL, err := resolveGoogleAccountProxyURL(ctx, account, s.proxyRepo)
+	proxyURL, err := s.resolveAccountProxyURL(ctx, account)
 	if err != nil {
 		return nil, err
 	}
@@ -461,6 +461,18 @@ func (s *GrokOAuthService) tokenInfoFromResponse(tokenResp *xai.TokenResponse, c
 		}
 	}
 	return info
+}
+
+func (s *GrokOAuthService) resolveAccountProxyURL(ctx context.Context, account *Account) (string, error) {
+	if account.ProxyGroupID != nil {
+		return account.EgressProxyURL(ctx)
+	}
+	if s.proxyRepo == nil && account.ProxyID != nil && account.Proxy != nil && account.Proxy.ID == *account.ProxyID {
+		return account.Proxy.URL(), nil
+	}
+	// Keep lookup outages distinct from missing configuration so local
+	// infrastructure failures cannot quarantine an otherwise valid account.
+	return s.proxyURL(ctx, account.ProxyID)
 }
 
 func (s *GrokOAuthService) proxyURL(ctx context.Context, proxyID *int64) (string, error) {
