@@ -4999,7 +4999,10 @@ const createWithOptions = async (payload: CreateAccountRequest) => {
   const manualCursorDraft = !draft && payload.platform === 'cursor' && payload.type === 'oauth'
   if (manualCursorDraft) {
     const authorizationCredentials = Object.fromEntries(Object.entries(credentials).filter(([key]) => ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id', 'client_version'].includes(key)))
-    const { data } = await apiClient.post<AccountCredentialDraft>('/admin/accounts/credential-drafts', { credentials: authorizationCredentials })
+    const { data } = await apiClient.post<AccountCredentialDraft>('/admin/accounts/credential-drafts', {
+      credentials: authorizationCredentials,
+      ...accountProxyPayload(payload.proxy_id, payload.proxy_group_id)
+    })
     draft = data
   }
   if (!props.show || generation !== reviewGeneration) {

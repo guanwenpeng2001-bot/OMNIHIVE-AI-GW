@@ -495,6 +495,34 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    { node: null, group: null, expected: { proxy_id: 0, proxy_group_id: 0 } },
+    { node: 17, group: null, expected: { proxy_id: 17, proxy_group_id: 0 } },
+    { node: null, group: 71, expected: { proxy_id: 0, proxy_group_id: 71 } }
+  ])('pins manual Cursor draft and account review to the same logical egress: $expected', async ({ node, group, expected }) => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Manual Cursor egress')
+    for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
+      await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
+    }
+    const selector = wrapper.getComponent(AccountProxySelector)
+    selector.vm.$emit('update:proxyId', node)
+    selector.vm.$emit('update:proxyGroupId', group)
+    await flushPromises()
+    vi.mocked(apiClient.post).mockClear()
+    await openReview(wrapper)
+    const draftCall = vi.mocked(apiClient.post).mock.calls.find(([url]) => url === '/admin/accounts/credential-drafts')
+    expect(draftCall?.[1]).toMatchObject({ ...expected, credentials: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } })
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await confirmReview(wrapper)
+    const reviewCall = vi.mocked(apiClient.post).mock.calls.find(([url]) => url.endsWith('/synthetic-draft/review'))
+    expect(reviewCall?.[1]).toMatchObject(expected)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ ...expected, credential_draft: 'synthetic-draft' })
+    wrapper.unmount()
+  })
+
   it.each(['official', 'relay'] as const)('creates Cursor %s keys with the correct credentials and concurrency', async mode => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
