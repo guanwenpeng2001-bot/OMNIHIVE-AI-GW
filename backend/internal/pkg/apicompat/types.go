@@ -23,6 +23,7 @@ type AnthropicRequest struct {
 	Stream      bool               `json:"stream,omitempty"`
 	Temperature *float64           `json:"temperature,omitempty"`
 	TopP        *float64           `json:"top_p,omitempty"`
+	TopK        *int               `json:"top_k,omitempty"`
 	StopSeqs    []string           `json:"stop_sequences,omitempty"`
 	Thinking    *AnthropicThinking `json:"thinking,omitempty"`
 	ToolChoice  json.RawMessage    `json:"tool_choice,omitempty"`

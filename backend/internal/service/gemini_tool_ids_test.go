@@ -104,7 +104,7 @@ func TestGeminiToolIDProfileSelection(t *testing.T) {
 		{"custom native override", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}, Extra: map[string]any{"gemini_tool_id_profile": "native"}}, geminiToolIDNative},
 		{"explicit legacy", &Account{Extra: map[string]any{"gemini_tool_id_profile": "legacy_no_id"}}, geminiToolIDLegacy},
 		{"explicit native", &Account{Extra: map[string]any{"gemini_tool_id_profile": "native"}}, geminiToolIDNative},
-		{"invalid", &Account{Type: AccountTypeAPIKey, Extra: map[string]any{"gemini_tool_id_profile": "typo"}}, geminiToolIDUnknown},
+		{"unknown metadata uses transport", &Account{Type: AccountTypeAPIKey, Extra: map[string]any{"gemini_tool_id_profile": "future"}}, geminiToolIDNative},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, geminiToolIDProfileForAccount(tc.account)) })
 	}
@@ -244,6 +244,7 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 			require.NoError(t, marshalErr)
 			_, _ = events.WriteString("data: " + string(chunk) + "\n\n")
 		}
+		events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n")
 		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
 		collected, _, collectErr := collectGeminiSSE(strings.NewReader(events.String()), false)
 		require.NoError(t, collectErr)
@@ -316,16 +317,10 @@ func TestGeminiToolIDsForwardProfileBoundary(t *testing.T) {
 			c, _ := gin.CreateTestContext(w)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 			_, err := svc.Forward(context.Background(), c, account, []byte(geminiParallelToolHistory))
-			if profile == geminiToolIDUnknown {
-				require.Error(t, err)
-				require.Equal(t, 400, w.Code)
-				require.Nil(t, stub.lastReq)
-				return
-			}
 			require.NoError(t, err)
 			posted, err := io.ReadAll(stub.lastReq.Body)
 			require.NoError(t, err)
-			if profile == geminiToolIDNative {
+			if profile != geminiToolIDLegacy {
 				require.Contains(t, string(posted), `"id":"call-a"`)
 			} else {
 				require.NotContains(t, string(posted), `"id":`)

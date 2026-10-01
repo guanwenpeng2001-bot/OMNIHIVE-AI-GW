@@ -82,13 +82,6 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
-	// Gemini has native, Chat, and Messages paths, but no Responses bridge.
-	// Reject the resolved target before scheduling or any upstream work.
-	if effectiveAPIKeyPlatform(c, apiKey) == service.PlatformGemini {
-		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error",
-			"Gemini does not support /v1/responses; use /v1/chat/completions, /v1/messages, or the native Gemini API")
-		return
-	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
@@ -304,6 +297,15 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
 			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		} else if account.Platform == service.PlatformGemini {
+			if h.geminiCompatService == nil {
+				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Gemini compatibility service is not configured")
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			result, err = h.geminiCompatService.ForwardAsResponses(requestCtx, c, account, forwardBody, clientRequestedModel(c, reqModel))
 		} else {
 			if account.IsCursor() {
 				result, err = h.cursorGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody)

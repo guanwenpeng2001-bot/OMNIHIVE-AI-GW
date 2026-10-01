@@ -1107,6 +1107,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if req.Stream {
 		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
 		if err != nil {
+			if streamRes != nil && streamRes.usage != nil {
+				return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: *streamRes.usage, Model: originalModel, UpstreamModel: mappedModel, Stream: true, Duration: time.Since(startTime), FirstTokenMs: streamRes.firstTokenMs}, err
+			}
 			return nil, err
 		}
 		usage = streamRes.usage
@@ -1388,6 +1391,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			var failoverErr *UpstreamFailoverError
 			if action == "countTokens" && errors.As(transportErr, &failoverErr) {
 				estimated := estimateGeminiCountTokens(body)
+				c.Header("X-Token-Count-Estimated", "true")
 				c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 				return &ForwardResult{
 					RequestID:     "",
@@ -1459,6 +1463,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 			if action == "countTokens" {
 				estimated := estimateGeminiCountTokens(body)
+				c.Header("X-Token-Count-Estimated", "true")
 				c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 				return &ForwardResult{
 					RequestID:     "",
@@ -1500,6 +1505,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		// Checked before error policy so it always works regardless of custom error codes.
 		if action == "countTokens" && isOAuth && isGeminiInsufficientScope(resp.Header, respBody) {
 			estimated := estimateGeminiCountTokens(body)
+			c.Header("X-Token-Count-Estimated", "true")
 			c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
 			return &ForwardResult{
 				RequestID:       requestID,
@@ -2147,13 +2153,23 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 	if err := validateGeminiResponseToolIDs(geminiResp); err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 	}
+	if err := validateGeminiTextReply(geminiResp); err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
 	c.JSON(http.StatusOK, claudeResp)
 
 	return usage, nil
 }
 
-func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (*geminiStreamResult, error) {
+func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) (result *geminiStreamResult, streamErr error) {
+	var firstTokenMs *int
+	var usage ClaudeUsage
+	defer func() {
+		if streamErr != nil {
+			result = &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}
+		}
+	}()
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -2185,8 +2201,6 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	writeSSE(c.Writer, "message_start", messageStart)
 	flusher.Flush()
 
-	var firstTokenMs *int
-	var usage ClaudeUsage
 	finishReason := ""
 	sawToolUse := false
 
@@ -2234,7 +2248,13 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 
 		var geminiResp map[string]any
 		if err := json.Unmarshal(unwrappedBytes, &geminiResp); err != nil {
-			continue
+			return nil, fmt.Errorf("invalid Gemini stream JSON: %w", err)
+		}
+		if err := validateGeminiTextReply(geminiResp); err != nil {
+			return nil, err
+		}
+		if u := extractGeminiUsage(unwrappedBytes); u != nil {
+			usage = *u
 		}
 
 		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
@@ -2414,13 +2434,17 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		})
 	}
 
+	if finishReason == "" {
+		return nil, errors.New("Gemini stream ended without finishReason")
+	}
 	stopReason := mapGeminiFinishReasonToClaudeStopReason(finishReason)
 	if sawToolUse {
 		stopReason = "tool_use"
 	}
 
 	usageObj := map[string]any{
-		"output_tokens": usage.OutputTokens,
+		"output_tokens":           usage.OutputTokens,
+		"cache_read_input_tokens": usage.CacheReadInputTokens,
 	}
 	if usage.InputTokens > 0 {
 		usageObj["input_tokens"] = usage.InputTokens
@@ -3113,8 +3137,9 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 		"stop_reason":   stopReason,
 		"stop_sequence": nil,
 		"usage": map[string]any{
-			"input_tokens":  usage.InputTokens,
-			"output_tokens": usage.OutputTokens,
+			"input_tokens":            usage.InputTokens,
+			"output_tokens":           usage.OutputTokens,
+			"cache_read_input_tokens": usage.CacheReadInputTokens,
 		},
 	}
 
@@ -3458,6 +3483,23 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte, profiles ...gemin
 
 	if tools := convertClaudeToolsToGeminiTools(req["tools"]); tools != nil {
 		out["tools"] = tools
+	}
+	if choice, ok := req["tool_choice"].(map[string]any); ok {
+		config := map[string]any{}
+		switch choice["type"] {
+		case "auto":
+			config["mode"] = "AUTO"
+		case "none":
+			config["mode"] = "NONE"
+		case "any":
+			config["mode"] = "ANY"
+		case "tool":
+			config["mode"] = "ANY"
+			config["allowedFunctionNames"] = []any{choice["name"]}
+		default:
+			return nil, errors.New("unsupported tool_choice for Gemini")
+		}
+		out["toolConfig"] = map[string]any{"functionCallingConfig": config}
 	}
 
 	generationConfig := convertClaudeGenerationConfig(req)
@@ -3910,6 +3952,19 @@ func convertClaudeGenerationConfig(req map[string]any) map[string]any {
 	}
 	if topP, ok := req["top_p"].(float64); ok {
 		out["topP"] = topP
+	}
+	if topK, ok := req["top_k"].(float64); ok {
+		out["topK"] = topK
+	}
+	if config, ok := req["output_config"].(map[string]any); ok {
+		if format, ok := config["format"].(map[string]any); ok {
+			if format["type"] == "json_schema" || format["type"] == "json_object" {
+				out["responseMimeType"] = "application/json"
+				if format["schema"] != nil {
+					out["responseJsonSchema"] = format["schema"]
+				}
+			}
+		}
 	}
 	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
 		out["stopSequences"] = stopSeq

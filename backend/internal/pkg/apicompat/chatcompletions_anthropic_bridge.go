@@ -43,6 +43,9 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 	if req == nil {
 		return nil, fmt.Errorf("anthropic request is nil")
 	}
+	if req.TopK != nil {
+		return nil, fmt.Errorf("top_k cannot be represented by the Chat Completions upstream protocol")
+	}
 	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
 		return nil, err
 	}
@@ -56,6 +59,12 @@ func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsR
 		Model:    req.Model,
 		Messages: messages,
 		Stream:   req.Stream,
+	}
+	if len(req.StopSeqs) > 0 {
+		out.Stop, err = json.Marshal(req.StopSeqs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Sampling params: reasoning models (gpt-5.x) reject temperature/top_p.

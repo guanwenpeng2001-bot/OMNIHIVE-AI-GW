@@ -11,6 +11,17 @@ import (
 // Chat Completions intermediary round-trip (e.g. thinking, cache_control,
 // structured system prompts).
 func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
+	if req == nil {
+		return nil, fmt.Errorf("anthropic request is nil")
+	}
+	// These controls are supported by Messages, but the selected Responses
+	// trunk has no equivalent. Keep the rejection at this conversion boundary.
+	if len(req.StopSeqs) > 0 {
+		return nil, fmt.Errorf("stop_sequences cannot be represented by the Responses upstream protocol")
+	}
+	if req.TopK != nil {
+		return nil, fmt.Errorf("top_k cannot be represented by the Responses upstream protocol")
+	}
 	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
 		return nil, err
 	}
