@@ -136,11 +136,11 @@ func (s *KimiActionService) SearchWeb(ctx context.Context, account *Account, req
 	}
 	account.ApplyHeaderOverrides(req.Header)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
-	resp, err := generationDo(s.httpUpstream, req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	resp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
 	if err != nil {
 		if IsAttemptAdmissionError(err) {
 			return nil, err

@@ -180,7 +180,7 @@ func (r *tokenRefreshAccountRepo) SetGrokOAuthRefreshErrorIfCredentialsUnchanged
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	errorMsg string,
 ) (bool, error) {
 	r.conditionalErrorCalls++
@@ -207,7 +207,7 @@ func (r *tokenRefreshAccountRepo) SetGrokOAuthRefreshErrorIfCredentialsUnchanged
 		account.ProxyID = &proxyID
 	}
 	if account.Status != StatusActive || account.Platform != PlatformGrok || account.Type != AccountTypeOAuth ||
-		!reflect.DeepEqual(account.Credentials, expectedCredentials) || !reflect.DeepEqual(account.ProxyID, expectedProxyID) {
+		!reflect.DeepEqual(account.Credentials, expectedCredentials) || (!reflect.DeepEqual(account.ProxyID, expectedProxyID) || !reflect.DeepEqual(account.ProxyGroupID, expectedProxyGroupID)) {
 		return false, nil
 	}
 	r.setErrorCalls++
@@ -222,7 +222,7 @@ func (r *tokenRefreshAccountRepo) UpdateGrokOAuthCredentialsIfUnchanged(
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	credentials map[string]any,
 ) (bool, error) {
 	r.conditionalSuccessCalls++
@@ -239,7 +239,7 @@ func (r *tokenRefreshAccountRepo) UpdateGrokOAuthCredentialsIfUnchanged(
 	}
 	if account == nil || account.Platform != PlatformGrok ||
 		account.Type != AccountTypeOAuth || !reflect.DeepEqual(account.Credentials, expectedCredentials) ||
-		!reflect.DeepEqual(account.ProxyID, expectedProxyID) {
+		(!reflect.DeepEqual(account.ProxyID, expectedProxyID) || !reflect.DeepEqual(account.ProxyGroupID, expectedProxyGroupID)) {
 		return false, nil
 	}
 	r.updateCalls++
@@ -256,7 +256,7 @@ func (r *tokenRefreshAccountRepo) SetGrokOAuthRefreshTempUnschedulableIfCredenti
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	until time.Time,
 	reason string,
 ) (bool, error) {
@@ -284,7 +284,7 @@ func (r *tokenRefreshAccountRepo) SetGrokOAuthRefreshTempUnschedulableIfCredenti
 		account.ProxyID = &proxyID
 	}
 	if account.Status != StatusActive || account.Platform != PlatformGrok || account.Type != AccountTypeOAuth ||
-		!reflect.DeepEqual(account.Credentials, expectedCredentials) || !reflect.DeepEqual(account.ProxyID, expectedProxyID) {
+		!reflect.DeepEqual(account.Credentials, expectedCredentials) || (!reflect.DeepEqual(account.ProxyID, expectedProxyID) || !reflect.DeepEqual(account.ProxyGroupID, expectedProxyGroupID)) {
 		return false, nil
 	}
 	r.setTempUnschedCalls++

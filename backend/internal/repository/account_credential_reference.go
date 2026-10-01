@@ -12,19 +12,22 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func ProvideAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor) service.AccountRepository {
+func ProvideAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor, runtime *service.ProxyGroupRuntime) service.AccountRepository {
 	repository := newAccountRepositoryWithSQL(client, database, cache)
 	repository.credentialEncryptor = encryptor
+	repository.egressRuntime = runtime
 	return repository
 }
 
-func ProvideAdminAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor) service.AdminAccountRepository {
+func ProvideAdminAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor, runtime *service.ProxyGroupRuntime) service.AdminAccountRepository {
 	repository := newAccountRepositoryWithSQL(client, database, cache)
 	repository.credentialEncryptor = encryptor
+	repository.egressRuntime = runtime
 	return repository
 }
 
 func (r *accountRepository) resolveAccountCredentials(ctx context.Context, database credentialSQL, account *service.Account) error {
+	account.AttachEgress(r.egressRuntime)
 	account.CredentialRevision = credentialRevision(account.Credentials)
 	reference, referenced := service.CredentialReference(account.Credentials)
 	if !referenced {
@@ -82,7 +85,7 @@ func (r *accountRepository) prepareCredentialUpdate(ctx context.Context, client 
 // referenced secret and compares the full credential document (and proxy) with
 // the snapshot the caller based its upstream attempt on. apply only runs on an
 // exact match, inside the same transaction, so concurrent writers lose cleanly.
-func (r *accountRepository) mutateReferencedOAuthIfUnchanged(ctx context.Context, accountID int64, platform string, expected map[string]any, proxyID *int64, checkProxy bool, apply func(lockedCtx context.Context, repository *accountRepository, current *service.Account) (bool, error)) (bool, error) {
+func (r *accountRepository) mutateReferencedOAuthIfUnchanged(ctx context.Context, accountID int64, platform string, expected map[string]any, proxyID *int64, proxyGroupID *int64, checkProxy bool, apply func(lockedCtx context.Context, repository *accountRepository, current *service.Account) (bool, error)) (bool, error) {
 	transaction, err := r.client.Tx(ctx)
 	if err != nil {
 		return false, err
@@ -101,7 +104,7 @@ func (r *accountRepository) mutateReferencedOAuthIfUnchanged(ctx context.Context
 	if err := r.resolveAccountCredentials(lockedCtx, client, current); err != nil {
 		return false, err
 	}
-	if current.Platform != platform || current.Type != service.AccountTypeOAuth || credentialRevision(current.Credentials) != credentialRevision(expected) || (checkProxy && !reflect.DeepEqual(proxyID, current.ProxyID)) {
+	if current.Platform != platform || current.Type != service.AccountTypeOAuth || credentialRevision(current.Credentials) != credentialRevision(expected) || (checkProxy && !reflect.DeepEqual(proxyID, current.ProxyID)) || ((checkProxy || platform == service.PlatformCursor) && !reflect.DeepEqual(proxyGroupID, current.ProxyGroupID)) {
 		slog.WarnContext(ctx, "oauth_refresh_credential_cas_conflict", "account_id", accountID)
 		return false, nil
 	}
@@ -117,8 +120,8 @@ func (r *accountRepository) mutateReferencedOAuthIfUnchanged(ctx context.Context
 	return true, nil
 }
 
-func (r *accountRepository) updateReferencedOAuthCredentials(ctx context.Context, accountID int64, platform string, expected map[string]any, proxyID *int64, checkProxy bool, incoming map[string]any) (bool, error) {
-	return r.mutateReferencedOAuthIfUnchanged(ctx, accountID, platform, expected, proxyID, checkProxy, func(lockedCtx context.Context, repository *accountRepository, current *service.Account) (bool, error) {
+func (r *accountRepository) updateReferencedOAuthCredentials(ctx context.Context, accountID int64, platform string, expected map[string]any, proxyID *int64, proxyGroupID *int64, checkProxy bool, incoming map[string]any) (bool, error) {
+	return r.mutateReferencedOAuthIfUnchanged(ctx, accountID, platform, expected, proxyID, proxyGroupID, checkProxy, func(lockedCtx context.Context, repository *accountRepository, current *service.Account) (bool, error) {
 		if err := repository.UpdateCredentials(service.WithCredentialRevision(lockedCtx, current.CredentialRevision), accountID, incoming); err != nil {
 			return false, err
 		}

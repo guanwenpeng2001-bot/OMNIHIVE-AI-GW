@@ -73,7 +73,10 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 	}
 	callCtx, cancel := context.WithTimeout(ctx, cnQuotaUpstreamTimeout)
 	defer cancel()
-	proxy := s.resolveProxyURL(ctx, account)
+	proxy, egressErr := s.resolveProxyURL(ctx, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	fetch := func(path string) ([]byte, error) {
 		target, err := commandCodeAlphaURL(account.GetOpenAIBaseURL(), path)
 		if err != nil {
@@ -90,7 +93,7 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("Accept", "application/json")
 		account.ApplyHeaderOverrides(req.Header)
-		resp, err := s.httpUpstream.Do(req, proxy, account.ID, maxInt(account.Concurrency, 1))
+		resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxy, account.ID, maxInt(account.Concurrency, 1))
 		if err != nil {
 			return nil, err
 		}

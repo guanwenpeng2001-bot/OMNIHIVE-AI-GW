@@ -43,7 +43,7 @@ func PollPKCE(ctx context.Context, client *http.Client, baseURL string, session 
 	if err != nil {
 		return nil, errors.New("cursor: invalid authorization endpoint")
 	}
-	response, err := client.Do(request)
+	response, err := Do(client, request, false)
 	if err != nil {
 		return nil, errors.New("cursor: authorization transport failed")
 	}

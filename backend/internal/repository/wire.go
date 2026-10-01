@@ -49,7 +49,7 @@ func ProvideSessionLimitCache(rdb *redis.Client, cfg *config.Config) service.Ses
 }
 
 // ProvideSchedulerCache 创建调度快照缓存，并注入快照分块参数。
-func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.SchedulerCache {
+func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config, runtime *service.ProxyGroupRuntime) service.SchedulerCache {
 	mgetChunkSize := defaultSchedulerSnapshotMGetChunkSize
 	writeChunkSize := defaultSchedulerSnapshotWriteChunkSize
 	if cfg != nil {
@@ -60,7 +60,9 @@ func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.Schedu
 			writeChunkSize = cfg.Gateway.Scheduling.SnapshotWriteChunkSize
 		}
 	}
-	return newSchedulerCacheWithChunkSizes(rdb, mgetChunkSize, writeChunkSize)
+	cache := newSchedulerCacheWithChunkSizes(rdb, mgetChunkSize, writeChunkSize).(*schedulerCache)
+	cache.egressRuntime = runtime
+	return cache
 }
 
 // ProviderSet is the Wire provider set for all repositories
@@ -79,6 +81,8 @@ var ProviderSet = wire.NewSet(
 	NewScheduledTestPlanRepository,   // 定时测试计划仓储
 	NewScheduledTestResultRepository, // 定时测试结果仓储
 	NewProxyRepository,
+	NewProxyGroupRepository,
+	NewProxyGroupCache,
 	NewRedeemCodeRepository,
 	NewPromoCodeRepository,
 	NewAnnouncementRepository,

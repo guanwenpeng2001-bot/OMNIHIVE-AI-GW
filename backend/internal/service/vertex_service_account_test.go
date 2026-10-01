@@ -97,9 +97,15 @@ func TestVertexServiceAccountProxyURL(t *testing.T) {
 		},
 	}
 
-	require.Equal(t, "http://proxy.example.com:8080", vertexServiceAccountProxyURL(account))
-	require.Empty(t, vertexServiceAccountProxyURL(&Account{Proxy: account.Proxy}))
-	require.Empty(t, vertexServiceAccountProxyURL(&Account{ProxyID: &proxyID}))
+	proxyURL, err := account.EgressProxyURL(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "http://proxy.example.com:8080", proxyURL)
+	proxyURL, err = (&Account{Proxy: account.Proxy}).EgressProxyURL(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, proxyURL)
+	proxyURL, err = (&Account{ProxyID: &proxyID}).EgressProxyURL(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, proxyURL)
 }
 
 func TestVertexServiceAccountHTTPClientRecordsDependency(t *testing.T) {

@@ -24,6 +24,7 @@ func ProvideAdminHandlers(
 	grokOAuthHandler *admin.GrokOAuthHandler,
 	cnProviderHandler *admin.CNProviderHandler,
 	proxyHandler *admin.ProxyHandler,
+	proxyGroupHandler *admin.ProxyGroupHandler,
 	redeemHandler *admin.RedeemHandler,
 	promoHandler *admin.PromoHandler,
 	settingHandler *admin.SettingHandler,
@@ -50,8 +51,10 @@ func ProvideAdminHandlers(
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	authService *service.AuthService,
+	egressRuntime *service.ProxyGroupRuntime,
 ) *AdminHandlers {
 	credentialDrafts, _ := authService.PendingIdentityService()
+	credentialDrafts.SetEgressRuntime(egressRuntime)
 	accountHandler.SetCredentialDraftService(credentialDrafts)
 	oauthHandler.SetCredentialDraftService(credentialDrafts)
 	openaiOAuthHandler.SetCredentialDraftService(credentialDrafts)
@@ -74,6 +77,7 @@ func ProvideAdminHandlers(
 		GrokOAuth:              grokOAuthHandler,
 		CNProvider:             cnProviderHandler,
 		Proxy:                  proxyHandler,
+		ProxyGroup:             proxyGroupHandler,
 		Redeem:                 redeemHandler,
 		Promo:                  promoHandler,
 		Setting:                settingHandler,
@@ -282,6 +286,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewGrokOAuthHandler,
 	admin.NewCNProviderHandler,
 	admin.NewProxyHandler,
+	admin.NewProxyGroupHandler,
 	admin.NewRedeemHandler,
 	admin.NewPromoHandler,
 	ProvideAdminSettingHandler,

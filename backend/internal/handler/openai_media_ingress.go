@@ -321,7 +321,7 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 			reqLog.Warn("openai_video.adapter_submit_failed", zap.Int64("account_id", account.ID), zap.Error(submitErr))
 		}
 		return update, submitErr
-	})
+	}, account)
 	if err != nil {
 		reqLog.Warn("openai_video.submit_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Unable to admit the video job")

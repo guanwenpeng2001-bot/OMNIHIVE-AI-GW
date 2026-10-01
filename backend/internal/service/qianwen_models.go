@@ -20,7 +20,11 @@ func IsRetiredQianwenModel(model string) bool {
 // metadata extraction sees every page. Pagination never follows upstream URLs.
 func (s *AccountTestService) fetchQianwenModelPages(req *http.Request, account *Account) ([]string, []byte, error) {
 	return fetchQianwenModelPages(req, resolveModelsListReadLimit(s.cfg), func(req *http.Request) (*http.Response, error) {
-		return s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+		accountProxyURL, egressErr := account.EgressProxyURL(req.Context())
+		if egressErr != nil {
+			return nil, egressErr
+		}
+		return s.doUpstreamModelsRequest(req, accountProxyURL, account)
 	})
 }
 

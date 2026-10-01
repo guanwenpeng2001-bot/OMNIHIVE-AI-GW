@@ -164,11 +164,11 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 }
 
 func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, account *Account) (*http.Response, error) {
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(req.Context())
+	if egressErr != nil {
+		return nil, egressErr
 	}
-	return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	return accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 }
 
 // testCNProviderAnthropicConnection verifies the native Anthropic endpoint of a

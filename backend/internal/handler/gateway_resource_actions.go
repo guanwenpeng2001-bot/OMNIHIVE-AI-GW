@@ -270,7 +270,7 @@ func (h *GatewayResourceHandler) UploadFile(c *gin.Context) {
 	template := &service.UpstreamJob{Platform: service.PlatformOpenAI, Family: "files", AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, fingerprint, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.openAI.gatewayService.SubmitOpenAIFile(ctx, account, contentType, body)
-	})
+	}, account)
 	if err != nil {
 		h.openAIError(c, http.StatusServiceUnavailable, "resource_store_unavailable", "Unable to persist the file")
 		return
@@ -486,7 +486,7 @@ func (h *GatewayResourceHandler) CreateBatch(c *gin.Context) {
 	job, err := h.upstreamJobs.WithGatewayResourceInput(c.Request.Context(), inputFile.PublicRequestID, service.PlatformOpenAI, key.UserID, key.ID, *key.GroupID, func() (*service.UpstreamJob, error) {
 		return h.upstreamJobs.Submit(c.Request.Context(), template, requestBody, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 			return h.openAI.gatewayService.SubmitOpenAIBatch(ctx, account, upstreamBody)
-		})
+		}, account)
 	})
 	if err != nil {
 		h.resourceOperationError(c, err)
@@ -675,7 +675,7 @@ func (h *GatewayResourceHandler) CreateMessageBatch(c *gin.Context) {
 	template := &service.UpstreamJob{Platform: service.PlatformAnthropic, Family: "batch", AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, canonical, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.openAI.gatewayService.SubmitAnthropicMessageBatch(ctx, account, template, canonical)
-	})
+	}, account)
 	if err != nil {
 		h.anthropicError(c, http.StatusServiceUnavailable, "api_error", "Unable to persist the message batch")
 		return

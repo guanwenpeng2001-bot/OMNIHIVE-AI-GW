@@ -263,9 +263,9 @@ func (s *OpenAIGatewayService) sendOpenCodeActionRequest(
 	// 上游按它做路由与 prompt cache，跨轮次复用同一值才是幂等提交的锚点。
 	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {

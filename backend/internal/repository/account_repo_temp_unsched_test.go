@@ -65,7 +65,7 @@ func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomi
 		require.Contains(t, normalized, "a.proxy_id IS NOT DISTINCT FROM $8")
 		require.Contains(t, normalized, "NOT EXISTS ( SELECT 1 FROM proxies p")
 		require.Contains(t, normalized, "INSERT INTO scheduler_outbox")
-		require.Len(t, exec.execArgs[0], 10)
+		require.Len(t, exec.execArgs[0], 11)
 		require.Equal(t, snapshot.CredentialsJSON, exec.execArgs[0][6])
 		require.Equal(t, &proxyID, exec.execArgs[0][7])
 		require.Equal(t, string(service.GrokCredentialReasonProxyInvalid), exec.execArgs[0][8])
@@ -92,7 +92,7 @@ func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomi
 		require.Contains(t, normalized, "a.credentials = $7::jsonb")
 		require.Contains(t, normalized, "a.proxy_id IS NOT DISTINCT FROM $8")
 		require.Contains(t, normalized, "INSERT INTO scheduler_outbox")
-		require.Len(t, exec.execArgs[0], 9)
+		require.Len(t, exec.execArgs[0], 10)
 		require.Equal(t, snapshot.CredentialsJSON, exec.execArgs[0][6])
 		require.Equal(t, &proxyID, exec.execArgs[0][7])
 		require.Equal(t, service.SchedulerOutboxEventAccountChanged, exec.execArgs[0][8])
@@ -193,7 +193,7 @@ func TestAccountRepository_SetGrokOAuthRefreshErrorIfCredentialsUnchanged_UsesAt
 		context.Background(),
 		42,
 		map[string]any{"refresh_token": "attempted", "_token_version": int64(7)},
-		&proxyID,
+		&proxyID, nil,
 		"revoked",
 	)
 
@@ -207,7 +207,7 @@ func TestAccountRepository_SetGrokOAuthRefreshErrorIfCredentialsUnchanged_UsesAt
 		"background invalid_grant CAS must accept the attempted refresh token; only reconciliation requires it missing")
 	require.Equal(t, &proxyID, exec.execArgs[0][7])
 	require.Contains(t, normalized, "INSERT INTO scheduler_outbox")
-	require.Len(t, exec.execArgs[0], 9)
+	require.Len(t, exec.execArgs[0], 10)
 }
 
 func TestAccountRepository_SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged_UsesAttemptCredentialsAndProxy(t *testing.T) {
@@ -219,7 +219,7 @@ func TestAccountRepository_SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnch
 		context.Background(),
 		42,
 		map[string]any{"refresh_token": "attempted", "_token_version": int64(8)},
-		&proxyID,
+		&proxyID, nil,
 		time.Now().Add(10*time.Minute),
 		"retry exhausted",
 	)
@@ -231,7 +231,7 @@ func TestAccountRepository_SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnch
 	require.Contains(t, normalized, "credentials = $7::jsonb")
 	require.Contains(t, normalized, "proxy_id IS NOT DISTINCT FROM $8")
 	require.Contains(t, normalized, "a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until < $1")
-	require.Len(t, exec.execArgs[0], 9)
+	require.Len(t, exec.execArgs[0], 10)
 	require.Equal(t, &proxyID, exec.execArgs[0][7])
 	require.Contains(t, normalized, "INSERT INTO scheduler_outbox")
 }
@@ -245,7 +245,7 @@ func TestAccountRepository_UpdateGrokOAuthCredentialsIfUnchanged_UsesExactAttemp
 		context.Background(),
 		42,
 		map[string]any{"refresh_token": "attempted", "_token_version": int64(9)},
-		&proxyID,
+		&proxyID, nil,
 		map[string]any{"refresh_token": "rotated", "_token_version": int64(10)},
 	)
 
@@ -258,7 +258,7 @@ func TestAccountRepository_UpdateGrokOAuthCredentialsIfUnchanged_UsesExactAttemp
 	require.Contains(t, normalized, "credentials = $5::jsonb")
 	require.Contains(t, normalized, "proxy_id IS NOT DISTINCT FROM $6")
 	require.Contains(t, normalized, "INSERT INTO scheduler_outbox")
-	require.Len(t, exec.execArgs[0], 7)
+	require.Len(t, exec.execArgs[0], 8)
 	require.Equal(t, &proxyID, exec.execArgs[0][5])
 }
 

@@ -206,7 +206,10 @@ func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token 
 }
 
 func (s *AccountUsageService) fetchCursorUsageWithToken(ctx context.Context, account *Account, token string) *UsageInfo {
-	ctx = cursorAccountContext(ctx, account)
+	ctx, egressErr := cursorAccountContext(ctx, account)
+	if egressErr != nil {
+		return &UsageInfo{ErrorCode: errorCodeNetworkError, Error: egressErr.Error()}
+	}
 	// Dashboard values are independent of legacy /auth/usage counters.
 	var period struct {
 		BillingCycleStart string           `json:"billingCycleStart"`
@@ -702,6 +705,11 @@ func batchUsageErrorMessage(err error) string {
 }
 
 func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if account != nil && account.ProxyGroupID != nil {
+		if _, err := account.EgressProxyURL(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if account == nil {
 		return nil, fmt.Errorf("account is required")
 	}
@@ -1242,9 +1250,9 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	enforceCodexIdentityHeadersWithUA(req.Header, account.GetOpenAIUserAgent())
 	setOpenAIChatGPTAccountHeaders(req.Header, account)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	client, err := httppool.GetClient(httppool.Options{
 		ProxyURL:              proxyURL,
@@ -1432,7 +1440,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 
 		fetchResult, err := s.antigravityQuotaFetcher.FetchQuota(fetchCtx, account, "")
 		if err != nil {
-			degraded := buildAntigravityDegradedUsage(err)
+			degraded := buildAntigravityDegradedUsage(err, account)
 			enrichUsageWithAccountError(degraded, account)
 			s.cache.store(&s.cache.antigravityCache, AccountRuntimeIdentityKey(account), &antigravityUsageCache{
 				usageInfo: degraded,
@@ -1648,7 +1656,7 @@ func antigravityCacheTTL(info *UsageInfo) time.Duration {
 }
 
 // buildAntigravityDegradedUsage 从 FetchQuota 错误构建降级 UsageInfo
-func buildAntigravityDegradedUsage(err error) *UsageInfo {
+func buildAntigravityDegradedUsage(err error, accounts ...*Account) *UsageInfo {
 	now := time.Now()
 	errMsg := fmt.Sprintf("usage API error: %v", err)
 	slog.Warn("antigravity usage fetch failed, returning degraded response", "error", err)
@@ -1661,10 +1669,16 @@ func buildAntigravityDegradedUsage(err error) *UsageInfo {
 	// 从错误信息推断 error_code 和状态标记
 	// 错误格式来自 antigravity/client.go: "fetchAvailableModels 失败 (HTTP %d): ..."
 	errStr := err.Error()
+	missingRenewable := len(accounts) > 0 && accounts[0] != nil && strings.TrimSpace(accounts[0].GetCredential("refresh_token")) == ""
 	switch {
-	case strings.Contains(errStr, "HTTP 401") ||
-		strings.Contains(errStr, "UNAUTHENTICATED") ||
-		strings.Contains(errStr, "invalid_grant"):
+	case strings.Contains(errStr, "invalid_grant"):
+		info.ErrorCode = errorCodeUnauthenticated
+		info.NeedsReauth = true
+	case strings.Contains(errStr, "HTTP 401") || strings.Contains(errStr, "UNAUTHENTICATED"):
+		// An expired access token does not prove refresh credentials were revoked.
+		info.ErrorCode = errorCodeUnauthenticated
+		info.NeedsReauth = missingRenewable
+	case missingRenewable && strings.Contains(errStr, "no refresh token available"):
 		info.ErrorCode = errorCodeUnauthenticated
 		info.NeedsReauth = true
 	case strings.Contains(errStr, "HTTP 429"):
@@ -1948,9 +1962,9 @@ func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *A
 		return nil, fmt.Errorf("no access token available")
 	}
 
-	var proxyURL string
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 
 	// 构建完整的选项

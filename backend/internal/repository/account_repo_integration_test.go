@@ -1264,7 +1264,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_AppliesAndP
 		s.ctx,
 		account.ID,
 		observed.Credentials,
-		observed.ProxyID,
+		observed.ProxyID, observed.ProxyGroupID,
 		map[string]any{
 			"access_token":   "rotated-access",
 			"refresh_token":  "rotated-refresh",
@@ -1322,7 +1322,7 @@ func (s *AccountRepoSuite) TestUpdateGrokOAuthCredentialsIfUnchanged_SkipsConcur
 		s.ctx,
 		account.ID,
 		observed.Credentials,
-		observed.ProxyID,
+		observed.ProxyID, observed.ProxyGroupID,
 		map[string]any{
 			"access_token":   "provider-access",
 			"refresh_token":  "provider-refresh",

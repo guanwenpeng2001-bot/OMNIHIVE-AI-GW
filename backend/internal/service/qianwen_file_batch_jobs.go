@@ -162,6 +162,9 @@ func (s *OpenAIGatewayService) QianwenResourceAccount(ctx context.Context, j *Up
 	if submit && (!a.IsSchedulable() || j.GroupID == nil || !slices.Contains(a.GroupIDs, *j.GroupID)) {
 		return nil, errors.New("resource account no longer belongs to the active group or is unschedulable")
 	}
+	if err := a.RestoreJobEgress(ctx, j.Billing.Egress); err != nil {
+		return nil, err
+	}
 	return a, nil
 }
 
@@ -189,7 +192,11 @@ func (s *OpenAIGatewayService) qianwenResourceRequest(ctx context.Context, a *Ac
 	req.Header.Set("Accept", "application/json")
 	req.Header.Del("X-DashScope-Async")
 	req.Header.Del("X-DashScope-SSE")
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(a), a)
+	accountProxyURL, egressErr := a.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, 0, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, a)
 	if err != nil {
 		return nil, 0, err
 	}

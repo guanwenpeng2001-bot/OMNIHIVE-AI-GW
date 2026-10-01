@@ -180,5 +180,9 @@ func (s *OpenAIGatewayService) DoQianwenNativeRequest(ctx context.Context, accou
 	if err != nil {
 		return nil, err
 	}
-	return s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	return s.doOpenAIUpstream(req, accountProxyURL, account)
 }

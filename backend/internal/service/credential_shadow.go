@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 )
 
 // resolveCredentialAccount 解析影子账号到其母账号，用于凭据/Token 透传。
@@ -28,6 +29,14 @@ func resolveCredentialAccount(ctx context.Context, repo AccountRepository, accou
 	}
 	if !parent.IsOpenAIOAuth() {
 		return nil, fmt.Errorf("spark shadow parent %d is not OpenAI OAuth", parent.ID)
+	}
+	if !reflect.DeepEqual(account.ProxyGroupID, parent.ProxyGroupID) {
+		return nil, ErrAccountRuntimeIdentityChanged
+	}
+	if account.ProxyGroupID != nil && account.egress != nil {
+		copy := *parent
+		copy.egress = account.egress
+		parent = &copy
 	}
 	return parent, nil
 }

@@ -977,7 +977,11 @@ func (s *AccountTestService) fetchAntigravityCatalog(ctx context.Context, accoun
 		return nil, nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
 	}
 
-	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, nil, egressErr
+	}
+	client, err := antigravity.NewClient(accountProxyURL)
 	if err != nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
 	}
@@ -1005,7 +1009,10 @@ func (s *AccountTestService) fetchCursorOAuthCatalog(ctx context.Context, accoun
 	if gateway == nil || gateway.native == nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Cursor service unavailable", nil)
 	}
-	ctx = cursorAccountContext(ctx, account)
+	ctx, egressErr := cursorAccountContext(ctx, account)
+	if egressErr != nil {
+		return nil, nil, egressErr
+	}
 	models, err := gateway.native.AvailableModels(ctx, gateway.credentials(ctx, account, account.GetCredential("access_token")))
 	if err != nil {
 		if cursorAuthFailure(err) {

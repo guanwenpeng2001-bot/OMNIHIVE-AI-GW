@@ -19,17 +19,21 @@ func (handler *AccountHandler) StartCursorAuthorization(ctx *gin.Context) {
 		response.BadRequest(ctx, "Invalid Cursor authorization account settings")
 		return
 	}
+	var selectedAccount *service.Account
+	var proxyID, proxyGroupID *int64
 	if request.AccountID == 0 {
 		if request.Account == nil || strings.TrimSpace(request.Account.Name) == "" || request.Account.Platform != service.PlatformCursor || request.Account.Type != service.AccountTypeOAuth {
 			response.BadRequest(ctx, "Cursor browser authorization requires an auto account name")
 			return
 		}
+		proxyID, proxyGroupID = request.Account.ProxyID, request.Account.ProxyGroupID
 	} else {
 		account, err := handler.adminService.GetAccount(ctx.Request.Context(), request.AccountID)
 		if err != nil || !account.IsCursor() || account.Type != service.AccountTypeOAuth {
 			response.BadRequest(ctx, "Cursor browser authorization requires a Cursor auto account")
 			return
 		}
+		selectedAccount = account
 	}
 	if err := requireCredentialDraftStore(handler.credentialDrafts); err != nil {
 		response.ErrorFrom(ctx, err)
@@ -40,10 +44,35 @@ func (handler *AccountHandler) StartCursorAuthorization(ctx *gin.Context) {
 		response.ErrorFrom(ctx, err)
 		return
 	}
+
+	var selection *service.OAuthEgressSelection
+	var proxyURL string
+	if selectedAccount != nil {
+		selection, err = selectedAccount.OAuthEgressSelection(ctx.Request.Context())
+		if err == nil {
+			proxyURL, err = selectedAccount.EgressProxyURL(ctx.Request.Context())
+		}
+	} else {
+		selection, err = handler.credentialDrafts.ResolveAuthorizationEgress(ctx.Request.Context(), proxyID, proxyGroupID)
+		if err == nil && selection != nil {
+			proxyURL = selection.URL
+		}
+		if err == nil && proxyID != nil && *proxyID > 0 {
+			var proxy *service.Proxy
+			proxy, err = handler.adminService.GetProxy(ctx.Request.Context(), *proxyID)
+			if err == nil && proxy != nil {
+				proxyURL = proxy.URL()
+			}
+		}
+	}
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
 	state, err := handler.cursorAuthService.StartDraft(binding, func(persistCtx context.Context, credentials map[string]any) (*service.AccountCredentialDraft, error) {
 		credentials["client_version"] = strings.TrimSpace(request.ClientVersion)
-		return handler.credentialDrafts.IssueAccountCredentialDraft(persistCtx, binding, service.PlatformCursor, service.AccountTypeOAuth, credentials)
-	})
+		return handler.credentialDrafts.IssueAccountCredentialDraft(persistCtx, binding, service.PlatformCursor, service.AccountTypeOAuth, credentials, selection)
+	}, proxyURL)
 	if err != nil {
 		response.BadRequest(ctx, "Cursor authorization could not start; retry later")
 		return

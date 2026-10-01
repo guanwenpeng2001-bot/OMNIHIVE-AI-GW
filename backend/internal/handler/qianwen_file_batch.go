@@ -326,7 +326,7 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 				return h.gatewayService.SubmitQianwenFile(ctx, account, normalized)
 			}
 			return h.gatewayService.SubmitQianwenBatch(ctx, account, inputFile)
-		})
+		}, account)
 	}
 	var job *service.UpstreamJob
 	if inputFile != nil {

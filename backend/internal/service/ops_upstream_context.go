@@ -499,6 +499,24 @@ func opsUpstreamProxyAttribution(account *Account) (*int64, string) {
 	if account == nil {
 		return nil, opsProxyNameUnknown
 	}
+	if account.ProxyGroupID != nil {
+		target, resolved := account.ResolvedEgress()
+		if !resolved {
+			return nil, opsProxyNameUnknown
+		}
+		if target.ProxyID == 0 {
+			return nil, opsProxyNameDirect
+		}
+		id := target.ProxyID
+		if account.ProxyGroup != nil {
+			for _, member := range account.ProxyGroup.Members {
+				if member.ProxyID == id && member.Proxy != nil && strings.TrimSpace(member.Proxy.Name) != "" {
+					return &id, member.Proxy.Name
+				}
+			}
+		}
+		return &id, opsProxyNameUnnamed
+	}
 	if account.ProxyID == nil || account.Proxy == nil {
 		return nil, opsProxyNameDirect
 	}

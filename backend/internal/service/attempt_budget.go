@@ -384,5 +384,5 @@ func generationBatchHTTP(request *http.Request, client *http.Client) (*http.Resp
 	}
 	noRedirect := *client
 	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return generationHTTP(request, accountID, noRedirect.Do)
+	return generationHTTP(request, accountID, func(req *http.Request) (*http.Response, error) { return batchImageDo(req, &noRedirect) })
 }

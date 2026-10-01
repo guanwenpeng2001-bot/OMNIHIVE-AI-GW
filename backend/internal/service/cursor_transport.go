@@ -6,14 +6,21 @@ import (
 	"net/http"
 )
 
-func cursorAccountContext(ctx context.Context, account *Account) context.Context {
+func cursorAccountContext(ctx context.Context, account *Account) (context.Context, error) {
+	if account != nil && account.ProxyGroupID != nil {
+		proxyURL, err := account.EgressProxyURL(ctx)
+		if err != nil {
+			return ctx, err
+		}
+		return cursor.WithAccountProxy(ctx, proxyURL, false), nil
+	}
 	if account == nil || account.ProxyID == nil {
-		return cursor.WithAccountProxy(ctx, "", false)
+		return cursor.WithAccountProxy(ctx, "", false), nil
 	}
 	if account.Proxy == nil || account.Proxy.ID != *account.ProxyID {
-		return cursor.WithAccountProxy(ctx, "", true)
+		return cursor.WithAccountProxy(ctx, "", true), nil
 	}
-	return cursor.WithAccountProxy(ctx, account.Proxy.URL(), false)
+	return cursor.WithAccountProxy(ctx, account.Proxy.URL(), false), nil
 }
 
 func applyCursorRelayHeaders(headers http.Header, account *Account) {

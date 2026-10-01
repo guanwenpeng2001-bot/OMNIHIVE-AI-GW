@@ -64,8 +64,12 @@ func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account 
 	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	transport := baseTransport.Clone()
 	defer transport.CloseIdleConnections()
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxy, parseErr := url.Parse(account.Proxy.URL())
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	if proxyURL != "" {
+		proxy, parseErr := url.Parse(proxyURL)
 		if parseErr != nil {
 			return nil, parseErr
 		}

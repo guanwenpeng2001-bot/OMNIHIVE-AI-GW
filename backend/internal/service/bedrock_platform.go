@@ -31,7 +31,11 @@ func (service *GatewayService) forwardBedrockPlatform(ctx context.Context, reque
 	if err != nil {
 		return nil, err
 	}
-	response, err := generationDoWithTLS(service.httpUpstream, request, upstreamModelsProxyURL(account), account.ID, account.Concurrency, nil)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	response, err := generationDoWithTLS(accountHTTPUpstream(service.httpUpstream, account), request, accountProxyURL, account.ID, account.Concurrency, nil)
 	headersReceived()
 	if err != nil {
 		if response != nil && response.Body != nil {
@@ -123,7 +127,11 @@ func (service *AccountTestService) fetchBedrockModels(ctx context.Context, accou
 		if _, err = service.validateUpstreamBaseURL(request.URL.Scheme + "://" + request.URL.Host); err != nil {
 			return nil, err
 		}
-		response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+		accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+		if egressErr != nil {
+			return nil, egressErr
+		}
+		response, err := service.doUpstreamModelsRequest(request, accountProxyURL, account)
 		if err != nil {
 			return nil, err
 		}

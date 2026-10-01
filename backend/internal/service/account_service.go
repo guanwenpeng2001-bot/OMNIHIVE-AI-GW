@@ -206,6 +206,7 @@ type AccountBulkUpdate struct {
 	TPMLimit       *int64
 	Name           *string
 	ProxyID        *int64
+	ProxyGroupID   *int64
 	Concurrency    *int
 	Priority       *int
 	RateMultiplier *float64
@@ -229,6 +230,7 @@ type CreateAccountRequest struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra"`
 	ProxyID            *int64         `json:"proxy_id"`
+	ProxyGroupID       *int64         `json:"proxy_group_id"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	GroupIDs           []int64        `json:"group_ids"`
@@ -243,6 +245,7 @@ type UpdateAccountRequest struct {
 	Credentials        *map[string]any `json:"credentials"`
 	Extra              *map[string]any `json:"extra"`
 	ProxyID            *int64          `json:"proxy_id"`
+	ProxyGroupID       *int64          `json:"proxy_group_id"`
 	Concurrency        *int            `json:"concurrency"`
 	Priority           *int            `json:"priority"`
 	Status             *string         `json:"status"`
@@ -271,6 +274,9 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := validateAccountProxyChoice(req.ProxyID, req.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -286,7 +292,7 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Type:        req.Type,
 		Credentials: SanitizeStoredCredentials(req.Platform, req.Credentials),
 		Extra:       prepareCodexFingerprintExtraForCreate(req.Platform, req.Type, req.Extra),
-		ProxyID:     req.ProxyID,
+		ProxyID:     normalizedProxyID(req.ProxyID), ProxyGroupID: normalizedProxyID(req.ProxyGroupID),
 		Concurrency: req.Concurrency,
 		Priority:    req.Priority,
 		Status:      StatusActive,
@@ -393,8 +399,8 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
 	}
 
-	if req.ProxyID != nil {
-		account.ProxyID = req.ProxyID
+	if err := applyAccountProxyChoice(account, req.ProxyID, req.ProxyGroupID); err != nil {
+		return nil, err
 	}
 
 	if req.Concurrency != nil {

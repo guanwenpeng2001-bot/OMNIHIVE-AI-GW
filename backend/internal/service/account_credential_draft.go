@@ -27,14 +27,15 @@ type AccountCredentialDraft struct {
 }
 
 type accountCredentialDraftState struct {
-	Platform     string         `json:"platform"`
-	Type         string         `json:"type"`
-	Credentials  map[string]any `json:"credentials,omitempty"`
-	Revision     string         `json:"revision"`
-	Submission   string         `json:"submission,omitempty"`
-	AccountID    int64          `json:"account_id,omitempty"`
-	Cancelled    bool           `json:"cancelled,omitempty"`
-	ReviewDigest string         `json:"review_digest,omitempty"`
+	Egress       *OAuthEgressSelection `json:"egress,omitempty"`
+	Platform     string                `json:"platform"`
+	Type         string                `json:"type"`
+	Credentials  map[string]any        `json:"credentials,omitempty"`
+	Revision     string                `json:"revision"`
+	Submission   string                `json:"submission,omitempty"`
+	AccountID    int64                 `json:"account_id,omitempty"`
+	Cancelled    bool                  `json:"cancelled,omitempty"`
+	ReviewDigest string                `json:"review_digest,omitempty"`
 }
 
 var ErrAccountCredentialDraftConflict = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
@@ -111,7 +112,7 @@ func ApplyAccountCredentialDraftOptions(account *Account, options map[string]any
 	return nil
 }
 
-func (s *AuthPendingIdentityService) IssueAccountCredentialDraft(ctx context.Context, binding, platform, accountType string, credentials map[string]any) (*AccountCredentialDraft, error) {
+func (s *AuthPendingIdentityService) IssueAccountCredentialDraft(ctx context.Context, binding, platform, accountType string, credentials map[string]any, selections ...*OAuthEgressSelection) (*AccountCredentialDraft, error) {
 	if strings.TrimSpace(platform) == "" || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || len(credentials) == 0 {
 		return nil, ErrPendingAuthCodeInvalid
 	}
@@ -119,7 +120,12 @@ func (s *AuthPendingIdentityService) IssueAccountCredentialDraft(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	state := accountCredentialDraftState{Platform: platform, Type: accountType, Credentials: SanitizeStoredCredentials(platform, credentials), Revision: revision}
+	var selection *OAuthEgressSelection
+	if len(selections) > 0 && selections[0] != nil {
+		copy := *selections[0]
+		selection = &copy
+	}
+	state := accountCredentialDraftState{Egress: selection, Platform: platform, Type: accountType, Credentials: SanitizeStoredCredentials(platform, credentials), Revision: revision}
 	data, err := accountCredentialDraftData(state)
 	if err != nil {
 		return nil, err
@@ -194,7 +200,7 @@ func (s *AuthPendingIdentityService) ResolveAccountCredentialDraft(ctx context.C
 	if session.ConsumedAt != nil {
 		return nil, "", ErrPendingAuthSessionConsumed
 	}
-	return &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials}, state.Revision, nil
+	return credentialDraftAccount(state), state.Revision, nil
 }
 
 // ReviewAccountCredentialDraft binds confirmation to the exact non-secret
@@ -332,12 +338,37 @@ func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.C
 		}
 		return state.AccountID, commit()
 	}
-	accountID, err := create(transactionContext, &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials})
+	accountID, err := create(transactionContext, credentialDraftAccount(state))
 	if err != nil {
 		return 0, err
 	}
 	if accountID <= 0 {
 		return 0, ErrAccountCredentialDraftConflict
+	}
+	if state.Egress != nil {
+		if s.egressRuntime == nil {
+			return 0, ErrProxyGroupUnavailable
+		}
+		if err := s.egressRuntime.confirmOAuthDraftBinding(transactionContext, state.Egress, accountID); err != nil {
+			if state.Egress.ProxyID > 0 {
+				cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(transactionContext), 2*time.Second)
+				_, _ = s.egressRuntime.cache.DeleteBindingIfValue(cleanupCtx, state.Egress.GroupID, accountID, state.Egress.ProxyID)
+				cancel()
+			}
+			return 0, err
+		}
+		selected := *state.Egress
+		transaction.OnRollback(func(next dbent.Rollbacker) dbent.Rollbacker {
+			return dbent.RollbackFunc(func(rollbackCtx context.Context, tx *dbent.Tx) error {
+				err := next.Rollback(rollbackCtx, tx)
+				if err == nil && selected.ProxyID > 0 {
+					cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(rollbackCtx), 2*time.Second)
+					defer cancel()
+					_, _ = s.egressRuntime.cache.DeleteBindingIfValue(cleanupCtx, selected.GroupID, accountID, selected.ProxyID)
+				}
+				return err
+			})
+		})
 	}
 	state.Credentials, state.AccountID, state.Submission = nil, accountID, submission
 	data, err := accountCredentialDraftData(*state)
@@ -386,4 +417,26 @@ func AfterAccountWriteCommit(ctx context.Context, effect func()) {
 		return
 	}
 	effect()
+}
+
+func (s *AuthPendingIdentityService) SetEgressRuntime(runtime *ProxyGroupRuntime) {
+	if s != nil {
+		s.egressRuntime = runtime
+	}
+}
+func credentialDraftAccount(state *accountCredentialDraftState) *Account {
+	a := &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials}
+	if state.Egress != nil {
+		selected := *state.Egress
+		a.ProxyGroupID = &selected.GroupID
+		a.WorkspaceID = selected.WorkspaceID
+		a.oauthEgress = &selected
+		a.egress = &accountEgress{target: EgressTarget{URL: selected.URL, ProxyID: selected.ProxyID, Source: EgressSource(selected.Source), Resolved: true}}
+	}
+	return a
+}
+
+// ValidateDraftProxyChoice refuses client changes to the server-owned authorization route.
+func ValidateDraftProxyChoice(account *Account, nodeID, groupID *int64) error {
+	return validateOAuthSessionEgress(account.oauthEgress, nodeID, groupID)
 }

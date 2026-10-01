@@ -10,6 +10,9 @@ import (
 // a direct connection. ProxyFallbackOriginID is bookkeeping; ProxyID is the
 // current route selected by the existing expiry/fallback service.
 func resolveGoogleAccountProxyURL(ctx context.Context, account *Account, repo ProxyRepository) (string, error) {
+	if account.ProxyGroupID != nil {
+		return account.EgressProxyURL(ctx)
+	}
 	if account.ProxyID == nil {
 		return "", nil
 	}

@@ -25,7 +25,9 @@ const credentialDraftBrowserCookie = "account_authorization_browser"
 // without creating an account or returning the credentials to the browser.
 func (handler *AccountHandler) IssueCursorCredentialDraft(ctx *gin.Context) {
 	var request struct {
-		Credentials map[string]any `json:"credentials" binding:"required"`
+		Credentials  map[string]any `json:"credentials" binding:"required"`
+		ProxyID      *int64         `json:"proxy_id"`
+		ProxyGroupID *int64         `json:"proxy_group_id"`
 	}
 	if err := ctx.ShouldBindJSON(&request); err != nil {
 		response.BadRequest(ctx, "Invalid Cursor credentials")
@@ -44,7 +46,12 @@ func (handler *AccountHandler) IssueCursorCredentialDraft(ctx *gin.Context) {
 		response.ErrorFrom(ctx, infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", err.Error()))
 		return
 	}
-	respondCredentialDraft(ctx, handler.credentialDrafts, account.Platform, account.Type, account.Credentials)
+	selection, err := handler.credentialDrafts.ResolveAuthorizationEgress(ctx.Request.Context(), request.ProxyID, request.ProxyGroupID)
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	respondCredentialDraft(ctx, handler.credentialDrafts, account.Platform, account.Type, account.Credentials, selection)
 }
 
 func accountWriteError(err error) error {
@@ -140,7 +147,7 @@ func consumeCredentialAuthorization(ctx *gin.Context, pending *service.AuthPendi
 	return sessionID, nil
 }
 
-func respondCredentialDraft(ctx *gin.Context, pending *service.AuthPendingIdentityService, platform, accountType string, credentials map[string]any) {
+func respondCredentialDraft(ctx *gin.Context, pending *service.AuthPendingIdentityService, platform, accountType string, credentials map[string]any, selections ...*service.OAuthEgressSelection) {
 	binding, err := credentialDraftBinding(ctx, true)
 	if err != nil {
 		response.ErrorFrom(ctx, err)
@@ -151,7 +158,7 @@ func respondCredentialDraft(ctx *gin.Context, pending *service.AuthPendingIdenti
 		response.ErrorFrom(ctx, err)
 		return
 	}
-	draft, err := pending.IssueAccountCredentialDraft(ctx.Request.Context(), binding, platform, accountType, credentials)
+	draft, err := pending.IssueAccountCredentialDraft(ctx.Request.Context(), binding, platform, accountType, credentials, selections...)
 	if err != nil {
 		response.ErrorFrom(ctx, err)
 		return
@@ -234,7 +241,7 @@ func (handler *AccountHandler) resolveCredentialDraftPreview(ctx *gin.Context, r
 		draft.Credentials["model_mapping"] = mapping
 	}
 	account.Credentials = draft.Credentials
-	return nil
+	return service.CopyCredentialDraftEgress(draft, account)
 }
 
 // Only model rules can be overlaid on an authorized identity. Connection,
@@ -294,14 +301,14 @@ func (handler *AccountHandler) createAccountFromRequest(ctx context.Context, gin
 		}
 	}
 	return handler.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-		TPMLimit:              request.TPMLimit.Value,
-		Name:                  request.Name,
-		Notes:                 request.Notes,
-		Platform:              request.Platform,
-		Type:                  request.Type,
-		Credentials:           request.Credentials,
-		Extra:                 extra,
-		ProxyID:               request.ProxyID,
+		TPMLimit:    request.TPMLimit.Value,
+		Name:        request.Name,
+		Notes:       request.Notes,
+		Platform:    request.Platform,
+		Type:        request.Type,
+		Credentials: request.Credentials,
+		Extra:       extra,
+		ProxyID:     request.ProxyID, ProxyGroupID: request.ProxyGroupID,
 		Concurrency:           request.Concurrency,
 		Priority:              request.Priority,
 		RateMultiplier:        request.RateMultiplier,
@@ -355,6 +362,12 @@ func confirmCredentialDraftWithBinding(
 		}
 	}
 	accountID, err := pending.ConfirmAccountCredentialDraft(ctx, request.CredentialDraft, binding, request.CredentialDraftRevision, submission, func(txCtx context.Context, draft *service.Account) (int64, error) {
+		if err := service.ValidateDraftProxyChoice(draft, request.ProxyID, request.ProxyGroupID); err != nil {
+			return 0, err
+		}
+		if draft.ProxyGroupID != nil {
+			request.ProxyGroupID = draft.ProxyGroupID
+		}
 		if err := applyCredentialDraftOptions(draft, request); err != nil {
 			return 0, err
 		}
@@ -370,7 +383,7 @@ func confirmCredentialDraftWithBinding(
 				Credentials: draft.Credentials, Extra: extra,
 				Concurrency: &request.Concurrency, Priority: &request.Priority,
 				RateMultiplier: request.RateMultiplier, LoadFactor: request.LoadFactor,
-				ProxyID: request.ProxyID, GroupIDs: &request.GroupIDs,
+				ProxyID: request.ProxyID, ProxyGroupID: request.ProxyGroupID, GroupIDs: &request.GroupIDs,
 				ExpiresAt: request.ExpiresAt, AutoPauseOnExpired: request.AutoPauseOnExpired,
 				SkipMixedChannelCheck: skipMixedChannelCheck,
 			})
@@ -381,14 +394,14 @@ func confirmCredentialDraftWithBinding(
 			return existing.ID, nil
 		}
 		account, err := adminService.CreateAccount(txCtx, &service.CreateAccountInput{
-			TPMLimit:              request.TPMLimit.Value,
-			Name:                  request.Name,
-			Notes:                 request.Notes,
-			Platform:              draft.Platform,
-			Type:                  draft.Type,
-			Credentials:           draft.Credentials,
-			Extra:                 extra,
-			ProxyID:               request.ProxyID,
+			TPMLimit:    request.TPMLimit.Value,
+			Name:        request.Name,
+			Notes:       request.Notes,
+			Platform:    draft.Platform,
+			Type:        draft.Type,
+			Credentials: draft.Credentials,
+			Extra:       extra,
+			ProxyID:     request.ProxyID, ProxyGroupID: request.ProxyGroupID,
 			Concurrency:           request.Concurrency,
 			Priority:              request.Priority,
 			RateMultiplier:        request.RateMultiplier,
@@ -452,6 +465,9 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		return nil, err
 	}
 	confirmedID, err := handler.credentialDrafts.ConfirmAccountCredentialDraft(ctx, request.CredentialDraft, binding, request.CredentialDraftRevision, submission, func(txCtx context.Context, draft *service.Account) (int64, error) {
+		if err := service.ValidateDraftForExistingAccount(draft, existing); err != nil {
+			return 0, err
+		}
 		if err := applyCredentialDraftOptions(draft, review); err != nil {
 			return 0, err
 		}

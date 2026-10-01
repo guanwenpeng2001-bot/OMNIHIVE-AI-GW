@@ -74,7 +74,7 @@ func (r *refreshAPIAccountRepo) UpdateGrokOAuthCredentialsIfUnchanged(
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	credentials map[string]any,
 ) (bool, error) {
 	r.successCASCalls++
@@ -94,7 +94,7 @@ func (r *refreshAPIAccountRepo) UpdateGrokOAuthCredentialsIfUnchanged(
 	if r.account == nil || r.account.ID != id || r.account.Platform != PlatformGrok ||
 		r.account.Type != AccountTypeOAuth ||
 		!reflect.DeepEqual(r.account.Credentials, expectedCredentials) ||
-		!reflect.DeepEqual(r.account.ProxyID, expectedProxyID) {
+		(!reflect.DeepEqual(r.account.ProxyID, expectedProxyID) || !reflect.DeepEqual(r.account.ProxyGroupID, expectedProxyGroupID)) {
 		return false, nil
 	}
 	r.updateCalls++

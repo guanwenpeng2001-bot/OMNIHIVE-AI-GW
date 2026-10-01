@@ -239,9 +239,9 @@ func (s *OpenAIGatewayService) ForwardOpenAIAction(ctx context.Context, account 
 	request.Header.Set("Authorization", "Bearer "+credential)
 	request.Header.Set("Content-Type", contentType)
 	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), HTTPUpstreamProfileOpenAI))
-	proxy := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxy = account.Proxy.URL()
+	proxy, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	return s.doOpenAIUpstream(request, proxy, account)
 }
@@ -292,8 +292,12 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	baseTransport, _ := http.DefaultTransport.(*http.Transport)
 	transport := baseTransport.Clone()
 	defer transport.CloseIdleConnections()
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxy, parseErr := url.Parse(account.Proxy.URL())
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	if proxyURL != "" {
+		proxy, parseErr := url.Parse(proxyURL)
 		if parseErr != nil {
 			return nil, parseErr
 		}
@@ -387,9 +391,9 @@ func (s *OpenAIGatewayService) ForwardOpenAIResource(ctx context.Context, reposi
 	account.ApplyHeaderOverrides(request.Header)
 	request.Header.Set("Authorization", "Bearer "+credential)
 	request = request.WithContext(WithHTTPUpstreamProfile(ctx, HTTPUpstreamProfileOpenAI))
-	proxy := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxy = account.Proxy.URL()
+	proxy, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	return s.doOpenAIUpstream(request, proxy, account)
 }
@@ -467,9 +471,9 @@ func (s *OpenAIGatewayService) openAIResourceRequest(ctx context.Context, accoun
 	}
 	request.Header.Set("Accept", "application/json")
 	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), HTTPUpstreamProfileOpenAI))
-	proxy := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxy = account.Proxy.URL()
+	proxy, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, 0, egressErr
 	}
 	response, err := s.doOpenAIUpstream(request, proxy, account)
 	if err != nil {
@@ -518,6 +522,9 @@ func (s *OpenAIGatewayService) openAIResourceAccount(ctx context.Context, j *Ups
 	}
 	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey || !account.IsActive() {
 		return nil, errors.New("OpenAI resource account unavailable")
+	}
+	if err := account.RestoreJobEgress(ctx, j.Billing.Egress); err != nil {
+		return nil, err
 	}
 	return account, nil
 }

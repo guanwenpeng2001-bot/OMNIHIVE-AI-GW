@@ -22,8 +22,9 @@ var ErrUpstreamJobTariff = errors.New("explicit video model/resolution tariff is
 // UpstreamJobBilling is an immutable admission-time price/ownership snapshot.
 // Never persist credentials or the client's potentially sensitive input body.
 type UpstreamJobBilling struct {
-	PricingState    PricingState `json:"pricing_state,omitempty"`
-	PricingSnapshot string       `json:"pricing_snapshot,omitempty"`
+	Egress          *ProxyGroupJobEgress `json:"-"`
+	PricingState    PricingState         `json:"pricing_state,omitempty"`
+	PricingSnapshot string               `json:"pricing_snapshot,omitempty"`
 
 	Realtime              *QianwenRealtimeSnapshot `json:"realtime,omitempty"`
 	Model                 string                   `json:"model"`
@@ -151,12 +152,22 @@ func finitePositive(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.Is
 // Submit commits an exclusive claim BEFORE any network call. Ambiguous transport
 // failures are not retried: without upstream idempotency this is the only safe
 // at-most-once contract. A crashed claim is eventually expired.
-func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body []byte, submit func(context.Context) (UpstreamJobUpdate, error)) (*UpstreamJob, error) {
+func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body []byte, submit func(context.Context) (UpstreamJobUpdate, error), accounts ...*Account) (*UpstreamJob, error) {
 	if job == nil || job.UserID <= 0 || job.APIKeyID <= 0 || job.AccountID <= 0 || submit == nil {
 		return nil, errors.New("invalid job submission")
 	}
 	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
 		return nil, ErrUpstreamJobTariff
+	}
+	if len(accounts) > 0 {
+		if accounts[0] == nil || accounts[0].ID != job.AccountID {
+			return nil, ErrProxyBindingConflict
+		}
+		selected, err := accounts[0].PinJobEgress(ctx)
+		if err != nil {
+			return nil, err
+		}
+		job.Billing.Egress = selected
 	}
 	fingerprint, err := UpstreamJobFingerprint(job, body)
 	if err != nil {

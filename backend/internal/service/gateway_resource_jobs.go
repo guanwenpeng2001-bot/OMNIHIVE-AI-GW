@@ -159,13 +159,6 @@ func ValidateAnthropicMessageBatchAdmission(body []byte) (AnthropicMessageBatchA
 	return admission, nil
 }
 
-func gatewayResourceProxyURL(account *Account) string {
-	if account != nil && account.ProxyID != nil && account.Proxy != nil {
-		return account.Proxy.URL()
-	}
-	return ""
-}
-
 // openAIResourceStream opens one streaming read of a native resource.
 func (s *OpenAIGatewayService) openAIResourceStream(ctx context.Context, account *Account, endpoint string) (*http.Response, error) {
 	credential, err := openAIActionCredential(account)
@@ -183,7 +176,11 @@ func (s *OpenAIGatewayService) openAIResourceStream(ctx context.Context, account
 	account.ApplyHeaderOverrides(request.Header)
 	request.Header.Set("Authorization", "Bearer "+credential)
 	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), HTTPUpstreamProfileOpenAI))
-	return s.doOpenAIUpstream(request, gatewayResourceProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	return s.doOpenAIUpstream(request, accountProxyURL, account)
 }
 
 // OpenOpenAIResourceContent streams one owner-bound file or batch output. The
@@ -528,6 +525,9 @@ func (s *OpenAIGatewayService) anthropicResourceAccount(ctx context.Context, job
 	if submit && (job.GroupID == nil || !slices.Contains(account.GroupIDs, *job.GroupID)) {
 		return nil, errors.New("Anthropic message batch account is outside the active group")
 	}
+	if err := account.RestoreJobEgress(ctx, job.Billing.Egress); err != nil {
+		return nil, err
+	}
 	return account, nil
 }
 
@@ -599,7 +599,11 @@ func (s *OpenAIGatewayService) doAnthropicMessageBatch(ctx context.Context, acco
 	if err != nil {
 		return nil, err
 	}
-	return s.doOpenAIUpstream(request, gatewayResourceProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	return s.doOpenAIUpstream(request, accountProxyURL, account)
 }
 
 func gatewayResourceAnthropicBody(response *http.Response) ([]byte, error) {
@@ -891,5 +895,9 @@ func (s *OpenAIGatewayService) ForwardOpenAIModeration(ctx context.Context, acco
 	request.Header.Set("Authorization", "Bearer "+credential)
 	request.Header.Set("Content-Type", "application/json")
 	request = request.WithContext(WithHTTPUpstreamProfile(request.Context(), HTTPUpstreamProfileOpenAI))
-	return s.doOpenAIUpstream(request, gatewayResourceProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	return s.doOpenAIUpstream(request, accountProxyURL, account)
 }

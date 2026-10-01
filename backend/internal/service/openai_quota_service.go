@@ -459,6 +459,13 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	// instead of round-tripping the DB again. Fall back to proxyRepo only
 	// when Proxy isn't pre-populated (defensive — e.g. callers that built
 	// the Account by hand).
+	if account.ProxyGroupID != nil {
+		var err error
+		proxyURL, err = account.EgressProxyURL(ctx)
+		if err != nil {
+			return "", "", "", false, err
+		}
+	}
 	if account.ProxyID != nil {
 		switch {
 		case account.Proxy != nil:

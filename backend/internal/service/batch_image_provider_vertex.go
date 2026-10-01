@@ -175,6 +175,10 @@ func (p *VertexBatchImageProvider) SupportsAccount(account *Account) bool {
 }
 
 func (p *VertexBatchImageProvider) Submit(ctx context.Context, job *BatchImageJob, account *Account, input BatchImageInput) (*BatchProviderJob, error) {
+	ctx, egressErr := withBatchImageAccountEgress(ctx, job, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	if err := p.validateAccount(account); err != nil {
 		return nil, err
 	}
@@ -245,6 +249,10 @@ func (p *VertexBatchImageProvider) Submit(ctx context.Context, job *BatchImageJo
 }
 
 func (p *VertexBatchImageProvider) Get(ctx context.Context, job *BatchImageJob, account *Account) (*BatchProviderStatus, error) {
+	ctx, egressErr := withBatchImageAccountEgress(ctx, job, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	if err := p.validateAccount(account); err != nil {
 		return nil, err
 	}
@@ -276,6 +284,10 @@ func (p *VertexBatchImageProvider) Get(ctx context.Context, job *BatchImageJob, 
 }
 
 func (p *VertexBatchImageProvider) Cancel(ctx context.Context, job *BatchImageJob, account *Account) error {
+	ctx, egressErr := withBatchImageAccountEgress(ctx, job, account)
+	if egressErr != nil {
+		return egressErr
+	}
 	if err := p.validateAccount(account); err != nil {
 		return err
 	}
@@ -291,6 +303,10 @@ func (p *VertexBatchImageProvider) Cancel(ctx context.Context, job *BatchImageJo
 }
 
 func (p *VertexBatchImageProvider) OpenResult(ctx context.Context, job *BatchImageJob, account *Account) (io.ReadCloser, string, error) {
+	ctx, egressErr := withBatchImageAccountEgress(ctx, job, account)
+	if egressErr != nil {
+		return nil, "", egressErr
+	}
 	if err := p.validateAccount(account); err != nil {
 		return nil, "", err
 	}
@@ -322,6 +338,10 @@ func (p *VertexBatchImageProvider) OpenResult(ctx context.Context, job *BatchIma
 }
 
 func (p *VertexBatchImageProvider) Cleanup(ctx context.Context, job *BatchImageJob, account *Account, target CleanupTarget) error {
+	ctx, egressErr := withBatchImageAccountEgress(ctx, job, account)
+	if egressErr != nil {
+		return egressErr
+	}
 	if err := p.validateAccount(account); err != nil {
 		return err
 	}
@@ -874,7 +894,7 @@ func (s *VertexGCSObjectStore) OpenObject(ctx context.Context, accessToken strin
 		return nil, "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := s.client.Do(req)
+	resp, err := batchImageDo(req, s.client)
 	if err != nil {
 		return nil, "", err
 	}
@@ -959,7 +979,7 @@ func doVertexDecodeJSON(client *http.Client, req *http.Request, out any) error {
 	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/batchPredictionJobs") {
 		resp, err = generationBatchHTTP(req, client)
 	} else {
-		resp, err = client.Do(req)
+		resp, err = batchImageDo(req, client)
 	}
 	if err != nil {
 		return err
@@ -972,7 +992,7 @@ func doVertexDecodeJSON(client *http.Client, req *http.Request, out any) error {
 }
 
 func doVertexNoBody(client *http.Client, req *http.Request) error {
-	resp, err := client.Do(req)
+	resp, err := batchImageDo(req, client)
 	if err != nil {
 		return err
 	}

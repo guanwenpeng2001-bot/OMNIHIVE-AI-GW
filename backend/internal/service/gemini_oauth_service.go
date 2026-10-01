@@ -50,12 +50,13 @@ const (
 )
 
 type GeminiOAuthService struct {
-	sessionStore *geminicli.SessionStore
-	proxyRepo    ProxyRepository
-	oauthClient  GeminiOAuthClient
-	codeAssist   GeminiCliCodeAssistClient
-	driveClient  geminicli.DriveClient
-	cfg          *config.Config
+	egressRuntime *ProxyGroupRuntime
+	sessionStore  *geminicli.SessionStore
+	proxyRepo     ProxyRepository
+	oauthClient   GeminiOAuthClient
+	codeAssist    GeminiCliCodeAssistClient
+	driveClient   geminicli.DriveClient
+	cfg           *config.Config
 }
 
 type GeminiOAuthCapabilities struct {
@@ -98,7 +99,7 @@ type GeminiAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, projectID, oauthType, tierID string) (*GeminiAuthURLResult, error) {
+func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, projectID, oauthType, tierID string, proxyGroupIDs ...*int64) (*GeminiAuthURLResult, error) {
 	state, err := geminicli.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate state: %w", err)
@@ -113,12 +114,20 @@ func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		return nil, fmt.Errorf("failed to generate session ID: %w", err)
 	}
 
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, proxyID, proxyGroupIDs, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	var proxyURL string
-	if proxyID != nil {
+	if proxyID != nil && *proxyID > 0 {
 		proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
 		}
+	}
+	if selection != nil {
+		proxyURL = selection.URL
 	}
 
 	// OAuth client selection:
@@ -139,6 +148,7 @@ func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 	session := &geminicli.OAuthSession{
 		State:        state,
 		CodeVerifier: codeVerifier,
+		Egress:       selection,
 		ProxyURL:     proxyURL,
 		RedirectURI:  redirectURI,
 		ProjectID:    strings.TrimSpace(projectID),
@@ -184,27 +194,29 @@ func (s *GeminiOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 }
 
 type GeminiExchangeCodeInput struct {
-	SessionID string
-	State     string
-	Code      string
-	ProxyID   *int64
-	OAuthType string // "code_assist" 或 "ai_studio"
+	SessionID    string
+	State        string
+	Code         string
+	ProxyID      *int64
+	ProxyGroupID *int64
+	OAuthType    string // "code_assist" 或 "ai_studio"
 	// TierID is a user-selected tier to be used when auto detection is unavailable or fails.
 	// If empty, the service will fall back to the tier stored in the OAuth session (if any).
 	TierID string
 }
 
 type GeminiTokenInfo struct {
-	AccessToken  string         `json:"access_token"`
-	RefreshToken string         `json:"refresh_token"`
-	ExpiresIn    int64          `json:"expires_in"`
-	ExpiresAt    int64          `json:"expires_at"`
-	TokenType    string         `json:"token_type"`
-	Scope        string         `json:"scope,omitempty"`
-	ProjectID    string         `json:"project_id,omitempty"`
-	OAuthType    string         `json:"oauth_type,omitempty"` // "code_assist" 或 "ai_studio"
-	TierID       string         `json:"tier_id,omitempty"`    // Canonical tier id (e.g. google_one_free, gcp_standard, aistudio_free)
-	Extra        map[string]any `json:"extra,omitempty"`      // Drive metadata
+	Egress       *OAuthEgressSelection `json:"-"`
+	AccessToken  string                `json:"access_token"`
+	RefreshToken string                `json:"refresh_token"`
+	ExpiresIn    int64                 `json:"expires_in"`
+	ExpiresAt    int64                 `json:"expires_at"`
+	TokenType    string                `json:"token_type"`
+	Scope        string                `json:"scope,omitempty"`
+	ProjectID    string                `json:"project_id,omitempty"`
+	OAuthType    string                `json:"oauth_type,omitempty"` // "code_assist" 或 "ai_studio"
+	TierID       string                `json:"tier_id,omitempty"`    // Canonical tier id (e.g. google_one_free, gcp_standard, aistudio_free)
+	Extra        map[string]any        `json:"extra,omitempty"`      // Drive metadata
 }
 
 // validateTierID validates tier_id format and length
@@ -410,9 +422,9 @@ func (s *GeminiOAuthService) RefreshAccountGoogleOneTier(
 	}
 
 	// 获取 proxy URL
-	var proxyURL string
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return "", nil, nil, egressErr
 	}
 
 	// 调用 Drive API
@@ -456,14 +468,16 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 		return nil, fmt.Errorf("invalid state")
 	}
 
+	if err := validateOAuthSessionEgress(session.Egress, input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 && session.Egress == nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
 		}
 	}
-	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ProxyURL: %s", proxyURL)
 
 	redirectURI := session.RedirectURI
 
@@ -622,7 +636,7 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 
 		// Store Drive info in extra field for caching
 		if storageInfo != nil {
-			tokenInfo := &GeminiTokenInfo{
+			tokenInfo := &GeminiTokenInfo{Egress: session.Egress,
 				AccessToken:  tokenResp.AccessToken,
 				RefreshToken: tokenResp.RefreshToken,
 				TokenType:    tokenResp.TokenType,
@@ -656,7 +670,7 @@ func (s *GeminiOAuthService) ExchangeCode(ctx context.Context, input *GeminiExch
 
 	logger.LegacyPrintf("service.gemini_oauth", "[GeminiOAuth] ========== Account Type Detection END ==========")
 
-	result := &GeminiTokenInfo{
+	result := &GeminiTokenInfo{Egress: session.Egress,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		TokenType:    tokenResp.TokenType,

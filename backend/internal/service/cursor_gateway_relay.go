@@ -97,7 +97,10 @@ func cursorConvertRelayRequest(body []byte, from, to string) ([]byte, error) {
 }
 
 func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestContext *gin.Context, account *Account, body []byte, inbound string, output *cursorOutput) (*ForwardResult, error) {
-	ctx = cursorAccountContext(ctx, account)
+	ctx, egressErr := cursorAccountContext(ctx, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	started := time.Now()
 	upstream := strings.TrimSpace(account.GetCredential("api_protocol"))
 	if upstream == "" || upstream == APIProtocolAdaptive {

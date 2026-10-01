@@ -225,7 +225,9 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// 执行请求
 	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
-	resp, err := servertiming.Do(client, req)
+	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req)
+	resp, err := servertiming.Do(client, tracedRequest)
+	err = classifyProxyFailure(err)
 	if err != nil {
 		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
 		// 请求失败，立即减少计数
@@ -298,7 +300,9 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 
 	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
-	resp, err := servertiming.Do(client, req)
+	tracedRequest, classifyProxyFailure := traceProxyApplicationWrite(req)
+	resp, err := servertiming.Do(client, tracedRequest)
+	err = classifyProxyFailure(err)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
@@ -1406,6 +1410,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 	if err := proxyutil.ConfigureTransportProxy(transport, proxyURL); err != nil {
 		return nil, err
 	}
+	markProxyConnectionFailures(transport, proxyURL)
 	return transport, nil
 }
 

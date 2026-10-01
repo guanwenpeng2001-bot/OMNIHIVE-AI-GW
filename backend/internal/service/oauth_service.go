@@ -44,9 +44,10 @@ type ClaudeOAuthClient interface {
 
 // OAuthService handles OAuth authentication flows
 type OAuthService struct {
-	sessionStore *oauth.SessionStore
-	proxyRepo    ProxyRepository
-	oauthClient  ClaudeOAuthClient
+	egressRuntime *ProxyGroupRuntime
+	sessionStore  *oauth.SessionStore
+	proxyRepo     ProxyRepository
+	oauthClient   ClaudeOAuthClient
 }
 
 // NewOAuthService creates a new OAuth service
@@ -65,17 +66,17 @@ type GenerateAuthURLResult struct {
 }
 
 // GenerateAuthURL generates an OAuth authorization URL with full scope
-func (s *OAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64) (*GenerateAuthURLResult, error) {
-	return s.generateAuthURLWithScope(ctx, oauth.ScopeOAuth, proxyID)
+func (s *OAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, proxyGroupIDs ...*int64) (*GenerateAuthURLResult, error) {
+	return s.generateAuthURLWithScope(ctx, oauth.ScopeOAuth, proxyID, proxyGroupIDs...)
 }
 
 // GenerateSetupTokenURL generates an OAuth authorization URL for setup token (inference only)
-func (s *OAuthService) GenerateSetupTokenURL(ctx context.Context, proxyID *int64) (*GenerateAuthURLResult, error) {
+func (s *OAuthService) GenerateSetupTokenURL(ctx context.Context, proxyID *int64, proxyGroupIDs ...*int64) (*GenerateAuthURLResult, error) {
 	scope := oauth.ScopeInference
-	return s.generateAuthURLWithScope(ctx, scope, proxyID)
+	return s.generateAuthURLWithScope(ctx, scope, proxyID, proxyGroupIDs...)
 }
 
-func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope string, proxyID *int64) (*GenerateAuthURLResult, error) {
+func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope string, proxyID *int64, proxyGroupIDs ...*int64) (*GenerateAuthURLResult, error) {
 	// Generate PKCE values
 	state, err := oauth.GenerateState()
 	if err != nil {
@@ -96,12 +97,20 @@ func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope strin
 	}
 
 	// Get proxy URL if specified
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, proxyID, proxyGroupIDs, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	var proxyURL string
-	if proxyID != nil {
+	if proxyID != nil && *proxyID > 0 {
 		proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
 		}
+	}
+	if selection != nil {
+		proxyURL = selection.URL
 	}
 
 	// Store session
@@ -109,6 +118,7 @@ func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope strin
 		State:        state,
 		CodeVerifier: codeVerifier,
 		Scope:        scope,
+		Egress:       selection,
 		ProxyURL:     proxyURL,
 		CreatedAt:    time.Now(),
 	}
@@ -125,22 +135,24 @@ func (s *OAuthService) generateAuthURLWithScope(ctx context.Context, scope strin
 
 // ExchangeCodeInput represents the input for code exchange
 type ExchangeCodeInput struct {
-	SessionID string
-	Code      string
-	ProxyID   *int64
+	SessionID    string
+	Code         string
+	ProxyID      *int64
+	ProxyGroupID *int64
 }
 
 // TokenInfo represents the token information stored in credentials
 type TokenInfo struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int64  `json:"expires_in"`
-	ExpiresAt    int64  `json:"expires_at"`
-	RefreshToken string `json:"refresh_token,omitempty"`
-	Scope        string `json:"scope,omitempty"`
-	OrgUUID      string `json:"org_uuid,omitempty"`
-	AccountUUID  string `json:"account_uuid,omitempty"`
-	EmailAddress string `json:"email_address,omitempty"`
+	Egress       *OAuthEgressSelection `json:"-"`
+	AccessToken  string                `json:"access_token"`
+	TokenType    string                `json:"token_type"`
+	ExpiresIn    int64                 `json:"expires_in"`
+	ExpiresAt    int64                 `json:"expires_at"`
+	RefreshToken string                `json:"refresh_token,omitempty"`
+	Scope        string                `json:"scope,omitempty"`
+	OrgUUID      string                `json:"org_uuid,omitempty"`
+	AccountUUID  string                `json:"account_uuid,omitempty"`
+	EmailAddress string                `json:"email_address,omitempty"`
 }
 
 // ExchangeCode exchanges authorization code for tokens
@@ -152,8 +164,11 @@ func (s *OAuthService) ExchangeCode(ctx context.Context, input *ExchangeCodeInpu
 	}
 
 	// Get proxy URL
+	if err := validateOAuthSessionEgress(session.Egress, input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 && session.Egress == nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
@@ -169,6 +184,7 @@ func (s *OAuthService) ExchangeCode(ctx context.Context, input *ExchangeCodeInpu
 		return nil, err
 	}
 
+	tokenInfo.Egress = session.Egress
 	// Delete session after successful exchange
 	s.sessionStore.Delete(input.SessionID)
 
@@ -177,22 +193,34 @@ func (s *OAuthService) ExchangeCode(ctx context.Context, input *ExchangeCodeInpu
 
 // CookieAuthInput represents the input for cookie-based authentication
 type CookieAuthInput struct {
-	SessionKey string
-	ProxyID    *int64
-	Scope      string // "full" or "inference"
+	SessionKey   string
+	ProxyID      *int64
+	ProxyGroupID *int64
+	Scope        string // "full" or "inference"
 }
 
 // CookieAuth performs OAuth using sessionKey (cookie-based auto-auth)
 func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (*TokenInfo, error) {
+	seed, err := oauth.GenerateSessionID()
+	if err != nil {
+		return nil, err
+	}
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, input.ProxyID, []*int64{input.ProxyGroupID}, seed)
+	if err != nil {
+		return nil, err
+	}
 	// Get proxy URL if specified
 	var proxyURL string
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 {
 		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
 		}
 	}
 
+	if selection != nil {
+		proxyURL = selection.URL
+	}
 	// Determine scope and if this is a setup token
 	// Internal API call uses ScopeAPI (org:create_api_key not supported)
 	scope := oauth.ScopeAPI
@@ -232,6 +260,7 @@ func (s *OAuthService) CookieAuth(ctx context.Context, input *CookieAuthInput) (
 		return nil, fmt.Errorf("failed to exchange code: %w", err)
 	}
 
+	tokenInfo.Egress = selection
 	// Ensure org_uuid is set (from step 1 if not from token response)
 	if tokenInfo.OrgUUID == "" && orgUUID != "" {
 		tokenInfo.OrgUUID = orgUUID
@@ -309,7 +338,10 @@ func (s *OAuthService) RefreshAccountToken(ctx context.Context, account *Account
 		return nil, fmt.Errorf("no refresh token available")
 	}
 
-	var proxyURL string
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	if account.ProxyID != nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
 		if err == nil && proxy != nil {

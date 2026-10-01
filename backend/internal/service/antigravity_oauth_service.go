@@ -11,8 +11,9 @@ import (
 )
 
 type AntigravityOAuthService struct {
-	sessionStore *antigravity.SessionStore
-	proxyRepo    ProxyRepository
+	egressRuntime *ProxyGroupRuntime
+	sessionStore  *antigravity.SessionStore
+	proxyRepo     ProxyRepository
 }
 
 func NewAntigravityOAuthService(proxyRepo ProxyRepository) *AntigravityOAuthService {
@@ -30,7 +31,7 @@ type AntigravityAuthURLResult struct {
 }
 
 // GenerateAuthURL 生成 Google OAuth 授权链接
-func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64) (*AntigravityAuthURLResult, error) {
+func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, proxyGroupIDs ...*int64) (*AntigravityAuthURLResult, error) {
 	state, err := antigravity.GenerateState()
 	if err != nil {
 		return nil, fmt.Errorf("生成 state 失败: %w", err)
@@ -46,17 +47,26 @@ func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *
 		return nil, fmt.Errorf("生成 session_id 失败: %w", err)
 	}
 
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, proxyID, proxyGroupIDs, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	var proxyURL string
-	if proxyID != nil {
+	if proxyID != nil && *proxyID > 0 {
 		proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
 		}
 	}
+	if selection != nil {
+		proxyURL = selection.URL
+	}
 
 	session := &antigravity.OAuthSession{
 		State:        state,
 		CodeVerifier: codeVerifier,
+		Egress:       selection,
 		ProxyURL:     proxyURL,
 		CreatedAt:    time.Now(),
 	}
@@ -74,24 +84,26 @@ func (s *AntigravityOAuthService) GenerateAuthURL(ctx context.Context, proxyID *
 
 // AntigravityExchangeCodeInput 交换 code 的输入
 type AntigravityExchangeCodeInput struct {
-	SessionID string
-	State     string
-	Code      string
-	ProxyID   *int64
+	SessionID    string
+	State        string
+	Code         string
+	ProxyID      *int64
+	ProxyGroupID *int64
 }
 
 // AntigravityTokenInfo token 信息
 type AntigravityTokenInfo struct {
-	AccessToken      string `json:"access_token"`
-	RefreshToken     string `json:"refresh_token"`
-	ExpiresIn        int64  `json:"expires_in"`
-	ExpiresAt        int64  `json:"expires_at"`
-	TokenType        string `json:"token_type"`
-	Email            string `json:"email,omitempty"`
-	ProjectID        string `json:"project_id,omitempty"`
-	ProjectIDMissing bool   `json:"-"`
-	PlanType         string `json:"plan_type,omitempty"`
-	PrivacyMode      string `json:"-"`
+	Egress           *OAuthEgressSelection `json:"-"`
+	AccessToken      string                `json:"access_token"`
+	RefreshToken     string                `json:"refresh_token"`
+	ExpiresIn        int64                 `json:"expires_in"`
+	ExpiresAt        int64                 `json:"expires_at"`
+	TokenType        string                `json:"token_type"`
+	Email            string                `json:"email,omitempty"`
+	ProjectID        string                `json:"project_id,omitempty"`
+	ProjectIDMissing bool                  `json:"-"`
+	PlanType         string                `json:"plan_type,omitempty"`
+	PrivacyMode      string                `json:"-"`
 }
 
 // ExchangeCode 用 authorization code 交换 token
@@ -106,8 +118,11 @@ func (s *AntigravityOAuthService) ExchangeCode(ctx context.Context, input *Antig
 	}
 
 	// 确定代理 URL
+	if err := validateOAuthSessionEgress(session.Egress, input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 && session.Egress == nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
 		if err == nil && proxy != nil {
 			proxyURL = proxy.URL()
@@ -131,7 +146,7 @@ func (s *AntigravityOAuthService) ExchangeCode(ctx context.Context, input *Antig
 	// 计算过期时间（减去 5 分钟安全窗口）
 	expiresAt := time.Now().Unix() + tokenResp.ExpiresIn - 300
 
-	result := &AntigravityTokenInfo{
+	result := &AntigravityTokenInfo{Egress: session.Egress,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		ExpiresIn:    tokenResp.ExpiresIn,
@@ -216,13 +231,10 @@ func (s *AntigravityOAuthService) RefreshToken(ctx context.Context, refreshToken
 }
 
 // ValidateRefreshToken 用 refresh token 验证并获取完整的 token 信息（含 email 和 project_id）
-func (s *AntigravityOAuthService) ValidateRefreshToken(ctx context.Context, refreshToken string, proxyID *int64) (*AntigravityTokenInfo, error) {
-	var proxyURL string
-	if proxyID != nil {
-		proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
-		if err == nil && proxy != nil {
-			proxyURL = proxy.URL()
-		}
+func (s *AntigravityOAuthService) ValidateRefreshToken(ctx context.Context, refreshToken string, proxyID *int64, proxyGroupIDs ...*int64) (*AntigravityTokenInfo, error) {
+	proxyURL, selection, err := resolveOAuthProxy(ctx, s.egressRuntime, s.proxyRepo, proxyID, proxyGroupIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	// 刷新 token
@@ -259,6 +271,7 @@ func (s *AntigravityOAuthService) ValidateRefreshToken(ctx context.Context, refr
 	// 令牌刚获取，立即设置隐私
 	tokenInfo.PrivacyMode = setAntigravityPrivacy(ctx, tokenInfo.AccessToken, tokenInfo.ProjectID, proxyURL)
 
+	tokenInfo.Egress = selection
 	return tokenInfo, nil
 }
 

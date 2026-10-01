@@ -50,7 +50,11 @@ func (s *OpenAIGatewayService) forwardQianwenNativeSyncResource(ctx context.Cont
 	endpoint := req.URL.Path
 	SetActualOpenAIUpstreamEndpoint(c, endpoint)
 	SetOpsUpstreamModel(c, mapped)
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
@@ -161,7 +165,11 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	endpoint := req.URL.Path
 	SetActualOpenAIUpstreamEndpoint(c, endpoint)
 	SetOpsUpstreamModel(c, account.GetMappedModel(model))
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

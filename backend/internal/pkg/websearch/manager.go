@@ -92,7 +92,7 @@ func (m *Manager) SearchWithBestProvider(ctx context.Context, req SearchRequest)
 		return nil, "", fmt.Errorf("websearch: empty search query")
 	}
 
-	candidates := m.filterAvailableProviders(ctx, req.ProxyURL)
+	candidates := m.filterAvailableProviders(ctx, req.ProxyURL, req.OverrideProxy)
 	if len(candidates) == 0 {
 		return nil, "", fmt.Errorf("websearch: no available provider (all exhausted, expired, or proxy unavailable)")
 	}
@@ -135,13 +135,18 @@ func (m *Manager) SearchWithBestProvider(ctx context.Context, req SearchRequest)
 
 // filterAvailableProviders returns providers that have API keys, are not expired,
 // and whose proxies are not marked unavailable.
-func (m *Manager) filterAvailableProviders(ctx context.Context, accountProxyURL string) []ProviderConfig {
+func (m *Manager) filterAvailableProviders(ctx context.Context, accountProxyURL string, overrides ...bool) []ProviderConfig {
 	var out []ProviderConfig
 	for _, cfg := range m.configs {
 		if !m.isProviderAvailable(cfg) {
 			continue
 		}
 		proxyID := resolveProxyID(cfg, accountProxyURL)
+		if len(overrides) > 0 && overrides[0] {
+			proxyID = 0
+			cfg.ProxyID = 0
+			cfg.ProxyURL = ""
+		}
 		if proxyID > 0 && !m.isProxyAvailable(ctx, proxyID) {
 			slog.Debug("websearch: proxy marked unavailable, skipping",
 				"provider", cfg.Type, "proxy_id", proxyID)
@@ -370,7 +375,7 @@ func (m *Manager) TestSearch(ctx context.Context, req SearchRequest) (*SearchRes
 
 func (m *Manager) executeSearch(ctx context.Context, cfg ProviderConfig, req SearchRequest) (*SearchResponse, error) {
 	proxyURL := cfg.ProxyURL
-	if req.ProxyURL != "" {
+	if req.OverrideProxy || req.ProxyURL != "" {
 		proxyURL = req.ProxyURL
 	}
 	client, err := m.getOrCreateHTTPClient(proxyURL)

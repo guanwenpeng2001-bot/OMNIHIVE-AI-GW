@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/google/wire"
@@ -26,8 +27,9 @@ func ProvideCursorGatewayService(sessions *CursorSessionProvider, settings Setti
 	return gateway
 }
 
-func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
+func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client, runtime *ProxyGroupRuntime) *GrokOAuthService {
 	svc := NewGrokOAuthService(proxyRepo, oauthClient, cfg)
+	svc.egressRuntime = runtime
 	// wire.go is depguard-exempt for redis; construct the Redis session store here.
 	if redisClient != nil {
 		svc = svc.WithSessionStore(xai.NewRedisSessionStore(redisClient))
@@ -121,8 +123,10 @@ func ProvideOpenAIOAuthService(
 	proxyRepo ProxyRepository,
 	oauthClient OpenAIOAuthClient,
 	privacyClientFactory PrivacyClientFactory,
+	runtime *ProxyGroupRuntime,
 ) *OpenAIOAuthService {
 	svc := NewOpenAIOAuthService(proxyRepo, oauthClient)
+	svc.egressRuntime = runtime
 	svc.SetPrivacyClientFactory(privacyClientFactory)
 	return svc
 }
@@ -846,6 +850,8 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	NewProxyGroupAdminService,
+	NewProxyGroupRuntime,
 	NewModelAccessService,
 	NewWorkspaceService,
 	ProvideUpstreamJobService,
@@ -872,7 +878,7 @@ var ProviderSet = wire.NewSet(
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
-	NewAdminService,
+	ProvideAdminServiceWithEgress,
 	ProvideAccountRuntimeInvalidator,
 	ProvideGatewayService,
 	ProvideOpenAIGatewayService,
@@ -884,15 +890,15 @@ var ProviderSet = wire.NewSet(
 	ProvideBatchImageCleanupService,
 	ProvideBatchImageWorkerRuntime,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
-	NewOAuthService,
+	ProvideOAuthServiceWithEgress,
 	ProvideOpenAIOAuthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
-	NewGeminiOAuthService,
+	ProvideGeminiOAuthServiceWithEgress,
 	NewGeminiQuotaService,
 	NewCompositeTokenCacheInvalidator,
 	wire.Bind(new(TokenCacheInvalidator), new(*CompositeTokenCacheInvalidator)),
-	NewAntigravityOAuthService,
+	ProvideAntigravityOAuthServiceWithEgress,
 	ProvideOAuthRefreshAPI,
 	ProvideGeminiTokenProvider,
 	NewGeminiMessagesCompatService,
@@ -1079,4 +1085,57 @@ func ProvideAccountRuntimeInvalidator(usage *UsageCache, monitor *ChannelMonitor
 	internal Internal500CounterCache, sessions CursorSessionCache, gateway *OpenAIGatewayService) *AccountRuntimeInvalidator {
 	return &AccountRuntimeInvalidator{Usage: usage, Monitor: monitor, Tokens: tokens,
 		Timeout: timeout, Forbidden: forbidden, Internal: internal, Sessions: sessions, Gateway: gateway}
+}
+
+func ProvideOAuthServiceWithEgress(proxyRepo ProxyRepository, oauthClient ClaudeOAuthClient, runtime *ProxyGroupRuntime) *OAuthService {
+	svc := NewOAuthService(proxyRepo, oauthClient)
+	svc.egressRuntime = runtime
+	return svc
+}
+
+func ProvideGeminiOAuthServiceWithEgress(proxyRepo ProxyRepository,
+	oauthClient GeminiOAuthClient,
+	codeAssist GeminiCliCodeAssistClient,
+	driveClient geminicli.DriveClient,
+	cfg *config.Config, runtime *ProxyGroupRuntime) *GeminiOAuthService {
+	svc := NewGeminiOAuthService(proxyRepo, oauthClient, codeAssist, driveClient, cfg)
+	svc.egressRuntime = runtime
+	return svc
+}
+
+func ProvideAntigravityOAuthServiceWithEgress(proxyRepo ProxyRepository, runtime *ProxyGroupRuntime) *AntigravityOAuthService {
+	svc := NewAntigravityOAuthService(proxyRepo)
+	svc.egressRuntime = runtime
+	return svc
+}
+
+func ProvideAdminServiceWithEgress(cfg *config.Config,
+	userRepo UserRepository,
+	usageLogRepo UsageLogRepository,
+	groupRepo AdminGroupRepository,
+	accountRepo AdminAccountRepository,
+	proxyRepo ProxyRepository,
+	apiKeyRepo APIKeyRepository,
+	redeemCodeRepo RedeemCodeRepository,
+	userGroupRateRepo UserGroupRateRepository,
+	userRPMCache UserRPMCache,
+	billingCacheService *BillingCacheService,
+	proxyProber ProxyExitInfoProber,
+	proxyLatencyCache ProxyLatencyCache,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	entClient *dbent.Client,
+	settingService *SettingService,
+	defaultSubAssigner DefaultSubscriptionAssigner,
+	userSubRepo UserSubscriptionRepository,
+	privacyClientFactory PrivacyClientFactory,
+	runtimeBlocker AccountRuntimeBlocker,
+	affiliateService *AffiliateService,
+	compositeRouteRepo CompositeModelRouteRepository,
+	compositeResolver *CompositeRouteResolver,
+	channelCacheInvalidator ChannelCacheInvalidator,
+	cursorSessions CursorSessionCache,
+	runtimeInvalidator *AccountRuntimeInvalidator, runtime *ProxyGroupRuntime) AdminService {
+	svc := NewAdminService(cfg, userRepo, usageLogRepo, groupRepo, accountRepo, proxyRepo, apiKeyRepo, redeemCodeRepo, userGroupRateRepo, userRPMCache, billingCacheService, proxyProber, proxyLatencyCache, authCacheInvalidator, entClient, settingService, defaultSubAssigner, userSubRepo, privacyClientFactory, runtimeBlocker, affiliateService, compositeRouteRepo, compositeResolver, channelCacheInvalidator, cursorSessions, runtimeInvalidator)
+	svc.(*adminServiceImpl).egressRuntime = runtime
+	return svc
 }

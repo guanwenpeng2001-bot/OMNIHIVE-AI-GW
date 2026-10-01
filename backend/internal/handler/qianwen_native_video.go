@@ -135,7 +135,7 @@ func (h *OpenAIGatewayHandler) submitQianwenAsyncJob(c *gin.Context, key *servic
 	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "media", h.maxAccountSwitches)()
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot}, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.gatewayService.SubmitQianwenAsync(ctx, account, family, body)
-	})
+	}, account)
 	if err != nil {
 		h.errorResponse(c, 503, "api_error", "Unable to persist async task")
 		return true

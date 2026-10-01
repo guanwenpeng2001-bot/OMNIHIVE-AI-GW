@@ -663,19 +663,21 @@ func TestAccountModelCatalogQianwenNativeCatalogAppliesIndependentSnapshot(t *te
 	require.Equal(t, 1, svc.commitCalls)
 	require.Zero(t, svc.mergeCalls)
 	require.Equal(t, map[string]any{"alias": "qwen-plus", "qwen-plus": "custom-target"}, svc.account.Credentials["model_mapping"])
-	require.Len(t, svc.account.EffectiveUpstreamModelCatalog().EligibleModels, 2)
-	require.Equal(t, "qwen-plus", svc.account.EffectiveUpstreamModelCatalog().EligibleModels[0].ID)
+	// Discovery retains native entries with unknown metadata and the explicitly
+	// configured target; missing capability observations are not admission gates.
+	eligible := svc.account.EffectiveUpstreamModelCatalog().EligibleModels
+	ids := make([]string, 0, len(eligible))
+	for _, model := range eligible {
+		ids = append(ids, model.ID)
+	}
+	require.ElementsMatch(t, []string{"qwen-plus", "ZHIPU/GLM-5.3-Flash", "wanx-3d", "custom-target"}, ids)
 	require.Len(t, svc.account.GetUpstreamModelCatalog().DiscoveredModels, 3)
 	require.Equal(t, `"1"`, gjson.Get(w.Body.String(), "data.snapshot_revision").Raw)
 	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.identity_revision").Raw)
 	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.rules_revision").Raw)
 	require.Equal(t, `[]`, gjson.Get(w.Body.String(), "data.invalid_aliases").Raw)
-	require.Equal(t, `["qwen-plus"]`, gjson.Get(w.Body.String(), "data.models").Raw)
-	for _, excluded := range gjson.Get(w.Body.String(), "data.excluded_models").Array() {
-		require.NotEmpty(t, excluded.Get("model").String())
-		require.False(t, excluded.Get("id").Exists())
-		require.Equal(t, "metadata_incomplete", excluded.Get("reason").String())
-	}
+	require.JSONEq(t, `["ZHIPU/GLM-5.3-Flash","qwen-plus","wanx-3d"]`, gjson.Get(w.Body.String(), "data.models").Raw)
+	require.Empty(t, gjson.Get(w.Body.String(), "data.excluded_models").Array(), "unknown metadata is not an exclusion reason")
 }
 
 func TestAccountModelCatalogQianwenCatalogDoesNotPersistIncompletePages(t *testing.T) {

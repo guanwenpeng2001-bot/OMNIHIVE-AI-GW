@@ -293,17 +293,17 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ollamaCloudUsage = state
 	}
 	out := &Account{
-		TPMLimit:                a.TPMLimit,
-		ID:                      a.ID,
-		Name:                    a.Name,
-		Notes:                   a.Notes,
-		Platform:                a.Platform,
-		Type:                    a.Type,
-		Credentials:             redactedCreds,
-		CredentialsStatus:       credsStatus,
-		Extra:                   extra,
-		OllamaCloudUsage:        ollamaCloudUsage,
-		ProxyID:                 a.ProxyID,
+		TPMLimit:          a.TPMLimit,
+		ID:                a.ID,
+		Name:              a.Name,
+		Notes:             a.Notes,
+		Platform:          a.Platform,
+		Type:              a.Type,
+		Credentials:       redactedCreds,
+		CredentialsStatus: credsStatus,
+		Extra:             extra,
+		OllamaCloudUsage:  ollamaCloudUsage,
+		ProxyID:           a.ProxyID, ProxyGroupID: a.ProxyGroupID, ProxyGroupName: accountProxyGroupName(a),
 		ProxyFallbackOriginID:   a.ProxyFallbackOriginID,
 		ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency:             a.Concurrency,
@@ -512,7 +512,7 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		ID:       a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		OllamaCloudUsage: a.OllamaCloudUsage,
-		ProxyID:          a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
+		ProxyID:          a.ProxyID, ProxyGroupID: a.ProxyGroupID, ProxyGroupName: a.ProxyGroupName, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency: a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
 		AutoPauseOnExpired: a.AutoPauseOnExpired, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
@@ -1013,4 +1013,11 @@ func PromoCodeUsageFromService(u *service.PromoCodeUsage) *PromoCodeUsage {
 		UsedAt:      u.UsedAt,
 		User:        UserFromServiceShallow(u.User),
 	}
+}
+
+func accountProxyGroupName(a *service.Account) string {
+	if a != nil && a.ProxyGroup != nil {
+		return a.ProxyGroup.Name
+	}
+	return ""
 }

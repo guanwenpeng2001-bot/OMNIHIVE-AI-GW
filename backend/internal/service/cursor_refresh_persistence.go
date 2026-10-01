@@ -9,8 +9,8 @@ import (
 // CursorOAuthRefreshRepository compares the complete attempted credential
 // document and publishes scheduler invalidation atomically with each mutation.
 type CursorOAuthRefreshRepository interface {
-	UpdateCursorOAuthCredentialsIfUnchanged(context.Context, int64, map[string]any, map[string]any) (bool, error)
-	SetCursorOAuthRefreshFailureIfUnchanged(context.Context, int64, map[string]any, bool, time.Time) (bool, error)
+	UpdateCursorOAuthCredentialsIfUnchanged(context.Context, int64, map[string]any, *int64, map[string]any) (bool, error)
+	SetCursorOAuthRefreshFailureIfUnchanged(context.Context, int64, map[string]any, *int64, bool, time.Time) (bool, error)
 }
 
 // CursorAccountRecoveryRepository commits reauthorization and targeted refresh-state
@@ -24,7 +24,7 @@ func (api *OAuthRefreshAPI) persistCursorRefresh(ctx context.Context, attempted 
 	if !ok {
 		return nil, &providerConfigurationRefreshError{err: errors.New("Cursor refresh CAS repository is not configured")}
 	}
-	applied, err := repo.UpdateCursorOAuthCredentialsIfUnchanged(ctx, attempted.ID, attempted.Credentials, credentials)
+	applied, err := repo.UpdateCursorOAuthCredentialsIfUnchanged(ctx, attempted.ID, attempted.Credentials, attempted.ProxyGroupID, credentials)
 	if err != nil {
 		// Do not retry a possibly consumed refresh token, or expose DB arguments.
 		return nil, &providerCycleContainmentRefreshError{err: errors.New("Cursor refresh credential persistence failed")}
@@ -49,7 +49,7 @@ func (api *OAuthRefreshAPI) recordCursorRefreshFailure(ctx context.Context, atte
 	}
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	applied, err := repo.SetCursorOAuthRefreshFailureIfUnchanged(cleanupCtx, attempted.ID, attempted.Credentials,
+	applied, err := repo.SetCursorOAuthRefreshFailureIfUnchanged(cleanupCtx, attempted.ID, attempted.Credentials, attempted.ProxyGroupID,
 		isNonRetryableRefreshError(refreshErr), time.Now().Add(tokenRefreshTempUnschedDuration))
 	if err != nil {
 		return nil, &providerCycleContainmentRefreshError{err: errors.New("Cursor refresh failure persistence failed")}

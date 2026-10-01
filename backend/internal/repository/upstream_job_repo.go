@@ -28,6 +28,16 @@ func scanUpstreamJob(row interface{ Scan(...any) error }) (*service.UpstreamJob,
 	if err := json.Unmarshal(raw, &upstreamJob); err != nil {
 		return nil, err
 	}
+	var routing struct {
+		Billing struct {
+			Egress *service.ProxyGroupJobEgress `json:"egress"`
+		} `json:"billing_snapshot"`
+	}
+	if err := json.Unmarshal(raw, &routing); err != nil {
+		return nil, err
+	}
+	upstreamJob.Billing.Egress = routing.Billing.Egress
+
 	return &upstreamJob, nil
 }
 
@@ -39,7 +49,7 @@ func (r *upstreamJobRepository) Create(ctx context.Context, upstreamJob *service
 		}
 		return nil, false, err
 	}
-	snapshot, err := json.Marshal(upstreamJob.Billing)
+	snapshot, err := marshalUpstreamJobBilling(upstreamJob.Billing)
 	if err != nil {
 		return nil, false, err
 	}
@@ -61,7 +71,7 @@ func (repository *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Conte
 	if receipt == nil || receipt.Family != "realtime_turn" || receipt.UpstreamTaskID == "" || len(receipt.UsageJSON) == 0 || receipt.Billing.Realtime == nil || receipt.Billing.Realtime.SessionID == "" {
 		return nil, service.ErrUpstreamJobUnsupportedUsage
 	}
-	snapshot, err := json.Marshal(receipt.Billing)
+	snapshot, err := marshalUpstreamJobBilling(receipt.Billing)
 	if err != nil {
 		return nil, err
 	}
@@ -202,4 +212,11 @@ func (t *upstreamJobTx) Charge(ctx context.Context, log *service.UsageLog, cmd *
 	}
 
 	return InsertUserPlatformQuotaEvent(ctx, t.tx, log)
+}
+
+func marshalUpstreamJobBilling(billing service.UpstreamJobBilling) ([]byte, error) {
+	return json.Marshal(struct {
+		service.UpstreamJobBilling
+		Egress *service.ProxyGroupJobEgress `json:"egress,omitempty"`
+	}{billing, billing.Egress})
 }

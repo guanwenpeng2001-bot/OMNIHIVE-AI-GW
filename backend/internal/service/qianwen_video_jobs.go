@@ -282,6 +282,9 @@ func (s *OpenAIGatewayService) PollQianwenVideo(ctx context.Context, j *Upstream
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}
+	if err := account.RestoreJobEgress(ctx, j.Billing.Egress); err != nil {
+		return UpstreamJobUpdate{}, err
+	}
 	return s.qianwenVideoRequest(ctx, account, http.MethodGet, "/tasks/"+url.PathEscape(j.UpstreamTaskID), nil)
 }
 func (s *OpenAIGatewayService) qianwenVideoRequest(ctx context.Context, account *Account, method, path string, body []byte) (UpstreamJobUpdate, error) {
@@ -312,7 +315,11 @@ func (s *OpenAIGatewayService) qianwenVideoRequest(ctx context.Context, account 
 	} else {
 		req.Header.Del("X-DashScope-Async")
 	}
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return UpstreamJobUpdate{}, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}

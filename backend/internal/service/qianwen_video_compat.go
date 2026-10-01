@@ -117,7 +117,11 @@ func (s *OpenAIGatewayService) CancelQianwenVideo(ctx context.Context, job *Upst
 	req.Header.Set("Accept", "application/json")
 	req.Header.Del("X-DashScope-Async")
 	req.Header.Del("X-DashScope-SSE")
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return 0, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return http.StatusBadGateway, errors.New("video cancellation outcome unknown; polling continues")
 	}

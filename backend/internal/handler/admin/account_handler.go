@@ -130,6 +130,7 @@ type CreateAccountRequest struct {
 	Credentials             map[string]any           `json:"credentials" binding:"required"`
 	Extra                   map[string]any           `json:"extra"`
 	ProxyID                 *int64                   `json:"proxy_id"`
+	ProxyGroupID            *int64                   `json:"proxy_group_id"`
 	Concurrency             int                      `json:"concurrency"`
 	Priority                int                      `json:"priority"`
 	RateMultiplier          *float64                 `json:"rate_multiplier"`
@@ -151,6 +152,7 @@ type UpdateAccountRequest struct {
 	Credentials             map[string]any           `json:"credentials"`
 	Extra                   map[string]any           `json:"extra"`
 	ProxyID                 *int64                   `json:"proxy_id"`
+	ProxyGroupID            *int64                   `json:"proxy_group_id"`
 	Concurrency             *int                     `json:"concurrency"`
 	Priority                *int                     `json:"priority"`
 	RateMultiplier          *float64                 `json:"rate_multiplier"`
@@ -171,6 +173,7 @@ type BulkUpdateAccountsRequest struct {
 	Filters                 *BulkUpdateAccountFilters `json:"filters"`
 	Name                    string                    `json:"name"`
 	ProxyID                 *int64                    `json:"proxy_id"`
+	ProxyGroupID            *int64                    `json:"proxy_group_id"`
 	Concurrency             *int                      `json:"concurrency"`
 	Priority                *int                      `json:"priority"`
 	RateMultiplier          *float64                  `json:"rate_multiplier"`
@@ -1170,13 +1173,13 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
 	account, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
-		TPMLimit:              req.TPMLimit.Pointer(),
-		Name:                  req.Name,
-		Notes:                 req.Notes,
-		Type:                  req.Type,
-		Credentials:           req.Credentials,
-		Extra:                 req.Extra,
-		ProxyID:               req.ProxyID,
+		TPMLimit:    req.TPMLimit.Pointer(),
+		Name:        req.Name,
+		Notes:       req.Notes,
+		Type:        req.Type,
+		Credentials: req.Credentials,
+		Extra:       req.Extra,
+		ProxyID:     req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 		Concurrency:           req.Concurrency, // 指针类型，nil 表示未提供
 		Priority:              req.Priority,    // 指针类型，nil 表示未提供
 		RateMultiplier:        req.RateMultiplier,
@@ -2275,7 +2278,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 
 	hasUpdates := req.TPMLimit.Present || req.Name != "" ||
-		req.ProxyID != nil ||
+		req.ProxyID != nil || req.ProxyGroupID != nil ||
 		req.Concurrency != nil ||
 		req.Priority != nil ||
 		req.RateMultiplier != nil ||
@@ -2293,11 +2296,11 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	}
 
 	result, err := h.adminService.BulkUpdateAccounts(c.Request.Context(), &service.BulkUpdateAccountsInput{
-		TPMLimit:              req.TPMLimit.Pointer(),
-		AccountIDs:            req.AccountIDs,
-		Filters:               toServiceBulkUpdateAccountFilters(req.Filters),
-		Name:                  req.Name,
-		ProxyID:               req.ProxyID,
+		TPMLimit:   req.TPMLimit.Pointer(),
+		AccountIDs: req.AccountIDs,
+		Filters:    toServiceBulkUpdateAccountFilters(req.Filters),
+		Name:       req.Name,
+		ProxyID:    req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 		Concurrency:           req.Concurrency,
 		Priority:              req.Priority,
 		RateMultiplier:        req.RateMultiplier,
@@ -2346,7 +2349,8 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 
 // GenerateAuthURLRequest represents the request for generating auth URL
 type GenerateAuthURLRequest struct {
-	ProxyID *int64 `json:"proxy_id"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 // GenerateAuthURL generates OAuth authorization URL with full scope
@@ -2358,7 +2362,7 @@ func (h *OAuthHandler) GenerateAuthURL(c *gin.Context) {
 		req = GenerateAuthURLRequest{}
 	}
 
-	result, err := h.oauthService.GenerateAuthURL(c.Request.Context(), req.ProxyID)
+	result, err := h.oauthService.GenerateAuthURL(c.Request.Context(), req.ProxyID, req.ProxyGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2382,7 +2386,7 @@ func (h *OAuthHandler) GenerateSetupTokenURL(c *gin.Context) {
 		req = GenerateAuthURLRequest{}
 	}
 
-	result, err := h.oauthService.GenerateSetupTokenURL(c.Request.Context(), req.ProxyID)
+	result, err := h.oauthService.GenerateSetupTokenURL(c.Request.Context(), req.ProxyID, req.ProxyGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2399,9 +2403,10 @@ func (h *OAuthHandler) GenerateSetupTokenURL(c *gin.Context) {
 
 // ExchangeCodeRequest represents the request for exchanging auth code
 type ExchangeCodeRequest struct {
-	SessionID string `json:"session_id" binding:"required"`
-	Code      string `json:"code" binding:"required"`
-	ProxyID   *int64 `json:"proxy_id"`
+	SessionID    string `json:"session_id" binding:"required"`
+	Code         string `json:"code" binding:"required"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 // ExchangeCode exchanges authorization code for tokens
@@ -2423,14 +2428,14 @@ func (h *OAuthHandler) ExchangeCode(c *gin.Context) {
 	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
-		ProxyID:   req.ProxyID,
+		ProxyID:   req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // ExchangeSetupTokenCode exchanges authorization code for setup token
@@ -2452,20 +2457,21 @@ func (h *OAuthHandler) ExchangeSetupTokenCode(c *gin.Context) {
 	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
-		ProxyID:   req.ProxyID,
+		ProxyID:   req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // CookieAuthRequest represents the request for cookie-based authentication
 type CookieAuthRequest struct {
-	SessionKey string `json:"code" binding:"required"` // Using 'code' field as sessionKey (frontend sends it this way)
-	ProxyID    *int64 `json:"proxy_id"`
+	SessionKey   string `json:"code" binding:"required"` // Using 'code' field as sessionKey (frontend sends it this way)
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 // CookieAuth performs OAuth using sessionKey (cookie-based auto-auth)
@@ -2479,15 +2485,15 @@ func (h *OAuthHandler) CookieAuth(c *gin.Context) {
 
 	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
 		SessionKey: req.SessionKey,
-		ProxyID:    req.ProxyID,
-		Scope:      "full",
+		ProxyID:    req.ProxyID, ProxyGroupID: req.ProxyGroupID,
+		Scope: "full",
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // SetupTokenCookieAuth performs OAuth using sessionKey for setup token (inference only)
@@ -2501,15 +2507,15 @@ func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
 
 	tokenInfo, err := h.oauthService.CookieAuth(c.Request.Context(), &service.CookieAuthInput{
 		SessionKey: req.SessionKey,
-		ProxyID:    req.ProxyID,
-		Scope:      "inference",
+		ProxyID:    req.ProxyID, ProxyGroupID: req.ProxyGroupID,
+		Scope: "inference",
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // GetUsage handles getting account usage information
@@ -3173,7 +3179,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		credentials["model_mapping"] = modelMapping
 	}
 	tempAccount := &service.Account{
-		ProxyID:     req.ProxyID,
+		ProxyID: req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 		Platform:    req.Platform,
 		Type:        req.Type,
 		Credentials: credentials,
@@ -3204,6 +3210,10 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
+	if err := h.credentialDrafts.PreparePreviewEgress(c.Request.Context(), tempAccount); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	catalog, err := h.accountTestService.PreviewAccountModelCatalog(c.Request.Context(), tempAccount)
 	if err != nil {
 		writeUpstreamModelSyncError(c, err)

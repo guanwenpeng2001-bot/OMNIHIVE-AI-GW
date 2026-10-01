@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -44,10 +45,14 @@ type modelsDevDownloadSnapshot struct {
 	downloadKey string
 }
 
-func (service *AccountTestService) modelsDevDownloadSnapshot(account *Account) modelsDevDownloadSnapshot {
+func (service *AccountTestService) modelsDevDownloadSnapshot(ctx context.Context, account *Account) (modelsDevDownloadSnapshot, error) {
+	proxyURL, err := account.EgressProxyURL(ctx)
+	if err != nil {
+		return modelsDevDownloadSnapshot{}, err
+	}
 	snapshot := modelsDevDownloadSnapshot{
 		sourceURL:   modelsDevRegistryURL,
-		proxyURL:    upstreamModelsProxyURL(account),
+		proxyURL:    proxyURL,
 		accountID:   account.ID,
 		concurrency: account.Concurrency,
 	}
@@ -58,7 +63,7 @@ func (service *AccountTestService) modelsDevDownloadSnapshot(account *Account) m
 		trustDomain += string(profile)
 	}
 	snapshot.downloadKey = ModelRegistryDownloadKey(snapshot.sourceURL, snapshot.proxyURL, trustDomain)
-	return snapshot
+	return snapshot, nil
 }
 
 func (service *AccountTestService) cachedModelsDevRegistry(downloadKey string) (map[string]modelsDevProvider, time.Time) {
