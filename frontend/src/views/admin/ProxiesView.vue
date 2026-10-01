@@ -216,7 +216,7 @@
           </template>
 
           <template #cell-latency="{ row }">
-            <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-1" :title="t('admin.proxies.httpProbeHint')">
               <span
                 v-if="row.latency_status === 'failed'"
                 class="badge badge-danger"
@@ -233,13 +233,15 @@
               <span v-else class="text-sm text-gray-400">-</span>
               <div
                 v-if="typeof row.quality_checked === 'number'"
-                class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+                class="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
                 :title="row.quality_summary || undefined"
               >
-                <span>{{ t('admin.proxies.qualityInline', { grade: row.quality_grade || '-', score: row.quality_score ?? '-' }) }}</span>
+                <span v-if="typeof row.quality_score === 'number' && row.quality_grade">{{ t('admin.proxies.qualityInline', { grade: row.quality_grade, score: row.quality_score }) }}</span>
+                <span v-else>{{ t('admin.proxies.qualityUnassessed') }}</span>
                 <span class="badge" :class="qualityOverallClass(row.quality_status)">
                   {{ qualityOverallLabel(row.quality_status) }}
                 </span>
+                <span class="w-full">{{ t('admin.proxies.qualityCheckedAt') }}: {{ new Date(row.quality_checked * 1000).toLocaleString() }}</span>
               </div>
             </div>
           </template>
@@ -857,7 +859,7 @@
                 {{ qualityReport.summary }}
               </div>
             </div>
-            <div class="text-right">
+            <div v-if="hasQualityReachability(qualityReport)" class="text-right">
               <div class="text-2xl font-semibold text-gray-900 dark:text-white">
                 {{ qualityReport.score }}
               </div>
@@ -865,6 +867,7 @@
                 {{ t('admin.proxies.qualityGrade', { grade: qualityReport.grade }) }}
               </div>
             </div>
+            <div v-else class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxies.qualityUnassessed') }}</div>
           </div>
           <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 dark:text-gray-300">
             <div>{{ t('admin.proxies.qualityExitIP') }}: {{ qualityReport.exit_ip || '-' }}</div>
@@ -876,6 +879,8 @@
             <div>{{ t('admin.proxies.qualityCheckedAt') }}: {{ new Date(qualityReport.checked_at * 1000).toLocaleString() }}</div>
           </div>
         </div>
+
+        <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.proxies.httpProbeHint') }}</p>
 
         <div class="max-h-80 overflow-auto rounded-lg border border-gray-200 dark:border-dark-600">
           <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
@@ -1524,19 +1529,24 @@ const applyLatencyResult = (
   target.latency_message = result.message
 }
 
+const hasQualityReachability = (result: ProxyQualityCheckResult) =>
+  result.passed_count > 0 || result.warn_count > 0
+
 const summarizeQualityStatus = (result: ProxyQualityCheckResult): Proxy['quality_status'] => {
   if (result.challenge_count > 0) return 'challenge'
+  const basePassed = result.items.some((item) => item.target === 'base_connectivity' && item.status === 'pass')
+  if (!basePassed && hasQualityReachability(result)) return 'warn'
   if (result.failed_count > 0) return 'failed'
   if (result.warn_count > 0) return 'warn'
-  return 'healthy'
+  return result.passed_count > 0 ? 'healthy' : 'failed'
 }
 
 const applyQualityResult = (proxyId: number, result: ProxyQualityCheckResult) => {
   const target = proxies.value.find((proxy) => proxy.id === proxyId)
   if (!target) return
   target.quality_status = summarizeQualityStatus(result)
-  target.quality_score = result.score
-  target.quality_grade = result.grade
+  target.quality_score = hasQualityReachability(result) ? result.score : undefined
+  target.quality_grade = hasQualityReachability(result) ? result.grade : undefined
   target.quality_summary = result.summary
   target.quality_checked = result.checked_at
 }
@@ -1620,12 +1630,16 @@ const handleQualityCheck = async (proxy: Proxy) => {
         country: result.country,
         country_code: result.country_code
       })
+    } else if (baseStep) {
+      applyLatencyResult(proxy.id, { success: false, message: baseStep.message || result.summary })
     }
     applyQualityResult(proxy.id, result)
 
-    appStore.showSuccess(
-      t('admin.proxies.qualityCheckDone', { score: result.score, grade: result.grade })
-    )
+    if (hasQualityReachability(result)) {
+      appStore.showSuccess(t('admin.proxies.qualityCheckDone', { score: result.score, grade: result.grade }))
+    } else {
+      appStore.showInfo(t('admin.proxies.qualityUnassessed'))
+    }
   } catch (error: any) {
     const message = extractApiErrorMessage(error, '') || t('admin.proxies.qualityCheckFailed')
     appStore.showError(message)
@@ -1664,14 +1678,17 @@ const runBatchProxyQualityChecks = async (ids: number[]) => {
               country: result.country,
               country_code: result.country_code
             })
+          } else if (baseStep) {
+            applyLatencyResult(current, { success: false, message: baseStep.message || result.summary })
           }
         }
         applyQualityResult(current, result)
-        if (result.challenge_count > 0) {
+        const status = summarizeQualityStatus(result)
+        if (status === 'challenge') {
           challenge++
-        } else if (result.failed_count > 0) {
+        } else if (status === 'failed') {
           failed++
-        } else if (result.warn_count > 0) {
+        } else if (status === 'warn') {
           warn++
         } else {
           healthy++

@@ -367,22 +367,21 @@ func (s *adminServiceImpl) CheckProxyQuality(ctx context.Context, id int64) (*Pr
 			Message:   err.Error(),
 		})
 		result.FailedCount++
-		finalizeProxyQualityResult(result)
-		s.saveProxyQualitySnapshot(ctx, id, result, nil)
-		return result, nil
+		// Generic IP-echo failure does not establish provider unavailability.
+		exitInfo = nil
+	} else {
+		result.ExitIP = exitInfo.IP
+		result.Country = exitInfo.Country
+		result.CountryCode = exitInfo.CountryCode
+		result.BaseLatencyMs = latencyMs
+		result.Items = append(result.Items, ProxyQualityCheckItem{
+			Target:    "base_connectivity",
+			Status:    "pass",
+			LatencyMs: latencyMs,
+			Message:   "代理出口连通正常",
+		})
+		result.PassedCount++
 	}
-
-	result.ExitIP = exitInfo.IP
-	result.Country = exitInfo.Country
-	result.CountryCode = exitInfo.CountryCode
-	result.BaseLatencyMs = latencyMs
-	result.Items = append(result.Items, ProxyQualityCheckItem{
-		Target:    "base_connectivity",
-		Status:    "pass",
-		LatencyMs: latencyMs,
-		Message:   "代理出口连通正常",
-	})
-	result.PassedCount++
 
 	client, err := httpclient.GetClient(httpclient.Options{
 		ProxyURL:              proxyURL,
@@ -498,6 +497,12 @@ func finalizeProxyQualityResult(result *ProxyQualityCheckResult) {
 	}
 	result.Score = score
 	result.Grade = proxyQualityGrade(score)
+	// Keep the numeric DTO compatible, but do not assign an assessed grade
+	// when no check established reachability. Consumers use the counts too.
+	if result.PassedCount == 0 && result.WarnCount == 0 {
+		result.Score = 0
+		result.Grade = ""
+	}
 	result.Summary = fmt.Sprintf(
 		"通过 %d 项，告警 %d 项，失败 %d 项，挑战 %d 项",
 		result.PassedCount,
@@ -528,6 +533,9 @@ func proxyQualityOverallStatus(result *ProxyQualityCheckResult) string {
 	}
 	if result.ChallengeCount > 0 {
 		return "challenge"
+	}
+	if !proxyQualityBaseConnectivityPass(result) && (result.PassedCount > 0 || result.WarnCount > 0) {
+		return "warn"
 	}
 	if result.FailedCount > 0 {
 		return "failed"
@@ -581,6 +589,10 @@ func (s *adminServiceImpl) saveProxyQualitySnapshot(ctx context.Context, proxyID
 		QualityCheckedAt: &checkedAt,
 		QualityCFRay:     proxyQualityFirstCFRay(result),
 		UpdatedAt:        time.Now(),
+	}
+	if result.PassedCount == 0 && result.WarnCount == 0 {
+		info.QualityScore = nil
+		info.QualityGrade = ""
 	}
 	if result.BaseLatencyMs > 0 {
 		latency := result.BaseLatencyMs
