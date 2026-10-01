@@ -45,6 +45,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/promocode"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
+	"github.com/Wei-Shaw/sub2api/ent/proxygroupmember"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
 	"github.com/Wei-Shaw/sub2api/ent/securitysecret"
 	"github.com/Wei-Shaw/sub2api/ent/setting"
@@ -129,6 +131,10 @@ type Client struct {
 	PromoCodeUsage *PromoCodeUsageClient
 	// Proxy is the client for interacting with the Proxy builders.
 	Proxy *ProxyClient
+	// ProxyGroup is the client for interacting with the ProxyGroup builders.
+	ProxyGroup *ProxyGroupClient
+	// ProxyGroupMember is the client for interacting with the ProxyGroupMember builders.
+	ProxyGroupMember *ProxyGroupMemberClient
 	// RedeemCode is the client for interacting with the RedeemCode builders.
 	RedeemCode *RedeemCodeClient
 	// SecuritySecret is the client for interacting with the SecuritySecret builders.
@@ -200,6 +206,8 @@ func (c *Client) init() {
 	c.PromoCode = NewPromoCodeClient(c.config)
 	c.PromoCodeUsage = NewPromoCodeUsageClient(c.config)
 	c.Proxy = NewProxyClient(c.config)
+	c.ProxyGroup = NewProxyGroupClient(c.config)
+	c.ProxyGroupMember = NewProxyGroupMemberClient(c.config)
 	c.RedeemCode = NewRedeemCodeClient(c.config)
 	c.SecuritySecret = NewSecuritySecretClient(c.config)
 	c.Setting = NewSettingClient(c.config)
@@ -337,6 +345,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		ProxyGroup:                    NewProxyGroupClient(cfg),
+		ProxyGroupMember:              NewProxyGroupMemberClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
 		Setting:                       NewSettingClient(cfg),
@@ -401,6 +411,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		PromoCode:                     NewPromoCodeClient(cfg),
 		PromoCodeUsage:                NewPromoCodeUsageClient(cfg),
 		Proxy:                         NewProxyClient(cfg),
+		ProxyGroup:                    NewProxyGroupClient(cfg),
+		ProxyGroupMember:              NewProxyGroupMemberClient(cfg),
 		RedeemCode:                    NewRedeemCodeClient(cfg),
 		SecuritySecret:                NewSecuritySecretClient(cfg),
 		Setting:                       NewSettingClient(cfg),
@@ -453,11 +465,11 @@ func (c *Client) Use(hooks ...Hook) {
 		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.ProxyGroup,
+		c.ProxyGroupMember, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Use(hooks...)
 	}
@@ -475,11 +487,11 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
 		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
 		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.ProxyGroup,
+		c.ProxyGroupMember, c.RedeemCode, c.SecuritySecret, c.Setting,
+		c.SubscriptionPlan, c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog,
+		c.User, c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -548,6 +560,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.PromoCodeUsage.mutate(ctx, m)
 	case *ProxyMutation:
 		return c.Proxy.mutate(ctx, m)
+	case *ProxyGroupMutation:
+		return c.ProxyGroup.mutate(ctx, m)
+	case *ProxyGroupMemberMutation:
+		return c.ProxyGroupMember.mutate(ctx, m)
 	case *RedeemCodeMutation:
 		return c.RedeemCode.mutate(ctx, m)
 	case *SecuritySecretMutation:
@@ -1039,6 +1055,22 @@ func (c *AccountClient) GetX(ctx context.Context, id int64) *Account {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryProxyGroup queries the proxy_group edge of a Account.
+func (c *AccountClient) QueryProxyGroup(_m *Account) *ProxyGroupQuery {
+	query := (&ProxyGroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(account.Table, account.FieldID, id),
+			sqlgraph.To(proxygroup.Table, proxygroup.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, account.ProxyGroupTable, account.ProxyGroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryGroups queries the groups edge of a Account.
@@ -5278,6 +5310,356 @@ func (c *ProxyClient) mutate(ctx context.Context, m *ProxyMutation) (Value, erro
 	}
 }
 
+// ProxyGroupClient is a client for the ProxyGroup schema.
+type ProxyGroupClient struct {
+	config
+}
+
+// NewProxyGroupClient returns a client for the ProxyGroup from the given config.
+func NewProxyGroupClient(c config) *ProxyGroupClient {
+	return &ProxyGroupClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `proxygroup.Hooks(f(g(h())))`.
+func (c *ProxyGroupClient) Use(hooks ...Hook) {
+	c.hooks.ProxyGroup = append(c.hooks.ProxyGroup, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `proxygroup.Intercept(f(g(h())))`.
+func (c *ProxyGroupClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ProxyGroup = append(c.inters.ProxyGroup, interceptors...)
+}
+
+// Create returns a builder for creating a ProxyGroup entity.
+func (c *ProxyGroupClient) Create() *ProxyGroupCreate {
+	mutation := newProxyGroupMutation(c.config, OpCreate)
+	return &ProxyGroupCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ProxyGroup entities.
+func (c *ProxyGroupClient) CreateBulk(builders ...*ProxyGroupCreate) *ProxyGroupCreateBulk {
+	return &ProxyGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ProxyGroupClient) MapCreateBulk(slice any, setFunc func(*ProxyGroupCreate, int)) *ProxyGroupCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ProxyGroupCreateBulk{err: fmt.Errorf("calling to ProxyGroupClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ProxyGroupCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ProxyGroupCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ProxyGroup.
+func (c *ProxyGroupClient) Update() *ProxyGroupUpdate {
+	mutation := newProxyGroupMutation(c.config, OpUpdate)
+	return &ProxyGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ProxyGroupClient) UpdateOne(_m *ProxyGroup) *ProxyGroupUpdateOne {
+	mutation := newProxyGroupMutation(c.config, OpUpdateOne, withProxyGroup(_m))
+	return &ProxyGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ProxyGroupClient) UpdateOneID(id int64) *ProxyGroupUpdateOne {
+	mutation := newProxyGroupMutation(c.config, OpUpdateOne, withProxyGroupID(id))
+	return &ProxyGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ProxyGroup.
+func (c *ProxyGroupClient) Delete() *ProxyGroupDelete {
+	mutation := newProxyGroupMutation(c.config, OpDelete)
+	return &ProxyGroupDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ProxyGroupClient) DeleteOne(_m *ProxyGroup) *ProxyGroupDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ProxyGroupClient) DeleteOneID(id int64) *ProxyGroupDeleteOne {
+	builder := c.Delete().Where(proxygroup.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ProxyGroupDeleteOne{builder}
+}
+
+// Query returns a query builder for ProxyGroup.
+func (c *ProxyGroupClient) Query() *ProxyGroupQuery {
+	return &ProxyGroupQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeProxyGroup},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ProxyGroup entity by its id.
+func (c *ProxyGroupClient) Get(ctx context.Context, id int64) (*ProxyGroup, error) {
+	return c.Query().Where(proxygroup.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ProxyGroupClient) GetX(ctx context.Context, id int64) *ProxyGroup {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryFallbackProxy queries the fallback_proxy edge of a ProxyGroup.
+func (c *ProxyGroupClient) QueryFallbackProxy(_m *ProxyGroup) *ProxyQuery {
+	query := (&ProxyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxygroup.Table, proxygroup.FieldID, id),
+			sqlgraph.To(proxy.Table, proxy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, proxygroup.FallbackProxyTable, proxygroup.FallbackProxyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryMembers queries the members edge of a ProxyGroup.
+func (c *ProxyGroupClient) QueryMembers(_m *ProxyGroup) *ProxyGroupMemberQuery {
+	query := (&ProxyGroupMemberClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxygroup.Table, proxygroup.FieldID, id),
+			sqlgraph.To(proxygroupmember.Table, proxygroupmember.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, proxygroup.MembersTable, proxygroup.MembersColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAccounts queries the accounts edge of a ProxyGroup.
+func (c *ProxyGroupClient) QueryAccounts(_m *ProxyGroup) *AccountQuery {
+	query := (&AccountClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxygroup.Table, proxygroup.FieldID, id),
+			sqlgraph.To(account.Table, account.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, proxygroup.AccountsTable, proxygroup.AccountsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ProxyGroupClient) Hooks() []Hook {
+	hooks := c.hooks.ProxyGroup
+	return append(hooks[:len(hooks):len(hooks)], proxygroup.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *ProxyGroupClient) Interceptors() []Interceptor {
+	inters := c.inters.ProxyGroup
+	return append(inters[:len(inters):len(inters)], proxygroup.Interceptors[:]...)
+}
+
+func (c *ProxyGroupClient) mutate(ctx context.Context, m *ProxyGroupMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ProxyGroupCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ProxyGroupUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ProxyGroupUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ProxyGroupDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ProxyGroup mutation op: %q", m.Op())
+	}
+}
+
+// ProxyGroupMemberClient is a client for the ProxyGroupMember schema.
+type ProxyGroupMemberClient struct {
+	config
+}
+
+// NewProxyGroupMemberClient returns a client for the ProxyGroupMember from the given config.
+func NewProxyGroupMemberClient(c config) *ProxyGroupMemberClient {
+	return &ProxyGroupMemberClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `proxygroupmember.Hooks(f(g(h())))`.
+func (c *ProxyGroupMemberClient) Use(hooks ...Hook) {
+	c.hooks.ProxyGroupMember = append(c.hooks.ProxyGroupMember, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `proxygroupmember.Intercept(f(g(h())))`.
+func (c *ProxyGroupMemberClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ProxyGroupMember = append(c.inters.ProxyGroupMember, interceptors...)
+}
+
+// Create returns a builder for creating a ProxyGroupMember entity.
+func (c *ProxyGroupMemberClient) Create() *ProxyGroupMemberCreate {
+	mutation := newProxyGroupMemberMutation(c.config, OpCreate)
+	return &ProxyGroupMemberCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ProxyGroupMember entities.
+func (c *ProxyGroupMemberClient) CreateBulk(builders ...*ProxyGroupMemberCreate) *ProxyGroupMemberCreateBulk {
+	return &ProxyGroupMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ProxyGroupMemberClient) MapCreateBulk(slice any, setFunc func(*ProxyGroupMemberCreate, int)) *ProxyGroupMemberCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ProxyGroupMemberCreateBulk{err: fmt.Errorf("calling to ProxyGroupMemberClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ProxyGroupMemberCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ProxyGroupMemberCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ProxyGroupMember.
+func (c *ProxyGroupMemberClient) Update() *ProxyGroupMemberUpdate {
+	mutation := newProxyGroupMemberMutation(c.config, OpUpdate)
+	return &ProxyGroupMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ProxyGroupMemberClient) UpdateOne(_m *ProxyGroupMember) *ProxyGroupMemberUpdateOne {
+	mutation := newProxyGroupMemberMutation(c.config, OpUpdateOne, withProxyGroupMember(_m))
+	return &ProxyGroupMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ProxyGroupMemberClient) UpdateOneID(id int64) *ProxyGroupMemberUpdateOne {
+	mutation := newProxyGroupMemberMutation(c.config, OpUpdateOne, withProxyGroupMemberID(id))
+	return &ProxyGroupMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ProxyGroupMember.
+func (c *ProxyGroupMemberClient) Delete() *ProxyGroupMemberDelete {
+	mutation := newProxyGroupMemberMutation(c.config, OpDelete)
+	return &ProxyGroupMemberDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ProxyGroupMemberClient) DeleteOne(_m *ProxyGroupMember) *ProxyGroupMemberDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ProxyGroupMemberClient) DeleteOneID(id int64) *ProxyGroupMemberDeleteOne {
+	builder := c.Delete().Where(proxygroupmember.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ProxyGroupMemberDeleteOne{builder}
+}
+
+// Query returns a query builder for ProxyGroupMember.
+func (c *ProxyGroupMemberClient) Query() *ProxyGroupMemberQuery {
+	return &ProxyGroupMemberQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeProxyGroupMember},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ProxyGroupMember entity by its id.
+func (c *ProxyGroupMemberClient) Get(ctx context.Context, id int64) (*ProxyGroupMember, error) {
+	return c.Query().Where(proxygroupmember.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ProxyGroupMemberClient) GetX(ctx context.Context, id int64) *ProxyGroupMember {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryGroup queries the group edge of a ProxyGroupMember.
+func (c *ProxyGroupMemberClient) QueryGroup(_m *ProxyGroupMember) *ProxyGroupQuery {
+	query := (&ProxyGroupClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxygroupmember.Table, proxygroupmember.FieldID, id),
+			sqlgraph.To(proxygroup.Table, proxygroup.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, proxygroupmember.GroupTable, proxygroupmember.GroupColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryProxy queries the proxy edge of a ProxyGroupMember.
+func (c *ProxyGroupMemberClient) QueryProxy(_m *ProxyGroupMember) *ProxyQuery {
+	query := (&ProxyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(proxygroupmember.Table, proxygroupmember.FieldID, id),
+			sqlgraph.To(proxy.Table, proxy.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, proxygroupmember.ProxyTable, proxygroupmember.ProxyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ProxyGroupMemberClient) Hooks() []Hook {
+	hooks := c.hooks.ProxyGroupMember
+	return append(hooks[:len(hooks):len(hooks)], proxygroupmember.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *ProxyGroupMemberClient) Interceptors() []Interceptor {
+	inters := c.inters.ProxyGroupMember
+	return append(inters[:len(inters):len(inters)], proxygroupmember.Interceptors[:]...)
+}
+
+func (c *ProxyGroupMemberClient) mutate(ctx context.Context, m *ProxyGroupMemberMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ProxyGroupMemberCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ProxyGroupMemberUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ProxyGroupMemberUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ProxyGroupMemberDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ProxyGroupMember mutation op: %q", m.Op())
+	}
+}
+
 // RedeemCodeClient is a client for the RedeemCode schema.
 type RedeemCodeClient struct {
 	config
@@ -7738,10 +8120,11 @@ type (
 		CredentialSecret, ErrorPassthroughRule, Group, IdempotencyRecord,
 		IdentityAdoptionDecision, ModelAccessGroup, ModelAccessRule, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription, Workspace, WorkspaceMember []ent.Hook
+		PromoCodeUsage, Proxy, ProxyGroup, ProxyGroupMember, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
+		WorkspaceMember []ent.Hook
 	}
 	inters struct {
 		APIKey, APIKeyCredential, Account, AccountGroup, Announcement, AnnouncementRead,
@@ -7751,10 +8134,11 @@ type (
 		CredentialSecret, ErrorPassthroughRule, Group, IdempotencyRecord,
 		IdentityAdoptionDecision, ModelAccessGroup, ModelAccessRule, PaymentAuditLog,
 		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
-		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
-		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
-		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
-		UserSubscription, Workspace, WorkspaceMember []ent.Interceptor
+		PromoCodeUsage, Proxy, ProxyGroup, ProxyGroupMember, RedeemCode,
+		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
+		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
+		WorkspaceMember []ent.Interceptor
 	}
 )
 

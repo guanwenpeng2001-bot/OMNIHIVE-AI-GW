@@ -147,6 +147,23 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	// Group attachments serialize with group deletion, including standalone creates.
+	if account.ProxyGroupID != nil {
+		tx, err := client.Tx(ctx)
+		if err == nil {
+			defer func() { _ = tx.Rollback() }()
+			if err := createAccountRecord(dbent.NewTxContext(ctx, tx), tx.Client(), account); err != nil {
+				return err
+			}
+			return tx.Commit()
+		}
+		if err != dbent.ErrTxStarted {
+			return err
+		}
+		if err := validateAccountProxyGroup(ctx, client, account.ProxyGroupID, domain.ResourceWorkspaceID(ctx)); err != nil {
+			return err
+		}
+	}
 
 	account.Extra = service.StripAccountModelCatalogExtra(account.Extra)
 	service.NormalizeEmptyAccountModelSelection(account)
@@ -175,6 +192,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account.ProxyID != nil {
 		builder.SetProxyID(*account.ProxyID)
 	}
+	builder.SetNillableProxyGroupID(account.ProxyGroupID)
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
 	}
@@ -329,7 +347,7 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		return []*service.Account{}, nil
 	}
 
-	entAccounts, err := r.client.Account.
+	entAccounts, err := clientFromContext(ctx, r.client).Account.
 		Query().
 		Where(dbaccount.IDIn(uniqueIDs...)).
 		WithProxy().
@@ -352,12 +370,19 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	if err != nil {
 		return nil, err
 	}
+	proxyGroups, err := r.loadAccountProxyGroups(ctx, entAccounts)
+	if err != nil {
+		return nil, err
+	}
 
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
 		out := accountEntityToService(entAcc)
 		if out == nil {
 			continue
+		}
+		if out.ProxyGroupID != nil && proxyGroups[*out.ProxyGroupID] != nil && proxyGroups[*out.ProxyGroupID].WorkspaceID == out.WorkspaceID {
+			out.ProxyGroup = proxyGroups[*out.ProxyGroupID]
 		}
 
 		// Prefer the preloaded proxy edge when available.
@@ -674,6 +699,14 @@ func (r *accountRepository) updateLockedAccount(
 		builder.SetProxyID(*account.ProxyID)
 	} else {
 		builder.ClearProxyID()
+	}
+	if account.ProxyGroupID != nil {
+		if err := validateAccountProxyGroup(ctx, client, account.ProxyGroupID, current.WorkspaceID); err != nil {
+			return nil, err
+		}
+		builder.SetProxyGroupID(*account.ProxyGroupID)
+	} else {
+		builder.ClearProxyGroupID()
 	}
 	if account.LastUsedAt != nil {
 		builder.SetLastUsedAt(*account.LastUsedAt)
@@ -3519,6 +3552,10 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 	if err != nil {
 		return nil, err
 	}
+	proxyGroups, err := r.loadAccountProxyGroups(ctx, accounts)
+	if err != nil {
+		return nil, err
+	}
 	groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err := r.loadAccountGroups(ctx, accountIDs)
 	if err != nil {
 		return nil, err
@@ -3529,6 +3566,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		out := accountEntityToService(acc)
 		if out == nil {
 			continue
+		}
+		if out.ProxyGroupID != nil && proxyGroups[*out.ProxyGroupID] != nil && proxyGroups[*out.ProxyGroupID].WorkspaceID == out.WorkspaceID {
+			out.ProxyGroup = proxyGroups[*out.ProxyGroupID]
 		}
 		if err := r.resolveAccountCredentials(ctx, clientFromContext(ctx, r.client), out); err != nil {
 			return nil, err
@@ -3764,6 +3804,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Credentials:             copyJSONMap(m.Credentials),
 		Extra:                   copyJSONMap(m.Extra),
 		ProxyID:                 m.ProxyID,
+		ProxyGroupID:            m.ProxyGroupID,
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
 		Concurrency:             m.Concurrency,
 		Priority:                m.Priority,
@@ -4208,15 +4249,23 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 // ⚠️ 新增影子维度时：须更新此函数（或新增维度专用列举），并检查所有调用点（级联删除/一母一影校验/type 守卫），否则会静默漏掉新维度。
 // 软删除行由 SoftDeleteMixin 拦截器自动排除，无需手写 deleted_at IS NULL。
 func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID int64) ([]*service.Account, error) {
-	rows, err := r.client.Account.Query().
+	rows, err := clientFromContext(ctx, r.client).Account.Query().
 		Where(dbaccount.ParentAccountIDEQ(parentID), dbaccount.QuotaDimensionEQ(dbaccount.QuotaDimensionSpark)).
 		All(ctx)
 	if err != nil {
 		return nil, err
 	}
+	proxyGroups, err := r.loadAccountProxyGroups(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*service.Account, 0, len(rows))
 	for _, m := range rows {
-		out = append(out, accountEntityToService(m))
+		a := accountEntityToService(m)
+		if a.ProxyGroupID != nil && proxyGroups[*a.ProxyGroupID] != nil && proxyGroups[*a.ProxyGroupID].WorkspaceID == a.WorkspaceID {
+			a.ProxyGroup = proxyGroups[*a.ProxyGroupID]
+		}
+		out = append(out, a)
 	}
 	return out, nil
 }

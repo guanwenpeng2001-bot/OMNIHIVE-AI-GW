@@ -93,6 +93,7 @@ func (Account) Fields() []ent.Field {
 		field.Int64("proxy_id").
 			Optional().
 			Nillable(),
+		field.Int64("proxy_group_id").Optional().Nillable(),
 		field.Int64("proxy_fallback_origin_id").
 			Optional().Nillable().
 			Comment("Original proxy id replaced by expiry-fallback; for manual revert. NULL = not in fallback."),
@@ -209,6 +210,7 @@ func (Account) Fields() []ent.Field {
 // Edges 定义账户实体的关联关系。
 func (Account) Edges() []ent.Edge {
 	return []ent.Edge{
+		edge.To("proxy_group", ProxyGroup.Type).Field("proxy_group_id").Unique(),
 		// groups: 账户所属的分组（多对多关系）
 		// 通过 account_groups 中间表实现
 		// 一个账户可以属于多个分组，一个分组可以包含多个账户
@@ -236,6 +238,7 @@ func (Account) Edges() []ent.Edge {
 // 每个索引对应一个常用的查询条件。
 func (Account) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("proxy_group_id"),
 		index.Fields("platform"),            // 按平台筛选
 		index.Fields("type"),                // 按认证类型筛选
 		index.Fields("status"),              // 按状态筛选

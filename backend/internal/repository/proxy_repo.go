@@ -643,6 +643,8 @@ func proxyEntityToService(m *dbent.Proxy) *service.Proxy {
 	}
 	out := &service.Proxy{
 		ID:             m.ID,
+		WorkspaceID:    m.WorkspaceID,
+		DeletedAt:      m.DeletedAt,
 		Name:           m.Name,
 		Protocol:       m.Protocol,
 		Host:           m.Host,
@@ -669,6 +671,8 @@ func applyProxyEntityToService(dst *service.Proxy, src *dbent.Proxy) {
 		return
 	}
 	dst.ID = src.ID
+	dst.WorkspaceID = src.WorkspaceID
+	dst.DeletedAt = src.DeletedAt
 	dst.CreatedAt = src.CreatedAt
 	dst.UpdatedAt = src.UpdatedAt
 }
