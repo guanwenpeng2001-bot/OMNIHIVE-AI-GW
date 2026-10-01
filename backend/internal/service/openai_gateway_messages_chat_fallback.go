@@ -76,7 +76,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
-	if account.Platform == PlatformOpenAI {
+	if account.Platform == PlatformOpenAI || account.Platform == PlatformGrok {
 		policyBody, changed, policyErr := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, chatBody)
 		if policyErr != nil {
 			if IsReasoningEffortPolicyDenied(policyErr) {
@@ -87,6 +87,12 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		if changed {
 			chatBody = policyBody
+		}
+	}
+	if account.Platform == PlatformGrok {
+		chatBody, err = normalizeGrokChatReasoningEffort(chatBody, upstreamModel)
+		if err != nil {
+			return nil, err
 		}
 	}
 	// Provider normalization and policy caps can both change the converted effort.

@@ -661,7 +661,6 @@ func grokModelRejectsReasoningEffort(model string) bool {
 }
 
 func normalizeGrokResponsesReasoningEffort(body []byte, upstreamModel string) ([]byte, error) {
-	supportsEffort := grokSupportsReasoningEffort(upstreamModel)
 	out := body
 	var err error
 	for _, field := range []string{"reasoning.effort", "reasoning_effort"} {
@@ -670,7 +669,7 @@ func normalizeGrokResponsesReasoningEffort(body []byte, upstreamModel string) ([
 			continue
 		}
 		normalized, keep := normalizeGrokReasoningEffortValue(value.String(), upstreamModel)
-		if !supportsEffort || !keep {
+		if !keep {
 			out, err = sjson.DeleteBytes(out, field)
 		} else {
 			out, err = sjson.SetBytes(out, field, normalized)
@@ -685,7 +684,7 @@ func normalizeGrokResponsesReasoningEffort(body []byte, upstreamModel string) ([
 		if err != nil {
 			return nil, fmt.Errorf("remove Grok reasoningEffort: %w", err)
 		}
-		if supportsEffort && keep && !gjson.GetBytes(out, "reasoning_effort").Exists() {
+		if keep && !gjson.GetBytes(out, "reasoning_effort").Exists() {
 			out, err = sjson.SetBytes(out, "reasoning_effort", normalized)
 			if err != nil {
 				return nil, fmt.Errorf("set Grok reasoning_effort: %w", err)
@@ -707,7 +706,7 @@ func normalizeGrokChatReasoningEffort(body []byte, upstreamModel string) ([]byte
 		raw = strings.TrimSpace(gjson.GetBytes(body, "reasoningEffort").String())
 	}
 	normalized, keep := normalizeGrokReasoningEffortValue(raw, upstreamModel)
-	keep = keep && grokSupportsReasoningEffort(upstreamModel)
+	keep = keep && !grokModelRejectsReasoningEffort(upstreamModel)
 	out := body
 	var err error
 	if gjson.GetBytes(out, "reasoningEffort").Exists() {
@@ -727,12 +726,17 @@ func normalizeGrokChatReasoningEffort(body []byte, upstreamModel string) ([]byte
 }
 
 func normalizeGrokReasoningEffortValue(raw, model string) (string, bool) {
+	// Catalog omissions do not prove that a provider rejects a control. Keep
+	// unknown models' explicit values; only apply the established alias
+	// conversions to model contracts we already know.
+	if !grokSupportsReasoningEffort(model) {
+		value := strings.TrimSpace(raw)
+		return value, value != ""
+	}
 	value := strings.NewReplacer("-", "", "_", "", " ", "").Replace(strings.ToLower(strings.TrimSpace(raw)))
 	switch value {
-	case "none", "low", "medium", "high":
+	case "none", "minimal", "low", "medium", "high":
 		return value, true
-	case "minimal":
-		return "low", true
 	case "xhigh", "extrahigh":
 		if GrokSupportsXHighReasoningEffort(model) {
 			return "xhigh", true

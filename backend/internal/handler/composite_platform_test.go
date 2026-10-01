@@ -188,8 +188,8 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	grokCtx.Request = grokCtx.Request.WithContext(service.WithResolvedTargetPlatform(grokCtx.Request.Context(), service.PlatformGrok))
 	got, changed, err = applyOpenAIReasoningEffortPolicyForRequest(grokCtx, apiKey, body)
 	require.NoError(t, err)
-	require.False(t, changed)
-	require.Equal(t, body, got)
+	require.True(t, changed)
+	require.JSONEq(t, `{"reasoning":{"effort":"medium"}}`, string(got))
 }
 
 func TestOpenAIShapedReasoningEffortPolicyForAnthropicGroup(t *testing.T) {
@@ -324,5 +324,30 @@ func TestMessagesBudgetBindsGroupPolicyAfterConversion(t *testing.T) {
 				require.Equal(t, "medium", gjson.GetBytes(out, field).String())
 			})
 		}
+	}
+}
+
+func TestCompositeGrokReasoningPolicyAndRequestedCapture(t *testing.T) {
+	for _, body := range []string{`{"model":"grok-4.7","reasoning":{"effort":"high"}}`, `{"model":"grok-4.7","reasoning_effort":"high"}`} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformGrok))
+		key := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite, MaxReasoningEffort: "medium"}}
+		out, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, key, []byte(body))
+		require.NoError(t, err)
+		require.True(t, changed)
+		require.Contains(t, string(out), "medium")
+		require.Equal(t, "high", *service.RequestedReasoningEffortFromContext(c.Request.Context()))
+	}
+	for _, body := range []string{`{"reasoning_effort":"none"}`, `{"reasoning":{"effort":"none"}}`, `{"output_config":{"effort":"none"}}`} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+		bindRequestedReasoningEffort(c, []byte(body), "unknown")
+		result := &service.ForwardResult{}
+		stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
+		require.Equal(t, "none", *result.RequestedReasoningEffort)
+		openAI := &service.OpenAIForwardResult{}
+		stampOpenAIRequestedReasoningEffort(openAI, c)
+		require.Equal(t, "none", *openAI.RequestedReasoningEffort)
 	}
 }

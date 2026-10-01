@@ -68,7 +68,7 @@ func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKe
 		return "", nil, "", false
 	}
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
-	if effectivePlatform != service.PlatformAnthropic && effectivePlatform != service.PlatformOpenAI {
+	if effectivePlatform != service.PlatformAnthropic && effectivePlatform != service.PlatformOpenAI && effectivePlatform != service.PlatformGrok {
 		return "", nil, "", false
 	}
 	maxEffort, mappings := apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings

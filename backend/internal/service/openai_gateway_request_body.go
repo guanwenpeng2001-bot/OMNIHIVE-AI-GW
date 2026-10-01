@@ -73,6 +73,9 @@ func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account) bool {
 	if account == nil {
 		return false
 	}
+	if account.Platform == PlatformGrok {
+		return true
+	}
 	if account.IsOpenAIPassthroughEnabled() {
 		return true
 	}
@@ -1704,6 +1707,10 @@ func explicitRequestedReasoningEffortFromBody(body []byte) string {
 func CanonicalRequestedReasoningEffort(body []byte, modelCandidates ...string) *string {
 	if raw := explicitRequestedReasoningEffortFromBody(body); raw != "" {
 		canonical := NormalizeMaxReasoningEffort(raw)
+		// none is a request preference, not a valid operator ceiling.
+		if strings.EqualFold(raw, "none") {
+			canonical = "none"
+		}
 		if canonical == "" {
 			return nil
 		}

@@ -165,6 +165,15 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 		}
 		for _, slug := range variants {
 			variant := parseRunVariant(slug)
+			// none is not a request for the nearest positive effort. An explicit
+			// thinking dimension can identify an off variant independently of its
+			// effort label. A suffix-free slug with no effort remains unknown and
+			// must not become a capability-based routing prohibition.
+			if desired == "none" || (options.Thinking != nil && !*options.Thinking) {
+				if variant.thinking || (variant.effort != "" && variant.effort != "none" && !hasThinking) {
+					continue
+				}
+			}
 			if ceiling := NormalizeEffort(options.MaxEffort); ceiling != "" && variant.effort != "" && effortRank(variant.effort) > effortRank(ceiling) {
 				continue
 			}

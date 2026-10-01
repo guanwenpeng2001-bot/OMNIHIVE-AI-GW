@@ -91,3 +91,33 @@ func TestVariantSelectionRespectsOperatorCeiling(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, ResolvedModelEffort(slug), "unknown must remain unknown")
 }
+
+func TestDisabledThinkingDistinguishesKnownAndUnknownVariants(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name  string
+		slugs []string
+		want  string
+	}{
+		{"positive effort only", []string{"run-low", "run-high", "run-xhigh"}, ""},
+		{"verified none", []string{"run-none", "run-low"}, "run-none"},
+		{"unknown suffix free", []string{"composer-2.5-fast"}, "composer-2.5-fast"},
+		{"known thinking switch", []string{"run-low", "run-low-thinking"}, "run-low"},
+		{"thinking only", []string{"run-low-thinking"}, ""},
+	} {
+		for _, options := range []RunOptions{{Effort: "none"}, {Thinking: &off}, {Effort: "none", Thinking: &off}} {
+			t.Run(tc.name, func(t *testing.T) {
+				slug, err := ResolveModelVariant("picker", options, []AvailableModel{{ID: "picker", LegacySlugs: tc.slugs}})
+				if tc.want == "" {
+					require.ErrorIs(t, err, ErrVariantUnavailable)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tc.want, slug)
+				if tc.name == "unknown suffix free" {
+					require.Empty(t, ResolvedModelEffort(slug))
+				}
+			})
+		}
+	}
+}

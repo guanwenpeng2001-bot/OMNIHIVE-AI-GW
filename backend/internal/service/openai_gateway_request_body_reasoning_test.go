@@ -288,11 +288,12 @@ func TestFilterOpenAIResponsesNoneReasoningEffortForAccount(t *testing.T) {
 			wantReasoning: false,
 		},
 		{
-			name:          "third-party platform keeps other reasoning members",
+			name:          "Grok preserves none and other reasoning members",
 			account:       &Account{Platform: PlatformGrok, Type: AccountTypeAPIKey},
 			body:          `{"reasoning":{"effort":" none ","summary":"auto"}}`,
 			wantSummary:   true,
 			wantReasoning: true,
+			wantNested:    true,
 		},
 		{
 			name:          "non-none effort is unchanged",
