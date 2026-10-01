@@ -159,6 +159,15 @@ func TestGeminiBridgeExistingOpenAIHandlerLifecycle(t *testing.T) {
 			require.True(t, upstream.plan.State().Finalized)
 			require.True(t, upstream.plan.State().UsageClaimed)
 			require.Len(t, usage.logs, 1)
+			for _, control := range []string{`"stopSequences":["END"]`, `"topK":7`} {
+				controlled, controlledRec := requestPlanHTTPContext(path, `{"contents":[{"role":"user","parts":[{"text":"hello"}]}],"generationConfig":{`+control+`}}`, group)
+				controlled.Params = gin.Params{{Key: "modelAction", Value: "/gpt-5.1:" + action}}
+				GeminiProtocolBridge(h.Messages, h.CountTokens, h.Embeddings)(controlled)
+				require.Equal(t, 400, controlledRec.Code, controlledRec.Body.String())
+				require.Contains(t, controlledRec.Body.String(), "Responses upstream protocol")
+				require.Equal(t, 1, upstream.calls)
+				require.Len(t, usage.logs, 1)
+			}
 		})
 	}
 }
