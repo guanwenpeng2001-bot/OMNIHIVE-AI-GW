@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGatewayResponsesRejectsGeminiBeforeScheduling(t *testing.T) {
+func TestGatewayResponsesGeminiReachesRequestValidation(t *testing.T) {
 	for _, scenario := range []struct {
 		name     string
 		platform string
@@ -27,7 +27,7 @@ func TestGatewayResponsesRejectsGeminiBeforeScheduling(t *testing.T) {
 		{"composite resolved alias", service.PlatformComposite, service.PlatformGemini, "PublicAlias"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			for _, stream := range []string{"false", "true"} {
+			for _, stream := range []string{`"invalid"`} {
 				recorder := httptest.NewRecorder()
 				ginContext, _ := gin.CreateTestContext(recorder)
 				requestContext := context.Background()
@@ -45,7 +45,7 @@ func TestGatewayResponsesRejectsGeminiBeforeScheduling(t *testing.T) {
 				gateway := &GatewayHandler{cfg: &config.Config{}}
 				gateway.Responses(ginContext)
 				require.Equal(t, http.StatusBadRequest, recorder.Code)
-				require.JSONEq(t, `{"error":{"code":"invalid_request_error","message":"Gemini does not support /v1/responses; use /v1/chat/completions, /v1/messages, or the native Gemini API"}}`, recorder.Body.String())
+				require.Contains(t, recorder.Body.String(), invalidStreamFieldTypeMessage)
 			}
 		})
 	}

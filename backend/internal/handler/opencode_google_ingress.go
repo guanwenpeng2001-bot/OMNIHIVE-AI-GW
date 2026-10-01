@@ -51,10 +51,7 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 		googleError(c, http.StatusNotFound, err.Error())
 		return
 	}
-	if !service.IsSafeGeminiModelPathSegment(modelName) {
-		googleError(c, http.StatusBadRequest, "Invalid model in URL")
-		return
-	}
+	callerModel := clientRequestedModel(c, modelName)
 	action, stream, ok := service.OpenCodeGoogleActionForMethod(googleMethod)
 	if !ok {
 		googleError(c, http.StatusNotFound, "Unsupported OpenCode Google-protocol method")
@@ -62,6 +59,10 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	}
 	if resolvedModel, resolved := service.ResolvedUpstreamModelFromContext(c.Request.Context()); resolved && strings.TrimSpace(resolvedModel) != "" {
 		modelName = strings.TrimSpace(resolvedModel)
+	}
+	if !service.IsSafeGeminiModelPathSegment(modelName) {
+		googleError(c, http.StatusBadRequest, "Invalid model in URL")
+		return
 	}
 	reqLog = reqLog.With(zap.String("model", modelName), zap.String("action", action), zap.Bool("stream", stream))
 
@@ -129,7 +130,7 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	for attempt := 0; attempt <= maxSwitches; attempt++ {
 		selection, _, err := h.openAIGatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(), apiKey.GroupID, "", sessionHash, modelName, excluded,
-			service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityGenerateContent, false, false, false,
+			service.OpenAIUpstreamTransportAny, "", false, false, false,
 			service.PlatformOpenCodeGo,
 		)
 		if err != nil || selection == nil || selection.Account == nil {
@@ -155,7 +156,18 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		writerSizeBeforeForward := c.Writer.Size()
-		result, forwardErr := h.openAIGatewayService.ForwardOpenCodeGoogleAction(c.Request.Context(), c, account, action, modelName, body)
+		var result *service.OpenAIForwardResult
+		var forwardErr error
+		// Keep the native Google column native after account selection. Endpoint
+		// membership is account-catalog-backed, including configured aliases; a
+		// Go plan or a different native text column uses its existing forwarder.
+		native := service.NativeOpenCodeGoogleModel(c.Request.Context(), account, modelName)
+		if native {
+			binding := service.ResolveAccountModelBinding(c.Request.Context(), account, modelName, service.AccountModelBindingOptions{Endpoint: "generate_content"})
+			result, forwardErr = h.openAIGatewayService.ForwardOpenCodeGoogleAction(c.Request.Context(), c, account, action, binding.UpstreamModel, body)
+		} else {
+			result, forwardErr = h.forwardOpenCodeGeminiText(c, account, body, modelName, callerModel, googleMethod, stream)
+		}
 		if release != nil {
 			release()
 		}
@@ -166,12 +178,15 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 					zap.String("upstream_model", result.UpstreamModel),
 					zap.Bool("stream", result.Stream),
 				)
-				h.recordOpenCodeGoogleUsage(c, reqLog, apiKey, subject, subscription, account, result, body, modelName, pricingAt, channelMapping, action)
+				h.recordOpenCodeGoogleUsage(c, reqLog, apiKey, subject, subscription, account, result, body, callerModel, pricingAt, channelMapping, action)
 			}
 			return
 		}
 		if writeGatewayTPMRequestError(c, forwardErr) {
 			return
+		}
+		if result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0) {
+			h.recordOpenCodeGoogleUsage(c, reqLog, apiKey, subject, subscription, account, result, body, callerModel, pricingAt, channelMapping, action)
 		}
 		var failoverErr *service.UpstreamFailoverError
 		if errors.As(forwardErr, &failoverErr) && c.Writer.Size() == writerSizeBeforeForward {
@@ -187,6 +202,33 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	}
 
 	googleError(c, http.StatusBadGateway, "OpenCode request failed after account switches")
+}
+
+func (h *GatewayHandler) forwardOpenCodeGeminiText(c *gin.Context, account *service.Account, body []byte, model, callerModel, method string, stream bool) (*service.OpenAIForwardResult, error) {
+	converted, err := service.GeminiToMessages(body, model, stream)
+	if err != nil {
+		googleError(c, http.StatusBadRequest, err.Error())
+		return nil, err
+	}
+	writer := service.NewGeminiProtocolWriter(c.Writer, callerModel, method, stream, 0)
+	if stream && c.Query("alt") != "sse" {
+		writer.UseJSONStream()
+	}
+	c.Writer = writer
+	defer func() { c.Writer = writer.ResponseWriter }()
+	var result *service.OpenAIForwardResult
+	if method == "countTokens" {
+		err = h.openAIGatewayService.ForwardCountTokensAsAnthropic(c.Request.Context(), c, account, converted, model)
+	} else {
+		result, err = h.openAIGatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, converted, "", model)
+	}
+	if err != nil && !writer.Written() {
+		return result, err
+	}
+	if finishErr := writer.Finish(); err == nil {
+		err = finishErr
+	}
+	return result, err
 }
 
 // recordOpenCodeGoogleUsage settles a successful OpenCode Google-protocol action

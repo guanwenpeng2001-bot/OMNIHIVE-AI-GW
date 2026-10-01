@@ -28,9 +28,9 @@ func geminiToolIDProfileForAccount(account *Account) geminiToolIDProfile {
 			return geminiToolIDNative
 		case string(geminiToolIDLegacy):
 			return geminiToolIDLegacy
-		default:
-			return geminiToolIDUnknown
 		}
+		// Unknown optional metadata must not revoke the transport's established
+		// tool support. Fall back to the same profile as an existing account.
 	}
 	// Preserve the legacy wire format where native ID support is not established.
 	// This is a compatibility fallback, not a claim of native schema support.

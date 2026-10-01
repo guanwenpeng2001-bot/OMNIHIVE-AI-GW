@@ -156,15 +156,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组。
-	// 平台筛选本身由动作分发表完成（gemini/antigravity → gateway.generate_content，
-	// OpenCode 自己的 Google 协议列 → opencode.generate_content），这里保留的检查是
-	// 分组平台声明与到达的适配器必须一致。
-	if !middleware.HasForcePlatform(c) && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
-
 	modelName, action, err := parseGeminiModelAction(strings.TrimPrefix(c.Param("modelAction"), "/"))
 	if err != nil {
 		googleError(c, http.StatusNotFound, err.Error())
@@ -172,12 +163,14 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 	// URL 里的模型名最终会被拼进上游 /v1beta/models/{model}:{action}，
 	// 先在入口校验片段合规性，见 service/upstream_path_guard.go。
+	reqModel := clientRequestedModel(c, modelName)
+	ensureCompositeTargetPlatform(c, apiKey, reqModel)
+	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
+		modelName = strings.TrimSpace(resolvedModel)
+	}
 	if !service.IsSafeGeminiModelPathSegment(modelName) {
 		googleError(c, http.StatusBadRequest, "Invalid model in URL")
 		return
-	}
-	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
-		modelName = strings.TrimSpace(resolvedModel)
 	}
 
 	stream := action == "streamGenerateContent"
@@ -214,7 +207,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, modelName)
-	reqModel := modelName // 保存映射前的原始模型名
 	if channelMapping.Mapped {
 		modelName = channelMapping.MappedModel
 	}
