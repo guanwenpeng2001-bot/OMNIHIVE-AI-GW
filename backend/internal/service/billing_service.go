@@ -120,6 +120,8 @@ type ModelPricing struct {
 
 	// Non-nil for complete variant cards; absence is distinct from a zero rate.
 	TokenDimensions map[string]bool `json:"token_dimensions,omitempty"`
+	// Do not omit an empty map: it means all token tariffs are missing.
+	TokenPricePresence map[string]bool `json:"token_price_presence"`
 }
 
 func normalizeBillingServiceTier(serviceTier string) string {
@@ -137,8 +139,8 @@ func usePriorityServiceTierPricing(serviceTier string, pricing *ModelPricing) bo
 	if pricing.FastMultiplier != nil {
 		return false
 	}
-	return pricing.InputPricePerTokenPriority > 0 || pricing.OutputPricePerTokenPriority > 0 ||
-		pricing.CacheCreationPricePerTokenPriority > 0 || pricing.CacheReadPricePerTokenPriority > 0
+	return pricing.hasTokenPrice("input_priority", pricing.InputPricePerTokenPriority) || pricing.hasTokenPrice("output_priority", pricing.OutputPricePerTokenPriority) ||
+		pricing.hasTokenPrice("cache_write_priority", pricing.CacheCreationPricePerTokenPriority) || pricing.hasTokenPrice("cache_read_priority", pricing.CacheReadPricePerTokenPriority)
 }
 
 func serviceTierCostMultiplier(serviceTier string) float64 {
@@ -1272,7 +1274,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		if litellmPricing != nil && len(litellmPricing.PriceVariants) > 0 {
 			return nil, ErrModelPricingUnavailable
 		}
-		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
+		// 仅有按张图片价、无任何 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
 		// 图片计费路径（getDefaultImagePrice / getImageUnitPrice）直接读
@@ -1286,8 +1288,12 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 			// 2. 1h 价格 > 5m 价格（防止 LiteLLM 数据错误导致少收费）
 			price5m := litellmPricing.CacheCreationInputTokenCost
 			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
-			enableBreakdown := price1h > 0 && price1h > price5m
-			return s.applyModelSpecificPricingPolicyEx(model, &ModelPricing{
+			presence := catalogTokenPricePresence(litellmPricing)
+			enableBreakdown := price1h > 0 && price1h > price5m || presence["cache_write_1h"] && price1h == 0
+			pricing := &ModelPricing{
+				TokenPricePresence:                 presence,
+				CacheCreationPriceExplicit:         presence["cache_write"] && price5m == 0,
+				ImageOutputPriceExplicit:           presence["image_output"],
 				Source:                             PricingSourceLiteLLM,
 				InputPricePerToken:                 litellmPricing.InputCostPerToken,
 				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
@@ -1308,7 +1314,9 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 				ImageInputPricePerToken:       litellmPricing.InputCostPerImageToken,
 				ImageCacheReadPricePerToken:   litellmPricing.CacheReadInputImageTokenCost,
 				ImageOutputPricePerToken:      litellmPricing.OutputCostPerImageToken,
-			}, true, pricingAt), nil
+			}
+			pricing.preserveTokenPricePresence()
+			return s.applyModelSpecificPricingPolicyEx(model, pricing, true, pricingAt), nil
 		}
 	}
 
@@ -1325,6 +1333,16 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		}
 		cloned := *fallback
 		cloned.Source = PricingSourceFallback
+		if cloned.TokenPricePresence == nil {
+			// Built-in cards explicitly declare text tariffs, including free text.
+			cloned.TokenPricePresence = map[string]bool{"input": true, "output": true}
+		}
+		cloned.preserveTokenPricePresence()
+		// Built-in flat cache tariffs also supply the 5m base if a channel later
+		// enables TTL splitting with a 1h override.
+		if cloned.CacheCreation5mPrice == 0 && !cloned.SupportsCacheBreakdown {
+			cloned.CacheCreation5mPrice = cloned.CacheCreationPricePerToken
+		}
 		return s.applyModelSpecificPricingPolicyEx(model, &cloned, true, pricingAt), nil
 	}
 
@@ -1369,35 +1387,45 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 		return
 	}
 	if channelPricing.InputPrice != nil {
+		pricing.markTokenPrices("input")
 		priority := channelTierOverridePrice(pricing.InputPricePerToken, pricing.InputPricePerTokenPriority, *channelPricing.InputPrice)
 		pricing.InputPricePerToken = *channelPricing.InputPrice
 		pricing.InputPricePerTokenPriority = priority
+		pricing.resetPriorityPresence("input_priority", pricing.InputPricePerTokenPriority)
 	}
 	if channelPricing.OutputPrice != nil {
+		pricing.markTokenPrices("output")
 		priority := channelTierOverridePrice(pricing.OutputPricePerToken, pricing.OutputPricePerTokenPriority, *channelPricing.OutputPrice)
 		pricing.OutputPricePerToken = *channelPricing.OutputPrice
 		pricing.OutputPricePerTokenPriority = priority
+		pricing.resetPriorityPresence("output_priority", pricing.OutputPricePerTokenPriority)
 	}
 	if channelPricing.CacheWritePrice != nil {
+		pricing.markTokenPrices("cache_write")
 		priority := channelTierOverridePrice(pricing.CacheCreationPricePerToken, pricing.CacheCreationPricePerTokenPriority, *channelPricing.CacheWritePrice)
 		pricing.CacheCreationPricePerToken = *channelPricing.CacheWritePrice
 		pricing.CacheCreationPricePerTokenPriority = priority
+		pricing.resetPriorityPresence("cache_write_priority", pricing.CacheCreationPricePerTokenPriority)
 		pricing.CacheCreationPriceExplicit = true
 		pricing.CacheCreation5mPrice = *channelPricing.CacheWritePrice
 		if channelPricing.CacheWrite1hPrice == nil {
 			// Preserve the pre-split behavior for existing configurations: a lone
 			// cache_write_price continues to override both TTL tiers.
 			pricing.CacheCreation1hPrice = *channelPricing.CacheWritePrice
+			pricing.markTokenPrices("cache_write_1h")
 		}
 	}
 	if channelPricing.CacheWrite1hPrice != nil {
+		pricing.markTokenPrices("cache_write_1h")
 		pricing.CacheCreation1hPrice = *channelPricing.CacheWrite1hPrice
 		pricing.SupportsCacheBreakdown = true
 	}
 	if channelPricing.CacheReadPrice != nil {
+		pricing.markTokenPrices("cache_read")
 		priority := channelTierOverridePrice(pricing.CacheReadPricePerToken, pricing.CacheReadPricePerTokenPriority, *channelPricing.CacheReadPrice)
 		pricing.CacheReadPricePerToken = *channelPricing.CacheReadPrice
 		pricing.CacheReadPricePerTokenPriority = priority
+		pricing.resetPriorityPresence("cache_read_priority", pricing.CacheReadPricePerTokenPriority)
 	}
 }
 
@@ -1529,7 +1557,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	if pricing == nil {
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
 	}
-	if err := validateTokenDimensions(pricing, input.Tokens); err != nil {
+	if err := validateTokenDimensions(pricing, input.Tokens, input.ServiceTier); err != nil {
 		return nil, err
 	}
 
@@ -1598,16 +1626,16 @@ func (s *BillingService) computeTokenBreakdown(
 	tierMultiplier := 1.0
 
 	if usePriorityServiceTierPricing(serviceTier, pricing) {
-		if pricing.InputPricePerTokenPriority > 0 {
+		if pricing.hasTokenPrice("input_priority", pricing.InputPricePerTokenPriority) {
 			inputPrice = pricing.InputPricePerTokenPriority
 		}
-		if pricing.OutputPricePerTokenPriority > 0 {
+		if pricing.hasTokenPrice("output_priority", pricing.OutputPricePerTokenPriority) {
 			outputPrice = pricing.OutputPricePerTokenPriority
 		}
-		if pricing.CacheReadPricePerTokenPriority > 0 {
+		if pricing.hasTokenPrice("cache_read_priority", pricing.CacheReadPricePerTokenPriority) {
 			cacheReadPrice = pricing.CacheReadPricePerTokenPriority
 		}
-		if pricing.CacheCreationPricePerTokenPriority > 0 {
+		if pricing.hasTokenPrice("cache_write_priority", pricing.CacheCreationPricePerTokenPriority) {
 			cacheCreationPrice = pricing.CacheCreationPricePerTokenPriority
 		}
 	} else {
@@ -1644,7 +1672,7 @@ func (s *BillingService) computeTokenBreakdown(
 			imageInputTokens = tokens.InputTokens
 		}
 		imageInputPrice := pricing.ImageInputPricePerToken
-		if imageInputPrice == 0 && !pricing.TokenDimensions["image_input"] {
+		if !pricing.hasTokenPrice("image_input", imageInputPrice) {
 			// 未配置图片输入档时回退到文本 input 价（已含 priority / 长上下文调整）
 			imageInputPrice = inputPrice
 		}
@@ -1664,7 +1692,7 @@ func (s *BillingService) computeTokenBreakdown(
 	// 图片输出 token 费用（独立费率）
 	if tokens.ImageOutputTokens > 0 {
 		imgPrice := pricing.ImageOutputPricePerToken
-		if imgPrice == 0 && !pricing.ImageOutputPriceExplicit {
+		if !pricing.hasTokenPrice("image_output", imgPrice) && !pricing.ImageOutputPriceExplicit {
 			imgPrice = outputPrice
 		}
 		bd.ImageOutputCost = float64(tokens.ImageOutputTokens) * imgPrice
@@ -1674,7 +1702,7 @@ func (s *BillingService) computeTokenBreakdown(
 	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens, cacheCreationPrice, cacheCreationMultiplier)
 
 	bd.CacheReadCost = float64(tokens.CacheReadTokens) * cacheReadPrice
-	if imageCached := min(max(tokens.ImageCacheReadTokens, 0), max(tokens.CacheReadTokens, 0)); imageCached > 0 && (pricing.ImageCacheReadPricePerToken > 0 || pricing.TokenDimensions["image_cache_read"]) {
+	if imageCached := min(max(tokens.ImageCacheReadTokens, 0), max(tokens.CacheReadTokens, 0)); imageCached > 0 && pricing.hasTokenPrice("image_cache_read", pricing.ImageCacheReadPricePerToken) {
 		bd.CacheReadCost = float64(tokens.CacheReadTokens-imageCached)*cacheReadPrice + float64(imageCached)*pricing.ImageCacheReadPricePerToken
 	}
 
@@ -1698,7 +1726,7 @@ func (s *BillingService) computeTokenBreakdown(
 // computeCacheCreationCost 计算缓存创建费用（支持 5m/1h 分类或标准计费）。
 // multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
 func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, price, multiplier float64) float64 {
-	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0 || pricing.TokenDimensions["cache_write_1h"]) {
+	if usesCacheCreationBreakdown(pricing) {
 		cacheCreation5mTokens, cacheCreation1hTokens := normalizeCacheCreationBreakdown(tokens)
 		if cacheCreation5mTokens == 0 && cacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
 			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
@@ -1817,7 +1845,7 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	if err := validateCostInput(CostInput{Tokens: tokens, RateMultiplier: rateMultiplier}); err != nil {
 		return pricingFailure(err), err
 	}
-	if err := validateTokenDimensions(pricing, tokens); err != nil {
+	if err := validateTokenDimensions(pricing, tokens, serviceTier); err != nil {
 		return pricingFailure(err), err
 	}
 	breakdown := s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled)
@@ -1860,6 +1888,7 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 	// 对默认价卡另行叠加（分组/渠道自定义定价不叠加）。
 	if forceDeepSeekRates && isDeepSeekModel(model) {
 		cloned := *pricing
+		cloned.markTokenPrices("input", "output", "cache_read")
 		if isDeepSeekProModel(model) {
 			cloned.InputPricePerToken = deepseekProOffPeakInputPrice
 			cloned.OutputPricePerToken = deepseekProOffPeakOutputPrice
@@ -1890,6 +1919,10 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 	if isGPT56 && !cloned.CacheCreationPriceExplicit {
 		if cloned.CacheCreationPricePerToken <= 0 {
 			cloned.CacheCreationPricePerToken = cloned.InputPricePerToken * 1.25
+			cloned.CacheCreation5mPrice = cloned.CacheCreationPricePerToken
+			if cloned.hasTokenPrice("input", cloned.InputPricePerToken) {
+				cloned.markTokenPrices("cache_write")
+			}
 		}
 		if cloned.CacheCreationPricePerTokenPriority <= 0 {
 			cloned.CacheCreationPricePerTokenPriority = cloned.InputPricePerTokenPriority * 1.25

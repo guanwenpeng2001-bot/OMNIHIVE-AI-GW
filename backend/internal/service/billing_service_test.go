@@ -1510,6 +1510,12 @@ func TestCalculateCostWithServiceTier_Gpt54MiniPriorityFallsBackToTierMultiplier
 	svc := newTestBillingService()
 	tokens := UsageTokens{InputTokens: 120, OutputTokens: 30, CacheCreationTokens: 12, CacheReadTokens: 8}
 
+	// The built-in card has no cache-write tariff; reported writes must hold.
+	missing, missingErr := svc.CalculateCost("gpt-5.4-mini", tokens, 1.0)
+	require.ErrorIs(t, missingErr, ErrModelPricingUnavailable)
+	require.Equal(t, PricingStateUnpriced, missing.PricingState)
+	tokens.CacheCreationTokens = 0
+
 	baseCost, err := svc.CalculateCost("gpt-5.4-mini", tokens, 1.0)
 	require.NoError(t, err)
 
@@ -1526,6 +1532,12 @@ func TestCalculateCostWithServiceTier_Gpt54MiniPriorityFallsBackToTierMultiplier
 func TestCalculateCostWithServiceTier_Gpt54NanoFlexAppliesHalfMultiplier(t *testing.T) {
 	svc := newTestBillingService()
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50, CacheCreationTokens: 40, CacheReadTokens: 20}
+
+	// The built-in card has no cache-write tariff; reported writes must hold.
+	missing, missingErr := svc.CalculateCost("gpt-5.4-nano", tokens, 1.0)
+	require.ErrorIs(t, missingErr, ErrModelPricingUnavailable)
+	require.Equal(t, PricingStateUnpriced, missing.PricingState)
+	tokens.CacheCreationTokens = 0
 
 	baseCost, err := svc.CalculateCost("gpt-5.4-nano", tokens, 1.0)
 	require.NoError(t, err)

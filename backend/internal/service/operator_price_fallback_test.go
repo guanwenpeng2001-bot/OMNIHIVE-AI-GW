@@ -56,17 +56,53 @@ func TestOperatorIntervalRequiresExplicitMissingCatalogRates(testingContext *tes
 	resolver := NewModelPricingResolver(nil, billing)
 	price := 2e-6
 	for _, complete := range []bool{false, true} {
-		interval := PricingInterval{InputPrice: &price}
+		name := "input_only_interval"
 		if complete {
-			interval.OutputPrice = &price
+			name = "complete_text_interval"
 		}
-		resolved := resolver.resolveConfiguredPricing(&ChannelModelPricing{Intervals: []PricingInterval{interval}}, "operator-only-model", PricingSourceChannel)
-		pricing := resolver.GetIntervalPricing(resolved, 100)
-		if complete {
+		testingContext.Run(name, func(testingContext *testing.T) {
+			interval := PricingInterval{InputPrice: &price}
+			if complete {
+				interval.OutputPrice = &price
+			}
+			resolved := resolver.resolveConfiguredPricing(&ChannelModelPricing{Intervals: []PricingInterval{interval}}, "operator-only-model", PricingSourceChannel)
+			pricing := resolver.GetIntervalPricing(resolved, 100)
 			require.NotNil(testingContext, pricing)
-		} else {
-			require.Nil(testingContext, pricing)
-		}
+			require.Equal(testingContext, price, pricing.InputPricePerToken)
+			if complete {
+				require.Equal(testingContext, price, pricing.OutputPricePerToken)
+			}
+			for _, usage := range []struct {
+				name   string
+				tokens UsageTokens
+			}{
+				{"input", UsageTokens{InputTokens: 100}},
+				{"output", UsageTokens{OutputTokens: 10}},
+				{"mixed_text", UsageTokens{InputTokens: 100, OutputTokens: 10}},
+				{"cache_creation", UsageTokens{CacheCreationTokens: 10}},
+				{"cache_read", UsageTokens{CacheReadTokens: 10}},
+			} {
+				testingContext.Run(usage.name, func(testingContext *testing.T) {
+					cost, err := billing.CalculateCostUnified(CostInput{
+						Ctx: context.Background(), Model: "operator-only-model", Tokens: usage.tokens,
+						RateMultiplier: 1, Resolver: resolver, Resolved: resolved,
+					})
+					hasMissingRate := !complete && usage.tokens.OutputTokens > 0 || usage.tokens.CacheCreationTokens > 0 || usage.tokens.CacheReadTokens > 0
+					if hasMissingRate {
+						require.ErrorIs(testingContext, err, ErrModelPricingUnavailable)
+						require.Equal(testingContext, PricingStateUnpriced, cost.PricingState)
+						require.Empty(testingContext, cost.PricingSnapshot)
+						require.Zero(testingContext, cost.TotalCost)
+						require.Zero(testingContext, cost.ActualCost)
+						return
+					}
+					require.NoError(testingContext, err)
+					require.Equal(testingContext, PricingStatePriced, cost.PricingState)
+					require.NotEmpty(testingContext, cost.PricingSnapshot)
+					require.InDelta(testingContext, float64(usage.tokens.InputTokens+usage.tokens.OutputTokens)*price, cost.ActualCost, 1e-12)
+				})
+			}
+		})
 	}
 }
 

@@ -570,6 +570,9 @@ func gatewayResourceBatchCharge(job *UpstreamJob, source, version string) (usage
 	if !finitePositive(billing.RateMultiplier) || !finitePositive(billing.AccountRateMultiplier) {
 		return nil, nil, ErrUpstreamJobTariff
 	}
+	if err := validateTokenDimensions(snapshot.TokenPrices, tokens); err != nil {
+		return nil, nil, err
+	}
 	cost := (&BillingService{}).computeTokenBreakdown(snapshot.TokenPrices, tokens, billing.RateMultiplier, "", false)
 	if cost == nil {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage

@@ -266,13 +266,8 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 // applyTokenOverrides 应用 token 模式的渠道覆盖
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
 	if resolved.BasePricing == nil {
-		// A missing catalog price needs an explicit text tariff. An empty or
-		// partial operator card must not manufacture a free base price.
-		if chPricing.InputPrice == nil || chPricing.OutputPrice == nil {
-			resolved.Intervals = filterValidIntervals(chPricing.Intervals)
-			return
-		}
-		resolved.BasePricing = &ModelPricing{}
+		// Presence validation checks only the dimensions actually consumed.
+		resolved.BasePricing = &ModelPricing{TokenPricePresence: map[string]bool{}}
 	} else {
 		// 防止修改 fallbackPrices 中的共享指针
 		cloned := *resolved.BasePricing
@@ -310,10 +305,12 @@ func applyChannelImagePriceOverrides(chPricing *ChannelModelPricing, pricing *Mo
 		return
 	}
 	if chPricing.ImageOutputPrice != nil {
+		pricing.markTokenPrices("image_output")
 		pricing.ImageOutputPricePerToken = *chPricing.ImageOutputPrice
 		pricing.ImageOutputPriceExplicit = true
 	}
 	if chPricing.ImageInputPrice != nil {
+		pricing.markTokenPrices("image_input")
 		pricing.ImageInputPricePerToken = *chPricing.ImageInputPrice
 	}
 }
@@ -353,7 +350,7 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 		for i := range resolved.Intervals {
 			iv := &resolved.Intervals[i]
 			if totalContextTokens >= 0 && (totalContextTokens > iv.MinTokens || totalContextTokens == 0 && iv.MinTokens == 0) && (iv.MaxTokens == nil || totalContextTokens <= *iv.MaxTokens) {
-				if match != nil || iv.InputPrice == nil || iv.OutputPrice == nil {
+				if match != nil {
 					return nil
 				}
 				match = iv
@@ -372,10 +369,6 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 	if iv == nil {
 		return resolved.BasePricing
 	}
-	if resolved.BasePricing == nil && (iv.InputPrice == nil || iv.OutputPrice == nil) {
-		return nil
-	}
-
 	pricing := intervalToModelPricing(iv, resolved.BasePricing, resolved.channelPricing)
 	// BasePricing 为 nil（仅配置区间）时拷贝不到该标志，从 resolved 回填，
 	// 保证 computeCacheCreationCost 的 5m/1h 分档判断不被区间路径吞掉。
@@ -385,7 +378,7 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 
 // intervalToModelPricing 将区间定价转换为 ModelPricing
 func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *ChannelModelPricing) *ModelPricing {
-	pricing := &ModelPricing{}
+	pricing := &ModelPricing{TokenPricePresence: map[string]bool{}}
 	if base != nil {
 		*pricing = *base
 	}
@@ -396,26 +389,33 @@ func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *
 		return value * *multiplier
 	}
 	if iv.InputPrice != nil {
+		pricing.markTokenPrices("input")
 		pricing.InputPricePerTokenPriority = channelTierOverridePrice(pricing.InputPricePerToken, pricing.InputPricePerTokenPriority, *iv.InputPrice)
+		pricing.resetPriorityPresence("input_priority", pricing.InputPricePerTokenPriority)
 		pricing.InputPricePerToken = *iv.InputPrice
 	} else if iv.InputMultiplier != nil {
 		pricing.InputPricePerToken = applyMultiplier(pricing.InputPricePerToken, iv.InputMultiplier)
 		pricing.InputPricePerTokenPriority = applyMultiplier(pricing.InputPricePerTokenPriority, iv.InputMultiplier)
 	}
 	if iv.OutputPrice != nil {
+		pricing.markTokenPrices("output")
 		pricing.OutputPricePerTokenPriority = channelTierOverridePrice(pricing.OutputPricePerToken, pricing.OutputPricePerTokenPriority, *iv.OutputPrice)
+		pricing.resetPriorityPresence("output_priority", pricing.OutputPricePerTokenPriority)
 		pricing.OutputPricePerToken = *iv.OutputPrice
 	} else if iv.OutputMultiplier != nil {
 		pricing.OutputPricePerToken = applyMultiplier(pricing.OutputPricePerToken, iv.OutputMultiplier)
 		pricing.OutputPricePerTokenPriority = applyMultiplier(pricing.OutputPricePerTokenPriority, iv.OutputMultiplier)
 	}
 	if iv.CacheWritePrice != nil {
+		pricing.markTokenPrices("cache_write")
 		pricing.CacheCreationPricePerTokenPriority = channelTierOverridePrice(pricing.CacheCreationPricePerToken, pricing.CacheCreationPricePerTokenPriority, *iv.CacheWritePrice)
+		pricing.resetPriorityPresence("cache_write_priority", pricing.CacheCreationPricePerTokenPriority)
 		pricing.CacheCreationPricePerToken = *iv.CacheWritePrice
 		pricing.CacheCreationPriceExplicit = true
 		pricing.CacheCreation5mPrice = *iv.CacheWritePrice
 		if iv.CacheWrite1hPrice == nil {
 			pricing.CacheCreation1hPrice = *iv.CacheWritePrice
+			pricing.markTokenPrices("cache_write_1h")
 		}
 	} else if iv.CacheWriteMultiplier != nil {
 		pricing.CacheCreationPricePerToken = applyMultiplier(pricing.CacheCreationPricePerToken, iv.CacheWriteMultiplier)
@@ -424,11 +424,14 @@ func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *
 		pricing.CacheCreation1hPrice = applyMultiplier(pricing.CacheCreation1hPrice, iv.CacheWriteMultiplier)
 	}
 	if iv.CacheWrite1hPrice != nil {
+		pricing.markTokenPrices("cache_write_1h")
 		pricing.CacheCreation1hPrice = *iv.CacheWrite1hPrice
 		pricing.SupportsCacheBreakdown = true
 	}
 	if iv.CacheReadPrice != nil {
+		pricing.markTokenPrices("cache_read")
 		pricing.CacheReadPricePerTokenPriority = channelTierOverridePrice(pricing.CacheReadPricePerToken, pricing.CacheReadPricePerTokenPriority, *iv.CacheReadPrice)
+		pricing.resetPriorityPresence("cache_read_priority", pricing.CacheReadPricePerTokenPriority)
 		pricing.CacheReadPricePerToken = *iv.CacheReadPrice
 	} else if iv.CacheReadMultiplier != nil {
 		pricing.CacheReadPricePerToken = applyMultiplier(pricing.CacheReadPricePerToken, iv.CacheReadMultiplier)

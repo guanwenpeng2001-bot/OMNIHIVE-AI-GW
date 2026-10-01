@@ -212,6 +212,9 @@ func RecalculatePricingSnapshot(encoded string) (*CostBreakdown, error) {
 	}
 	var cost *CostBreakdown
 	if snapshot.TokenPrices != nil {
+		if err := validateTokenDimensions(snapshot.TokenPrices, snapshot.Tokens, snapshot.ServiceTier); err != nil {
+			return nil, err
+		}
 		cost = (&BillingService{}).computeTokenBreakdown(snapshot.TokenPrices, snapshot.Tokens, snapshot.RateMultiplier, snapshot.ServiceTier, snapshot.LongContextApplied)
 		applyCostBreakdownMultiplier(cost, snapshot.TimeMultiplier)
 		applyCostBreakdownMultiplier(cost, snapshot.ReasoningMultiplier)
