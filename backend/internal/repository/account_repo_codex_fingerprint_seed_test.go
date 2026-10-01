@@ -76,8 +76,9 @@ func TestBulkUpdateCodexFingerprintSeedRollsBackWhenUpdateFails(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`(?s)UPDATE accounts SET extra = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\)`).
-		WithArgs(sqlmock.AnyArg(), `{27,28}`).
+	// Bulk updates prepend quota invalidation columns before the extra assignment.
+	mock.ExpectExec(`(?s)UPDATE accounts SET .*extra = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\) AND deleted_at IS NULL`).
+		WithArgs([]byte(`{"codex_fingerprint_mode":"session"}`), `{27,28}`).
 		WillReturnError(errors.New("update failed"))
 	mock.ExpectRollback()
 
@@ -102,10 +103,11 @@ func TestBulkUpdateCodexFingerprintSeedRollsBackWhenOutboxFails(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
-	mock.ExpectExec(`(?s)UPDATE accounts SET extra = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\)`).
-		WithArgs(sqlmock.AnyArg(), `{27,28}`).
+	mock.ExpectExec(`(?s)UPDATE accounts SET .*extra = .*gen_random_uuid\(\)::text.*WHERE id = ANY\(\$2\) AND deleted_at IS NULL`).
+		WithArgs([]byte(`{"codex_fingerprint_mode":"full"}`), `{27,28}`).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
+		WithArgs(service.SchedulerOutboxEventAccountBulkChanged, nil, nil, []byte(`{"account_ids":[27,28]}`)).
 		WillReturnError(errors.New("outbox failed"))
 	mock.ExpectRollback()
 
