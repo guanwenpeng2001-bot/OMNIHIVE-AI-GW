@@ -318,13 +318,13 @@ func (r *proxyGroupRepository) ListAccountSummariesByGroupID(ctx context.Context
 		return nil, translatePersistenceError(err, service.ErrProxyGroupNotFound, nil)
 	}
 	rows, err := client.Account.Query().Where(account.ProxyGroupIDEQ(id), account.WorkspaceIDEQ(group.WorkspaceID), account.DeletedAtIsNil()).
-		Select(account.FieldID, account.FieldName, account.FieldPlatform, account.FieldType, account.FieldNotes).Order(dbent.Asc(account.FieldID)).All(ctx)
+		Select(account.FieldID, account.FieldName, account.FieldPlatform, account.FieldType, account.FieldNotes, account.FieldParentAccountID).Order(dbent.Asc(account.FieldID)).All(ctx)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]service.ProxyAccountSummary, 0, len(rows))
 	for _, m := range rows {
-		out = append(out, service.ProxyAccountSummary{ID: m.ID, Name: m.Name, Platform: m.Platform, Type: m.Type, Notes: m.Notes})
+		out = append(out, service.ProxyAccountSummary{ID: m.ID, Name: m.Name, Platform: m.Platform, Type: m.Type, Notes: m.Notes, ParentAccountID: m.ParentAccountID})
 	}
 	return out, nil
 }

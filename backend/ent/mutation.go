@@ -12791,6 +12791,7 @@ type BatchImageJobMutation struct {
 	addapi_key_id       *int64
 	account_id          *int64
 	addaccount_id       *int64
+	egress_snapshot     *map[string]interface{}
 	provider            *string
 	model               *string
 	task_name           *string
@@ -13170,6 +13171,55 @@ func (m *BatchImageJobMutation) ResetAccountID() {
 	m.account_id = nil
 	m.addaccount_id = nil
 	delete(m.clearedFields, batchimagejob.FieldAccountID)
+}
+
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (m *BatchImageJobMutation) SetEgressSnapshot(value map[string]interface{}) {
+	m.egress_snapshot = &value
+}
+
+// EgressSnapshot returns the value of the "egress_snapshot" field in the mutation.
+func (m *BatchImageJobMutation) EgressSnapshot() (r map[string]interface{}, exists bool) {
+	v := m.egress_snapshot
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEgressSnapshot returns the old "egress_snapshot" field's value of the BatchImageJob entity.
+// If the BatchImageJob object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *BatchImageJobMutation) OldEgressSnapshot(ctx context.Context) (v map[string]interface{}, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEgressSnapshot is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEgressSnapshot requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEgressSnapshot: %w", err)
+	}
+	return oldValue.EgressSnapshot, nil
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (m *BatchImageJobMutation) ClearEgressSnapshot() {
+	m.egress_snapshot = nil
+	m.clearedFields[batchimagejob.FieldEgressSnapshot] = struct{}{}
+}
+
+// EgressSnapshotCleared returns if the "egress_snapshot" field was cleared in this mutation.
+func (m *BatchImageJobMutation) EgressSnapshotCleared() bool {
+	_, ok := m.clearedFields[batchimagejob.FieldEgressSnapshot]
+	return ok
+}
+
+// ResetEgressSnapshot resets all changes to the "egress_snapshot" field.
+func (m *BatchImageJobMutation) ResetEgressSnapshot() {
+	m.egress_snapshot = nil
+	delete(m.clearedFields, batchimagejob.FieldEgressSnapshot)
 }
 
 // SetProvider sets the "provider" field.
@@ -14970,7 +15020,7 @@ func (m *BatchImageJobMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *BatchImageJobMutation) Fields() []string {
-	fields := make([]string, 0, 40)
+	fields := make([]string, 0, 41)
 	if m.batch_id != nil {
 		fields = append(fields, batchimagejob.FieldBatchID)
 	}
@@ -14982,6 +15032,9 @@ func (m *BatchImageJobMutation) Fields() []string {
 	}
 	if m.account_id != nil {
 		fields = append(fields, batchimagejob.FieldAccountID)
+	}
+	if m.egress_snapshot != nil {
+		fields = append(fields, batchimagejob.FieldEgressSnapshot)
 	}
 	if m.provider != nil {
 		fields = append(fields, batchimagejob.FieldProvider)
@@ -15107,6 +15160,8 @@ func (m *BatchImageJobMutation) Field(name string) (ent.Value, bool) {
 		return m.APIKeyID()
 	case batchimagejob.FieldAccountID:
 		return m.AccountID()
+	case batchimagejob.FieldEgressSnapshot:
+		return m.EgressSnapshot()
 	case batchimagejob.FieldProvider:
 		return m.Provider()
 	case batchimagejob.FieldModel:
@@ -15196,6 +15251,8 @@ func (m *BatchImageJobMutation) OldField(ctx context.Context, name string) (ent.
 		return m.OldAPIKeyID(ctx)
 	case batchimagejob.FieldAccountID:
 		return m.OldAccountID(ctx)
+	case batchimagejob.FieldEgressSnapshot:
+		return m.OldEgressSnapshot(ctx)
 	case batchimagejob.FieldProvider:
 		return m.OldProvider(ctx)
 	case batchimagejob.FieldModel:
@@ -15304,6 +15361,13 @@ func (m *BatchImageJobMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAccountID(v)
+		return nil
+	case batchimagejob.FieldEgressSnapshot:
+		v, ok := value.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEgressSnapshot(v)
 		return nil
 	case batchimagejob.FieldProvider:
 		v, ok := value.(string)
@@ -15740,6 +15804,9 @@ func (m *BatchImageJobMutation) ClearedFields() []string {
 	if m.FieldCleared(batchimagejob.FieldAccountID) {
 		fields = append(fields, batchimagejob.FieldAccountID)
 	}
+	if m.FieldCleared(batchimagejob.FieldEgressSnapshot) {
+		fields = append(fields, batchimagejob.FieldEgressSnapshot)
+	}
 	if m.FieldCleared(batchimagejob.FieldProviderJobName) {
 		fields = append(fields, batchimagejob.FieldProviderJobName)
 	}
@@ -15826,6 +15893,9 @@ func (m *BatchImageJobMutation) ClearField(name string) error {
 	case batchimagejob.FieldAccountID:
 		m.ClearAccountID()
 		return nil
+	case batchimagejob.FieldEgressSnapshot:
+		m.ClearEgressSnapshot()
+		return nil
 	case batchimagejob.FieldProviderJobName:
 		m.ClearProviderJobName()
 		return nil
@@ -15911,6 +15981,9 @@ func (m *BatchImageJobMutation) ResetField(name string) error {
 		return nil
 	case batchimagejob.FieldAccountID:
 		m.ResetAccountID()
+		return nil
+	case batchimagejob.FieldEgressSnapshot:
+		m.ResetEgressSnapshot()
 		return nil
 	case batchimagejob.FieldProvider:
 		m.ResetProvider()

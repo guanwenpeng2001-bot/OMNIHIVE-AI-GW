@@ -396,3 +396,132 @@ func TestProxyGroupProbeRecoveryRequiresReachability(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyGroupShadowBindingsUseCanonicalOwner(t *testing.T) {
+	f := newGroupAdminFixture(t)
+	parentID := int64(221)
+	f.repo.accounts = []service.ProxyAccountSummary{
+		{ID: 222, Name: "shadow one", ParentAccountID: &parentID},
+		{ID: 221, Name: "parent"},
+		{ID: 223, Name: "shadow two", ParentAccountID: &parentID},
+		{ID: 224, Name: "normal"},
+	}
+	f.repo.members = []service.ProxyGroupMember{{ProxyID: 211, Proxy: f.repo.nodes[211]}}
+	f.cache.bindings[221], f.cache.bindings[224] = 211, 211
+	f.cache.bindings[222] = 212 // A stale logical-shadow key is not the runtime owner.
+	f.cache.ttls[221], f.cache.ttls[224] = 45*time.Second, 90*time.Second
+	before := time.Now()
+	code, data, raw := f.request(t, "GET", "proxy-groups/201/bindings", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, 4, f.cache.reads, "two consistency reads per distinct bound owner")
+	require.NotContains(t, raw, "parent_account_id")
+	require.NotContains(t, raw, "credential-secret")
+	items := data["items"].([]any)
+	require.Len(t, items, 4)
+	for i, account := range f.repo.accounts {
+		item := items[i].(map[string]any)
+		require.Equal(t, float64(account.ID), item["account_id"])
+		require.Equal(t, account.Name, item["account_name"])
+		require.Equal(t, float64(211), item["proxy_id"])
+		require.Equal(t, true, item["eligible"])
+		expires, err := time.Parse(time.RFC3339Nano, item["expires_at"].(string))
+		require.NoError(t, err)
+		ttl := 45 * time.Second
+		if account.ID == 224 {
+			ttl = 90 * time.Second
+		}
+		require.WithinDuration(t, before.Add(ttl), expires, 2*time.Second)
+	}
+	require.Equal(t, items[0].(map[string]any)["expires_at"], items[2].(map[string]any)["expires_at"])
+	f.cache.concurrentWinner = 212
+	f.cache.reads = 0
+	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, float64(1), data["cleared"])
+	require.Equal(t, 2, f.cache.reads)
+	require.EqualValues(t, 212, f.cache.bindings[221], "duplicate shadows must not retry CAS against the replacement")
+	require.EqualValues(t, 212, f.cache.bindings[222], "only canonical keys are reset")
+	f.cache.concurrentWinner = 0
+	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, float64(1), data["cleared"], "one owner, not three displayed rows")
+	encoded, err := json.Marshal(f.repo.accounts[0])
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "ParentAccountID")
+}
+
+func TestProxyGroupExplicitBackupBindingEligibility(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		configure func(*groupAdminFixture)
+		eligible  bool
+	}{
+		{name: "configured nonmember backup", eligible: true},
+		{name: "unconfigured nonmember", configure: func(fixture *groupAdminFixture) { fixture.repo.group.FallbackProxyID = nil }},
+		{name: "different configured backup", configure: func(fixture *groupAdminFixture) {
+			differentID := int64(212)
+			fixture.repo.group.FallbackProxyID = &differentID
+		}},
+		{name: "proxy fallback mode required", configure: func(fixture *groupAdminFixture) { fixture.repo.group.FallbackMode = service.FallbackModeDirect }},
+		{name: "inactive group", configure: func(fixture *groupAdminFixture) { fixture.repo.group.Status = "inactive" }},
+		{name: "inactive backup", configure: func(fixture *groupAdminFixture) { fixture.repo.nodes[213].Status = "inactive" }},
+		{name: "expired backup", configure: func(fixture *groupAdminFixture) {
+			expired := time.Now().Add(-time.Minute)
+			fixture.repo.nodes[213].ExpiresAt = &expired
+		}},
+		{name: "cooled backup", configure: func(fixture *groupAdminFixture) {
+			fixture.cache.cooldowns[213] = &service.ProxyCooldown{ProxyID: 213, ExpiresAt: time.Now().Add(time.Minute)}
+		}},
+		{name: "foreign workspace backup", configure: func(fixture *groupAdminFixture) { fixture.repo.nodes[213].WorkspaceID = 1 }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			fixture := newGroupAdminFixture(t)
+			backupID := int64(213)
+			fixture.repo.group.FallbackMode = service.FallbackModeProxy
+			fixture.repo.group.FallbackProxyID = &backupID
+			fixture.repo.nodes[backupID] = &service.Proxy{ID: backupID, WorkspaceID: 2, Name: "explicit backup", Status: service.StatusActive}
+			fixture.repo.members = []service.ProxyGroupMember{{ProxyID: 211, Proxy: fixture.repo.nodes[211]}}
+			fixture.repo.accounts = []service.ProxyAccountSummary{{ID: 221, Name: "bound account"}}
+			fixture.cache.bindings[221] = backupID
+			fixture.cache.ttls[221] = time.Minute
+			if testCase.configure != nil {
+				testCase.configure(fixture)
+			}
+			code, data, _ := fixture.request(t, "GET", "proxy-groups/201/bindings", "")
+			require.Equal(t, 200, code)
+			items := data["items"].([]any)
+			require.Len(t, items, 1)
+			observation := items[0].(map[string]any)
+			require.Equal(t, testCase.eligible, observation["eligible"])
+			if testCase.eligible {
+				require.Equal(t, float64(backupID), observation["proxy_id"])
+				require.Equal(t, "explicit backup", observation["proxy_name"])
+				require.NotNil(t, observation["expires_at"])
+			}
+		})
+	}
+}
+
+func TestProxyGroupNonpositiveParentFallsBackAndMissingOwnerIsDeduplicated(t *testing.T) {
+	f := newGroupAdminFixture(t)
+	zero, negative, missing := int64(0), int64(-1), int64(229)
+	f.repo.accounts = []service.ProxyAccountSummary{
+		{ID: 221, ParentAccountID: &zero}, {ID: 222, ParentAccountID: &negative},
+		{ID: 223, ParentAccountID: &missing}, {ID: 224, ParentAccountID: &missing},
+	}
+	f.cache.bindings[221], f.cache.bindings[222] = 211, 211
+	f.cache.ttls[221], f.cache.ttls[222] = time.Minute, time.Minute
+	code, data, _ := f.request(t, "GET", "proxy-groups/201/bindings", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, 5, f.cache.reads)
+	items := data["items"].([]any)
+	require.Equal(t, float64(211), items[0].(map[string]any)["proxy_id"])
+	require.Equal(t, float64(211), items[1].(map[string]any)["proxy_id"])
+	require.Nil(t, items[2].(map[string]any)["proxy_id"])
+	require.Nil(t, items[3].(map[string]any)["expires_at"])
+	f.cache.reads = 0
+	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
+	require.Equal(t, 200, code)
+	require.Equal(t, float64(2), data["cleared"])
+	require.Equal(t, 3, f.cache.reads)
+}

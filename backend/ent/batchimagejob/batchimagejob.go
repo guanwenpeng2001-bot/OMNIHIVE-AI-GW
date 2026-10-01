@@ -21,6 +21,8 @@ const (
 	FieldAPIKeyID = "api_key_id"
 	// FieldAccountID holds the string denoting the account_id field in the database.
 	FieldAccountID = "account_id"
+	// FieldEgressSnapshot holds the string denoting the egress_snapshot field in the database.
+	FieldEgressSnapshot = "egress_snapshot"
 	// FieldProvider holds the string denoting the provider field in the database.
 	FieldProvider = "provider"
 	// FieldModel holds the string denoting the model field in the database.
@@ -104,6 +106,7 @@ var Columns = []string{
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
+	FieldEgressSnapshot,
 	FieldProvider,
 	FieldModel,
 	FieldTaskName,

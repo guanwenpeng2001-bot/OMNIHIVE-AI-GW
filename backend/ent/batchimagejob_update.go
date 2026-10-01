@@ -103,6 +103,18 @@ func (_u *BatchImageJobUpdate) ClearAccountID() *BatchImageJobUpdate {
 	return _u
 }
 
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (_u *BatchImageJobUpdate) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobUpdate {
+	_u.mutation.SetEgressSnapshot(v)
+	return _u
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (_u *BatchImageJobUpdate) ClearEgressSnapshot() *BatchImageJobUpdate {
+	_u.mutation.ClearEgressSnapshot()
+	return _u
+}
+
 // SetProvider sets the "provider" field.
 func (_u *BatchImageJobUpdate) SetProvider(v string) *BatchImageJobUpdate {
 	_u.mutation.SetProvider(v)
@@ -937,6 +949,12 @@ func (_u *BatchImageJobUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.EgressSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldEgressSnapshot, field.TypeJSON, value)
+	}
+	if _u.mutation.EgressSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldEgressSnapshot, field.TypeJSON)
+	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
 	}
@@ -1227,6 +1245,18 @@ func (_u *BatchImageJobUpdateOne) AddAccountID(v int64) *BatchImageJobUpdateOne 
 // ClearAccountID clears the value of the "account_id" field.
 func (_u *BatchImageJobUpdateOne) ClearAccountID() *BatchImageJobUpdateOne {
 	_u.mutation.ClearAccountID()
+	return _u
+}
+
+// SetEgressSnapshot sets the "egress_snapshot" field.
+func (_u *BatchImageJobUpdateOne) SetEgressSnapshot(v map[string]interface{}) *BatchImageJobUpdateOne {
+	_u.mutation.SetEgressSnapshot(v)
+	return _u
+}
+
+// ClearEgressSnapshot clears the value of the "egress_snapshot" field.
+func (_u *BatchImageJobUpdateOne) ClearEgressSnapshot() *BatchImageJobUpdateOne {
+	_u.mutation.ClearEgressSnapshot()
 	return _u
 }
 
@@ -2093,6 +2123,12 @@ func (_u *BatchImageJobUpdateOne) sqlSave(ctx context.Context) (_node *BatchImag
 	}
 	if _u.mutation.AccountIDCleared() {
 		_spec.ClearField(batchimagejob.FieldAccountID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.EgressSnapshot(); ok {
+		_spec.SetField(batchimagejob.FieldEgressSnapshot, field.TypeJSON, value)
+	}
+	if _u.mutation.EgressSnapshotCleared() {
+		_spec.ClearField(batchimagejob.FieldEgressSnapshot, field.TypeJSON)
 	}
 	if value, ok := _u.mutation.Provider(); ok {
 		_spec.SetField(batchimagejob.FieldProvider, field.TypeString, value)
