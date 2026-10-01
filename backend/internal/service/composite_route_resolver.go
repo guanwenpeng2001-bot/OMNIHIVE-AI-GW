@@ -12,6 +12,22 @@ type CompositeRouteResolver struct {
 	modelOwnershipResolver CompositeModelOwnershipResolver
 }
 
+// Keep the dependency cause available to errors.Is without requiring dispatch
+// diagnostics to log database/transport error text (which may contain secrets).
+type compositeRouteResolutionError struct {
+	stage string
+	cause error
+}
+
+func (err *compositeRouteResolutionError) Error() string {
+	if err.stage == "list_routes" {
+		return fmt.Sprintf("list composite routes: %v", err.cause)
+	}
+	return fmt.Sprintf("resolve account model ownership: %v", err.cause)
+}
+
+func (err *compositeRouteResolutionError) Unwrap() error { return err.cause }
+
 func NewCompositeRouteResolver(repo CompositeModelRouteRepository) *CompositeRouteResolver {
 	return &CompositeRouteResolver{repo: repo}
 }
@@ -38,7 +54,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 	if r != nil && r.repo != nil && groupID > 0 {
 		routes, err := r.repo.ListByGroup(ctx, groupID, false)
 		if err != nil {
-			return decision, fmt.Errorf("list composite routes: %w", err)
+			return decision, &compositeRouteResolutionError{stage: "list_routes", cause: err}
 		}
 		if route, ok := matchCompositeRoute(routes, model, endpoint); ok {
 			targets := route.EffectiveTargets()
@@ -77,7 +93,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 			// A recognizable model can still use the existing detector when the
 			// account catalog is temporarily unavailable. Unknown aliases cannot.
 			if _, detectable := DetectModelPlatform(model); !detectable {
-				return decision, fmt.Errorf("resolve account model ownership: %w", err)
+				return decision, &compositeRouteResolutionError{stage: "account_ownership", cause: err}
 			}
 		} else if ownership.Ambiguous {
 			decision.Reason = "model is exposed by multiple provider platforms"
