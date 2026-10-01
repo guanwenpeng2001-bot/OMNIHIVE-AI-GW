@@ -52,6 +52,8 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	keys.GET("/:id", handlers.APIKey.GetByID)
 	keys.PUT("/:id", handlers.APIKey.Update)
 	keys.DELETE("/:id", handlers.APIKey.Delete)
+	keys.POST("/:id/credentials/rotate", handlers.APIKey.RotateCredential)
+	keys.POST("/:id/credentials/revoke", handlers.APIKey.RevokeCredential)
 	access := workspaces.Group("/:workspace_id", middleware.WorkspaceScope(handlers.Workspace.Service, false))
 	if handlers.ModelAccess != nil {
 		access.GET("/model-access-groups", handlers.ModelAccess.List)
