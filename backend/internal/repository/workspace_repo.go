@@ -101,7 +101,7 @@ func (r *workspaceRepository) ContainsResources(ctx context.Context, workspaceID
 	switch resource {
 	case "users":
 		query = `SELECT count(DISTINCT member.user_id) FROM workspace_members member JOIN users resource_user ON resource_user.id=member.user_id AND resource_user.deleted_at IS NULL WHERE member.workspace_id=$1 AND member.user_id=ANY($2)`
-	case "accounts", "groups", "channels", "proxies", "api_keys", "channel_monitors", "channel_monitor_request_templates":
+	case "accounts", "groups", "channels", "proxies", "proxy_groups", "api_keys", "channel_monitors", "channel_monitor_request_templates":
 		query = fmt.Sprintf("SELECT count(DISTINCT id) FROM %s WHERE workspace_id=$1 AND id=ANY($2)", resource)
 	case "scheduled_test_plans":
 		query = `SELECT count(DISTINCT plan.id) FROM scheduled_test_plans plan JOIN accounts account ON account.id=plan.account_id WHERE account.workspace_id=$1 AND plan.id=ANY($2)`

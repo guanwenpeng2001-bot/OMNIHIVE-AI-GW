@@ -14,12 +14,14 @@ import (
 )
 
 var workspaceResourcePaths = map[string]string{
-	"accounts": "accounts", "groups": "groups", "channels": "channels", "proxies": "proxies",
+	"proxy-groups": "proxy_groups",
+	"accounts":     "accounts", "groups": "groups", "channels": "channels", "proxies": "proxies",
 	"api-keys": "api_keys", "keys": "api_keys", "channel-monitors": "channel_monitors",
 	"channel-monitor-templates": "channel_monitor_request_templates", "scheduled-test-plans": "scheduled_test_plans",
 }
 
 var workspaceReferenceFields = map[string]string{
+	"proxy_group_id": "proxy_groups", "proxy_group_ids": "proxy_groups", "fallback_proxy_id": "proxies",
 	"user_id": "users", "user_ids": "users",
 	"account_id": "accounts", "account_ids": "accounts", "parent_account_id": "accounts",
 	"group_id": "groups", "group_ids": "groups", "fallback_group_id": "groups", "fallback_group_id_on_invalid_request": "groups",
