@@ -216,7 +216,7 @@
           </template>
 
           <template #cell-latency="{ row }">
-            <div class="flex flex-col gap-1" :title="t('admin.proxies.httpProbeHint')">
+            <div class="flex flex-col gap-1" :title="latencyDetails(row)">
               <span
                 v-if="row.latency_status === 'failed'"
                 class="badge badge-danger"
@@ -225,12 +225,18 @@
                 {{ t('admin.proxies.latencyFailed') }}
               </span>
               <span
-                v-else-if="typeof row.latency_ms === 'number'"
+                v-else-if="row.latency_method === 'warmed_http' && typeof row.latency_ms === 'number'"
                 :class="['badge', row.latency_ms < 200 ? 'badge-success' : 'badge-warning']"
               >
                 {{ row.latency_ms }}ms
               </span>
+              <span v-else-if="row.latency_status === 'success'" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t(row.latency_method ? 'admin.proxies.latencyUnavailable' : 'admin.proxies.latencyNeedsRetest') }}
+              </span>
               <span v-else class="text-sm text-gray-400">-</span>
+              <span v-if="row.latency_checked_at" class="text-xs text-gray-500 dark:text-gray-400">
+                {{ formatDateTime(row.latency_checked_at) }}
+              </span>
               <div
                 v-if="typeof row.quality_checked === 'number'"
                 class="flex flex-wrap items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
@@ -874,9 +880,11 @@
             <div>{{ t('admin.proxies.qualityCountry') }}: {{ qualityReport.country || '-' }}</div>
             <div>
               {{ t('admin.proxies.qualityBaseLatency') }}:
-              {{ typeof qualityReport.base_latency_ms === 'number' ? `${qualityReport.base_latency_ms}ms` : '-' }}
+              {{ qualityReport.latency_method === 'warmed_http' && typeof qualityReport.base_latency_ms === 'number' ? `${qualityReport.base_latency_ms}ms` : '-' }}
             </div>
             <div>{{ t('admin.proxies.qualityCheckedAt') }}: {{ new Date(qualityReport.checked_at * 1000).toLocaleString() }}</div>
+            <div>{{ t('admin.proxies.firstRequestLatency') }}: {{ qualityReport.first_request_latency_ms != null ? `${qualityReport.first_request_latency_ms}ms` : '-' }}</div>
+            <div class="col-span-2 break-all">{{ t('admin.proxies.latencyTarget') }}: {{ qualityReport.latency_test_url || '-' }}</div>
           </div>
         </div>
 
@@ -975,7 +983,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
-import type { Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult } from '@/types'
+import type { Proxy, ProxyAccountSummary, ProxyProtocol, ProxyQualityCheckResult, ProxyProbeMeasurement } from '@/types'
 import type { Column } from '@/components/common/types'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1494,9 +1502,19 @@ const handleUpdateProxy = async () => {
   }
 }
 
+const latencyDetails = (proxy: Proxy) => {
+  const details = [t('admin.proxies.httpProbeHint')]
+  if (proxy.first_request_latency_ms != null) details.push(`${t('admin.proxies.firstRequestLatency')}: ${proxy.first_request_latency_ms}ms`)
+  if (proxy.latency_test_url) details.push(`${t('admin.proxies.latencyTarget')}: ${proxy.latency_test_url}`)
+  if (proxy.latency_checked_at) details.push(`${t('admin.proxies.latencyCheckedAt')}: ${formatDateTime(proxy.latency_checked_at)}`)
+  if (!proxy.latency_method && proxy.latency_ms != null) details.push(`${t('admin.proxies.legacyProbeValue')}: ${proxy.latency_ms}ms`)
+  if (proxy.exit_info_available === false && proxy.latency_method === 'warmed_http') details.push(t('admin.proxies.exitInfoUnavailable'))
+  return details.join('\n')
+}
+
 const applyLatencyResult = (
   proxyId: number,
-  result: {
+  result: ProxyProbeMeasurement & {
     success: boolean
     latency_ms?: number
     message?: string
@@ -1509,6 +1527,11 @@ const applyLatencyResult = (
 ) => {
   const target = proxies.value.find((proxy) => proxy.id === proxyId)
   if (!target) return
+  target.first_request_latency_ms = result.first_request_latency_ms
+  target.latency_test_url = result.latency_test_url
+  target.latency_checked_at = result.latency_checked_at
+  target.latency_method = result.latency_method
+  target.exit_info_available = result.exit_info_available
   if (result.success) {
     target.latency_status = 'success'
     target.latency_ms = result.latency_ms
@@ -1586,7 +1609,7 @@ const runProxyTest = async (proxyId: number, notify: boolean) => {
     applyLatencyResult(proxyId, result)
     if (notify) {
       if (result.success) {
-        const message = result.latency_ms
+        const message = result.latency_method === 'warmed_http' && result.latency_ms != null
           ? t('admin.proxies.proxyWorkingWithLatency', { latency: result.latency_ms })
           : t('admin.proxies.proxyWorking')
         appStore.showSuccess(message)
@@ -1623,6 +1646,7 @@ const handleQualityCheck = async (proxy: Proxy) => {
     const baseStep = result.items.find((item) => item.target === 'base_connectivity')
     if (baseStep && baseStep.status === 'pass') {
       applyLatencyResult(proxy.id, {
+        ...result,
         success: true,
         latency_ms: result.base_latency_ms,
         message: result.summary,
@@ -1631,7 +1655,7 @@ const handleQualityCheck = async (proxy: Proxy) => {
         country_code: result.country_code
       })
     } else if (baseStep) {
-      applyLatencyResult(proxy.id, { success: false, message: baseStep.message || result.summary })
+      applyLatencyResult(proxy.id, { ...result, success: false, message: baseStep.message || result.summary })
     }
     applyQualityResult(proxy.id, result)
 
@@ -1671,6 +1695,7 @@ const runBatchProxyQualityChecks = async (ids: number[]) => {
           const baseStep = result.items.find((item) => item.target === 'base_connectivity')
           if (baseStep && baseStep.status === 'pass') {
             applyLatencyResult(current, {
+              ...result,
               success: true,
               latency_ms: result.base_latency_ms,
               message: result.summary,
@@ -1679,7 +1704,7 @@ const runBatchProxyQualityChecks = async (ids: number[]) => {
               country_code: result.country_code
             })
           } else if (baseStep) {
-            applyLatencyResult(current, { success: false, message: baseStep.message || result.summary })
+            applyLatencyResult(current, { ...result, success: false, message: baseStep.message || result.summary })
           }
         }
         applyQualityResult(current, result)

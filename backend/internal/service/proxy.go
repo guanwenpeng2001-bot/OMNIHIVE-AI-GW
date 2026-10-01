@@ -54,6 +54,7 @@ func (p *Proxy) URL() string {
 
 type ProxyWithAccountCount struct {
 	Proxy
+	ProxyProbeMeasurement
 	AccountCount   int64
 	LatencyMs      *int64
 	LatencyStatus  string

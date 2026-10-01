@@ -5,7 +5,18 @@ import (
 	"time"
 )
 
+// Probe measurement is separate from the optional exit-IP lookup. A missing
+// method identifies a legacy cached IP-lookup duration, not a warmed latency.
+type ProxyProbeMeasurement struct {
+	FirstRequestLatencyMs *int64     `json:"first_request_latency_ms,omitempty"`
+	LatencyTestURL        string     `json:"latency_test_url,omitempty"`
+	LatencyCheckedAt      *time.Time `json:"latency_checked_at,omitempty"`
+	LatencyMethod         string     `json:"latency_method,omitempty"`
+	ExitInfoAvailable     *bool      `json:"exit_info_available,omitempty"`
+}
+
 type ProxyLatencyInfo struct {
+	ProxyProbeMeasurement
 	Success          bool      `json:"success"`
 	LatencyMs        *int64    `json:"latency_ms,omitempty"`
 	Message          string    `json:"message,omitempty"`

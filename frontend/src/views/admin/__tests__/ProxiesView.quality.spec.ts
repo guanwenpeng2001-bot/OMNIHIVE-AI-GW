@@ -44,6 +44,22 @@ async function check(report: ProxyQualityCheckResult) {
 }
 
 describe('proxy quality observations', () => {
+  it.each(['test', 'quality'])('keeps warmed metadata after a batch %s', async kind => {
+    const measurement = { latency_method: 'warmed_http' as const, first_request_latency_ms: 88,
+      latency_test_url: 'https://www.gstatic.com/generate_204', latency_checked_at: '2026-10-01T01:00:00Z', exit_info_available: false }
+    testProxy.mockResolvedValue({ ...measurement, success: true, latency_ms: 0 })
+    checkProxyQuality.mockResolvedValue(result({ ...measurement, base_latency_ms: 0,
+      items: [{ target: 'base_connectivity', status: 'pass' }] }))
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.get(kind === 'test' ? 'button[title="admin.proxies.testConnection"]' : 'button[title="admin.proxies.batchQualityCheck"]').trigger('click')
+    await flushPromises()
+    const cell = wrapper.get('[data-test="latency"]')
+    expect(cell.text()).toContain('0ms')
+    expect(cell.find('[title]').attributes('title')).toContain('admin.proxies.firstRequestLatency: 88ms')
+    expect(cell.find('[title]').attributes('title')).toContain('https://www.gstatic.com/generate_204')
+  })
+
   it.each([['providers reachable', 4, 'warn'], ['all failed', 0, 'failed']])('uses the same status in batch summaries: %s', async (_name, passed, status) => {
     checkProxyQuality.mockResolvedValue(result({ passed_count: passed as number, failed_count: passed ? 1 : 5 }))
     wrapper = mountView()
@@ -54,8 +70,40 @@ describe('proxy quality observations', () => {
     expect(showSuccess).toHaveBeenCalledWith(`admin.proxies.batchQualityDone ${JSON.stringify({ count: 1, healthy: 0, warn: status === 'warn' ? 1 : 0, challenge: 0, failed: status === 'failed' ? 1 : 0 })}`)
   })
 
+  it('labels legacy timing without showing it as node latency', async () => {
+    wrapper = mountView()
+    await flushPromises()
+    const cell = wrapper.get('[data-test="latency"]')
+    expect(cell.text()).toContain('admin.proxies.latencyNeedsRetest')
+    expect(cell.text()).not.toContain('20ms')
+    expect(cell.find('[title]').attributes('title')).toContain('admin.proxies.legacyProbeValue: 20ms')
+  })
+
+  it.each([0, 23])('preserves warmed timing %s when exit lookup fails', async latency => {
+    testProxy.mockResolvedValue({ success: true, latency_ms: latency, latency_method: 'warmed_http',
+      first_request_latency_ms: 88, latency_test_url: 'https://www.gstatic.com/generate_204',
+      latency_checked_at: '2026-10-01T01:00:00Z', exit_info_available: false })
+    wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').filter(button => button.text() === 'admin.proxies.testConnection').at(-1)!.trigger('click')
+    await flushPromises()
+    const cell = wrapper.get('[data-test="latency"]')
+    expect(cell.text()).toContain(`${latency}ms`)
+    expect(cell.find('[title]').attributes('title')).toContain('admin.proxies.firstRequestLatency: 88ms')
+    expect(cell.find('[title]').attributes('title')).toContain('https://www.gstatic.com/generate_204')
+    expect(cell.find('[title]').attributes('title')).toContain('admin.proxies.exitInfoUnavailable')
+    expect(showSuccess).toHaveBeenCalledWith(`admin.proxies.proxyWorkingWithLatency {"latency":${latency}}`)
+  })
+
+  it('does not label IP lookup success as a warmed measurement', async () => {
+    await check(result({ base_latency_ms: 123, latency_method: 'unavailable',
+      items: [{ target: 'base_connectivity', status: 'pass' }] }))
+    expect(wrapper.get('[data-test="latency"]').text()).toContain('admin.proxies.latencyUnavailable')
+    expect(wrapper.get('[data-test="latency"]').text()).not.toContain('123ms')
+  })
+
   it('preserves the assessed healthy baseline', async () => {
-    await check(result({ score: 100, grade: 'A', passed_count: 5, failed_count: 0, base_latency_ms: 23,
+    await check(result({ score: 100, grade: 'A', passed_count: 5, failed_count: 0, base_latency_ms: 23, latency_method: 'warmed_http',
       items: [{ target: 'base_connectivity', status: 'pass' }] }))
     const cell = wrapper.get('[data-test="latency"]')
     expect(cell.text()).toContain('23ms')

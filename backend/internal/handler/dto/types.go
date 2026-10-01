@@ -487,6 +487,7 @@ type Proxy struct {
 
 type ProxyWithAccountCount struct {
 	Proxy
+	service.ProxyProbeMeasurement
 	AccountCount   int64  `json:"account_count"`
 	LatencyMs      *int64 `json:"latency_ms,omitempty"`
 	LatencyStatus  string `json:"latency_status,omitempty"`
@@ -513,6 +514,7 @@ type AdminProxy struct {
 // AdminProxyWithAccountCount 是管理员接口使用的带账号统计的 proxy DTO。
 type AdminProxyWithAccountCount struct {
 	AdminProxy
+	service.ProxyProbeMeasurement
 	AccountCount   int64  `json:"account_count"`
 	LatencyMs      *int64 `json:"latency_ms,omitempty"`
 	LatencyStatus  string `json:"latency_status,omitempty"`

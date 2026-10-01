@@ -324,7 +324,15 @@ export type OAuthAddMethod = 'oauth' | 'setup-token'
 
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
-export interface Proxy {
+export interface ProxyProbeMeasurement {
+  first_request_latency_ms?: number
+  latency_test_url?: string
+  latency_checked_at?: string
+  latency_method?: 'warmed_http' | 'unavailable'
+  exit_info_available?: boolean
+}
+
+export interface Proxy extends ProxyProbeMeasurement {
   id: number
   name: string
   protocol: ProxyProtocol
@@ -372,7 +380,7 @@ export interface ProxyQualityCheckItem {
   cf_ray?: string
 }
 
-export interface ProxyQualityCheckResult {
+export interface ProxyQualityCheckResult extends ProxyProbeMeasurement {
   proxy_id: number
   score: number
   grade: string
