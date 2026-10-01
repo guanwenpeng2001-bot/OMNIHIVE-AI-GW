@@ -269,7 +269,7 @@
           </div>
 
           <template v-else>
-            <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
+            <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, proxyGroupId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
             <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
               v-model="allowedModels" v-model:mappings="modelMappings" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
           </template>
@@ -498,8 +498,10 @@
           />
         </div>
         <div id="bulk-edit-proxy-body" :class="!enableProxy && 'pointer-events-none opacity-50'">
-          <ProxySelector
-            v-model="proxyId"
+          <AccountProxySelector @valid="proxySelectionValid = $event" :key="String(show)"
+            v-model:proxy-id="proxyId"
+            v-model:proxy-group-id="proxyGroupId"
+            :disabled="!enableProxy"
             :proxies="proxies"
             aria-labelledby="bulk-edit-proxy-label"
           />
@@ -1317,7 +1319,8 @@ import type {
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
-import ProxySelector from '@/components/common/ProxySelector.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
+import { accountProxyPayload } from '@/utils/accountProxy'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
 import BulkModelPreview from './BulkModelPreview.vue'
@@ -1511,6 +1514,7 @@ const enableOpenAICompactModelMapping = ref(false)
 const enableRpmLimit = ref(false)
 
 // State - field values
+const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningMessage = ref('')
@@ -1527,6 +1531,7 @@ const interceptWarmupRequests = ref(false)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
 const proxyId = ref<number | null>(null)
+const proxyGroupId = ref<number | null>(null)
 const concurrency = ref(1)
 const loadFactor = ref<number | null>(null)
 const priority = ref(1)
@@ -1758,7 +1763,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
-    updates.proxy_id = proxyId.value === null ? 0 : proxyId.value
+    Object.assign(updates, accountProxyPayload(proxyId.value, proxyGroupId.value))
   }
 
   if (enableConcurrency.value) {
@@ -2002,6 +2007,7 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
 }
 
 const handleSubmit = async () => {
+  if (enableProxy.value && !proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   mixedChannelConfirmed.value = false
   if (targetMode.value === 'selected' && props.accountIds.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
@@ -2214,6 +2220,7 @@ watch(
       headerOverrideEnabled.value = false
       headerOverrideRows.value = []
       proxyId.value = null
+      proxyGroupId.value = null
       concurrency.value = 1
       loadFactor.value = null
       priority.value = 1

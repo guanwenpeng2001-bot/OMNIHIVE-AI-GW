@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
@@ -35,7 +36,7 @@ export function useOpenAIOAuth() {
 
   // Generate auth URL for OpenAI OAuth
   const generateAuthUrl = async (
-    proxyId?: number | null,
+    proxyId?: OAuthProxySelection,
     redirectUri?: string
   ): Promise<boolean> => {
     const request = beginRequest()
@@ -46,9 +47,7 @@ export function useOpenAIOAuth() {
 
     try {
       const payload: Record<string, unknown> = {}
-      if (proxyId) {
-        payload.proxy_id = proxyId
-      }
+      Object.assign(payload, oauthProxyPayload(proxyId))
       if (redirectUri) {
         payload.redirect_uri = redirectUri
       }
@@ -81,7 +80,7 @@ export function useOpenAIOAuth() {
     code: string,
     currentSessionId: string,
     state: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<OpenAITokenInfo | null> => {
     if (!code.trim() || !currentSessionId || !state.trim()) {
       error.value = 'Missing auth code, session ID, or state'
@@ -92,14 +91,12 @@ export function useOpenAIOAuth() {
     error.value = ''
 
     try {
-      const payload: { session_id: string; code: string; state: string; proxy_id?: number } = {
+      const payload: { session_id: string; code: string; state: string; proxy_id?: number; proxy_group_id?: number } = {
         session_id: currentSessionId,
         code: code.trim(),
         state: state.trim()
       }
-      if (proxyId) {
-        payload.proxy_id = proxyId
-      }
+      Object.assign(payload, oauthProxyPayload(proxyId))
 
       const tokenInfo = await request.wait(adminAPI.accounts.exchangeCode(`${endpointPrefix}/exchange-code`, payload))
       return tokenInfo as OpenAITokenInfo
@@ -122,7 +119,7 @@ export function useOpenAIOAuth() {
   // clientId: 指定 OAuth client_id（用于第三方渠道获取的 RT，如 app_LlGpXReQgckcGGUo2JrYvtJK）
   const validateRefreshToken = async (
     refreshToken: string,
-    proxyId?: number | null,
+    proxyId?: OAuthProxySelection,
     clientId?: string
   ): Promise<OpenAITokenInfo | null> => {
     if (!refreshToken.trim()) {

@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { validateTpmLimit } from '@/utils/tpmLimit'
 import { postIdempotentCreate } from '../idempotency'
 import type { ModelCategoryMetadata } from '@/utils/modelCategories'
@@ -439,7 +440,7 @@ export async function resetTempUnschedulable(id: number): Promise<{ message: str
  */
 export async function generateAuthUrl(
   endpoint: string,
-  config: { proxy_id?: number }
+  config: { proxy_id?: number; proxy_group_id?: number }
 ): Promise<{ auth_url: string; session_id: string }> {
   const { data } = await apiClient.post<{ auth_url: string; session_id: string }>(endpoint, config)
   return data
@@ -453,7 +454,7 @@ export async function generateAuthUrl(
  */
 export async function exchangeCode(
   endpoint: string,
-  exchangeData: { session_id: string; code: string; state?: string; proxy_id?: number }
+  exchangeData: { session_id: string; code: string; state?: string; proxy_id?: number; proxy_group_id?: number }
 ): Promise<Record<string, unknown>> {
   const { data } = await apiClient.post<Record<string, unknown>>(endpoint, exchangeData)
   return data
@@ -691,6 +692,7 @@ export interface SyncUpstreamPreviewParams {
   credentials?: Record<string, unknown>
   model_mapping?: Record<string, string>
   proxy_id?: number | null
+  proxy_group_id?: number | null
 }
 
 /**
@@ -844,16 +846,14 @@ export async function getAntigravityDefaultModelMapping(): Promise<Record<string
  */
 export async function refreshOpenAIToken(
   refreshToken: string,
-  proxyId?: number | null,
+  proxyId?: OAuthProxySelection,
   endpoint: string = '/admin/openai/refresh-token',
   clientId?: string
 ): Promise<Record<string, unknown>> {
-  const payload: { refresh_token: string; proxy_id?: number; client_id?: string } = {
+  const payload: { refresh_token: string; proxy_id?: number; proxy_group_id?: number; client_id?: string } = {
     refresh_token: refreshToken
   }
-  if (proxyId) {
-    payload.proxy_id = proxyId
-  }
+  Object.assign(payload, oauthProxyPayload(proxyId))
   if (clientId) {
     payload.client_id = clientId
   }

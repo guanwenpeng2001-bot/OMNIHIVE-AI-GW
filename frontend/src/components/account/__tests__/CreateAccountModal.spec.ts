@@ -84,6 +84,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
+vi.mock('@/api/admin/proxyGroups', () => ({ proxyGroupsAPI: { list: vi.fn().mockResolvedValue({ items: [], total: 0 }), get: vi.fn().mockRejectedValue(new Error('unavailable')) } }))
 import { apiClient } from '@/api/client'
 import { accountsAPI } from '@/api/admin/accounts'
 import zhAdminAccounts from '@/i18n/locales/zh/admin/accounts'
@@ -410,6 +412,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
   })
 
+  it.each([{ node: null, group: null, expected: { proxy_id: 0, proxy_group_id: 0 } }, { node: 18, group: null, expected: { proxy_id: 18, proxy_group_id: 0 } }, { node: null, group: 71, expected: { proxy_id: 0, proxy_group_id: 71 } }])('keeps create/review payloads exclusive for $expected', async ({ node, group, expected }) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Egress fixture')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    const selector = wrapper.getComponent(AccountProxySelector)
+    selector.vm.$emit('update:proxyId', node)
+    selector.vm.$emit('update:proxyGroupId', group)
+    await flushPromises()
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject(expected)
+    wrapper.unmount()
+  })
+
   it('shows only one AI Studio tier selector and saves its chosen value', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Gemini')
@@ -473,6 +492,34 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', concurrency: 7, credential_draft: 'synthetic-draft', credential_draft_revision: 'reviewed' })
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+
+  it.each([
+    { node: null, group: null, expected: { proxy_id: 0, proxy_group_id: 0 } },
+    { node: 17, group: null, expected: { proxy_id: 17, proxy_group_id: 0 } },
+    { node: null, group: 71, expected: { proxy_id: 0, proxy_group_id: 71 } }
+  ])('pins manual Cursor draft and account review to the same logical egress: $expected', async ({ node, group, expected }) => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Manual Cursor egress')
+    for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
+      await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
+    }
+    const selector = wrapper.getComponent(AccountProxySelector)
+    selector.vm.$emit('update:proxyId', node)
+    selector.vm.$emit('update:proxyGroupId', group)
+    await flushPromises()
+    vi.mocked(apiClient.post).mockClear()
+    await openReview(wrapper)
+    const draftCall = vi.mocked(apiClient.post).mock.calls.find(([url]) => url === '/admin/accounts/credential-drafts')
+    expect(draftCall?.[1]).toMatchObject({ ...expected, credentials: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } })
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await confirmReview(wrapper)
+    const reviewCall = vi.mocked(apiClient.post).mock.calls.find(([url]) => url.endsWith('/synthetic-draft/review'))
+    expect(reviewCall?.[1]).toMatchObject(expected)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ ...expected, credential_draft: 'synthetic-draft' })
     wrapper.unmount()
   })
 
@@ -1616,6 +1663,23 @@ it.each([null, 7])('sends proxy_id=%s in credential previews', async proxyId => 
   await flushPromises()
   expect(preview).toHaveBeenCalledWith(expect.objectContaining({ proxy_id: proxyId, platform: 'openai' }))
   expect(createAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it('previews unsaved group egress with the logical group and no node', async () => {
+  const wrapper = mountModal([], true)
+  await selectButtonByText(wrapper, 'OpenAI')
+  await selectButtonByText(wrapper, 'API Key')
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Group preview')
+  await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+  wrapper.getComponent(AccountProxySelector).vm.$emit('update:proxyGroupId', 71)
+  await flushPromises()
+  await openReview(wrapper)
+  const preview = vi.mocked(accountsAPI.syncUpstreamModelsPreview)
+  preview.mockClear()
+  await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+  await flushPromises()
+  expect(preview).toHaveBeenCalledWith(expect.objectContaining({ proxy_group_id: 71, proxy_id: null }))
   wrapper.unmount()
 })
 

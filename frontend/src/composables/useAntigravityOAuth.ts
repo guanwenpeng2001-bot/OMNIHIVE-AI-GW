@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
@@ -9,7 +10,7 @@ export function useAntigravityOAuth() {
 
   const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
-  const generateAuthUrl = async (proxyId: number | null | undefined): Promise<boolean> => {
+  const generateAuthUrl = async (proxyId: OAuthProxySelection | undefined): Promise<boolean> => {
     const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
@@ -18,7 +19,7 @@ export function useAntigravityOAuth() {
 
     try {
       const payload: Record<string, unknown> = {}
-      if (proxyId) payload.proxy_id = proxyId
+      Object.assign(payload, oauthProxyPayload(proxyId))
 
       const response = await request.wait(adminAPI.antigravity.generateAuthUrl(payload as any))
       authUrl.value = response.auth_url
@@ -40,7 +41,7 @@ export function useAntigravityOAuth() {
     code: string
     sessionId: string
     state: string
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   }): Promise<AntigravityTokenInfo | null> => {
     const code = params.code?.trim()
     if (!code || !params.sessionId || !params.state) {
@@ -57,7 +58,7 @@ export function useAntigravityOAuth() {
         state: params.state,
         code
       }
-      if (params.proxyId) payload.proxy_id = params.proxyId
+      Object.assign(payload, oauthProxyPayload(params.proxyId))
 
       const tokenInfo = await request.wait(adminAPI.antigravity.exchangeCode(payload as any))
       return tokenInfo as AntigravityTokenInfo
@@ -74,7 +75,7 @@ export function useAntigravityOAuth() {
 
   const validateRefreshToken = async (
     refreshToken: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<AntigravityTokenInfo | null> => {
     if (!refreshToken.trim()) {
       error.value = t('admin.accounts.oauth.antigravity.pleaseEnterRefreshToken')

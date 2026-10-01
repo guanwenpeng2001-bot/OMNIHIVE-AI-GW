@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 /**
  * Admin Antigravity API endpoints
  * Handles Antigravity (Google Cloud AI Companion) OAuth flows for administrators
@@ -13,6 +14,7 @@ export interface AntigravityAuthUrlResponse {
 
 export interface AntigravityAuthUrlRequest {
   proxy_id?: number
+  proxy_group_id?: number
 }
 
 export interface AntigravityExchangeCodeRequest {
@@ -20,6 +22,7 @@ export interface AntigravityExchangeCodeRequest {
   state: string
   code: string
   proxy_id?: number
+  proxy_group_id?: number
 }
 
 export interface AntigravityTokenInfo {
@@ -56,10 +59,10 @@ export async function exchangeCode(
 
 export async function refreshAntigravityToken(
   refreshToken: string,
-  proxyId?: number | null
+  proxyId?: OAuthProxySelection
 ): Promise<AntigravityTokenInfo> {
   const payload: Record<string, unknown> = { refresh_token: refreshToken }
-  if (proxyId) payload.proxy_id = proxyId
+  Object.assign(payload, oauthProxyPayload(proxyId))
   
   const { data } = await apiClient.post<AntigravityTokenInfo>(
     '/admin/antigravity/oauth/refresh-token',

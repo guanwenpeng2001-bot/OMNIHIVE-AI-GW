@@ -1,3 +1,4 @@
+import { oauthProxyPayload, type OAuthProxySelection } from '@/utils/accountProxy'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useOAuthRequestState } from './useOAuthRequestState'
 import { adminAPI } from '@/api/admin'
@@ -40,7 +41,7 @@ export function useAccountOAuth() {
   // Generate auth URL
   const generateAuthUrl = async (
     addMethod: AddMethod,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<boolean> => {
     const request = beginRequest()
     authUrl.value = ''
@@ -48,7 +49,7 @@ export function useAccountOAuth() {
     error.value = ''
 
     try {
-      const proxyConfig = proxyId ? { proxy_id: proxyId } : {}
+      const proxyConfig = oauthProxyPayload(proxyId)
       const endpoint =
         addMethod === 'oauth'
           ? '/admin/accounts/generate-auth-url'
@@ -71,7 +72,7 @@ export function useAccountOAuth() {
   // Exchange auth code for tokens
   const exchangeAuthCode = async (
     addMethod: AddMethod,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<TokenInfo | null> => {
     if (!authCode.value.trim() || !sessionId.value) {
       error.value = 'Missing auth code or session ID'
@@ -82,7 +83,7 @@ export function useAccountOAuth() {
     error.value = ''
 
     try {
-      const proxyConfig = proxyId ? { proxy_id: proxyId } : {}
+      const proxyConfig = oauthProxyPayload(proxyId)
       const endpoint =
         addMethod === 'oauth'
           ? '/admin/accounts/exchange-code'
@@ -109,7 +110,7 @@ export function useAccountOAuth() {
   const cookieAuth = async (
     addMethod: AddMethod,
     sessionKeyValue: string,
-    proxyId?: number | null
+    proxyId?: OAuthProxySelection
   ): Promise<TokenInfo | null> => {
     if (!sessionKeyValue.trim()) {
       error.value = 'Please enter sessionKey'
@@ -120,7 +121,7 @@ export function useAccountOAuth() {
     error.value = ''
 
     try {
-      const proxyConfig = proxyId ? { proxy_id: proxyId } : {}
+      const proxyConfig = oauthProxyPayload(proxyId)
       const endpoint =
         addMethod === 'oauth'
           ? '/admin/accounts/cookie-auth'
