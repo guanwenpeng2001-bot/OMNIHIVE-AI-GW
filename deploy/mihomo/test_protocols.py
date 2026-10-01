@@ -1,6 +1,8 @@
 """Synthetic protocol and multi-source coverage; optional core syntax checks only."""
 import base64
+import contextlib
 import copy
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +10,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import yaml
 import render
@@ -36,6 +40,28 @@ def protocol_nodes():
 def subscription(nodes, **extra):
     # JSON round trip prevents fixture object sharing from introducing YAML aliases.
     return yaml.safe_dump(json.loads(json.dumps({"proxies": nodes, **extra})))
+
+
+def rendered_artifacts(primary, additions, previous=None, legacy_names=False):
+    """Render only synthetic sources, optionally emulating pre-change exports."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        if previous is not None:
+            (root / "manifest.json").write_text(json.dumps(previous), encoding="utf-8")
+        args = SimpleNamespace(dns_server=None, dns_bootstrap_server=None, output_dir=directory,
+                               additional_input=[label + "=" + label for label, _ in additions],
+                               port_start=24000, port_end=24399,
+                               export_host="selected.invalid", server_host="server.invalid")
+        original_construct = render.construct
+        def construct(nodes, manifest, host, dns=None, hosts=None, display_names=None):
+            if legacy_names:
+                return original_construct(nodes, manifest, host, dns, hosts)
+            return original_construct(nodes, manifest, host, dns, hosts, display_names)
+        with patch.object(render, "read_source", return_value=primary), \
+                patch.object(render, "read_input_file", side_effect=dict(additions).__getitem__), \
+                patch.object(render, "construct", side_effect=construct), contextlib.redirect_stdout(io.StringIO()):
+            render.render(args)
+        return {path.name: path.read_bytes() for path in root.iterdir()}
 
 
 class ProtocolTests(unittest.TestCase):
@@ -83,6 +109,56 @@ class ProtocolTests(unittest.TestCase):
         retired = render.allocate(original, expanded, 24000, 24399)
         returned = render.allocate(combined, retired, 24000, 24499)
         self.assertEqual(returned["nodes"], expanded["nodes"])
+        before = rendered_artifacts(subscription(original), additions, expanded, legacy_names=True)
+        after = rendered_artifacts(subscription(original), additions, expanded)
+        for filename in before:
+            if not filename.endswith((".create.json", ".import.json")):
+                self.assertEqual(after[filename], before[filename], filename)
+        for prefix, host in [("selected", "selected.invalid"), ("server", "server.invalid"),
+                             ("development", "127.0.0.1")]:
+            entries = json.loads(after[prefix + ".create.json"])
+            old_entries = json.loads(before[prefix + ".create.json"])
+            self.assertEqual(len(entries), 291)
+            self.assertEqual(sum(new["name"] != old["name"] for new, old in zip(entries, old_entries)), 204)
+            for entry, old, record in zip(entries, old_entries, expanded["nodes"]):
+                self.assertEqual({**entry, "name": old["name"]}, old)
+                self.assertEqual(entry["host"], host)
+                self.assertTrue(any(alias["canonical_identity"] == record["identity"] and
+                                    alias["name"] == entry["name"] for alias in summary["aliases"]))
+                self.assertFalse(entry["name"].startswith("["))
+            self.assertEqual(json.loads(after[prefix + ".import.json"]),
+                             {"data": {"proxies": entries, "accounts": []}})
+        self.assertEqual(after, rendered_artifacts(subscription(original), additions[::-1],
+                                                  json.loads(after["manifest.json"])))
+
+    def test_original_brackets_duplicate_names_and_canonical_provenance(self):
+        template = protocol_nodes()[0]
+        primary_nodes = [{**template, "name": name, "server": f"primary{index}.invalid"}
+                         for index, name in enumerate(["[0.2] raw", "[Zed] literal", "高级 专线 美国 02"])]
+        extra_nodes = [{**template, "name": name, "server": f"extra{index}.invalid"}
+                       for index, name in enumerate(["高级 专线 美国 02", "[0.2] raw", "[Alpha] literal"])]
+        primary = subscription(primary_nodes)
+        additions = [("Zed", subscription(extra_nodes))]
+        nodes, _, _ = render.combine_sources(primary, additions)
+        manifest = render.allocate(nodes, None, 24000, 24399)
+        # Earlier/later sorted aliases must never replace the canonical owner's name.
+        additions += [(label, subscription([{**entry, "name": "alias-" + entry["name"]}
+                                           for entry in extra_nodes])) for label in ("Alpha", "Zulu")]
+        artifacts = rendered_artifacts(primary, additions, manifest)
+        entries = json.loads(artifacts["server.create.json"])
+        by_port = {entry["port"]: entry["name"] for entry in entries}
+        for record in manifest["nodes"]:
+            original = next(entry for entry in nodes if render.identity(entry) == record["identity"])
+            expected = original["name"] if original in primary_nodes else next(
+                entry["name"] for entry in extra_nodes if entry["server"] == original["server"])
+            self.assertEqual(by_port[record["port"]], expected)
+        self.assertEqual(sum(entry["name"] == "高级 专线 美国 02" for entry in entries), 2)
+        self.assertEqual(json.loads(artifacts["manifest.json"]), manifest)
+        self.assertEqual(json.loads(artifacts["sources.json"])["duplicates"], 6)
+        self.assertEqual(artifacts, rendered_artifacts(primary, additions[::-1], manifest))
+        # Older callers and missing map entries retain the manifest name.
+        self.assertEqual(render.construct(nodes, manifest, "server.invalid")[1],
+                         render.construct(nodes, manifest, "server.invalid", display_names={"missing": "unused"})[1])
 
     def test_existing_canonical_wins_over_new_label_and_credentials_distinguish(self):
         original = protocol_nodes()[0]
@@ -225,7 +301,8 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             entries = json.loads((root / "output/server.create.json").read_text())
             self.assertEqual(len(entries), 7)
-            self.assertEqual(sum(entry["name"].startswith("[Extra] ") for entry in entries), 6)
+            self.assertEqual(sorted(entry["name"] for entry in entries),
+                             sorted(node["name"] for node in protocol_nodes()))
             self.assertIn('"short-id": "123e0004"', (root / "output/config.yaml").read_text(encoding="utf-8"))
             self.assertEqual((root / "extra.yaml").read_text(encoding="utf-8"), source_text)
             failed = subprocess.run(command + ["--additional-input", "SECRET"], capture_output=True, text=True)

@@ -99,8 +99,15 @@ existing 24000–24199 range to 24000–24399. For host-native development, upda
 publishes no range. No additional sidecar or network is created.
 
 Metadata is filtered before prefixing. Primary source names and identities are
-unchanged; new displays use `[LABEL] original-name`. Keep labels stable on every
+unchanged; additional canonical names use `[LABEL] original-name`. Keep labels stable on every
 refresh. A changed label means a changed identity, even for the same source file.
+All development, server and selected create/import exports use the canonical
+source's exact original name, preserving original brackets such as `[0.2]`.
+Different endpoints may share a display name. `sources.json` retains source
+provenance and aliases; manifest names, identities and listener ports stay stable.
+`migration.json` retains canonical names for compatibility with the matching
+procedure below; for records already renamed to original display names, consult
+`sources.json` and verify the old host/port and existing ID before any update.
 All retained host dependencies are merged; conflicting overrides, or an override
 that changes another source's resolution, fail rather than silently choosing one.
 The built-in loopback DNS solution for terminal CNAMEs continues to apply.
