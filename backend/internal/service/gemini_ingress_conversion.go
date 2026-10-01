@@ -68,16 +68,7 @@ func GeminiToMessages(body []byte, model string, stream bool) ([]byte, error) {
 		}
 	}
 	if cfg, ok := req["generationConfig"].(map[string]any); ok {
-		// The shared Messages -> Responses converter has no stop-sequence or
-		// top-k representation. Until that selected-trunk contract is available,
-		// fail this request instead of silently removing caller controls.
-		if cfg["topK"] != nil {
-			return nil, fmt.Errorf("generationConfig.topK cannot be preserved by the shared Messages bridge")
-		}
-		if stops, ok := cfg["stopSequences"].([]any); ok && len(stops) > 0 {
-			return nil, fmt.Errorf("generationConfig.stopSequences cannot be preserved by the shared Messages bridge")
-		}
-		for from, to := range map[string]string{"maxOutputTokens": "max_tokens", "temperature": "temperature", "topP": "top_p"} {
+		for from, to := range map[string]string{"maxOutputTokens": "max_tokens", "temperature": "temperature", "topP": "top_p", "topK": "top_k", "stopSequences": "stop_sequences"} {
 			if v, exists := cfg[from]; exists {
 				out[to] = v
 			}

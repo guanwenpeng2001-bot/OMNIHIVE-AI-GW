@@ -19,7 +19,7 @@ import (
 )
 
 func TestGeminiIngressToolCorrelationAndControls(t *testing.T) {
-	body := []byte(`{"metadata":{"future":true},"systemInstruction":{"parts":[{"text":"system"}]},"contents":[{"role":"model","parts":[{"functionCall":{"id":"a","name":"lookup","args":{"q":"a"}},"thoughtSignature":"native-secret"},{"functionCall":{"id":"b","name":"lookup","args":{"q":"b"}}}]},{"role":"user","parts":[{"functionResponse":{"id":"b","name":"lookup","response":{"answer":2}}},{"functionResponse":{"id":"a","name":"lookup","response":{"answer":1}}}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"OBJECT","properties":{"q":{"type":"STRING"}}}}]}],"generationConfig":{"maxOutputTokens":42,"temperature":0.2},"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup"]}}}`)
+	body := []byte(`{"metadata":{"future":true},"systemInstruction":{"parts":[{"text":"system"}]},"contents":[{"role":"model","parts":[{"functionCall":{"id":"a","name":"lookup","args":{"q":"a"}},"thoughtSignature":"native-secret"},{"functionCall":{"id":"b","name":"lookup","args":{"q":"b"}}}]},{"role":"user","parts":[{"functionResponse":{"id":"b","name":"lookup","response":{"answer":2}}},{"functionResponse":{"id":"a","name":"lookup","response":{"answer":1}}}]}],"tools":[{"functionDeclarations":[{"name":"lookup","parameters":{"type":"OBJECT","properties":{"q":{"type":"STRING"}}}}]}],"generationConfig":{"maxOutputTokens":42,"temperature":0.2,"stopSequences":["END"]},"toolConfig":{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["lookup"]}}}`)
 	got, err := GeminiToMessages(body, "public/model", true)
 	require.NoError(t, err)
 	require.Equal(t, "public/model", gjson.GetBytes(got, "model").String())
@@ -40,8 +40,6 @@ func TestGeminiIngressToolCorrelationAndControls(t *testing.T) {
 func TestGeminiIngressRejectsLossySemanticParts(t *testing.T) {
 	for _, body := range []string{
 		`{"contents":[{"parts":[{"inlineData":{"mimeType":"audio/wav","data":"YQ=="}}]}]}`,
-		`{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"stopSequences":["END"]}}`,
-		`{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"topK":5}}`,
 		`{"contents":[{"parts":[{"fileData":{"fileUri":"https://example.com/a.png"}}]}]}`,
 		`{"contents":[{"parts":[{"text":"x"}]}],"generationConfig":{"responseModalities":["IMAGE"]}}`,
 		`{"contents":[{"role":"model","parts":[{"functionCall":{"name":"f","args":{}}},{"functionCall":{"name":"f","args":{}}}]},{"role":"user","parts":[{"functionResponse":{"name":"f","response":{}}}]}]}`,
