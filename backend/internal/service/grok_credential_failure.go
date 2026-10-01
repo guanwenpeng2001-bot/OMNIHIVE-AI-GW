@@ -56,6 +56,7 @@ type GrokCredentialMutationSnapshot struct {
 	RefreshToken    string
 	TokenVersion    int64
 	ProxyID         *int64
+	ProxyGroupID    *int64
 }
 
 type grokCredentialFailureSnapshotError struct {
@@ -477,7 +478,7 @@ func (s *OpenAIGatewayService) validateCurrentGrokCredentialFailure(
 	}
 	latestSnapshot := grokCredentialMutationSnapshot(latest)
 	if latestSnapshot.CredentialsJSON != snapshot.CredentialsJSON ||
-		!grokCredentialProxyIDsEqual(latestSnapshot.ProxyID, snapshot.ProxyID) {
+		(!grokCredentialProxyIDsEqual(latestSnapshot.ProxyID, snapshot.ProxyID) || !grokCredentialProxyIDsEqual(latestSnapshot.ProxyGroupID, snapshot.ProxyGroupID)) {
 		if token, ok := s.grokCredentialConcurrentlyRefreshedToken(ctx, accountID, snapshot); ok {
 			return token, nil
 		}
@@ -550,6 +551,10 @@ func grokCredentialMutationSnapshot(account *Account) GrokCredentialMutationSnap
 		RefreshToken:    strings.TrimSpace(account.GetGrokRefreshToken()),
 		TokenVersion:    account.GetCredentialAsInt64("_token_version"),
 	}
+	if account.ProxyGroupID != nil {
+		id := *account.ProxyGroupID
+		snapshot.ProxyGroupID = &id
+	}
 	if account.ProxyID != nil {
 		proxyID := *account.ProxyID
 		snapshot.ProxyID = &proxyID
@@ -619,7 +624,7 @@ func (s *OpenAIGatewayService) grokCredentialConcurrentlyRefreshedToken(ctx cont
 		return "", false
 	}
 	latestSnapshot := grokCredentialMutationSnapshot(latest)
-	if !grokCredentialProxyIDsEqual(latestSnapshot.ProxyID, baseline.ProxyID) ||
+	if (!grokCredentialProxyIDsEqual(latestSnapshot.ProxyID, baseline.ProxyID) || !grokCredentialProxyIDsEqual(latestSnapshot.ProxyGroupID, baseline.ProxyGroupID)) ||
 		latestSnapshot.CredentialsJSON == baseline.CredentialsJSON || !latest.IsSchedulable() ||
 		(latest.ProxyID != nil && latest.Proxy == nil) || s.isOpenAIAccountRuntimeBlocked(latest) {
 		return "", false

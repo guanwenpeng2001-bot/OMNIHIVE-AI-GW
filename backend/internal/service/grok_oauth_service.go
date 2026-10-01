@@ -16,10 +16,11 @@ import (
 const grokDefaultAccessTokenTTL = 6 * time.Hour
 
 type GrokOAuthService struct {
-	sessionStore *xai.SessionStore
-	proxyRepo    ProxyRepository
-	oauthClient  GrokOAuthClient
-	config       *config.Config
+	egressRuntime *ProxyGroupRuntime
+	sessionStore  *xai.SessionStore
+	proxyRepo     ProxyRepository
+	oauthClient   GrokOAuthClient
+	config        *config.Config
 }
 
 func NewGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, configs ...*config.Config) *GrokOAuthService {
@@ -65,7 +66,7 @@ type GrokAuthURLResult struct {
 	State     string `json:"state"`
 }
 
-func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI string) (*GrokAuthURLResult, error) {
+func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI string, proxyGroupIDs ...*int64) (*GrokAuthURLResult, error) {
 	state, err := xai.GenerateState()
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_OAUTH_STATE_FAILED", "failed to generate state: %v", err)
@@ -83,9 +84,17 @@ func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, 
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "GROK_OAUTH_SESSION_FAILED", "failed to generate session ID: %v", err)
 	}
 
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, proxyID, proxyGroupIDs, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	proxyURL, err := s.proxyURL(ctx, proxyID)
 	if err != nil {
 		return nil, err
+	}
+	if selection != nil {
+		proxyURL = selection.URL
 	}
 	redirectURI = xai.EffectiveRedirectURI(redirectURI)
 	codeChallenge := xai.GenerateCodeChallenge(codeVerifier)
@@ -101,6 +110,7 @@ func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, 
 		CodeChallenge: codeChallenge,
 		ClientID:      xai.EffectiveClientID(),
 		Scope:         xai.EffectiveScope(),
+		Egress:        selection,
 		ProxyURL:      proxyURL,
 		RedirectURI:   redirectURI,
 		CreatedAt:     time.Now(),
@@ -114,27 +124,29 @@ func (s *GrokOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, 
 }
 
 type GrokExchangeCodeInput struct {
-	SessionID   string
-	Code        string
-	State       string
-	RedirectURI string
-	ProxyID     *int64
+	SessionID    string
+	Code         string
+	State        string
+	RedirectURI  string
+	ProxyID      *int64
+	ProxyGroupID *int64
 }
 
 type GrokTokenInfo struct {
-	AccessToken       string `json:"access_token"`
-	RefreshToken      string `json:"refresh_token,omitempty"`
-	IDToken           string `json:"id_token,omitempty"`
-	TokenType         string `json:"token_type,omitempty"`
-	ExpiresIn         int64  `json:"expires_in"`
-	ExpiresAt         int64  `json:"expires_at"`
-	ClientID          string `json:"client_id,omitempty"`
-	Scope             string `json:"scope,omitempty"`
-	Email             string `json:"email,omitempty"`
-	Subject           string `json:"sub,omitempty"`
-	TeamID            string `json:"team_id,omitempty"`
-	SubscriptionTier  string `json:"subscription_tier,omitempty"`
-	EntitlementStatus string `json:"entitlement_status,omitempty"`
+	Egress            *OAuthEgressSelection `json:"-"`
+	AccessToken       string                `json:"access_token"`
+	RefreshToken      string                `json:"refresh_token,omitempty"`
+	IDToken           string                `json:"id_token,omitempty"`
+	TokenType         string                `json:"token_type,omitempty"`
+	ExpiresIn         int64                 `json:"expires_in"`
+	ExpiresAt         int64                 `json:"expires_at"`
+	ClientID          string                `json:"client_id,omitempty"`
+	Scope             string                `json:"scope,omitempty"`
+	Email             string                `json:"email,omitempty"`
+	Subject           string                `json:"sub,omitempty"`
+	TeamID            string                `json:"team_id,omitempty"`
+	SubscriptionTier  string                `json:"subscription_tier,omitempty"`
+	EntitlementStatus string                `json:"entitlement_status,omitempty"`
 }
 
 // GrokPasswordLoginResult is an ephemeral password-login outcome.
@@ -173,8 +185,11 @@ func (s *GrokOAuthService) ExchangeCode(ctx context.Context, input *GrokExchange
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_REDIRECT_URI_MISMATCH", "redirect_uri does not match the OAuth session")
 	}
 
+	if err := validateOAuthSessionEgress(session.Egress, input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 && session.Egress == nil {
 		var err error
 		proxyURL, err = s.proxyURL(ctx, input.ProxyID)
 		if err != nil {
@@ -195,7 +210,9 @@ func (s *GrokOAuthService) ExchangeCode(ctx context.Context, input *GrokExchange
 	if err := validateGrokTokenResponse(tokenResp); err != nil {
 		return nil, err
 	}
-	return s.tokenInfoFromResponse(tokenResp, session.ClientID, nil), nil
+	info := s.tokenInfoFromResponse(tokenResp, session.ClientID, nil)
+	info.Egress = session.Egress
+	return info, nil
 }
 
 func (s *GrokOAuthService) requireOAuthClient() error {
@@ -227,17 +244,21 @@ func (s *GrokOAuthService) RefreshToken(ctx context.Context, refreshToken, proxy
 	return tokenInfo, nil
 }
 
-func (s *GrokOAuthService) ValidateRefreshToken(ctx context.Context, refreshToken string, proxyID *int64) (*GrokTokenInfo, error) {
-	proxyURL, err := s.proxyURL(ctx, proxyID)
+func (s *GrokOAuthService) ValidateRefreshToken(ctx context.Context, refreshToken string, proxyID *int64, proxyGroupIDs ...*int64) (*GrokTokenInfo, error) {
+	proxyURL, selection, err := resolveOAuthProxy(ctx, s.egressRuntime, s.proxyRepo, proxyID, proxyGroupIDs)
 	if err != nil {
 		return nil, err
 	}
-	return s.RefreshToken(ctx, refreshToken, proxyURL, xai.EffectiveClientID())
+	info, err := s.RefreshToken(ctx, refreshToken, proxyURL, xai.EffectiveClientID())
+	if info != nil {
+		info.Egress = selection
+	}
+	return info, err
 }
 
 // ValidateSSOToken converts a Web SSO cookie into Build OAuth tokens.
 // The raw sso_token is never stored on GrokTokenInfo or account credentials.
-func (s *GrokOAuthService) ValidateSSOToken(ctx context.Context, ssoToken string, proxyID *int64) (*GrokTokenInfo, error) {
+func (s *GrokOAuthService) ValidateSSOToken(ctx context.Context, ssoToken string, proxyID *int64, proxyGroupIDs ...*int64) (*GrokTokenInfo, error) {
 	ssoToken = strings.TrimSpace(ssoToken)
 	if ssoToken == "" {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_NO_SSO_TOKEN", "sso_token is required")
@@ -245,7 +266,7 @@ func (s *GrokOAuthService) ValidateSSOToken(ctx context.Context, ssoToken string
 	if err := s.requireOAuthClient(); err != nil {
 		return nil, err
 	}
-	proxyURL, err := s.proxyURL(ctx, proxyID)
+	proxyURL, selection, err := resolveOAuthProxy(ctx, s.egressRuntime, s.proxyRepo, proxyID, proxyGroupIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -256,17 +277,19 @@ func (s *GrokOAuthService) ValidateSSOToken(ctx context.Context, ssoToken string
 	if err := validateGrokTokenResponse(tokenResp); err != nil {
 		return nil, err
 	}
-	return s.tokenInfoFromResponse(tokenResp, xai.DefaultClientID, nil), nil
+	info := s.tokenInfoFromResponse(tokenResp, xai.DefaultClientID, nil)
+	info.Egress = selection
+	return info, nil
 }
 
 // ConvertFromSSO is the batch-import entry point; same semantics as ValidateSSOToken.
-func (s *GrokOAuthService) ConvertFromSSO(ctx context.Context, ssoToken string, proxyID *int64) (*GrokTokenInfo, error) {
-	return s.ValidateSSOToken(ctx, ssoToken, proxyID)
+func (s *GrokOAuthService) ConvertFromSSO(ctx context.Context, ssoToken string, proxyID *int64, proxyGroupIDs ...*int64) (*GrokTokenInfo, error) {
+	return s.ValidateSSOToken(ctx, ssoToken, proxyID, proxyGroupIDs...)
 }
 
 // AuthorizePassword logs in with email/password, converts the resulting SSO cookie
 // to Build OAuth, and returns OAuth tokens only. Password and raw SSO are never persisted.
-func (s *GrokOAuthService) AuthorizePassword(ctx context.Context, email, password string, proxyID *int64) (*GrokTokenInfo, error) {
+func (s *GrokOAuthService) AuthorizePassword(ctx context.Context, email, password string, proxyID *int64, proxyGroupIDs ...*int64) (*GrokTokenInfo, error) {
 	if !s.passwordAuthEnabled() {
 		return nil, infraerrors.New(http.StatusForbidden, "GROK_OAUTH_PASSWORD_AUTH_DISABLED", "Grok password authorization is disabled")
 	}
@@ -280,7 +303,7 @@ func (s *GrokOAuthService) AuthorizePassword(ctx context.Context, email, passwor
 	if err := s.requireOAuthClient(); err != nil {
 		return nil, err
 	}
-	proxyURL, err := s.proxyURL(ctx, proxyID)
+	proxyURL, selection, err := resolveOAuthProxy(ctx, s.egressRuntime, s.proxyRepo, proxyID, proxyGroupIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +314,15 @@ func (s *GrokOAuthService) AuthorizePassword(ctx context.Context, email, passwor
 	if loginResult == nil || strings.TrimSpace(loginResult.SSOToken) == "" {
 		return nil, infraerrors.New(http.StatusBadGateway, "GROK_OAUTH_PASSWORD_LOGIN_FAILED", "grok password login did not return sso_token")
 	}
-	info, err := s.ValidateSSOToken(ctx, loginResult.SSOToken, proxyID)
+	tokenResp, err := s.oauthClient.ConvertSSOToBuild(ctx, loginResult.SSOToken, proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateGrokTokenResponse(tokenResp); err != nil {
+		return nil, err
+	}
+	info := s.tokenInfoFromResponse(tokenResp, xai.DefaultClientID, nil)
+	info.Egress = selection
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +347,7 @@ func (s *GrokOAuthService) RefreshAccountToken(ctx context.Context, account *Acc
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_INVALID_ACCOUNT_TYPE", "account is not an OAuth account")
 	}
 
-	proxyURL, err := s.proxyURL(ctx, account.ProxyID)
+	proxyURL, err := resolveGoogleAccountProxyURL(ctx, account, s.proxyRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +464,7 @@ func (s *GrokOAuthService) tokenInfoFromResponse(tokenResp *xai.TokenResponse, c
 }
 
 func (s *GrokOAuthService) proxyURL(ctx context.Context, proxyID *int64) (string, error) {
-	if proxyID == nil {
+	if normalizedProxyID(proxyID) == nil {
 		return "", nil
 	}
 	if s.proxyRepo == nil {

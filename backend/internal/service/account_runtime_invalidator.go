@@ -25,6 +25,9 @@ func AccountRuntimeIdentityKey(account *Account) string {
 		"parent": account.ParentAccountID, "proxy_id": account.ProxyID,
 		"quota_dimension": account.QuotaDimension,
 	}
+	if account.ProxyGroupID != nil {
+		identity["proxy_group_id"] = *account.ProxyGroupID
+	}
 	if _, referenced := CredentialReference(account.Credentials); referenced {
 		inline, _ := SplitCredentialSecrets(account.Credentials)
 		inline[CredentialSecretVersionKey] = CredentialVersion(account.Credentials)

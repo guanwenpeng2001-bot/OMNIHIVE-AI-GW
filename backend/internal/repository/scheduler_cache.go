@@ -220,6 +220,7 @@ return 1
 )
 
 type schedulerCache struct {
+	egressRuntime  *service.ProxyGroupRuntime
 	rdb            *redis.Client
 	mgetChunkSize  int
 	writeChunkSize int
@@ -300,6 +301,7 @@ func (c *schedulerCache) GetSnapshot(ctx context.Context, bucket service.Schedul
 		if err != nil {
 			return nil, false, err
 		}
+		account.AttachEgress(c.egressRuntime)
 		if err := applySchedulerLastUsed(account, lastUsedValues[i]); err != nil {
 			return nil, false, err
 		}
@@ -579,6 +581,7 @@ func (c *schedulerCache) GetAccount(ctx context.Context, accountID int64) (*serv
 	if err != nil {
 		return nil, err
 	}
+	account.AttachEgress(c.egressRuntime)
 	if err := applySchedulerLastUsed(account, values[1]); err != nil {
 		return nil, err
 	}
@@ -865,6 +868,9 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
 	return service.Account{
 		ID:                      account.ID,
+		WorkspaceID:             account.WorkspaceID,
+		ProxyID:                 account.ProxyID,
+		ProxyGroupID:            account.ProxyGroupID,
 		Name:                    account.Name,
 		Platform:                account.Platform,
 		Type:                    account.Type,

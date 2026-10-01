@@ -48,8 +48,8 @@ type tokenRefreshRegistration struct {
 // This contract is intentionally Grok-only; existing provider behavior remains
 // unchanged.
 type GrokOAuthRefreshMutationRepository interface {
-	SetGrokOAuthRefreshErrorIfCredentialsUnchanged(ctx context.Context, id int64, expectedCredentials map[string]any, expectedProxyID *int64, errorMsg string) (bool, error)
-	SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged(ctx context.Context, id int64, expectedCredentials map[string]any, expectedProxyID *int64, until time.Time, reason string) (bool, error)
+	SetGrokOAuthRefreshErrorIfCredentialsUnchanged(ctx context.Context, id int64, expectedCredentials map[string]any, expectedProxyID *int64, expectedProxyGroupID *int64, errorMsg string) (bool, error)
+	SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnchanged(ctx context.Context, id int64, expectedCredentials map[string]any, expectedProxyID *int64, expectedProxyGroupID *int64, until time.Time, reason string) (bool, error)
 }
 
 // TokenRefreshService OAuth token自动刷新服务
@@ -1020,7 +1020,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 						ctx,
 						account.ID,
 						account.Credentials,
-						account.ProxyID,
+						account.ProxyID, account.ProxyGroupID,
 						errorMsg,
 					)
 					if setErr == nil && !persistentlyBlocked {
@@ -1115,7 +1115,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			ctx,
 			account.ID,
 			account.Credentials,
-			account.ProxyID,
+			account.ProxyID, account.ProxyGroupID,
 			until,
 			reason,
 		)
@@ -1473,7 +1473,10 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		return
 	}
 
-	var proxyURL string
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return
+	}
 	if account.ProxyID != nil && s.proxyRepo != nil {
 		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
 			proxyURL = p.URL()
@@ -1518,7 +1521,10 @@ func (s *TokenRefreshService) ensureAntigravityPrivacy(ctx context.Context, acco
 
 	projectID, _ := account.Credentials["project_id"].(string)
 
-	var proxyURL string
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return
+	}
 	if account.ProxyID != nil && s.proxyRepo != nil {
 		if p, err := s.proxyRepo.GetByID(ctx, *account.ProxyID); err == nil && p != nil {
 			proxyURL = p.URL()

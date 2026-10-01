@@ -204,6 +204,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	acquireCtx, acquireCancel := context.WithTimeout(ctx, s.openAIWSAcquireTimeout())
 	defer acquireCancel()
 
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	lease, err := s.getOpenAIWSConnPool().Acquire(acquireCtx, openAIWSAcquireRequest{
 		Account: account,
 		WSURL:   wsURL,
@@ -213,12 +217,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		},
 		PreferredConnID: preferredConnID,
 		ForceNewConn:    forceNewConn,
-		ProxyURL: func() string {
-			if account.ProxyID != nil && account.Proxy != nil {
-				return account.Proxy.URL()
-			}
-			return ""
-		}(),
+		ProxyURL:        proxyURL,
 	})
 	if err != nil {
 		var agentDialErr *openAIWSDialError

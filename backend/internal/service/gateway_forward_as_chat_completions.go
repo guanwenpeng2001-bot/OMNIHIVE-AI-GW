@@ -114,9 +114,9 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	}
 
 	// 9. Get proxy URL
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 
 	// 10. Build upstream request

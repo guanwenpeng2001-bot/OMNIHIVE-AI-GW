@@ -30,7 +30,7 @@ func (s *GatewayService) doModelCheckedUpstream(request *http.Request, proxyURL 
 	if err := validateOpenAIForwardRequest(s.accountRepo, account, request); err != nil {
 		return nil, err
 	}
-	return generationDoWithTLS(s.httpUpstream, request, proxyURL, account.ID, account.Concurrency, profile)
+	return generationDoWithTLS(accountHTTPUpstream(s.httpUpstream, account), request, proxyURL, account.ID, account.Concurrency, profile)
 }
 
 func (s *OpenAIGatewayService) modelBindingCredentialAccount(ctx context.Context, account *Account) *Account {
@@ -302,7 +302,7 @@ func doCatalogCheckedGeneration(upstream HTTPUpstream, repo AccountRepository, r
 			return nil, err
 		}
 	}
-	return generationDo(upstream, request, proxyURL, account.ID, account.Concurrency)
+	return generationDo(accountHTTPUpstream(upstream, account), request, proxyURL, account.ID, account.Concurrency)
 }
 func requestCatalogEndpoint(ctx context.Context) string {
 	plan := GatewayRequestPlanFromContext(ctx)

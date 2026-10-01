@@ -714,12 +714,12 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	// 账号级请求头覆写最后应用，配置值优先于内置默认头。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	upstreamStart := time.Now()
-	resp, err := generationDo(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), upstreamReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -817,12 +817,12 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 	}
 	account.ApplyHeaderOverrides(statusReq.Header)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	upstreamStart := time.Now()
-	statusResp, err := generationDo(s.httpUpstream, statusReq, proxyURL, account.ID, account.Concurrency)
+	statusResp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), statusReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -881,7 +881,7 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		account.ApplyHeaderOverrides(contentReq.Header)
 	}
 
-	contentResp, err := generationDo(s.httpUpstream, contentReq, proxyURL, account.ID, account.Concurrency)
+	contentResp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), contentReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)

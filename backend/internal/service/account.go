@@ -73,6 +73,9 @@ type Account struct {
 	modelCatalogCredentialAccount *Account
 	modelCatalogReadEvidence      *catalogReadEvidence
 	baseURLMemo                   *accountBaseURLMemo
+	egress                        *accountEgress
+	oauthEgress                   *OAuthEgressSelection
+	proxyConfigurationUpdated     bool
 
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string

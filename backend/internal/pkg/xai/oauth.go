@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"log/slog"
 	"net/url"
 	"os"
@@ -55,14 +56,15 @@ var (
 
 // OAuthSession stores one PKCE OAuth flow.
 type OAuthSession struct {
-	State         string    `json:"state"`
-	CodeVerifier  string    `json:"code_verifier"`
-	CodeChallenge string    `json:"code_challenge"`
-	ClientID      string    `json:"client_id,omitempty"`
-	Scope         string    `json:"scope,omitempty"`
-	ProxyURL      string    `json:"proxy_url,omitempty"`
-	RedirectURI   string    `json:"redirect_uri"`
-	CreatedAt     time.Time `json:"created_at"`
+	Egress        *domain.OAuthEgressSelection `json:"egress,omitempty"`
+	State         string                       `json:"state"`
+	CodeVerifier  string                       `json:"code_verifier"`
+	CodeChallenge string                       `json:"code_challenge"`
+	ClientID      string                       `json:"client_id,omitempty"`
+	Scope         string                       `json:"scope,omitempty"`
+	ProxyURL      string                       `json:"proxy_url,omitempty"`
+	RedirectURI   string                       `json:"redirect_uri"`
+	CreatedAt     time.Time                    `json:"created_at"`
 
 	mu       sync.Mutex
 	consumed bool
@@ -92,14 +94,15 @@ type SessionStore struct {
 }
 
 type oauthSessionDTO struct {
-	State         string    `json:"state"`
-	CodeVerifier  string    `json:"code_verifier"`
-	CodeChallenge string    `json:"code_challenge"`
-	ClientID      string    `json:"client_id,omitempty"`
-	Scope         string    `json:"scope,omitempty"`
-	ProxyURL      string    `json:"proxy_url,omitempty"`
-	RedirectURI   string    `json:"redirect_uri"`
-	CreatedAt     time.Time `json:"created_at"`
+	Egress        *domain.OAuthEgressSelection `json:"egress,omitempty"`
+	State         string                       `json:"state"`
+	CodeVerifier  string                       `json:"code_verifier"`
+	CodeChallenge string                       `json:"code_challenge"`
+	ClientID      string                       `json:"client_id,omitempty"`
+	Scope         string                       `json:"scope,omitempty"`
+	ProxyURL      string                       `json:"proxy_url,omitempty"`
+	RedirectURI   string                       `json:"redirect_uri"`
+	CreatedAt     time.Time                    `json:"created_at"`
 }
 
 func NewSessionStore() *SessionStore {
@@ -127,7 +130,7 @@ func (s *SessionStore) Set(sessionID string, session *OAuthSession) {
 	var remoteErr error
 	if s != nil && s.remote != nil {
 		remoteErr = s.remote.Set(context.Background(), sessionID, oauthSessionDTO{
-			State: session.State, CodeVerifier: session.CodeVerifier, CodeChallenge: session.CodeChallenge,
+			Egress: session.Egress, State: session.State, CodeVerifier: session.CodeVerifier, CodeChallenge: session.CodeChallenge,
 			ClientID: session.ClientID, Scope: session.Scope, ProxyURL: session.ProxyURL,
 			RedirectURI: session.RedirectURI, CreatedAt: session.CreatedAt,
 		})
@@ -154,7 +157,7 @@ func (s *SessionStore) Get(sessionID string) (*OAuthSession, bool) {
 			return nil, false
 		}
 		session := &OAuthSession{
-			State: dto.State, CodeVerifier: dto.CodeVerifier, CodeChallenge: dto.CodeChallenge,
+			Egress: dto.Egress, State: dto.State, CodeVerifier: dto.CodeVerifier, CodeChallenge: dto.CodeChallenge,
 			ClientID: dto.ClientID, Scope: dto.Scope, ProxyURL: dto.ProxyURL,
 			RedirectURI: dto.RedirectURI, CreatedAt: dto.CreatedAt,
 		}

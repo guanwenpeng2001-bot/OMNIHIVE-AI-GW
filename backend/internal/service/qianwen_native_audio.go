@@ -192,7 +192,11 @@ func (s *OpenAIGatewayService) forwardQianwenNativeAudio(ctx context.Context, c 
 	}
 	SetActualOpenAIUpstreamEndpoint(c, req.URL.Path)
 	SetOpsUpstreamModel(c, mapped)
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

@@ -44,8 +44,9 @@ func NewGrokOAuthHandler(
 }
 
 type GrokGenerateAuthURLRequest struct {
-	ProxyID     *int64 `json:"proxy_id"`
-	RedirectURI string `json:"redirect_uri"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
+	RedirectURI  string `json:"redirect_uri"`
 }
 
 func (h *GrokOAuthHandler) GetCapabilities(c *gin.Context) {
@@ -57,7 +58,7 @@ func (h *GrokOAuthHandler) GenerateAuthURL(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		req = GrokGenerateAuthURLRequest{}
 	}
-	result, err := h.grokOAuthService.GenerateAuthURL(c.Request.Context(), req.ProxyID, req.RedirectURI)
+	result, err := h.grokOAuthService.GenerateAuthURL(c.Request.Context(), req.ProxyID, req.RedirectURI, req.ProxyGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -72,11 +73,12 @@ func (h *GrokOAuthHandler) GenerateAuthURL(c *gin.Context) {
 }
 
 type GrokExchangeCodeRequest struct {
-	SessionID   string `json:"session_id" binding:"required"`
-	Code        string `json:"code" binding:"required"`
-	State       string `json:"state"`
-	RedirectURI string `json:"redirect_uri"`
-	ProxyID     *int64 `json:"proxy_id"`
+	SessionID    string `json:"session_id" binding:"required"`
+	Code         string `json:"code" binding:"required"`
+	State        string `json:"state"`
+	RedirectURI  string `json:"redirect_uri"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 func (h *GrokOAuthHandler) ExchangeCode(c *gin.Context) {
@@ -97,13 +99,13 @@ func (h *GrokOAuthHandler) ExchangeCode(c *gin.Context) {
 		Code:        req.Code,
 		State:       req.State,
 		RedirectURI: req.RedirectURI,
-		ProxyID:     req.ProxyID,
+		ProxyID:     req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 type GrokRefreshTokenRequest struct {
@@ -111,17 +113,20 @@ type GrokRefreshTokenRequest struct {
 	RT           string `json:"rt"`
 	ClientID     string `json:"client_id"`
 	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 type GrokSSOTokenRequest struct {
-	SSOToken string `json:"sso_token"`
-	ProxyID  *int64 `json:"proxy_id"`
+	SSOToken     string `json:"sso_token"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 type GrokPasswordAuthorizeRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	ProxyID  *int64 `json:"proxy_id"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	ProxyID      *int64 `json:"proxy_id"`
+	ProxyGroupID *int64 `json:"proxy_group_id"`
 }
 
 func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
@@ -139,8 +144,16 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
+	selection, egressErr := h.credentialDrafts.ResolveAuthorizationEgress(c.Request.Context(), req.ProxyID, req.ProxyGroupID)
+	if egressErr != nil {
+		response.ErrorFrom(c, egressErr)
+		return
+	}
 	var proxyURL string
-	if req.ProxyID != nil {
+	if selection != nil {
+		proxyURL = selection.URL
+	}
+	if req.ProxyID != nil && *req.ProxyID > 0 {
 		proxy, err := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
 		if err != nil {
 			response.ErrorFrom(c, err)
@@ -157,7 +170,8 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
+	tokenInfo.Egress = selection
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // ValidateSSOToken converts a Web SSO cookie into Build OAuth tokens.
@@ -168,12 +182,12 @@ func (h *GrokOAuthHandler) ValidateSSOToken(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.ValidateSSOToken(c.Request.Context(), req.SSOToken, req.ProxyID)
+	tokenInfo, err := h.grokOAuthService.ValidateSSOToken(c.Request.Context(), req.SSOToken, req.ProxyID, req.ProxyGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 // AuthorizePassword exchanges email/password for Build OAuth tokens via SSO conversion.
@@ -184,12 +198,12 @@ func (h *GrokOAuthHandler) AuthorizePassword(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	tokenInfo, err := h.grokOAuthService.AuthorizePassword(c.Request.Context(), req.Email, req.Password, req.ProxyID)
+	tokenInfo, err := h.grokOAuthService.AuthorizePassword(c.Request.Context(), req.Email, req.Password, req.ProxyID, req.ProxyGroupID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 func (h *GrokOAuthHandler) RefreshAccountToken(c *gin.Context) {
@@ -277,15 +291,16 @@ func (h *GrokOAuthHandler) ReconcileOAuthAccounts(c *gin.Context) {
 
 func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 	var req struct {
-		SessionID   string  `json:"session_id" binding:"required"`
-		Code        string  `json:"code" binding:"required"`
-		State       string  `json:"state"`
-		RedirectURI string  `json:"redirect_uri"`
-		ProxyID     *int64  `json:"proxy_id"`
-		Name        string  `json:"name"`
-		Concurrency int     `json:"concurrency"`
-		Priority    int     `json:"priority"`
-		GroupIDs    []int64 `json:"group_ids"`
+		SessionID    string  `json:"session_id" binding:"required"`
+		Code         string  `json:"code" binding:"required"`
+		State        string  `json:"state"`
+		RedirectURI  string  `json:"redirect_uri"`
+		ProxyID      *int64  `json:"proxy_id"`
+		ProxyGroupID *int64  `json:"proxy_group_id"`
+		Name         string  `json:"name"`
+		Concurrency  int     `json:"concurrency"`
+		Priority     int     `json:"priority"`
+		GroupIDs     []int64 `json:"group_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -302,13 +317,13 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		Code:        req.Code,
 		State:       req.State,
 		RedirectURI: req.RedirectURI,
-		ProxyID:     req.ProxyID,
+		ProxyID:     req.ProxyID, ProxyGroupID: req.ProxyGroupID,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo), tokenInfo.Egress)
 }
 
 type GrokSSOToOAuthRequest struct {
@@ -318,6 +333,7 @@ type GrokSSOToOAuthRequest struct {
 	Name               string                   `json:"name"`
 	Notes              *string                  `json:"notes"`
 	ProxyID            *int64                   `json:"proxy_id"`
+	ProxyGroupID       *int64                   `json:"proxy_group_id"`
 	GroupIDs           []int64                  `json:"group_ids"`
 	Credentials        map[string]any           `json:"credentials"`
 	Extra              map[string]any           `json:"extra"`
@@ -427,14 +443,14 @@ func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, re
 }
 
 func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int, binding string) grokSSOImportWorkerResult {
-	tokenInfo, err := h.grokOAuthService.ConvertFromSSO(ctx, token, req.ProxyID)
+	tokenInfo, err := h.grokOAuthService.ConvertFromSSO(ctx, token, req.ProxyID, req.ProxyGroupID)
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Error: grokSSOImportErrorMessage(err)}}
 	}
 
 	credentials := grokSSOImportCredentials(h.grokOAuthService.BuildAccountCredentials(tokenInfo), req.Credentials)
 	name := grokSSOImportAccountName(req.Name, tokenInfo, index, total)
-	draft, err := h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformGrok, service.AccountTypeOAuth, credentials)
+	draft, err := h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformGrok, service.AccountTypeOAuth, credentials, tokenInfo.Egress)
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Name: name, Email: tokenInfo.Email, Error: grokSSOImportErrorMessage(err)}}
 	}

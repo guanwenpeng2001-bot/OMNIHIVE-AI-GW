@@ -19,9 +19,9 @@ func TestCursorRefreshCASUsesFullCredentialsAndAtomicOutbox(t *testing.T) {
 				var applied bool
 				var err error
 				if mutation == "success" {
-					applied, err = repo.UpdateCursorOAuthCredentialsIfUnchanged(context.Background(), 42, expected, map[string]any{"access_token": "synthetic-result"})
+					applied, err = repo.UpdateCursorOAuthCredentialsIfUnchanged(context.Background(), 42, expected, nil, map[string]any{"access_token": "synthetic-result"})
 				} else {
-					applied, err = repo.SetCursorOAuthRefreshFailureIfUnchanged(context.Background(), 42, expected, mutation == "reauth", time.Now().Add(time.Minute))
+					applied, err = repo.SetCursorOAuthRefreshFailureIfUnchanged(context.Background(), 42, expected, nil, mutation == "reauth", time.Now().Add(time.Minute))
 				}
 				require.NoError(t, err)
 				require.Equal(t, affected == 1, applied)

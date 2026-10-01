@@ -132,6 +132,9 @@ func (service *AccountTestService) runBoundedModelProbes(ctx context.Context, ac
 		if err != nil {
 			return err
 		}
+		if _, err := account.EgressProxyURL(ctx); err != nil {
+			return err
+		}
 		attempt, err := repository.ReserveModelProbe(ctx, accountID, account.ModelCatalogBaseline(), target.model, target.endpoint)
 		if err != nil {
 			return err
@@ -185,7 +188,11 @@ func (service *AccountTestService) executeBoundedModelProbe(ctx context.Context,
 	if ctx.Err() != nil {
 		return ModelProbeTemporary
 	}
-	response, err := service.httpUpstream.DoWithTLS(request, upstreamModelsProxyURL(account), account.ID, account.Concurrency, service.tlsFPProfileService.ResolveTLSProfile(account))
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return ModelProbeTemporary
+	}
+	response, err := accountHTTPUpstream(service.httpUpstream, account).DoWithTLS(request, proxyURL, account.ID, account.Concurrency, service.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil || response == nil || response.Body == nil {
 		return ModelProbeTemporary
 	}

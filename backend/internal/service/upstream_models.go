@@ -875,7 +875,10 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
 		return nil, fmt.Errorf("registry_offline")
 	}
-	download := s.modelsDevDownloadSnapshot(account)
+	download, egressErr := s.modelsDevDownloadSnapshot(ctx, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	downloadKey := download.downloadKey
 	cached, at := s.boundedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
@@ -1698,7 +1701,11 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 		return nil, newUpstreamModelSyncConfigError("No Antigravity access token is available", nil)
 	}
 
-	client, err := antigravity.NewClient(upstreamModelsProxyURL(account))
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	client, err := antigravity.NewClient(accountProxyURL)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Failed to configure Antigravity client", err)
 	}
@@ -1762,16 +1769,9 @@ func normalizeAntigravityUpstreamModels(infos map[string]antigravity.ModelInfo, 
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	if s.tlsFPProfileService == nil {
-		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
+		return accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	}
-	return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-}
-
-func upstreamModelsProxyURL(account *Account) string {
-	if account != nil && account.ProxyID != nil && account.Proxy != nil {
-		return account.Proxy.URL()
-	}
-	return ""
+	return accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 }
 
 func buildV1ModelsURL(base string) string {
@@ -2556,7 +2556,11 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			return assemble(newUpstreamModelSyncUpstreamError("Model pagination did not advance", nil))
 		}
 		seen[request.URL.String()] = true
-		response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+		accountProxyURL, egressErr := account.EgressProxyURL(request.Context())
+		if egressErr != nil {
+			return nil, nil, egressErr
+		}
+		response, err := service.doUpstreamModelsRequest(request, accountProxyURL, account)
 		if err != nil || response == nil || response.Body == nil {
 			return assemble(newUpstreamModelSyncUpstreamError("Failed to request model page", err))
 		}

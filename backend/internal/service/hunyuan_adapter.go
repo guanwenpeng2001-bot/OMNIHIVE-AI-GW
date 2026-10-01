@@ -88,7 +88,11 @@ func (s *AccountTestService) fetchHunyuanModels(ctx context.Context, account *Ac
 	if s.httpUpstream == nil {
 		return nil, nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
 	}
-	response, err := s.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, nil, egressErr
+	}
+	response, err := s.doUpstreamModelsRequest(request, accountProxyURL, account)
 	if err != nil || response == nil || response.Body == nil {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request TokenHub models", err)
 	}

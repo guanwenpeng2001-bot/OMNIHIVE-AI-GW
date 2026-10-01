@@ -80,7 +80,11 @@ type QianwenPricingResult struct {
 // platform-wide LiteLLM provider alias or shared global price cache is involved.
 func (s *AccountTestService) FetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPricingOptions) (*QianwenPricingResult, error) {
 	return fetchQianwenPricing(ctx, account, opts, func(req *http.Request) (*http.Response, error) {
-		return s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+		accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+		if egressErr != nil {
+			return nil, egressErr
+		}
+		return s.doUpstreamModelsRequest(req, accountProxyURL, account)
 	})
 }
 

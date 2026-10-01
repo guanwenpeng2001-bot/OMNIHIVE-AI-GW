@@ -425,7 +425,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = targetType
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = concurrency
 		existing.Priority = priority
@@ -554,7 +556,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = AccountTypeAPIKey
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = concurrency
 		existing.Priority = priority
@@ -704,7 +708,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = AccountTypeOAuth
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = concurrency
 		existing.Priority = priority
@@ -727,7 +733,7 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		// 母账号 proxy 经 CRS 改动后同步到其 spark 影子,避免影子保留旧 proxy 出现出站漂移(外审第8轮)。
 		// 影子 proxy 恒继承母账号(创建即继承、AdminService 编辑也传播)。best-effort:母账号本身已成功
 		// 更新,影子传播失败仅记录告警,不回退该条目状态。
-		if perr := propagateAccountProxyToShadows(ctx, s.accountRepo, existing.ID, existing.ProxyID); perr != nil {
+		if perr := propagateAccountProxyToShadows(ctx, s.accountRepo, existing.ID, existing.ProxyID, existing.ProxyGroupID); perr != nil {
 			slog.Warn("crs_sync_propagate_proxy_to_shadows_failed", "account_id", existing.ID, "error", perr)
 		}
 
@@ -861,7 +867,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = AccountTypeAPIKey
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = concurrency
 		existing.Priority = priority
@@ -993,7 +1001,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = AccountTypeOAuth
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = 3
 		existing.Priority = clampPriority(src.Priority)
@@ -1120,7 +1130,9 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		existing.Type = AccountTypeAPIKey
 		existing.Credentials = credentials
 		if proxyID != nil {
-			existing.ProxyID = proxyID
+			if existing.ProxyGroupID == nil {
+				existing.ProxyID = proxyID
+			}
 		}
 		existing.Concurrency = 3
 		existing.Priority = clampPriority(src.Priority)

@@ -302,7 +302,7 @@ func lockOllamaCloudUsageGroup(
 				AND platform = $3
 				AND type = $4
 				AND credentials = $5::jsonb
-				AND proxy_id IS NOT DISTINCT FROM $6,
+				AND proxy_id IS NOT DISTINCT FROM $6 AND proxy_group_id IS NOT DISTINCT FROM $7,
 			COALESCE((extra -> 'ollama_cloud_usage_session')::text, 'null'),
 			COALESCE((extra -> 'ollama_cloud_usage_auto_refresh')::text, 'null'),
 			COALESCE((extra -> 'ollama_cloud_usage_snapshot')::text, 'null')
@@ -312,7 +312,7 @@ func lockOllamaCloudUsageGroup(
 			AND credentials ->> 'api_key' = $1
 		ORDER BY id
 		FOR NO KEY UPDATE
-	`, apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID)
+	`, apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
 	if err != nil {
 		return nil, err
 	}

@@ -72,7 +72,7 @@ func expectOllamaCloudUsageGroupLock(
 		proxyID = *account.ProxyID
 	}
 	mock.ExpectQuery(`(?s)`+regexp.QuoteMeta("SELECT")+`.*`+regexp.QuoteMeta("FOR NO KEY UPDATE")).
-		WithArgs(apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID).
+		WithArgs(apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "anchor_matches", "session", "auto_refresh", "snapshot"}).
 			AddRow(account.ID, anchorMatches, sessionJSON, autoJSON, snapshotJSON))
 }

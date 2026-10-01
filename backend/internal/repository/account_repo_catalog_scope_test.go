@@ -34,7 +34,7 @@ func (f catalogScopeFixture) QueryContext(ctx context.Context, query string, arg
  SELECT * FROM jsonb_to_recordset($%d::jsonb) AS a(
  id bigint, platform text, type text, status text, schedulable boolean,
  parent_account_id bigint, expires_at timestamptz, auto_pause_on_expired boolean,
- temp_unschedulable_until timestamptz, credentials jsonb, extra jsonb, deleted_at timestamptz)
+ temp_unschedulable_until timestamptz, workspace_id bigint, proxy_id bigint, proxy_group_id bigint, credentials jsonb, extra jsonb, deleted_at timestamptz)
 ), account_groups(account_id, group_id) AS (VALUES (1::bigint, 3::bigint), (2, 3), (3, 4), (5, 3), (6, 3), (7, 3), (8, 3), (1, 5), (1, 6), (1, 7), (1, 8)),
 groups(id, platform, account_type) AS (VALUES
  (3::bigint, 'composite'::text, ''::text), (4, 'composite', NULL),
@@ -55,7 +55,7 @@ func catalogScopeAccounts(t *testing.T) string {
 	rows := make([]map[string]any, 0, 8)
 	for i, platform := range []string{"openai", "anthropic", "openai", "openai", "openai", "openai", "openai", "composite"} {
 		rows = append(rows, map[string]any{
-			"id": i + 1, "platform": platform, "type": "apikey", "status": "active",
+			"id": i + 1, "workspace_id": 1, "platform": platform, "type": "apikey", "status": "active",
 			"schedulable": true, "auto_pause_on_expired": false,
 			"credentials": map[string]any{"api_key": "secret", "model_mapping": map[string]string{"alias": "native"}},
 			"extra": map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{
@@ -78,7 +78,7 @@ func TestModelCatalogScopeQueryParameters(t *testing.T) {
 	// normalizes nil to an empty array and treats cardinality 0 as no platform
 	// restriction; composite entry still passes the explicit ConcretePlatforms.
 	const query = `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
- a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until,
+ a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until, a.workspace_id, a.proxy_id, a.proxy_group_id,
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)

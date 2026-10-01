@@ -28,9 +28,9 @@ func TestModelCatalogCompositePlatformArgument(t *testing.T) {
 			mock.ExpectQuery(regexp.QuoteMeta("cardinality($2::text[]) = 0 OR a.platform = ANY($2::text[])")).
 				WithArgs(int64(0), "{}", int64(42), false).
 				WillReturnRows(sqlmock.NewRows([]string{
-					"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "credentials", "extra",
-				}).AddRow(1, "openai", "apikey", "active", true, nil, nil, false, nil, `{}`, `{}`).
-					AddRow(2, "anthropic", "apikey", "active", true, nil, nil, false, nil, `{}`, `{}`))
+					"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "workspace_id", "proxy_id", "proxy_group_id", "credentials", "extra",
+				}).AddRow(1, "openai", "apikey", "active", true, nil, nil, false, nil, 1, nil, nil, `{}`, `{}`).
+					AddRow(2, "anthropic", "apikey", "active", true, nil, nil, false, nil, 1, nil, nil, `{}`, `{}`))
 			groupID := int64(42)
 			accounts, err := repo.ListModelCatalogAccounts(context.Background(), &groupID, platforms, false)
 			require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestModelCatalogPlatformFilteringPostgres(t *testing.T) {
 	ctx := domain.WithWorkspaceScope(context.Background(), 1)
 	_, err := db.ExecContext(ctx, `
 CREATE TABLE accounts (
- id bigint PRIMARY KEY, workspace_id bigint DEFAULT 1, platform text, type text,
+ id bigint PRIMARY KEY, workspace_id bigint DEFAULT 1, proxy_id bigint, proxy_group_id bigint, platform text, type text,
  status text DEFAULT 'active', schedulable boolean DEFAULT true,
  parent_account_id bigint, expires_at timestamptz, auto_pause_on_expired boolean DEFAULT false,
  temp_unschedulable_until timestamptz, deleted_at timestamptz,
@@ -126,8 +126,8 @@ func TestModelCatalogBatchReadsSharedAccountOnce(tester *testing.T) {
 	repository := &accountRepository{sql: database}
 	expectations.ExpectQuery(regexp.QuoteMeta("membership.group_id=ANY($5::bigint[])")).
 		WithArgs(int64(0), "{}", nil, true, "{7,9}").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "credentials", "extra", "group_ids"}).
-			AddRow(11, "openai", "apikey", "active", true, nil, nil, false, nil, `{}`, `{}`, "{7,9}"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "workspace_id", "proxy_id", "proxy_group_id", "credentials", "extra", "group_ids"}).
+			AddRow(11, "openai", "apikey", "active", true, nil, nil, false, nil, 1, nil, nil, `{}`, `{}`, "{7,9}"))
 	accounts, err := repository.ListModelCatalogAccountsForGroups(context.Background(), []int64{7, 9})
 	require.NoError(tester, err)
 	require.Len(tester, accounts, 1)

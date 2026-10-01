@@ -27,6 +27,7 @@ type CursorAuthorizationStatus struct {
 }
 
 type cursorAuthorization struct {
+	proxyURL string
 	mu       sync.Mutex
 	state    CursorAuthorizationStatus
 	pkce     cursor.PKCE
@@ -76,7 +77,7 @@ func (service *CursorAuthService) Poll(ctx context.Context, id string, cancel bo
 	return service.PollBound(ctx, id, "", cancel)
 }
 
-func (service *CursorAuthService) StartDraft(binding string, draft func(context.Context, map[string]any) (*AccountCredentialDraft, error)) (CursorAuthorizationStatus, error) {
+func (service *CursorAuthService) StartDraft(binding string, draft func(context.Context, map[string]any) (*AccountCredentialDraft, error), proxyURLs ...string) (CursorAuthorizationStatus, error) {
 	if binding == "" || draft == nil {
 		return CursorAuthorizationStatus{}, ErrPendingAuthBrowserMismatch
 	}
@@ -87,6 +88,9 @@ func (service *CursorAuthService) StartDraft(binding string, draft func(context.
 	service.mu.Lock()
 	session := service.sessions[state.ID]
 	session.binding, session.draft = binding, draft
+	if len(proxyURLs) > 0 {
+		session.proxyURL = proxyURLs[0]
+	}
 	service.mu.Unlock()
 	return state, nil
 }
@@ -106,6 +110,7 @@ func (service *CursorAuthService) PollBound(ctx context.Context, id, binding str
 	finish := func(status, message string) {
 		session.state.Status, session.state.Message = status, message
 		session.pkce = cursor.PKCE{}
+		session.proxyURL = ""
 		session.persist = nil
 		session.draft = nil
 	}
@@ -129,6 +134,9 @@ func (service *CursorAuthService) PollBound(ctx context.Context, id, binding str
 	session.nextPoll = service.now().Add(cursorAuthorizationInterval)
 	pollCtx, stop := context.WithDeadline(ctx, session.state.ExpiresAt)
 	defer stop()
+	if session.proxyURL != "" {
+		pollCtx = cursor.WithAccountProxy(pollCtx, session.proxyURL, false)
+	}
 	tokens, err := service.poll(pollCtx, session.pkce)
 	if !service.now().Before(session.state.ExpiresAt) {
 		finish("timeout", "Cursor authorization timed out; start again")

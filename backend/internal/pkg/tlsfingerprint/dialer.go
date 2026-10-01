@@ -47,6 +47,14 @@ type HTTPProxyDialer struct {
 	proxyURL *url.URL
 }
 
+// ProxyConnectError marks only failure to reach the proxy itself or an explicit
+// CONNECT authentication rejection, before any provider application write.
+// Destination CONNECT failures and tunneled TLS errors must remain unmarked.
+type ProxyConnectError struct{ Err error }
+
+func (e *ProxyConnectError) Error() string { return e.Err.Error() }
+func (e *ProxyConnectError) Unwrap() error { return e.Err }
+
 // SOCKS5ProxyDialer creates TLS connections through SOCKS5 proxies with custom fingerprints.
 // It uses golang.org/x/net/proxy to establish the SOCKS5 tunnel.
 type SOCKS5ProxyDialer struct {
@@ -203,7 +211,11 @@ func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr stri
 	conn, err := dialer.DialContext(ctx, "tcp", proxyAddr)
 	if err != nil {
 		slog.Debug("tls_fingerprint_http_proxy_connect_failed", "error", err)
-		return nil, fmt.Errorf("connect to proxy: %w", err)
+		failure := fmt.Errorf("connect to proxy: %w", err)
+		if ctx.Err() == nil {
+			return nil, &ProxyConnectError{Err: failure}
+		}
+		return nil, failure
 	}
 	slog.Debug("tls_fingerprint_http_proxy_connected", "proxy_addr", proxyAddr)
 
@@ -244,7 +256,11 @@ func (d *HTTPProxyDialer) DialTLSContext(ctx context.Context, network, addr stri
 	if resp.StatusCode != http.StatusOK {
 		_ = conn.Close()
 		slog.Debug("tls_fingerprint_http_proxy_connect_failed_status", "status_code", resp.StatusCode, "status", resp.Status)
-		return nil, fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
+		failure := fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
+		if resp.StatusCode == http.StatusProxyAuthRequired && ctx.Err() == nil {
+			return nil, &ProxyConnectError{Err: failure}
+		}
+		return nil, failure
 	}
 	slog.Debug("tls_fingerprint_http_proxy_tunnel_established")
 

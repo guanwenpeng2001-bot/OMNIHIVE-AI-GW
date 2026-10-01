@@ -55,20 +55,20 @@ func (repo *cursorOAuthMemoryRepo) SetTempUnschedulable(_ context.Context, _ int
 	return nil
 }
 
-func (repo *cursorOAuthMemoryRepo) UpdateCursorOAuthCredentialsIfUnchanged(_ context.Context, _ int64, expected, credentials map[string]any) (bool, error) {
+func (repo *cursorOAuthMemoryRepo) UpdateCursorOAuthCredentialsIfUnchanged(_ context.Context, _ int64, expected map[string]any, expectedProxyGroupID *int64, credentials map[string]any) (bool, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
-	if !reflect.DeepEqual(repo.account.Credentials, expected) {
+	if !reflect.DeepEqual(repo.account.Credentials, expected) || !reflect.DeepEqual(repo.account.ProxyGroupID, expectedProxyGroupID) {
 		return false, nil
 	}
 	repo.account.Credentials = shallowCopyMap(credentials)
 	repo.writes = append(repo.writes, shallowCopyMap(credentials))
 	return true, nil
 }
-func (repo *cursorOAuthMemoryRepo) SetCursorOAuthRefreshFailureIfUnchanged(_ context.Context, _ int64, expected map[string]any, permanent bool, until time.Time) (bool, error) {
+func (repo *cursorOAuthMemoryRepo) SetCursorOAuthRefreshFailureIfUnchanged(_ context.Context, _ int64, expected map[string]any, expectedProxyGroupID *int64, permanent bool, until time.Time) (bool, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
-	if !reflect.DeepEqual(repo.account.Credentials, expected) {
+	if !reflect.DeepEqual(repo.account.Credentials, expected) || !reflect.DeepEqual(repo.account.ProxyGroupID, expectedProxyGroupID) {
 		return false, nil
 	}
 	if permanent {

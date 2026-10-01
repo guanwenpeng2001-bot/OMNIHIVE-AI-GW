@@ -44,6 +44,7 @@ import (
 //   - sql: 原生 SQL 执行器，用于复杂查询和批量操作
 //   - schedulerCache: 调度器缓存，用于在账号状态变更时同步快照
 type accountRepository struct {
+	egressRuntime       *service.ProxyGroupRuntime
 	credentialEncryptor service.SecretEncryptor
 	client              *dbent.Client // Ent ORM 客户端
 	sql                 sqlExecutor   // 原生 SQL 执行接口
@@ -144,6 +145,11 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 }
 
 func createAccountRecord(ctx context.Context, client *dbent.Client, account *service.Account) error {
+	if account != nil {
+		if err := account.ValidateProxyConfiguration(); err != nil {
+			return err
+		}
+	}
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
@@ -378,6 +384,9 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
 		out := accountEntityToService(entAcc)
+		if out != nil {
+			out.AttachEgress(r.egressRuntime)
+		}
 		if out == nil {
 			continue
 		}
@@ -493,6 +502,11 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
+	if account != nil {
+		if err := account.ValidateProxyConfiguration(); err != nil {
+			return err
+		}
+	}
 	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier, false, false)
 }
 
@@ -700,6 +714,9 @@ func (r *accountRepository) updateLockedAccount(
 	} else {
 		builder.ClearProxyID()
 	}
+	if account.ProxyConfigurationUpdated() || !reflect.DeepEqual(account.ProxyID, current.ProxyID) || !reflect.DeepEqual(account.ProxyGroupID, current.ProxyGroupID) {
+		builder.ClearProxyFallbackOriginID()
+	}
 	if account.ProxyGroupID != nil {
 		if err := validateAccountProxyGroup(ctx, client, account.ProxyGroupID, current.WorkspaceID); err != nil {
 			return nil, err
@@ -778,7 +795,7 @@ func lockAndMergeAccountProbeExtra(
 			platform = $2
 			AND type = $3
 			AND credentials = $4::jsonb
-			AND proxy_id IS NOT DISTINCT FROM $5,
+			AND proxy_id IS NOT DISTINCT FROM $5 AND proxy_group_id IS NOT DISTINCT FROM $6,
 			COALESCE(
 				platform IN (`+ollamaCloudUsagePlatformsSQL+`)
 				AND $2 IN (`+ollamaCloudUsagePlatformsSQL+`)
@@ -789,7 +806,7 @@ func lockAndMergeAccountProbeExtra(
 				AND `+ollamaCloudBaseURLMatchesSQL("$4::jsonb ->> 'base_url'")+`,
 				false
 			),
-			proxy_id IS NOT DISTINCT FROM $5,
+			proxy_id IS NOT DISTINCT FROM $5 AND proxy_group_id IS NOT DISTINCT FROM $6,
 			extra -> 'upstream_billing_probe_enabled',
 			extra -> 'upstream_billing_rate_sync_enabled',
 			extra -> 'upstream_billing_probe',
@@ -799,7 +816,7 @@ func lockAndMergeAccountProbeExtra(
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
-	`, account.ID, account.Platform, account.Type, string(credentials), proxyID)
+	`, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -1615,6 +1632,7 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
 			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
 			AND a.credentials = $7::jsonb
+			AND a.proxy_group_id IS NOT DISTINCT FROM $11
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 			AND ($2 <> $9 OR (
 				a.proxy_id IS NOT NULL AND NOT EXISTS (
@@ -1627,7 +1645,7 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 		SELECT $10, updated.id, NULL, NULL FROM updated
 	`, service.StatusError, errorMsg, id, service.StatusActive, service.PlatformGrok, service.AccountTypeOAuth,
 		snapshot.CredentialsJSON, snapshot.ProxyID, string(service.GrokCredentialReasonProxyInvalid),
-		service.SchedulerOutboxEventAccountChanged)
+		service.SchedulerOutboxEventAccountChanged, snapshot.ProxyGroupID)
 	if err != nil {
 		return false, err
 	}
@@ -1651,7 +1669,7 @@ func (r *accountRepository) SetGrokOAuthErrorIfCredentialsUnchanged(
 	errorMsg string,
 ) (bool, error) {
 	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
-		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, nil, false,
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, nil, nil, false,
 			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
 				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
 			})
@@ -1714,11 +1732,11 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 	ctx context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	credentials map[string]any,
 ) (bool, error) {
 	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
-		return r.updateReferencedOAuthCredentials(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true, credentials)
+		return r.updateReferencedOAuthCredentials(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, expectedProxyGroupID, true, credentials)
 	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
@@ -1742,6 +1760,7 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 			AND a.platform = $3
 			AND a.type = $4
 			AND a.credentials = $5::jsonb
+			AND a.proxy_group_id IS NOT DISTINCT FROM $8
 			AND a.proxy_id IS NOT DISTINCT FROM $6
 		RETURNING a.id
 		)
@@ -1754,7 +1773,7 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 		service.AccountTypeOAuth,
 		string(expectedJSON),
 		expectedProxyID,
-		service.SchedulerOutboxEventAccountChanged,
+		service.SchedulerOutboxEventAccountChanged, expectedProxyGroupID,
 	)
 	if err != nil {
 		return false, err
@@ -1778,11 +1797,11 @@ func (r *accountRepository) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 	ctx context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	errorMsg string,
 ) (bool, error) {
 	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
-		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, expectedProxyGroupID, true,
 			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
 				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
 			})
@@ -1807,6 +1826,7 @@ func (r *accountRepository) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 			AND a.type = $5
 			AND a.status = $6
 			AND a.credentials = $7::jsonb
+			AND a.proxy_group_id IS NOT DISTINCT FROM $10
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 		RETURNING a.id
 		)
@@ -1821,7 +1841,7 @@ func (r *accountRepository) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 		service.StatusActive,
 		string(expectedJSON),
 		expectedProxyID,
-		service.SchedulerOutboxEventAccountChanged,
+		service.SchedulerOutboxEventAccountChanged, expectedProxyGroupID,
 	)
 	if err != nil {
 		return false, err
@@ -1844,12 +1864,12 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 	ctx context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	until time.Time,
 	reason string,
 ) (bool, error) {
 	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
-		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, expectedProxyGroupID, true,
 			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
 				return repository.markOAuthTempUnschedulableLocked(lockedCtx, id, until, reason, true)
 			})
@@ -1873,6 +1893,7 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 			AND a.type = $5
 			AND a.status = $6
 			AND a.credentials = $7::jsonb
+			AND a.proxy_group_id IS NOT DISTINCT FROM $10
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until < $1)
 		RETURNING a.id
@@ -1888,7 +1909,7 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 		service.StatusActive,
 		string(expectedJSON),
 		expectedProxyID,
-		service.SchedulerOutboxEventAccountChanged,
+		service.SchedulerOutboxEventAccountChanged, expectedProxyGroupID,
 	)
 	if err != nil {
 		return false, err
@@ -2436,7 +2457,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
 		arguments = append(arguments, pq.Array(groupIDs[0]))
 	}
 	rows, err := r.sql.QueryContext(ctx, `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
- a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until,
+ a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until, a.workspace_id, a.proxy_id, a.proxy_group_id,
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
@@ -2461,7 +2482,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
 	for rows.Next() {
 		var a service.Account
 		var credentials, extra []byte
-		destinations := []any{&a.ID, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ParentAccountID, &a.ExpiresAt, &a.AutoPauseOnExpired, &a.TempUnschedulableUntil, &credentials, &extra}
+		destinations := []any{&a.ID, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ParentAccountID, &a.ExpiresAt, &a.AutoPauseOnExpired, &a.TempUnschedulableUntil, &a.WorkspaceID, &a.ProxyID, &a.ProxyGroupID, &credentials, &extra}
 		if len(groupIDs) > 0 {
 			destinations = append(destinations, pq.Array(&a.GroupIDs))
 		}
@@ -2713,13 +2734,14 @@ func (r *accountRepository) SetGrokCredentialTempUnschedulableIfMatch(
 			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
 			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
 			AND a.credentials = $7::jsonb
+			AND a.proxy_group_id IS NOT DISTINCT FROM $10
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 		RETURNING a.id
 		)
 		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
 		SELECT $9, updated.id, NULL, NULL FROM updated
 	`, until, reason, id, service.StatusActive, service.PlatformGrok, service.AccountTypeOAuth,
-		snapshot.CredentialsJSON, snapshot.ProxyID, service.SchedulerOutboxEventAccountChanged)
+		snapshot.CredentialsJSON, snapshot.ProxyID, service.SchedulerOutboxEventAccountChanged, snapshot.ProxyGroupID)
 	if err != nil {
 		return false, err
 	}
@@ -3112,12 +3134,12 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 			AND platform = $3
 			AND type = $4
 			AND credentials = $5::jsonb
-			AND proxy_id IS NOT DISTINCT FROM $6
+			AND proxy_id IS NOT DISTINCT FROM $6 AND proxy_group_id IS NOT DISTINCT FROM $11
 			AND COALESCE(extra -> 'upstream_billing_probe', 'null'::jsonb) = $7::jsonb
 			AND COALESCE(extra -> 'upstream_billing_probe_enabled', 'null'::jsonb) = $8::jsonb
 			AND COALESCE(extra -> 'upstream_billing_rate_sync_enabled', 'null'::jsonb) = $9::jsonb
 			AND deleted_at IS NULL
-	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), string(expectedRateSyncEnabledJSON), rateMultiplier)
+	`, string(payload), account.ID, account.Platform, account.Type, string(credentials), proxyID, string(expectedSnapshotJSON), string(expectedEnabledJSON), string(expectedRateSyncEnabledJSON), rateMultiplier, account.ProxyGroupID)
 	if err != nil {
 		return err
 	}
@@ -3215,6 +3237,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
 
+	if updates.ProxyID != nil || updates.ProxyGroupID != nil {
+		setClauses = append(setClauses, "proxy_fallback_origin_id = NULL")
+	}
 	idx := 1
 	ollamaProxyIdentityChanged := ""
 	proxySetClause := ""
@@ -3234,6 +3259,25 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			ollamaProxyIdentityChanged = "proxy_id IS DISTINCT FROM " + proxyPlaceholder
 			args = append(args, *updates.ProxyID)
 			idx++
+		}
+	}
+
+	if updates.ProxyGroupID != nil {
+		if *updates.ProxyGroupID == 0 {
+			setClauses = append(setClauses, "proxy_group_id = NULL")
+		} else {
+			setClauses = append(setClauses, "proxy_group_id = $"+itoa(idx))
+			args = append(args, *updates.ProxyGroupID)
+			idx++
+		}
+		groupChanged := "proxy_group_id IS DISTINCT FROM NULL"
+		if *updates.ProxyGroupID != 0 {
+			groupChanged = "proxy_group_id IS DISTINCT FROM $" + itoa(idx-1)
+		}
+		if ollamaProxyIdentityChanged == "" {
+			ollamaProxyIdentityChanged = groupChanged
+		} else {
+			ollamaProxyIdentityChanged = "(" + ollamaProxyIdentityChanged + " OR " + groupChanged + ")"
 		}
 	}
 	if updates.TPMLimit != nil {
@@ -3403,6 +3447,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 
+	if updates.ProxyGroupID != nil || updates.ProxyID != nil {
+		if err := validateBulkAccountProxyGroups(ctx, exec, clientFromContext(ctx, r.client), ids, updates); err != nil {
+			return 0, err
+		}
+	}
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, err
@@ -4230,7 +4279,7 @@ func (r *accountRepository) RevertProxyFallback(ctx context.Context, accountID i
 			extra=CASE WHEN type='apikey' AND proxy_id IS DISTINCT FROM proxy_fallback_origin_id
 				THEN extra - 'upstream_billing_probe' ELSE extra END,
 			proxy_id=proxy_fallback_origin_id, proxy_fallback_origin_id=NULL, updated_at=NOW()
-		WHERE id=$1 AND proxy_fallback_origin_id IS NOT NULL AND deleted_at IS NULL`, accountID)
+		WHERE id=$1 AND proxy_fallback_origin_id IS NOT NULL AND proxy_group_id IS NULL AND deleted_at IS NULL`, accountID)
 	if err != nil {
 		return err
 	}
@@ -4262,6 +4311,7 @@ func (r *accountRepository) ListShadowsByParent(ctx context.Context, parentID in
 	out := make([]*service.Account, 0, len(rows))
 	for _, m := range rows {
 		a := accountEntityToService(m)
+		a.AttachEgress(r.egressRuntime)
 		if a.ProxyGroupID != nil && proxyGroups[*a.ProxyGroupID] != nil && proxyGroups[*a.ProxyGroupID].WorkspaceID == a.WorkspaceID {
 			a.ProxyGroup = proxyGroups[*a.ProxyGroupID]
 		}

@@ -106,7 +106,11 @@ func (s *OpenAIGatewayService) ForwardQianwenImages(ctx context.Context, c *gin.
 	account.ApplyHeaderOverrides(req.Header)
 	req.Header.Del("X-DashScope-Async")
 	req.Header.Del("X-DashScope-SSE")
-	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	resp, err := s.doOpenAIUpstream(req, accountProxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

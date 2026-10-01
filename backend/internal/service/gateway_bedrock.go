@@ -92,9 +92,9 @@ func (s *GatewayService) forwardBedrock(
 		return nil, fmt.Errorf("prepare bedrock request body: %w", err)
 	}
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 
 	logger.LegacyPrintf("service.gateway", "[Bedrock] 命中 Bedrock 分支: account=%d name=%s model=%s->%s stream=%v",
@@ -203,7 +203,7 @@ func (s *GatewayService) executeBedrockUpstream(
 		if err := validateAccountForwardModel(ctx, s.accountRepo, account, modelID, "messages"); err != nil {
 			return nil, err
 		}
-		resp, err = generationDoWithTLS(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+		resp, err = generationDoWithTLS(accountHTTPUpstream(s.httpUpstream, account), upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

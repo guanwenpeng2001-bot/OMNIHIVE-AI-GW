@@ -29,8 +29,12 @@ func TestModelsDevCacheSingleSlotIdentityAndExpiry(t *testing.T) {
 	_, err = service.fetchModelsDevRegistry(context.Background(), second)
 	require.NoError(t, err)
 	require.Equal(t, int32(2), upstream.calls.Load())
-	firstKey := service.modelsDevDownloadSnapshot(first).downloadKey
-	secondKey := service.modelsDevDownloadSnapshot(second).downloadKey
+	firstKeySnapshot, err := service.modelsDevDownloadSnapshot(context.Background(), first)
+	require.NoError(t, err)
+	firstKey := firstKeySnapshot.downloadKey
+	secondKeySnapshot, err := service.modelsDevDownloadSnapshot(context.Background(), second)
+	require.NoError(t, err)
+	secondKey := secondKeySnapshot.downloadKey
 	require.NotEqual(t, firstKey, secondKey)
 	missing, _ := service.boundedModelsDevRegistry(firstKey)
 	require.Nil(t, missing, "single slot replaces rather than retains prior identity")
@@ -54,7 +58,9 @@ func TestModelsDevCacheExpiryPreservesDownload(t *testing.T) {
 	upstream := &capabilityRegistryHTTP{start: make(chan struct{}, 1), release: make(chan struct{})}
 	service := &AccountTestService{httpUpstream: upstream}
 	account := &Account{}
-	key := service.modelsDevDownloadSnapshot(account).downloadKey
+	keySnapshot, err := service.modelsDevDownloadSnapshot(context.Background(), account)
+	require.NoError(t, err)
+	key := keySnapshot.downloadKey
 	service.modelMetadataRegistryKey = key
 	service.modelMetadataRegistryAt = time.Now().Add(-modelsDevRegistryTTL - modelsDevStaleGrace - time.Second)
 	service.modelMetadataRegistry = map[string]modelsDevProvider{"old": {Version: "expired"}}

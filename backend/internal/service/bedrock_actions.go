@@ -146,7 +146,11 @@ func (s *OpenAIGatewayService) sendBedrockActionRequest(ctx context.Context, acc
 	if err := applyBedrockActionAuth(request.Context(), account, request, payload, service); err != nil {
 		return nil, err
 	}
-	return generationDo(s.httpUpstream, request, upstreamModelsProxyURL(account), account.ID, account.Concurrency)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
+	return generationDo(accountHTTPUpstream(s.httpUpstream, account), request, accountProxyURL, account.ID, account.Concurrency)
 }
 
 // handleBedrockActionHTTPError reuses the OpenAI-shaped compat error chain so a
@@ -242,7 +246,11 @@ func (s *GatewayService) ForwardBedrockCountTokens(ctx context.Context, c *gin.C
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Failed to sign upstream request")
 		return err
 	}
-	resp, err := generationDo(s.httpUpstream, request, upstreamModelsProxyURL(account), account.ID, account.Concurrency)
+	accountProxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return egressErr
+	}
+	resp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), request, accountProxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		s.countTokensError(c, http.StatusBadGateway, "upstream_error", "Request failed")
 		return err

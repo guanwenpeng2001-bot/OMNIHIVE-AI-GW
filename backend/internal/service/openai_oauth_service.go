@@ -14,6 +14,7 @@ import (
 
 // OpenAIOAuthService handles OpenAI OAuth authentication flows
 type OpenAIOAuthService struct {
+	egressRuntime        *ProxyGroupRuntime
 	sessionStore         *openai.SessionStore
 	proxyRepo            ProxyRepository
 	oauthClient          OpenAIOAuthClient
@@ -42,7 +43,7 @@ type OpenAIAuthURLResult struct {
 }
 
 // GenerateAuthURL generates an OpenAI OAuth authorization URL
-func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, platform string) (*OpenAIAuthURLResult, error) {
+func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64, redirectURI, platform string, proxyGroupIDs ...*int64) (*OpenAIAuthURLResult, error) {
 	// Generate PKCE values
 	state, err := openai.GenerateState()
 	if err != nil {
@@ -63,8 +64,13 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 	}
 
 	// Get proxy URL if specified
+	selection, err := resolveOAuthEgress(ctx, s.egressRuntime, proxyID, proxyGroupIDs, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	var proxyURL string
-	if proxyID != nil {
+	if proxyID != nil && *proxyID > 0 {
 		proxy, err := s.proxyRepo.GetByID(ctx, *proxyID)
 		if err != nil {
 			return nil, infraerrors.Newf(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy not found: %v", err)
@@ -72,6 +78,9 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		if proxy != nil {
 			proxyURL = proxy.URL()
 		}
+	}
+	if selection != nil {
+		proxyURL = selection.URL
 	}
 
 	// Use default redirect URI if not specified
@@ -87,6 +96,7 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 		CodeVerifier: codeVerifier,
 		ClientID:     clientID,
 		RedirectURI:  redirectURI,
+		Egress:       selection,
 		ProxyURL:     proxyURL,
 		CreatedAt:    time.Now(),
 	}
@@ -103,30 +113,32 @@ func (s *OpenAIOAuthService) GenerateAuthURL(ctx context.Context, proxyID *int64
 
 // OpenAIExchangeCodeInput represents the input for code exchange
 type OpenAIExchangeCodeInput struct {
-	SessionID   string
-	Code        string
-	State       string
-	RedirectURI string
-	ProxyID     *int64
+	SessionID    string
+	Code         string
+	State        string
+	RedirectURI  string
+	ProxyID      *int64
+	ProxyGroupID *int64
 }
 
 // OpenAITokenInfo represents the token information for OpenAI
 type OpenAITokenInfo struct {
-	AccessToken           string `json:"access_token"`
-	RefreshToken          string `json:"refresh_token"`
-	IDToken               string `json:"id_token,omitempty"`
-	ExpiresIn             int64  `json:"expires_in"`
-	ExpiresAt             int64  `json:"expires_at"`
-	ClientID              string `json:"client_id,omitempty"`
-	AuthMode              string `json:"auth_mode,omitempty"`
-	Email                 string `json:"email,omitempty"`
-	ChatGPTAccountID      string `json:"chatgpt_account_id,omitempty"`
-	ChatGPTUserID         string `json:"chatgpt_user_id,omitempty"`
-	ChatGPTAccountFedRAMP bool   `json:"chatgpt_account_is_fedramp,omitempty"`
-	OrganizationID        string `json:"organization_id,omitempty"`
-	PlanType              string `json:"plan_type,omitempty"`
-	SubscriptionExpiresAt string `json:"subscription_expires_at,omitempty"`
-	PrivacyMode           string `json:"privacy_mode,omitempty"`
+	Egress                *OAuthEgressSelection `json:"-"`
+	AccessToken           string                `json:"access_token"`
+	RefreshToken          string                `json:"refresh_token"`
+	IDToken               string                `json:"id_token,omitempty"`
+	ExpiresIn             int64                 `json:"expires_in"`
+	ExpiresAt             int64                 `json:"expires_at"`
+	ClientID              string                `json:"client_id,omitempty"`
+	AuthMode              string                `json:"auth_mode,omitempty"`
+	Email                 string                `json:"email,omitempty"`
+	ChatGPTAccountID      string                `json:"chatgpt_account_id,omitempty"`
+	ChatGPTUserID         string                `json:"chatgpt_user_id,omitempty"`
+	ChatGPTAccountFedRAMP bool                  `json:"chatgpt_account_is_fedramp,omitempty"`
+	OrganizationID        string                `json:"organization_id,omitempty"`
+	PlanType              string                `json:"plan_type,omitempty"`
+	SubscriptionExpiresAt string                `json:"subscription_expires_at,omitempty"`
+	PrivacyMode           string                `json:"privacy_mode,omitempty"`
 }
 
 // ExchangeCode exchanges authorization code for tokens
@@ -144,8 +156,11 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 	}
 
 	// Get proxy URL: prefer input.ProxyID, fallback to session.ProxyURL
+	if err := validateOAuthSessionEgress(session.Egress, input.ProxyID, input.ProxyGroupID); err != nil {
+		return nil, err
+	}
 	proxyURL := session.ProxyURL
-	if input.ProxyID != nil {
+	if input.ProxyID != nil && *input.ProxyID > 0 && session.Egress == nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *input.ProxyID)
 		if err != nil {
 			return nil, infraerrors.Newf(http.StatusBadRequest, "OPENAI_OAUTH_PROXY_NOT_FOUND", "proxy not found: %v", err)
@@ -185,7 +200,7 @@ func (s *OpenAIOAuthService) ExchangeCode(ctx context.Context, input *OpenAIExch
 	// Delete session after successful exchange
 	s.sessionStore.Delete(input.SessionID)
 
-	tokenInfo := &OpenAITokenInfo{
+	tokenInfo := &OpenAITokenInfo{Egress: session.Egress,
 		AccessToken:  tokenResp.AccessToken,
 		RefreshToken: tokenResp.RefreshToken,
 		IDToken:      tokenResp.IDToken,
@@ -344,7 +359,10 @@ func (s *OpenAIOAuthService) RefreshAccountToken(ctx context.Context, account *A
 		return nil, infraerrors.New(http.StatusBadRequest, "OPENAI_OAUTH_INVALID_ACCOUNT_TYPE", "account is not an OAuth account")
 	}
 
-	var proxyURL string
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	if account.ProxyID != nil && s.proxyRepo != nil {
 		proxy, err := s.proxyRepo.GetByID(ctx, *account.ProxyID)
 		if err == nil && proxy != nil {

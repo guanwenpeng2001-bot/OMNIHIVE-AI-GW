@@ -259,7 +259,11 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	accountID := account.ID
 	holdID := BatchImageHoldRequestID(batchID)
 	holdAmount := pricingSnapshot.HoldAmount
-	job, err := s.Repo.CreateBatchImageJob(ctx, CreateBatchImageJobParams{
+	egressSnapshot, err := account.PinJobEgress(ctx)
+	if err != nil {
+		return nil, err
+	}
+	job, err := s.Repo.CreateBatchImageJob(ctx, CreateBatchImageJobParams{EgressSnapshot: egressSnapshot,
 		BatchID:                 batchID,
 		UserID:                  owner.UserID,
 		APIKeyID:                &apiKeyID,

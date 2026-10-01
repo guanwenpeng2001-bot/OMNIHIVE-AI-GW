@@ -71,6 +71,7 @@ type SyncUpstreamModelsPreviewRequest struct {
 	CredentialDraft         string            `json:"credential_draft"`
 	CredentialDraftRevision string            `json:"credential_draft_revision"`
 	ProxyID                 *int64            `json:"proxy_id"`
+	ProxyGroupID            *int64            `json:"proxy_group_id"`
 	Platform                string            `json:"platform" binding:"required"`
 	Type                    string            `json:"type" binding:"required"`
 	BaseURL                 string            `json:"base_url"`

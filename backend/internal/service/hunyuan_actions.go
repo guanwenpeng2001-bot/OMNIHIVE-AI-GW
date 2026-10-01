@@ -893,12 +893,12 @@ func (s *OpenAIGatewayService) ForwardHunyuanAction(
 	}
 	account.ApplyHeaderOverrides(upstreamReq.Header)
 
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 	upstreamStart := time.Now()
-	resp, err := generationDo(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), upstreamReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -1031,9 +1031,9 @@ func (s *OpenAIGatewayService) ForwardHunyuanVideoContent(
 	if err != nil {
 		return nil, err
 	}
-	proxyURL := ""
-	if account.ProxyID != nil && account.Proxy != nil {
-		proxyURL = account.Proxy.URL()
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
@@ -1047,7 +1047,7 @@ func (s *OpenAIGatewayService) ForwardHunyuanVideoContent(
 	account.ApplyHeaderOverrides(statusReq.Header)
 
 	upstreamStart := time.Now()
-	statusResp, err := generationDo(s.httpUpstream, statusReq, proxyURL, account.ID, account.Concurrency)
+	statusResp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), statusReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -1085,7 +1085,7 @@ func (s *OpenAIGatewayService) ForwardHunyuanVideoContent(
 		contentReq.Header.Set("Range", rangeHeader)
 	}
 	contentReq.Header.Set("Accept", "*/*")
-	contentResp, err := generationDo(s.httpUpstream, contentReq, proxyURL, account.ID, account.Concurrency)
+	contentResp, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), contentReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}

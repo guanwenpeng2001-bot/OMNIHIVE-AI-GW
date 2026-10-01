@@ -29,6 +29,7 @@ type CodexSessionImportRequest struct {
 	Notes                   *string                  `json:"notes"`
 	GroupIDs                []int64                  `json:"group_ids"`
 	ProxyID                 *int64                   `json:"proxy_id"`
+	ProxyGroupID            *int64                   `json:"proxy_group_id"`
 	Concurrency             *int                     `json:"concurrency"`
 	Priority                *int                     `json:"priority"`
 	RateMultiplier          *float64                 `json:"rate_multiplier"`
@@ -211,7 +212,7 @@ func (h *AccountHandler) prepareCodexSessionDrafts(ctx context.Context, binding 
 		credentials := mergeCodexImportMap(item.Credentials, sanitizeCodexImportCredentialExtras(req.CredentialExtras))
 		account := CreateAccountRequest{TPMLimit: req.TPMLimit, Name: buildCodexCreateAccountName(req.Name, item, entry.Index, len(entries)), Notes: req.Notes,
 			Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{},
-			Extra: mergeCodexImportMap(req.Extra, item.Extra), ProxyID: req.ProxyID, GroupIDs: req.GroupIDs,
+			Extra: mergeCodexImportMap(req.Extra, item.Extra), ProxyID: req.ProxyID, ProxyGroupID: req.ProxyGroupID, GroupIDs: req.GroupIDs,
 			Concurrency: 3, Priority: 50, RateMultiplier: req.RateMultiplier, LoadFactor: req.LoadFactor,
 			ExpiresAt: expiresAt, AutoPauseOnExpired: autoPause}
 		if req.Concurrency != nil {
@@ -237,6 +238,9 @@ func (h *AccountHandler) prepareCodexSessionDrafts(ctx context.Context, binding 
 			if req.ProxyID == nil {
 				account.ProxyID = existing.ProxyID
 			}
+			if req.ProxyGroupID == nil {
+				account.ProxyGroupID = existing.ProxyGroupID
+			}
 			if len(req.GroupIDs) == 0 {
 				account.GroupIDs = existing.GroupIDs
 			}
@@ -248,7 +252,11 @@ func (h *AccountHandler) prepareCodexSessionDrafts(ctx context.Context, binding 
 		prepared = append(prepared, preparedEntry{account: account, credentials: credentials})
 	}
 	for _, entry := range prepared {
-		draft, err := h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformOpenAI, service.AccountTypeOAuth, entry.credentials)
+		selection, err := h.credentialDrafts.ResolveAuthorizationEgress(ctx, entry.account.ProxyID, entry.account.ProxyGroupID)
+		var draft *service.AccountCredentialDraft
+		if err == nil {
+			draft, err = h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformOpenAI, service.AccountTypeOAuth, entry.credentials, selection)
+		}
 		if err != nil {
 			for _, issued := range result.Ready {
 				_ = h.credentialDrafts.CancelAccountCredentialDraft(ctx, issued.Draft.Reference, binding)

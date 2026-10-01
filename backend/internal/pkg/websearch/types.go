@@ -10,9 +10,10 @@ type SearchResult struct {
 
 // SearchRequest describes a web search to perform.
 type SearchRequest struct {
-	Query      string
-	MaxResults int    // defaults to defaultMaxResults if <= 0
-	ProxyURL   string // optional HTTP proxy URL
+	OverrideProxy bool // The account route is authoritative, including an empty host-default route.
+	Query         string
+	MaxResults    int    // defaults to defaultMaxResults if <= 0
+	ProxyURL      string // optional HTTP proxy URL
 }
 
 // SearchResponse holds the results of a web search.

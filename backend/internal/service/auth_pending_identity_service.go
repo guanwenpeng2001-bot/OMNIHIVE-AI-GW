@@ -77,7 +77,8 @@ type PendingIdentityAdoptionDecisionInput struct {
 }
 
 type AuthPendingIdentityService struct {
-	entClient *dbent.Client
+	egressRuntime *ProxyGroupRuntime
+	entClient     *dbent.Client
 }
 
 var authPendingIdentityScopedKeyLocks = newAuthPendingIdentityScopedKeyLockRegistry()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +30,7 @@ type GrokOAuthRefreshSuccessRepository interface {
 		ctx context.Context,
 		id int64,
 		expectedCredentials map[string]any,
-		expectedProxyID *int64,
+		expectedProxyID *int64, expectedProxyGroupID *int64,
 		credentials map[string]any,
 	) (bool, error)
 }
@@ -122,6 +123,10 @@ func snapshotOAuthRefreshAccount(account *Account) *Account {
 	if account.ProxyID != nil {
 		proxyID := *account.ProxyID
 		snapshot.ProxyID = &proxyID
+	}
+	if account.ProxyGroupID != nil {
+		id := *account.ProxyGroupID
+		snapshot.ProxyGroupID = &id
 	}
 	return &snapshot
 }
@@ -261,6 +266,15 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		}, nil
 	}
 
+	if !reflect.DeepEqual(account.ProxyID, freshAccount.ProxyID) || !reflect.DeepEqual(account.ProxyGroupID, freshAccount.ProxyGroupID) {
+		return nil, errOAuthRefreshAccountStateChanged
+	}
+	if account.ProxyGroupID != nil {
+		if _, err := account.EgressProxyURL(ctx); err != nil {
+			return nil, err
+		}
+		freshAccount.egress = account.egress
+	}
 	// 4. 执行平台特定刷新逻辑
 	attemptedAccount := snapshotOAuthRefreshAccount(freshAccount)
 	newCredentials, refreshErr := executor.Refresh(ctx, freshAccount)
@@ -324,7 +338,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 				ctx,
 				freshAccount.ID,
 				attemptedAccount.Credentials,
-				attemptedAccount.ProxyID,
+				attemptedAccount.ProxyID, attemptedAccount.ProxyGroupID,
 				newCredentials,
 			)
 			if updateErr != nil {

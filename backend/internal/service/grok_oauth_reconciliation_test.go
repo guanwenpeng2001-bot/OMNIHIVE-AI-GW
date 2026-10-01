@@ -181,7 +181,7 @@ func (r *grokReconcileRepo) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	message string,
 ) (bool, error) {
 	r.mu.Lock()
@@ -201,7 +201,7 @@ func (r *grokReconcileRepo) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 			}
 		}
 		if account.Platform != PlatformGrok || account.Type != AccountTypeOAuth || account.Status != StatusActive ||
-			!reflect.DeepEqual(account.ProxyID, expectedProxyID) ||
+			(!reflect.DeepEqual(account.ProxyID, expectedProxyID) || !reflect.DeepEqual(account.ProxyGroupID, expectedProxyGroupID)) ||
 			!reflect.DeepEqual(account.Credentials, expectedCredentials) {
 			return false, nil
 		}
@@ -219,7 +219,7 @@ func (r *grokReconcileRepo) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 	_ context.Context,
 	id int64,
 	expectedCredentials map[string]any,
-	expectedProxyID *int64,
+	expectedProxyID *int64, expectedProxyGroupID *int64,
 	until time.Time,
 	reason string,
 ) (bool, error) {
@@ -231,7 +231,7 @@ func (r *grokReconcileRepo) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 			continue
 		}
 		if account.Platform != PlatformGrok || account.Type != AccountTypeOAuth || account.Status != StatusActive ||
-			!reflect.DeepEqual(account.ProxyID, expectedProxyID) ||
+			(!reflect.DeepEqual(account.ProxyID, expectedProxyID) || !reflect.DeepEqual(account.ProxyGroupID, expectedProxyGroupID)) ||
 			!reflect.DeepEqual(account.Credentials, expectedCredentials) {
 			return false, nil
 		}

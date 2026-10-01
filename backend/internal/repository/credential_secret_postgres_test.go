@@ -306,7 +306,7 @@ func TestCredentialSecretOAuthRefreshPostgres(t *testing.T) {
 		require.Equal(t, "grok-access-1", loaded.Credentials["access_token"])
 
 		replacement := map[string]any{"access_token": "grok-access-2", "refresh_token": "grok-refresh-2"}
-		applied, err := f.accounts.UpdateGrokOAuthCredentialsIfUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID, replacement)
+		applied, err := f.accounts.UpdateGrokOAuthCredentialsIfUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID, loaded.ProxyGroupID, replacement)
 		require.NoError(t, err)
 		require.True(t, applied)
 
@@ -318,7 +318,7 @@ func TestCredentialSecretOAuthRefreshPostgres(t *testing.T) {
 		stored := f.storedCredentials(t, account.ID)
 		require.NotContains(t, stored, "access_token", "rotated tokens stay out of the accounts row")
 
-		stale, err := f.accounts.UpdateGrokOAuthCredentialsIfUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID,
+		stale, err := f.accounts.UpdateGrokOAuthCredentialsIfUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID, loaded.ProxyGroupID,
 			map[string]any{"access_token": "grok-access-3", "refresh_token": "grok-refresh-3"})
 		require.NoError(t, err)
 		require.False(t, stale, "stale refresh snapshot loses the CAS without erroring")
@@ -331,7 +331,7 @@ func TestCredentialSecretOAuthRefreshPostgres(t *testing.T) {
 	t.Run("refresh_error_status_cas_lands", func(t *testing.T) {
 		loaded, err := f.accounts.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		applied, err := f.accounts.SetGrokOAuthRefreshErrorIfCredentialsUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID, "refresh rejected")
+		applied, err := f.accounts.SetGrokOAuthRefreshErrorIfCredentialsUnchanged(ctx, account.ID, loaded.Credentials, loaded.ProxyID, loaded.ProxyGroupID, "refresh rejected")
 		require.NoError(t, err)
 		require.True(t, applied, "status-only CAS writes must work for referenced accounts")
 

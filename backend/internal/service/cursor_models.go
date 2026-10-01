@@ -20,7 +20,10 @@ func DefaultCursorModelIDs() []string {
 }
 
 func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, account *Account) ([]string, error) {
-	ctx = cursorAccountContext(ctx, account)
+	ctx, egressErr := cursorAccountContext(ctx, account)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	if gateway == nil {
 		return nil, fmt.Errorf("cursor: service unavailable")
 	}

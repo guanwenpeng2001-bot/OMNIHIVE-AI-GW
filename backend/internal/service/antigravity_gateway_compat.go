@@ -268,11 +268,15 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 	}
 
 	request.reasoningEffort = ApplyThinkingEnabledFallback(request.reasoningEffort, request.originalBody, mappedModel)
+	proxyURL, egressErr := account.EgressProxyURL(ctx)
+	if egressErr != nil {
+		return nil, egressErr
+	}
 	return &antigravityCompatUpstreamCall{
 		request:      request,
 		billingModel: mappedModel,
 		prefix:       logPrefix(getSessionID(c), account.Name),
-		proxyURL:     antigravityCompatProxyURL(account),
+		proxyURL:     proxyURL,
 		accessToken:  accessToken,
 		geminiBody:   geminiBody,
 	}, nil
@@ -377,13 +381,6 @@ func enableMixedGeminiToolInvocations(body []byte) ([]byte, error) {
 		}
 	}
 	return json.Marshal(request)
-}
-
-func antigravityCompatProxyURL(account *Account) string {
-	if account.ProxyID == nil || account.Proxy == nil {
-		return ""
-	}
-	return account.Proxy.URL()
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin.Context, err error) error {

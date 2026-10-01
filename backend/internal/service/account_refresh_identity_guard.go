@@ -31,7 +31,7 @@ func (s *AuthPendingIdentityService) UpdateAccountCredentialsIfUnchanged(ctx con
 	if err != nil {
 		return nil, err
 	}
-	current := &Account{ID: stored.ID, Platform: stored.Platform, Type: stored.Type, Credentials: stored.Credentials, Extra: stored.Extra, ProxyID: stored.ProxyID, ParentAccountID: stored.ParentAccountID, QuotaDimension: string(stored.QuotaDimension)}
+	current := &Account{ID: stored.ID, Platform: stored.Platform, Type: stored.Type, Credentials: stored.Credentials, Extra: stored.Extra, ProxyID: stored.ProxyID, ProxyGroupID: stored.ProxyGroupID, ParentAccountID: stored.ParentAccountID, QuotaDimension: string(stored.QuotaDimension)}
 	baseline := *expected
 	baseline.Proxy = nil
 	if AccountRuntimeIdentityKey(current) != AccountRuntimeIdentityKey(&baseline) || current.ModelCatalogBaseline() != expected.ModelCatalogBaseline() {

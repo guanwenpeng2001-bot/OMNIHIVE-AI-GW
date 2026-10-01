@@ -64,8 +64,8 @@ func TestModelCatalogProjectionReadsOnlyEvidenceAndRules(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	repo := &accountRepository{sql: db}
 	mock.ExpectQuery("catalog projection").WillReturnRows(sqlmock.NewRows([]string{
-		"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "credentials", "extra",
-	}).AddRow(int64(7), "openai", "apikey", "active", true, nil, nil, true, nil,
+		"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "workspace_id", "proxy_id", "proxy_group_id", "credentials", "extra",
+	}).AddRow(int64(7), "openai", "apikey", "active", true, nil, nil, true, nil, 1, nil, nil,
 		`{"model_mapping":{"public":"native"}}`, `{"upstream_model_catalog_state":{"identity_revision":3}}`))
 	a, err := repo.GetModelCatalogAccount(context.Background(), 7)
 	require.NoError(t, err)
