@@ -54,8 +54,12 @@ func TestMCPWireDefinitionArgumentsAndReply(t *testing.T) {
 	require.Equal(t, "api-weather", string(findField(definition, 1).data))
 	require.Equal(t, "api", string(findField(definition, 4).data))
 	require.Equal(t, "weather", string(findField(definition, 5).data))
-	require.Equal(t, string(schema), string(findField(definition, 6).data))
-	require.Zero(t, findField(definition, 3).number)
+	require.Zero(t, findField(definition, 6).number)
+	schemaField := findField(definition, 3)
+	require.EqualValues(t, wireBytes, schemaField.wire)
+	var decodedSchema structpb.Value
+	require.NoError(t, proto.Unmarshal(schemaField.data, &decodedSchema))
+	require.Equal(t, map[string]any{"type": "object", "properties": map[string]any{"city": map[string]any{"type": "string"}}}, decodedSchema.AsInterface())
 	arguments := map[string]any{"city": "Paris", "nested": map[string]any{"a": []any{true, nil, 2.5}}, "count": float64(3)}
 	events, err := parseEvents(mcpFixture(42, "call-1", arguments))
 	require.NoError(t, err)
@@ -79,6 +83,38 @@ func TestMCPWireDefinitionArgumentsAndReply(t *testing.T) {
 	item, _ := fields(findField(success, 1).data)
 	text, _ := fields(findField(item, 1).data)
 	require.Equal(t, "sunny", string(findField(text, 1).data))
+}
+
+func TestMCPInputSchemaValue(t *testing.T) {
+	// Cursor agent 2026.09.26-dd393fe writes Run MCP input_schema (field 3)
+	// with google.protobuf.Value.fromJson, leaving input_schema_json unset.
+	for _, fixture := range []struct {
+		name, schema string
+	}{
+		{"validation_echo", `{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`},
+		{"nested_values", `{"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"amount":{"type":"number","minimum":0,"multipleOf":0.25},"optional":{"type":["string","null"],"default":null},"enabled":{"type":"boolean","default":false}},"additionalProperties":false}}},"required":["items"],"additionalProperties":false}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			tools, err := fields(encodeTools([]ToolDefinition{{Name: fixture.name, Description: "Return the supplied value.", Server: "api", InputSchema: json.RawMessage(fixture.schema)}}))
+			require.NoError(t, err)
+			require.Len(t, tools, 1)
+			definition, err := fields(tools[0].data)
+			require.NoError(t, err)
+			require.Equal(t, "api-"+fixture.name, string(findField(definition, 1).data))
+			require.Equal(t, "Return the supplied value.", string(findField(definition, 2).data))
+			require.Equal(t, "api", string(findField(definition, 4).data))
+			require.Equal(t, fixture.name, string(findField(definition, 5).data))
+			require.Zero(t, findField(definition, 6).number)
+			schemaField := findField(definition, 3)
+			require.EqualValues(t, 3, schemaField.number)
+			require.EqualValues(t, wireBytes, schemaField.wire)
+			var decoded structpb.Value
+			require.NoError(t, proto.Unmarshal(schemaField.data, &decoded))
+			var expected map[string]any
+			require.NoError(t, json.Unmarshal([]byte(fixture.schema), &expected))
+			require.Equal(t, expected, decoded.AsInterface())
+		})
+	}
 }
 
 func TestMCPHTTP2MultiRoundAndFailures(t *testing.T) {

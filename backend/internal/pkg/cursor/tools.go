@@ -121,8 +121,13 @@ func encodeTools(tools []ToolDefinition) message {
 		definition.text(2, tool.Description)
 		definition.text(4, tool.Server)
 		definition.text(5, tool.Name)
-		// Field 3 differs between published schemas; field 6 is verified JSON.
-		definition.text(6, string(tool.InputSchema))
+		// Cursor agent 2026.09.26-dd393fe uses google.protobuf.Value for
+		// Run's input_schema (field 3). The gateway already validates the JSON.
+		var schema any
+		_ = json.Unmarshal(tool.InputSchema, &schema)
+		value, _ := structpb.NewValue(schema)
+		data, _ := proto.Marshal(value)
+		definition.bytes(3, data)
 		result.bytes(1, definition)
 	}
 	return result
