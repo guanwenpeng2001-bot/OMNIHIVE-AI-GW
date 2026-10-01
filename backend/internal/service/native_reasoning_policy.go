@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -54,23 +55,18 @@ func prepareQianwenThinkingWithPolicy(ctx context.Context, c *gin.Context, sourc
 }
 
 func normalizeCommandCodeReasoningWithPolicy(c *gin.Context, body []byte, model string) ([]byte, error) {
-	normalized, err := normalizeCommandCodeReasoning(body, model)
-	if err != nil {
-		return nil, err
-	}
 	group := nativeReasoningGroup(c, PlatformCommandCode)
-	effort := gjson.GetBytes(normalized, "reasoning_effort").String()
-	if group == nil || !commandCodeReasoningEffortAllowed(model, effort) {
-		return normalized, nil
+	if group == nil {
+		return body, nil
 	}
-	applied, _, err := ApplyReasoningEffortPolicy(normalized, binaryReasoningCeiling(group.MaxReasoningEffort), group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
-	if err != nil {
-		return nil, err
+	ceiling := group.MaxReasoningEffort
+	// Keep the known binary ceiling for this existing native integration. For
+	// other models, unknown capability metadata must not erase client controls.
+	if strings.EqualFold(strings.TrimSpace(model), "moonshotai/kimi-k2.7-code-highspeed") {
+		ceiling = binaryReasoningCeiling(ceiling)
 	}
-	if !commandCodeReasoningEffortAllowed(model, gjson.GetBytes(applied, "reasoning_effort").String()) {
-		return nil, fmt.Errorf("reasoning effort policy target unsupported for Command Code model %s", model)
-	}
-	return applied, nil
+	applied, _, err := ApplyReasoningEffortPolicy(body, ceiling, group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
+	return applied, err
 }
 
 func nativePolicyErrorResponse(err error) (int, string) {
@@ -89,6 +85,10 @@ func binaryReasoningCeiling(ceiling string) string {
 	rank, ok := reasoningEffortRank(ceiling)
 	high, _ := reasoningEffortRank("high")
 	if !ok {
+		return ceiling
+	}
+	low, _ := reasoningEffortRank("low")
+	if rank < low {
 		return ceiling
 	}
 	if rank < high {

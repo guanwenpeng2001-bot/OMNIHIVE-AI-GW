@@ -932,10 +932,10 @@ func TestExtractOpenAIReasoningEffortFromBody(t *testing.T) {
 			wantValue: "xhigh",
 		},
 		{
-			name:    "minimal 归一化为空",
-			body:    []byte(`{"reasoning":{"effort":"minimal"}}`),
-			model:   "gpt-5-high",
-			wantNil: true,
+			name:      "minimal remains observable",
+			body:      []byte(`{"reasoning":{"effort":"minimal"}}`),
+			model:     "gpt-5-high",
+			wantValue: "minimal",
 		},
 		{
 			name:      "缺失字段时从模型后缀推导",

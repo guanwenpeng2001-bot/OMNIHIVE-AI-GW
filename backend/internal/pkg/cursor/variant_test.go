@@ -58,3 +58,66 @@ func TestResolveModelVariant(t *testing.T) {
 	_, err = ResolveModel("grok-4.6", "", []AvailableModel{{ID: "only-live"}})
 	require.Error(t, err, "live picker is authoritative")
 }
+
+func TestReasoningModelsWithoutThinkingSuffix(t *testing.T) {
+	enabled := true
+	for _, test := range []struct {
+		model AvailableModel
+		want  string
+	}{
+		{AvailableModel{ID: "composer-2.5", LegacySlugs: []string{"composer-2.5-fast"}}, "composer-2.5-fast"},
+		{AvailableModel{ID: "grok-4.7", LegacySlugs: []string{"cursor-grok-4.7-low", "cursor-grok-4.7-high", "cursor-grok-4.7-xhigh"}}, "cursor-grok-4.7-xhigh"},
+	} {
+		t.Run(test.model.ID, func(t *testing.T) {
+			slug, err := ResolveModelVariant(test.model.ID, RunOptions{Thinking: &enabled, Effort: "max"}, []AvailableModel{test.model})
+			require.NoError(t, err)
+			require.Equal(t, test.want, slug)
+		})
+	}
+	disabled := false
+	_, err := ResolveModelVariant("explicit-thinking", RunOptions{Thinking: &disabled}, []AvailableModel{{ID: "explicit-thinking", LegacySlugs: []string{"family-high-thinking"}}})
+	require.Error(t, err, "a known thinking-only variant cannot claim thinking was disabled")
+}
+
+func TestVariantSelectionRespectsOperatorCeiling(t *testing.T) {
+	catalog := []AvailableModel{{ID: "picker", LegacySlugs: []string{"model-low", "model-high"}}}
+	slug, err := ResolveModelVariant("picker", RunOptions{Effort: "medium", MaxEffort: "medium"}, catalog)
+	require.NoError(t, err)
+	require.Equal(t, "model-low", slug)
+	require.Equal(t, "low", ResolvedModelEffort(slug))
+	_, err = ResolveModelVariant("picker", RunOptions{Effort: "minimal", MaxEffort: "minimal"}, catalog)
+	require.ErrorIs(t, err, ErrVariantUnavailable)
+	slug, err = ResolveModelVariant("plain", RunOptions{Effort: "low", MaxEffort: "low"}, []AvailableModel{{ID: "plain", RunSlug: "plain"}})
+	require.NoError(t, err)
+	require.Empty(t, ResolvedModelEffort(slug), "unknown must remain unknown")
+}
+
+func TestDisabledThinkingDistinguishesKnownAndUnknownVariants(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		name  string
+		slugs []string
+		want  string
+	}{
+		{"positive effort only", []string{"run-low", "run-high", "run-xhigh"}, ""},
+		{"verified none", []string{"run-none", "run-low"}, "run-none"},
+		{"unknown suffix free", []string{"composer-2.5-fast"}, "composer-2.5-fast"},
+		{"known thinking switch", []string{"run-low", "run-low-thinking"}, "run-low"},
+		{"thinking only", []string{"run-low-thinking"}, ""},
+	} {
+		for _, options := range []RunOptions{{Effort: "none"}, {Thinking: &off}, {Effort: "none", Thinking: &off}} {
+			t.Run(tc.name, func(t *testing.T) {
+				slug, err := ResolveModelVariant("picker", options, []AvailableModel{{ID: "picker", LegacySlugs: tc.slugs}})
+				if tc.want == "" {
+					require.ErrorIs(t, err, ErrVariantUnavailable)
+					return
+				}
+				require.NoError(t, err)
+				require.Equal(t, tc.want, slug)
+				if tc.name == "unknown suffix free" {
+					require.Empty(t, ResolvedModelEffort(slug))
+				}
+			})
+		}
+	}
+}

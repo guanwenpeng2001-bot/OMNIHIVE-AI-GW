@@ -172,6 +172,17 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth {
 		return nil, cursorFailover(errors.New("unsupported account"))
 	}
+	maxEffort := ""
+	if group := nativeReasoningGroup(requestContext, PlatformCursor); group != nil {
+		var err error
+		body, _, err = ApplyReasoningEffortPolicy(body, group.MaxReasoningEffort, group.ReasoningEffortMappings, group.MaxReasoningEffortOverLimit)
+		if err != nil {
+			status, kind := nativePolicyErrorResponse(err)
+			requestContext.JSON(status, cursorErrorPayload(output.protocol, gin.H{"type": kind, "message": err.Error()}))
+			return nil, err
+		}
+		maxEffort = NormalizeMaxReasoningEffort(group.MaxReasoningEffort)
+	}
 	var request struct {
 		Model           string               `json:"model"`
 		Messages        []cursor.ChatMessage `json:"messages"`
@@ -253,7 +264,14 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		effort = request.Reasoning.Effort
 	}
 	selectedModel := account.GetMappedModel(request.Model)
-	model, err := cursor.ResolveModelVariant(selectedModel, cursor.RunOptions{Effort: effort, Fast: request.Fast, Thinking: request.Thinking}, gateway.picker(ctx, account, credentials))
+	model, err := cursor.ResolveModelVariant(selectedModel, cursor.RunOptions{Effort: effort, MaxEffort: maxEffort, Fast: request.Fast, Thinking: request.Thinking}, gateway.picker(ctx, account, credentials))
+	if errors.Is(err, cursor.ErrVariantUnavailable) {
+		// No inference request has been submitted: let the existing scheduler
+		// try the next authorized target without writing a client response.
+		return nil, &UpstreamFailoverError{StatusCode: http.StatusBadRequest,
+			Reason: RequestCompatibilityRejectedReason, Scope: GatewayFailureScopeRequest,
+			NextAccountAction: NextAccountRetry, ClientStatusCode: http.StatusBadRequest, ClientMessage: err.Error()}
+	}
 	if err != nil {
 		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
 		return nil, err
@@ -391,7 +409,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		}
 		slog.InfoContext(ctx, "Cursor usage estimated", "account_id", account.ID, "usage_source", "estimated_missing_turn_ended")
 	}
-	result := &ForwardResult{RequestID: completionID, Model: request.Model, UpstreamModel: model, Stream: request.Stream, Duration: time.Since(started), FirstTokenMs: firstToken, Usage: ClaudeUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheReadInputTokens: usage.CacheReadTokens, CacheCreationInputTokens: usage.CacheWriteTokens}}
+	result := &ForwardResult{RequestID: completionID, Model: request.Model, UpstreamModel: model, ReasoningEffort: optionalTrimmedStringPtr(cursor.ResolvedModelEffort(model)), Stream: request.Stream, Duration: time.Since(started), FirstTokenMs: firstToken, Usage: ClaudeUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheReadInputTokens: usage.CacheReadTokens, CacheCreationInputTokens: usage.CacheWriteTokens}}
 	chatUsage := cursorChatUsage(usage)
 	finishReason := "stop"
 	if len(toolCalls) > 0 {

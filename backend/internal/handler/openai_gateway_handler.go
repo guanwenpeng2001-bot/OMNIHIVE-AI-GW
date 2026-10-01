@@ -1648,6 +1648,10 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.RequestCompatibilityRejectedReason {
+		h.anthropicStreamingAwareError(c, failoverErr.ClientStatusCode, "invalid_request_error", failoverErr.ClientMessage, streamStarted)
+		return
+	}
 	if failoverErr != nil && failoverErr.Reason == service.CommandCodeCreditExhaustedReason {
 		service.SetOpsUpstreamError(c, failoverErr.StatusCode, failoverErr.ClientMessage, "")
 		if streamStarted {
@@ -3430,6 +3434,10 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.RequestCompatibilityRejectedReason {
+		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, "invalid_request_error", failoverErr.ClientMessage, streamStarted)
+		return
+	}
 	if failoverErr != nil && failoverErr.Reason == service.CommandCodeCreditExhaustedReason {
 		service.SetOpsUpstreamError(c, failoverErr.StatusCode, failoverErr.ClientMessage, "")
 		if streamStarted {

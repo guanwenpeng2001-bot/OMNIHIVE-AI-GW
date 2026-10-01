@@ -86,13 +86,13 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 			wantEffort: "high",
 		},
 		{
-			name:       "omitted defaults medium",
+			name:       "omitted preserves upstream default",
 			model:      "gpt-5.6-luna",
 			mapped:     "gpt-5.6-luna",
-			wantEffort: "medium",
+			wantEffort: "",
 		},
 		{
-			name:       "disabled thinking with effort is unsupported",
+			name:       "disabled thinking overrides effort",
 			model:      "gpt-5.6-luna",
 			mapped:     "gpt-5.6-luna",
 			effortJSON: `,"output_config":{"effort":"max"},"thinking":{"type":"disabled"}`,
@@ -124,19 +124,12 @@ func TestForwardAsAnthropic_ForceChatCompletionsPreservesFinalModelReasoningEffo
 				ctx = WithOpenAIReasoningEffortPolicy(ctx, tt.maxPolicy, nil, "")
 			}
 			result, err := svc.ForwardAsAnthropic(ctx, c, account, []byte(body), "", "")
-			if strings.Contains(tt.effortJSON, `"type":"disabled"`) {
-				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
-				require.Nil(t, upstream.lastReq)
-				require.Equal(t, http.StatusBadRequest, rec.Code)
-				require.Contains(t, rec.Body.String(), "unsupported thinking.type=disabled")
-				return
-			}
+
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			require.Equal(t, tt.mapped, gjson.GetBytes(upstream.lastBody, "model").String())
 			require.Equal(t, tt.wantEffort, gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
-			require.NotNil(t, result.ReasoningEffort)
-			require.Equal(t, tt.wantEffort, *result.ReasoningEffort)
+			require.Equal(t, tt.wantEffort, optionalStringValue(result.ReasoningEffort))
 		})
 	}
 }

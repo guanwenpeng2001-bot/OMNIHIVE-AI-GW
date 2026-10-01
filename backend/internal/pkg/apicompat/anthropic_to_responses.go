@@ -48,9 +48,6 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 
 	if req.MaxTokens > 0 {
 		v := req.MaxTokens
-		if v < minMaxOutputTokens {
-			v = minMaxOutputTokens
-		}
 		out.MaxOutputTokens = &v
 	}
 
@@ -58,13 +55,14 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		out.Tools = convertAnthropicToolsToResponses(req.Tools)
 	}
 
-	// Incompatible thinking and effort controls were rejected above.
+	// Only translate an actual preference; otherwise let the upstream use its
+	// native default rather than inventing an effort unsupported by that model.
 	effort := anthropicReasoningEffort(req)
-	out.Reasoning = &ResponsesReasoning{
-		Effort: effort,
-	}
-	if effort != "none" {
-		out.Reasoning.Summary = "auto"
+	if effort != "" {
+		out.Reasoning = &ResponsesReasoning{Effort: effort}
+		if effort != "none" {
+			out.Reasoning.Summary = "auto"
+		}
 	}
 
 	// Convert tool_choice
@@ -420,28 +418,45 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 	return strings.Join(parts, "\n\n")
 }
 
-// validateAnthropicReasoningForOpenAI rejects controls with no exact OpenAI
-// representation. Native Messages forwarding does not call this bridge.
+// Native Messages forwarding retains its own controls. Cross-protocol requests
+// translate a positive token budget into an effort preference, not a token cap.
 func validateAnthropicReasoningForOpenAI(req *AnthropicRequest) error {
-	if req.Thinking != nil && req.Thinking.BudgetTokens != 0 {
-		return fmt.Errorf("unsupported thinking.budget_tokens for OpenAI conversion; use an Anthropic-native upstream")
+	if req.Thinking != nil {
+		switch req.Thinking.Type {
+		case "enabled", "adaptive", "disabled":
+		default:
+			return fmt.Errorf("invalid thinking.type %q", req.Thinking.Type)
+		}
 	}
-	if req.Thinking != nil && req.Thinking.Type == "disabled" && req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-		return fmt.Errorf("unsupported thinking.type=disabled with output_config.effort for OpenAI conversion; use an Anthropic-native upstream")
+	if req.Thinking != nil && req.Thinking.BudgetTokens < 0 {
+		return fmt.Errorf("thinking.budget_tokens must be non-negative")
 	}
 	return nil
 }
 
-// anthropicReasoningEffort resolves the Anthropic request preference for both
-// OpenAI bridges after incompatible controls have been rejected. Explicitly
-// disabled thinking becomes none; otherwise the bridge keeps its medium default.
+// anthropicReasoningEffort is shared by both OpenAI bridges. Disabling thinking
+// takes precedence; explicit effort outranks the approximate budget preference.
+// The original budget and max_tokens are not rewritten or claimed to be exact
+// OpenAI reasoning-token limits.
 func anthropicReasoningEffort(req *AnthropicRequest) string {
 	if req.Thinking != nil && req.Thinking.Type == "disabled" {
 		return "none"
 	}
-	effort := "medium"
+	if req.Thinking == nil && (req.OutputConfig == nil || req.OutputConfig.Effort == "") {
+		return ""
+	}
+	effort := ""
 	if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
 		effort = req.OutputConfig.Effort
+	} else if req.Thinking != nil && req.Thinking.BudgetTokens > 0 {
+		switch {
+		case req.Thinking.BudgetTokens <= 4096:
+			effort = "low"
+		case req.Thinking.BudgetTokens <= 16384:
+			effort = "medium"
+		default:
+			effort = "high"
+		}
 	}
 	return mapAnthropicEffortToResponses(effort)
 }

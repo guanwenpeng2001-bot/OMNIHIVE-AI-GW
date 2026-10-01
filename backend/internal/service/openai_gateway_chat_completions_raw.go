@@ -163,6 +163,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		if err != nil {
 			return nil, fmt.Errorf("normalize Grok chat reasoning effort: %w", err)
 		}
+		reasoningEffort = optionalTrimmedStringPtr(gjson.GetBytes(upstreamBody, "reasoning_effort").String())
 		upstreamBody, err = sanitizeGrokUnsupportedFields(upstreamBody)
 		if err != nil {
 			return nil, fmt.Errorf("sanitize Grok unsupported fields: %w", err)

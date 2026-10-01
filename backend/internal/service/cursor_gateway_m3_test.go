@@ -239,6 +239,15 @@ func TestCursorNativeRequestVariantsAndRejections(t *testing.T) {
 				requestContext, _ = gin.CreateTestContext(recorder)
 				_, err = callCursorProtocol(gateway, requestContext, account, encoded, protocol)
 				require.Error(t, err)
+				if failure == "model" {
+					var unavailable *UpstreamFailoverError
+					require.ErrorAs(t, err, &unavailable)
+					require.True(t, unavailable.ShouldRetryNextAccount())
+					require.Contains(t, unavailable.ClientMessage, "unknown model")
+					require.False(t, requestContext.Writer.Written())
+					require.Equal(t, 1, runCalls)
+					continue
+				}
 				require.Equal(t, 400, recorder.Code)
 				var envelope map[string]any
 				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
@@ -324,7 +333,7 @@ func TestCursorMessagesExplicitVariantOptions(t *testing.T) {
 		{"explicit_effort", `,"output_config":{"effort":"high"}`, "claude-opus-5-thinking-high"},
 		{"thinking_enabled", `,"thinking":{"type":"enabled"}`, "claude-opus-5-thinking-medium"},
 		{"thinking_adaptive", `,"thinking":{"type":"adaptive"}`, "claude-opus-5-thinking-medium"},
-		{"thinking_disabled_overrides_effort", `,"thinking":{"type":"disabled"},"output_config":{"effort":"high"}`, "claude-opus-5-high"},
+		{"thinking_disabled_overrides_effort", `,"thinking":{"type":"disabled"},"output_config":{"effort":"high"}`, "claude-opus-5-low"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			gateway, account, _ := cursorTestGateway()

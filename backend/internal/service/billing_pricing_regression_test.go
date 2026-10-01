@@ -59,12 +59,12 @@ func TestCursorComposerFastUsesVariantPrice(t *testing.T) {
 	require.InDelta(t, 0.0019082, cost.TotalCost, 1e-12)
 }
 
-func TestCommandCodeReasoningCapabilityWhitelist(t *testing.T) {
-	for _, model := range []string{"moonshotai/Kimi-K2.7-Code-Highspeed", "unknown/model"} {
+func TestCommandCodePreservesReasoningWithoutCapabilityWhitelist(t *testing.T) {
+	for _, model := range []string{"moonshotai/Kimi-K2.7-Code-Highspeed", "deepseek/deepseek-v4.1-flash", "unknown/model"} {
 		for _, effort := range []string{"low", "medium", "high"} {
-			body, err := normalizeCommandCodeReasoning([]byte(`{"reasoning_effort":"`+effort+`"}`), model)
+			body, err := normalizeCommandCodeReasoningWithPolicy(nil, []byte(`{"reasoning_effort":"`+effort+`"}`), model)
 			require.NoError(t, err)
-			require.Equal(t, model != "unknown/model" && effort != "medium", gjson.GetBytes(body, "reasoning_effort").Exists())
+			require.Equal(t, effort, gjson.GetBytes(body, "reasoning_effort").String())
 		}
 	}
 }

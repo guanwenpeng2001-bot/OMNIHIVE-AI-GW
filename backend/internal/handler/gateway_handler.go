@@ -577,7 +577,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			inboundEndpoint := GetInboundEndpoint(c)
 			upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
-			stampForwardRequestedReasoningEffort(result, service.NormalizeClaudeOutputEffort(parsedReq.OutputEffort))
+			stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
 			if result.ReasoningEffort == nil {
 				result.ReasoningEffort = service.NormalizeClaudeOutputEffort(parsedReq.OutputEffort)
 			}
@@ -982,7 +982,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := GetUpstreamEndpoint(c, account.Platform)
 
-				stampForwardRequestedReasoningEffort(result, service.NormalizeClaudeOutputEffort(attemptParsedReq.OutputEffort))
+				stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
 				if result.ReasoningEffort == nil {
 					result.ReasoningEffort = service.NormalizeClaudeOutputEffort(attemptParsedReq.OutputEffort)
 				}
@@ -1692,6 +1692,10 @@ func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotT
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
+	if failoverErr != nil && failoverErr.Reason == service.RequestCompatibilityRejectedReason {
+		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, "invalid_request_error", failoverErr.ClientMessage, streamStarted)
+		return
+	}
 	if failoverErr != nil && failoverErr.Reason == service.ModelBindingRejectedReason {
 		h.handleStreamingAwareError(c, failoverErr.ClientStatusCode, string(service.ModelBindingRejectedReason), failoverErr.ClientMessage, streamStarted)
 		return

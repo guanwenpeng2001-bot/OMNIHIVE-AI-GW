@@ -1,13 +1,18 @@
 package cursor
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
 
+var ErrVariantUnavailable = errors.New("cursor: model variant unavailable")
+
 // Nil flags preserve a model's default; explicit flags constrain selection.
 type RunOptions struct {
-	Effort         string
+	Effort string
+	// MaxEffort is an operator ceiling on known variant levels, not a client preference.
+	MaxEffort      string
 	Thinking, Fast *bool
 }
 type runVariant struct {
@@ -64,7 +69,9 @@ func parseRunVariant(slug string) runVariant {
 
 // Exact legacy slugs pass through when no options are given. Picker IDs and
 // aliases select medium effort, nearest available rank (ties prefer higher).
-// Explicit fast/thinking cannot silently select an incompatible variant.
+// Fast selects an explicit transport tier. Thinking suffixes are a selection
+// dimension only when the picker exposes them; their absence says nothing
+// about a model's intrinsic reasoning support (e.g. Composer and Grok).
 func ResolveModelVariant(requested string, options RunOptions, catalog []AvailableModel) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if options.Effort != "" && NormalizeEffort(options.Effort) == "" {
@@ -126,7 +133,7 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 		if !matches {
 			continue
 		}
-		if exact != "" && requested != model.ID && options.Effort == "" && options.Fast == nil && options.Thinking == nil {
+		if exact != "" && requested != model.ID && options.Effort == "" && options.MaxEffort == "" && options.Fast == nil && options.Thinking == nil {
 			return exact, nil
 		}
 		if exact != "" && requested != model.ID {
@@ -149,12 +156,31 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 		best := ""
 		bestScore := 10000
 		bestRank := -1
+		hasThinking := false
+		for _, slug := range variants {
+			if parseRunVariant(slug).thinking {
+				hasThinking = true
+				break
+			}
+		}
 		for _, slug := range variants {
 			variant := parseRunVariant(slug)
+			// none is not a request for the nearest positive effort. An explicit
+			// thinking dimension can identify an off variant independently of its
+			// effort label. A suffix-free slug with no effort remains unknown and
+			// must not become a capability-based routing prohibition.
+			if desired == "none" || (options.Thinking != nil && !*options.Thinking) {
+				if variant.thinking || (variant.effort != "" && variant.effort != "none" && !hasThinking) {
+					continue
+				}
+			}
+			if ceiling := NormalizeEffort(options.MaxEffort); ceiling != "" && variant.effort != "" && effortRank(variant.effort) > effortRank(ceiling) {
+				continue
+			}
 			if options.Fast != nil && variant.fast != *options.Fast {
 				continue
 			}
-			if options.Thinking != nil && variant.thinking != *options.Thinking {
+			if options.Thinking != nil && hasThinking && variant.thinking != *options.Thinking {
 				continue
 			}
 			rank := effortRank(variant.effort)
@@ -179,11 +205,11 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 			}
 		}
 		if best == "" {
-			return "", fmt.Errorf("cursor: unsupported variant for model %q", requested)
+			return "", fmt.Errorf("%w: unsupported variant for model %q", ErrVariantUnavailable, requested)
 		}
 		return best, nil
 	}
-	return "", fmt.Errorf("cursor: unknown model %q", requested)
+	return "", fmt.Errorf("%w: unknown model %q", ErrVariantUnavailable, requested)
 }
 
 // ModelReasoningLevels returns only effort values observed in picker variants.
@@ -203,3 +229,7 @@ func ModelReasoningLevels(model AvailableModel) []string {
 	}
 	return levels
 }
+
+// ResolvedModelEffort reports only the level encoded in the selected Run slug.
+// An empty result is unknown; the caller must not invent an effective level.
+func ResolvedModelEffort(slug string) string { return parseRunVariant(slug).effort }

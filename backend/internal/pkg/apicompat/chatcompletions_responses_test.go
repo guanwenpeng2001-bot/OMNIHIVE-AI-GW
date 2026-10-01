@@ -300,8 +300,8 @@ func TestChatCompletionsToResponses_MaxTokens(t *testing.T) {
 		resp, err := ChatCompletionsToResponses(req)
 		require.NoError(t, err)
 		require.NotNil(t, resp.MaxOutputTokens)
-		// Below minMaxOutputTokens (128), should be clamped
-		assert.Equal(t, minMaxOutputTokens, *resp.MaxOutputTokens)
+		// Preserve the total output cap even when the upstream may reject it.
+		assert.Equal(t, maxTokens, *resp.MaxOutputTokens)
 	})
 
 	t.Run("max_completion_tokens_preferred", func(t *testing.T) {

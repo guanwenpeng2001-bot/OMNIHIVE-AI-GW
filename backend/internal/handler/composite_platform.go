@@ -68,7 +68,7 @@ func openAIReasoningEffortPolicyForRequest(c *gin.Context, apiKey *service.APIKe
 		return "", nil, "", false
 	}
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
-	if effectivePlatform != service.PlatformAnthropic && effectivePlatform != service.PlatformOpenAI {
+	if effectivePlatform != service.PlatformAnthropic && effectivePlatform != service.PlatformOpenAI && effectivePlatform != service.PlatformGrok {
 		return "", nil, "", false
 	}
 	maxEffort, mappings := apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings
@@ -163,14 +163,13 @@ func bindOpenAIReasoningEffortPolicyForMessagesRequest(c *gin.Context, apiKey *s
 		return
 	}
 	bindRequestedReasoningEffort(c, body, strings.TrimSpace(gjson.GetBytes(body, "model").String()))
-	// The Messages bridge synthesizes a default OpenAI effort when
-	// output_config.effort is omitted. Bind the group policy only for an
-	// explicit client value so the ceiling does not alter that default.
-	effort := gjson.GetBytes(body, "output_config.effort")
-	if !effort.Exists() || effort.Type != gjson.String || strings.TrimSpace(effort.String()) == "" {
-		return
-	}
+	// Bind before conversion so explicit and budget-derived preferences both
+	// obey group policy. An absent outbound effort remains untouched.
 	maxEffort, mappings, overLimit, ok := openAIReasoningEffortPolicyForRequest(c, apiKey)
+	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+		// Later ordered targets may use OpenAI even when the initial target does not.
+		maxEffort, mappings, overLimit, ok = apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings, apiKey.Group.MaxReasoningEffortOverLimit, true
+	}
 	if !ok {
 		return
 	}
