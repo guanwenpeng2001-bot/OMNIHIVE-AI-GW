@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
@@ -149,6 +150,20 @@ func (_c *AccountCreate) SetProxyID(v int64) *AccountCreate {
 func (_c *AccountCreate) SetNillableProxyID(v *int64) *AccountCreate {
 	if v != nil {
 		_c.SetProxyID(*v)
+	}
+	return _c
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (_c *AccountCreate) SetProxyGroupID(v int64) *AccountCreate {
+	_c.mutation.SetProxyGroupID(v)
+	return _c
+}
+
+// SetNillableProxyGroupID sets the "proxy_group_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableProxyGroupID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetProxyGroupID(*v)
 	}
 	return _c
 }
@@ -445,6 +460,11 @@ func (_c *AccountCreate) SetNillableQuotaDimension(v *account.QuotaDimension) *A
 		_c.SetQuotaDimension(*v)
 	}
 	return _c
+}
+
+// SetProxyGroup sets the "proxy_group" edge to the ProxyGroup entity.
+func (_c *AccountCreate) SetProxyGroup(v *ProxyGroup) *AccountCreate {
+	return _c.SetProxyGroupID(v.ID)
 }
 
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
@@ -856,6 +876,23 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
 		_node.QuotaDimension = value
 	}
+	if nodes := _c.mutation.ProxyGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.ProxyGroupTable,
+			Columns: []string{account.ProxyGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxygroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.ProxyGroupID = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -1135,6 +1172,24 @@ func (u *AccountUpsert) UpdateProxyID() *AccountUpsert {
 // ClearProxyID clears the value of the "proxy_id" field.
 func (u *AccountUpsert) ClearProxyID() *AccountUpsert {
 	u.SetNull(account.FieldProxyID)
+	return u
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (u *AccountUpsert) SetProxyGroupID(v int64) *AccountUpsert {
+	u.Set(account.FieldProxyGroupID, v)
+	return u
+}
+
+// UpdateProxyGroupID sets the "proxy_group_id" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateProxyGroupID() *AccountUpsert {
+	u.SetExcluded(account.FieldProxyGroupID)
+	return u
+}
+
+// ClearProxyGroupID clears the value of the "proxy_group_id" field.
+func (u *AccountUpsert) ClearProxyGroupID() *AccountUpsert {
+	u.SetNull(account.FieldProxyGroupID)
 	return u
 }
 
@@ -1717,6 +1772,27 @@ func (u *AccountUpsertOne) UpdateProxyID() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearProxyID() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyID()
+	})
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (u *AccountUpsertOne) SetProxyGroupID(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProxyGroupID(v)
+	})
+}
+
+// UpdateProxyGroupID sets the "proxy_group_id" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateProxyGroupID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProxyGroupID()
+	})
+}
+
+// ClearProxyGroupID clears the value of the "proxy_group_id" field.
+func (u *AccountUpsertOne) ClearProxyGroupID() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearProxyGroupID()
 	})
 }
 
@@ -2526,6 +2602,27 @@ func (u *AccountUpsertBulk) UpdateProxyID() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearProxyID() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearProxyID()
+	})
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (u *AccountUpsertBulk) SetProxyGroupID(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetProxyGroupID(v)
+	})
+}
+
+// UpdateProxyGroupID sets the "proxy_group_id" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateProxyGroupID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateProxyGroupID()
+	})
+}
+
+// ClearProxyGroupID clears the value of the "proxy_group_id" field.
+func (u *AccountUpsertBulk) ClearProxyGroupID() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.ClearProxyGroupID()
 	})
 }
 

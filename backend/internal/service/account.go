@@ -30,6 +30,8 @@ type Account struct {
 	CredentialRevision      string
 	Extra                   map[string]any
 	ProxyID                 *int64
+	ProxyGroupID            *int64
+	ProxyGroup              *ProxyGroup
 	ProxyFallbackOriginID   *int64
 	ProxyFallbackOriginName *string // 仅展示用
 	Concurrency             int

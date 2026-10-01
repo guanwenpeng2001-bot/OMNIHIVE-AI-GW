@@ -40,6 +40,8 @@ const (
 	FieldExtra = "extra"
 	// FieldProxyID holds the string denoting the proxy_id field in the database.
 	FieldProxyID = "proxy_id"
+	// FieldProxyGroupID holds the string denoting the proxy_group_id field in the database.
+	FieldProxyGroupID = "proxy_group_id"
 	// FieldProxyFallbackOriginID holds the string denoting the proxy_fallback_origin_id field in the database.
 	FieldProxyFallbackOriginID = "proxy_fallback_origin_id"
 	// FieldConcurrency holds the string denoting the concurrency field in the database.
@@ -82,6 +84,8 @@ const (
 	FieldParentAccountID = "parent_account_id"
 	// FieldQuotaDimension holds the string denoting the quota_dimension field in the database.
 	FieldQuotaDimension = "quota_dimension"
+	// EdgeProxyGroup holds the string denoting the proxy_group edge name in mutations.
+	EdgeProxyGroup = "proxy_group"
 	// EdgeGroups holds the string denoting the groups edge name in mutations.
 	EdgeGroups = "groups"
 	// EdgeProxy holds the string denoting the proxy edge name in mutations.
@@ -96,6 +100,13 @@ const (
 	EdgeAccountGroups = "account_groups"
 	// Table holds the table name of the account in the database.
 	Table = "accounts"
+	// ProxyGroupTable is the table that holds the proxy_group relation/edge.
+	ProxyGroupTable = "accounts"
+	// ProxyGroupInverseTable is the table name for the ProxyGroup entity.
+	// It exists in this package in order to avoid circular dependency with the "proxygroup" package.
+	ProxyGroupInverseTable = "proxy_groups"
+	// ProxyGroupColumn is the table column denoting the proxy_group relation/edge.
+	ProxyGroupColumn = "proxy_group_id"
 	// GroupsTable is the table that holds the groups relation/edge. The primary key declared below.
 	GroupsTable = "account_groups"
 	// GroupsInverseTable is the table name for the Group entity.
@@ -147,6 +158,7 @@ var Columns = []string{
 	FieldCredentials,
 	FieldExtra,
 	FieldProxyID,
+	FieldProxyGroupID,
 	FieldProxyFallbackOriginID,
 	FieldConcurrency,
 	FieldLoadFactor,
@@ -318,6 +330,11 @@ func ByProxyID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyID, opts...).ToFunc()
 }
 
+// ByProxyGroupID orders the results by the proxy_group_id field.
+func ByProxyGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldProxyGroupID, opts...).ToFunc()
+}
+
 // ByProxyFallbackOriginID orders the results by the proxy_fallback_origin_id field.
 func ByProxyFallbackOriginID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProxyFallbackOriginID, opts...).ToFunc()
@@ -423,6 +440,13 @@ func ByQuotaDimension(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldQuotaDimension, opts...).ToFunc()
 }
 
+// ByProxyGroupField orders the results by proxy_group field.
+func ByProxyGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newProxyGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByGroupsCount orders the results by groups count.
 func ByGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -491,6 +515,13 @@ func ByAccountGroups(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newAccountGroupsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newProxyGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ProxyGroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, ProxyGroupTable, ProxyGroupColumn),
+	)
 }
 func newGroupsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

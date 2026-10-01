@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 )
 
@@ -169,6 +170,26 @@ func (_u *AccountUpdate) SetNillableProxyID(v *int64) *AccountUpdate {
 // ClearProxyID clears the value of the "proxy_id" field.
 func (_u *AccountUpdate) ClearProxyID() *AccountUpdate {
 	_u.mutation.ClearProxyID()
+	return _u
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (_u *AccountUpdate) SetProxyGroupID(v int64) *AccountUpdate {
+	_u.mutation.SetProxyGroupID(v)
+	return _u
+}
+
+// SetNillableProxyGroupID sets the "proxy_group_id" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableProxyGroupID(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetProxyGroupID(*v)
+	}
+	return _u
+}
+
+// ClearProxyGroupID clears the value of the "proxy_group_id" field.
+func (_u *AccountUpdate) ClearProxyGroupID() *AccountUpdate {
+	_u.mutation.ClearProxyGroupID()
 	return _u
 }
 
@@ -585,6 +606,11 @@ func (_u *AccountUpdate) SetNillableQuotaDimension(v *account.QuotaDimension) *A
 	return _u
 }
 
+// SetProxyGroup sets the "proxy_group" edge to the ProxyGroup entity.
+func (_u *AccountUpdate) SetProxyGroup(v *ProxyGroup) *AccountUpdate {
+	return _u.SetProxyGroupID(v.ID)
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdate) AddGroupIDs(ids ...int64) *AccountUpdate {
 	_u.mutation.AddGroupIDs(ids...)
@@ -657,6 +683,12 @@ func (_u *AccountUpdate) AddUsageLogs(v ...*UsageLog) *AccountUpdate {
 // Mutation returns the AccountMutation object of the builder.
 func (_u *AccountUpdate) Mutation() *AccountMutation {
 	return _u.mutation
+}
+
+// ClearProxyGroup clears the "proxy_group" edge to the ProxyGroup entity.
+func (_u *AccountUpdate) ClearProxyGroup() *AccountUpdate {
+	_u.mutation.ClearProxyGroup()
+	return _u
 }
 
 // ClearGroups clears all "groups" edges to the Group entity.
@@ -977,6 +1009,35 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.QuotaDimension(); ok {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
+	}
+	if _u.mutation.ProxyGroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.ProxyGroupTable,
+			Columns: []string{account.ProxyGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxygroup.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProxyGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.ProxyGroupTable,
+			Columns: []string{account.ProxyGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxygroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1341,6 +1402,26 @@ func (_u *AccountUpdateOne) SetNillableProxyID(v *int64) *AccountUpdateOne {
 // ClearProxyID clears the value of the "proxy_id" field.
 func (_u *AccountUpdateOne) ClearProxyID() *AccountUpdateOne {
 	_u.mutation.ClearProxyID()
+	return _u
+}
+
+// SetProxyGroupID sets the "proxy_group_id" field.
+func (_u *AccountUpdateOne) SetProxyGroupID(v int64) *AccountUpdateOne {
+	_u.mutation.SetProxyGroupID(v)
+	return _u
+}
+
+// SetNillableProxyGroupID sets the "proxy_group_id" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableProxyGroupID(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetProxyGroupID(*v)
+	}
+	return _u
+}
+
+// ClearProxyGroupID clears the value of the "proxy_group_id" field.
+func (_u *AccountUpdateOne) ClearProxyGroupID() *AccountUpdateOne {
+	_u.mutation.ClearProxyGroupID()
 	return _u
 }
 
@@ -1757,6 +1838,11 @@ func (_u *AccountUpdateOne) SetNillableQuotaDimension(v *account.QuotaDimension)
 	return _u
 }
 
+// SetProxyGroup sets the "proxy_group" edge to the ProxyGroup entity.
+func (_u *AccountUpdateOne) SetProxyGroup(v *ProxyGroup) *AccountUpdateOne {
+	return _u.SetProxyGroupID(v.ID)
+}
+
 // AddGroupIDs adds the "groups" edge to the Group entity by IDs.
 func (_u *AccountUpdateOne) AddGroupIDs(ids ...int64) *AccountUpdateOne {
 	_u.mutation.AddGroupIDs(ids...)
@@ -1829,6 +1915,12 @@ func (_u *AccountUpdateOne) AddUsageLogs(v ...*UsageLog) *AccountUpdateOne {
 // Mutation returns the AccountMutation object of the builder.
 func (_u *AccountUpdateOne) Mutation() *AccountMutation {
 	return _u.mutation
+}
+
+// ClearProxyGroup clears the "proxy_group" edge to the ProxyGroup entity.
+func (_u *AccountUpdateOne) ClearProxyGroup() *AccountUpdateOne {
+	_u.mutation.ClearProxyGroup()
+	return _u
 }
 
 // ClearGroups clears all "groups" edges to the Group entity.
@@ -2179,6 +2271,35 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if value, ok := _u.mutation.QuotaDimension(); ok {
 		_spec.SetField(account.FieldQuotaDimension, field.TypeEnum, value)
+	}
+	if _u.mutation.ProxyGroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.ProxyGroupTable,
+			Columns: []string{account.ProxyGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxygroup.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ProxyGroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   account.ProxyGroupTable,
+			Columns: []string{account.ProxyGroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(proxygroup.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _u.mutation.GroupsCleared() {
 		edge := &sqlgraph.EdgeSpec{

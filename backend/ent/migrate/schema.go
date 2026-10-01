@@ -173,6 +173,7 @@ var (
 		{Name: "session_window_end", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "session_window_status", Type: field.TypeString, Nullable: true, Size: 20},
 		{Name: "quota_dimension", Type: field.TypeEnum, Enums: []string{"global", "spark"}, Default: "global"},
+		{Name: "proxy_group_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "proxy_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "parent_account_id", Type: field.TypeInt64, Nullable: true},
 	}
@@ -183,19 +184,30 @@ var (
 		PrimaryKey: []*schema.Column{AccountsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "accounts_proxies_proxy",
+				Symbol:     "accounts_proxy_groups_proxy_group",
 				Columns:    []*schema.Column{AccountsColumns[32]},
+				RefColumns: []*schema.Column{ProxyGroupsColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "accounts_proxies_proxy",
+				Columns:    []*schema.Column{AccountsColumns[33]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[33]},
+				Columns:    []*schema.Column{AccountsColumns[34]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
 		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "account_proxy_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{AccountsColumns[32]},
+			},
 			{
 				Name:    "account_platform",
 				Unique:  false,
@@ -214,7 +226,7 @@ var (
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[32]},
+				Columns: []*schema.Column{AccountsColumns[33]},
 			},
 			{
 				Name:    "account_priority",
@@ -264,7 +276,7 @@ var (
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[33]},
+				Columns: []*schema.Column{AccountsColumns[34]},
 			},
 		},
 	}
@@ -1579,6 +1591,99 @@ var (
 			},
 		},
 	}
+	// ProxyGroupsColumns holds the columns for the "proxy_groups" table.
+	ProxyGroupsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "description", Type: field.TypeString, Default: ""},
+		{Name: "region", Type: field.TypeString, Size: 100, Default: ""},
+		{Name: "target_services", Type: field.TypeJSON},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
+		{Name: "fallback_mode", Type: field.TypeString, Size: 20, Default: "none"},
+		{Name: "binding_ttl_seconds", Type: field.TypeInt, Default: 86400},
+		{Name: "fallback_proxy_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// ProxyGroupsTable holds the schema information for the "proxy_groups" table.
+	ProxyGroupsTable = &schema.Table{
+		Name:       "proxy_groups",
+		Columns:    ProxyGroupsColumns,
+		PrimaryKey: []*schema.Column{ProxyGroupsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "proxy_groups_proxies_fallback_proxy",
+				Columns:    []*schema.Column{ProxyGroupsColumns[12]},
+				RefColumns: []*schema.Column{ProxiesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "proxygroup_workspace_id_status",
+				Unique:  false,
+				Columns: []*schema.Column{ProxyGroupsColumns[3], ProxyGroupsColumns[9]},
+			},
+			{
+				Name:    "proxygroup_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{ProxyGroupsColumns[4]},
+			},
+			{
+				Name:    "proxygroup_fallback_proxy_id",
+				Unique:  false,
+				Columns: []*schema.Column{ProxyGroupsColumns[12]},
+			},
+		},
+	}
+	// ProxyGroupMembersColumns holds the columns for the "proxy_group_members" table.
+	ProxyGroupMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "group_id", Type: field.TypeInt64},
+		{Name: "proxy_id", Type: field.TypeInt64},
+	}
+	// ProxyGroupMembersTable holds the schema information for the "proxy_group_members" table.
+	ProxyGroupMembersTable = &schema.Table{
+		Name:       "proxy_group_members",
+		Columns:    ProxyGroupMembersColumns,
+		PrimaryKey: []*schema.Column{ProxyGroupMembersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "proxy_group_members_proxy_groups_members",
+				Columns:    []*schema.Column{ProxyGroupMembersColumns[4]},
+				RefColumns: []*schema.Column{ProxyGroupsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "proxy_group_members_proxies_proxy",
+				Columns:    []*schema.Column{ProxyGroupMembersColumns[5]},
+				RefColumns: []*schema.Column{ProxiesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "proxygroupmember_group_id_proxy_id",
+				Unique:  true,
+				Columns: []*schema.Column{ProxyGroupMembersColumns[4], ProxyGroupMembersColumns[5]},
+			},
+			{
+				Name:    "proxygroupmember_workspace_id",
+				Unique:  false,
+				Columns: []*schema.Column{ProxyGroupMembersColumns[3]},
+			},
+			{
+				Name:    "proxygroupmember_proxy_id",
+				Unique:  false,
+				Columns: []*schema.Column{ProxyGroupMembersColumns[5]},
+			},
+		},
+	}
 	// RedeemCodesColumns holds the columns for the "redeem_codes" table.
 	RedeemCodesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2306,6 +2411,8 @@ var (
 		PromoCodesTable,
 		PromoCodeUsagesTable,
 		ProxiesTable,
+		ProxyGroupsTable,
+		ProxyGroupMembersTable,
 		RedeemCodesTable,
 		SecuritySecretsTable,
 		SettingsTable,
@@ -2334,8 +2441,9 @@ func init() {
 	APIKeyCredentialsTable.Annotation = &entsql.Annotation{
 		Table: "api_key_credentials",
 	}
-	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
-	AccountsTable.ForeignKeys[1].RefTable = AccountsTable
+	AccountsTable.ForeignKeys[0].RefTable = ProxyGroupsTable
+	AccountsTable.ForeignKeys[1].RefTable = ProxiesTable
+	AccountsTable.ForeignKeys[2].RefTable = AccountsTable
 	AccountsTable.Annotation = &entsql.Annotation{
 		Table: "accounts",
 	}
@@ -2427,6 +2535,15 @@ func init() {
 	ProxiesTable.ForeignKeys[0].RefTable = ProxiesTable
 	ProxiesTable.Annotation = &entsql.Annotation{
 		Table: "proxies",
+	}
+	ProxyGroupsTable.ForeignKeys[0].RefTable = ProxiesTable
+	ProxyGroupsTable.Annotation = &entsql.Annotation{
+		Table: "proxy_groups",
+	}
+	ProxyGroupMembersTable.ForeignKeys[0].RefTable = ProxyGroupsTable
+	ProxyGroupMembersTable.ForeignKeys[1].RefTable = ProxiesTable
+	ProxyGroupMembersTable.Annotation = &entsql.Annotation{
+		Table: "proxy_group_members",
 	}
 	RedeemCodesTable.ForeignKeys[0].RefTable = GroupsTable
 	RedeemCodesTable.ForeignKeys[1].RefTable = UsersTable

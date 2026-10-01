@@ -15,6 +15,8 @@ const (
 
 type Proxy struct {
 	ID             int64
+	WorkspaceID    int64
+	DeletedAt      *time.Time
 	Name           string
 	Protocol       string
 	Host           string
