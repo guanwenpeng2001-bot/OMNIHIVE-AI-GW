@@ -122,6 +122,12 @@ var auditSensitiveReads = map[string]string{
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
 var auditActionOverrides = map[string]string{
+	"POST /api/v1/admin/proxy-groups":                         "admin.proxy_groups.create",
+	"PUT /api/v1/admin/proxy-groups/:id":                      "admin.proxy_groups.update",
+	"DELETE /api/v1/admin/proxy-groups/:id":                   "admin.proxy_groups.delete",
+	"PUT /api/v1/admin/proxy-groups/:id/members":              "admin.proxy_groups.members.replace",
+	"DELETE /api/v1/admin/proxy-groups/:id/bindings":          "admin.proxy_groups.bindings.reset",
+	"POST /api/v1/admin/proxies/:id/probe-now":                "admin.proxies.probe_now",
 	"POST /api/v1/auth/login":                                 service.AuditActionLogin,
 	"POST /api/v1/auth/login/2fa":                             service.AuditActionLogin2FA,
 	"POST /api/v1/auth/passkey/login/finish":                  service.AuditActionLogin,

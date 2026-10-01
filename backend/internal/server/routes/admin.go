@@ -67,6 +67,7 @@ func RegisterAdminRoutes(
 
 		// 代理管理
 		registerProxyRoutes(admin, h, stepUpAuth)
+		registerProxyGroupRoutes(admin, h)
 
 		// 卡密管理
 		registerRedeemCodeRoutes(admin, h)
@@ -540,6 +541,7 @@ func registerProxyRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth
 		proxies.DELETE("/:id", h.Admin.Proxy.Delete)
 		proxies.POST("/:id/test", h.Admin.Proxy.Test)
 		proxies.POST("/:id/quality-check", h.Admin.Proxy.CheckQuality)
+		proxies.POST("/:id/probe-now", h.Admin.ProxyGroup.ProbeNow)
 		proxies.GET("/:id/stats", h.Admin.Proxy.GetStats)
 		proxies.GET("/:id/accounts", h.Admin.Proxy.GetProxyAccounts)
 		proxies.POST("/batch-delete", h.Admin.Proxy.BatchDelete)
@@ -884,4 +886,16 @@ func channelMonitorModeV2Guard(settingService *service.SettingService) gin.Handl
 		}
 		c.Next()
 	}
+}
+
+func registerProxyGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	groups := admin.Group("/proxy-groups")
+	groups.GET("", h.Admin.ProxyGroup.List)
+	groups.POST("", h.Admin.ProxyGroup.Create)
+	groups.GET("/:id", h.Admin.ProxyGroup.GetByID)
+	groups.PUT("/:id", h.Admin.ProxyGroup.Update)
+	groups.DELETE("/:id", h.Admin.ProxyGroup.Delete)
+	groups.PUT("/:id/members", h.Admin.ProxyGroup.ReplaceMembers)
+	groups.GET("/:id/bindings", h.Admin.ProxyGroup.Bindings)
+	groups.DELETE("/:id/bindings", h.Admin.ProxyGroup.ResetBindings)
 }
