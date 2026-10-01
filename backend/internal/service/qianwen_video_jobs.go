@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/tidwall/gjson"
 )
 
@@ -180,21 +181,52 @@ func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 	return log, cmd, nil
 }
 
+// Use the same public-IP pinning as image downloads, with a separate unsigned
+// direct transport: no account or environment proxy credentials are inherited.
+var qianwenVideoContentTransport http.RoundTripper = httpclient.NewPublicTransport(&http.Transport{
+	DisableCompression:  true,
+	TLSHandshakeTimeout: 10 * time.Second,
+	IdleConnTimeout:     90 * time.Second,
+})
+
+func isQianwenVideoResultHost(host string) bool {
+	host = strings.ToLower(host)
+	if strings.HasPrefix(host, "dashscope-result-") && strings.HasSuffix(host, ".aliyuncs.com") {
+		return true // Retain the existing regional result-host policy.
+	}
+	// Official Wan results also use dashscope-<identifier> accelerated buckets:
+	// https://help.aliyun.com/en/model-studio/wan-video-editing-api-reference
+	bucket, accelerated := strings.CutSuffix(host, ".oss-accelerate.aliyuncs.com")
+	if !accelerated || len(bucket) > 63 || !strings.HasPrefix(bucket, "dashscope-") {
+		return false
+	}
+	identifier := strings.TrimPrefix(bucket, "dashscope-")
+	if identifier == "" || strings.HasPrefix(identifier, "-") || strings.HasSuffix(identifier, "-") {
+		return false
+	}
+	for _, character := range identifier {
+		if !(character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-') {
+			return false
+		}
+	}
+	return true
+}
+
 // OpenQianwenVideoContent downloads a settled video result. Like the ASR
 // transcript fetch, this is an unsigned request to a documented provider
-// result host (dashscope-result-*.aliyuncs.com, per the official Wan and ASR
+// result host (regional dashscope-result or accelerated dashscope buckets, per the Wan
 // API references): no account headers, cookies, proxy credentials or redirects
 // cross this boundary. The caller must close Body.
 func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" || !strings.HasPrefix(u.Hostname(), "dashscope-result-") || !strings.HasSuffix(u.Hostname(), ".aliyuncs.com") {
+	if err != nil || u.Scheme != "https" || u.User != nil || strings.Contains(rawURL, "#") || u.Host != u.Hostname() || !isQianwenVideoResultHost(u.Hostname()) {
 		return nil, fmt.Errorf("unsupported video result origin")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("video result unavailable")
 	}
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: qianwenVideoContentTransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("video result unavailable")
@@ -208,6 +240,10 @@ func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("video result exceeds limit")
 	}
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(resp.Body, resp.ContentLength), resp.Body}
 	return resp, nil
 }
 

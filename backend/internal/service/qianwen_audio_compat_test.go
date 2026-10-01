@@ -64,10 +64,10 @@ func (f qianwenSpeechRoundTripper) RoundTrip(r *http.Request) (*http.Response, e
 
 func TestQianwenAudioCompatForward(t *testing.T) {
 	wav := []byte("RIFF\x04\x00\x00\x00WAVEfixture")
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	originalTransport := qianwenVideoContentTransport
+	t.Cleanup(func() { qianwenVideoContentTransport = originalTransport })
 	downloads := 0
-	http.DefaultTransport = qianwenSpeechRoundTripper(func(request *http.Request) (*http.Response, error) {
+	qianwenVideoContentTransport = qianwenSpeechRoundTripper(func(request *http.Request) (*http.Response, error) {
 		downloads++
 		require.Equal(t, "https", request.URL.Scheme)
 		require.Equal(t, "dashscope-result-bj.oss-cn-beijing.aliyuncs.com", request.URL.Host)
@@ -131,10 +131,10 @@ func TestQianwenAudioCompatForward(t *testing.T) {
 }
 
 func TestQianwenSpeechDownloadBoundaries(t *testing.T) {
-	originalTransport := http.DefaultTransport
-	t.Cleanup(func() { http.DefaultTransport = originalTransport })
+	originalTransport := qianwenVideoContentTransport
+	t.Cleanup(func() { qianwenVideoContentTransport = originalTransport })
 	calls := 0
-	http.DefaultTransport = qianwenSpeechRoundTripper(func(request *http.Request) (*http.Response, error) {
+	qianwenVideoContentTransport = qianwenSpeechRoundTripper(func(request *http.Request) (*http.Response, error) {
 		calls++
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"http://127.0.0.1/private"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
 	})
@@ -147,7 +147,7 @@ func TestQianwenSpeechDownloadBoundaries(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 1, calls, "redirect must not be followed")
 	for _, payload := range []string{`{"error":"not audio"}`, "RIFF"} {
-		http.DefaultTransport = qianwenSpeechRoundTripper(func(*http.Request) (*http.Response, error) {
+		qianwenVideoContentTransport = qianwenSpeechRoundTripper(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 200, Header: make(http.Header), ContentLength: int64(len(payload)), Body: io.NopCloser(strings.NewReader(payload))}, nil
 		})
 		_, err := downloadQianwenSpeech(context.Background(), "https://dashscope-result-bj.aliyuncs.com/a")
