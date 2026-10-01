@@ -277,7 +277,19 @@ func aggregatePublicMetadata(observations []service.UpstreamModelMetadata) publi
 		output = append(output, observePublicField(observation, "max_output_tokens", positivePublicValue(observation.MaxOutputTokens)))
 		dimensions = append(dimensions, observePublicField(observation, "embedding_dimensions", positivePublicValue(observation.EmbeddingDimensions)))
 		reasoning = append(reasoning, observePublicField(observation, "reasoning", observation.Reasoning))
-		reasoningLevels = append(reasoningLevels, observePublicField(observation, "supported_reasoning_levels", &observation.SupportedReasoningLevels))
+		callableLevels := observation.SupportedReasoningLevels
+		if observation.ProviderProfile == "openai-codex" {
+			// Ultra is a Codex client workflow, not a callable effort. Build a
+			// separate slice so discovery and the native manifest retain it.
+			// No remaining callable levels means unknown, not an empty guarantee.
+			callableLevels = nil
+			for _, level := range observation.SupportedReasoningLevels {
+				if !strings.EqualFold(strings.TrimSpace(level), "ultra") {
+					callableLevels = append(callableLevels, level)
+				}
+			}
+		}
+		reasoningLevels = append(reasoningLevels, observePublicField(observation, "supported_reasoning_levels", &callableLevels))
 		vision = append(vision, observePublicField(observation, "supports_vision", observation.SupportsVision))
 		functions = append(functions, observePublicField(observation, "supports_function_calling", observation.SupportsFunctionCalling))
 		caching = append(caching, observePublicField(observation, "supports_prompt_caching", observation.SupportsPromptCaching))

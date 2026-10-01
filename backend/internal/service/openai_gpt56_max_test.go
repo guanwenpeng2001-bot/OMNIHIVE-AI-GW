@@ -57,6 +57,25 @@ func TestAstraForwardPreservesMaxInPayloadAndUsage(t *testing.T) {
 	}
 }
 
+func TestAstraForwardPreservesUltraInPayload(t *testing.T) {
+	// Public capability projection must not introduce inbound effort rewriting.
+	body := []byte(`{"model":"gpt-6-astra","input":"hello","reasoning":{"effort":"ultra"}}`)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"id":"resp_astra","model":"gpt-6-astra","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":0}}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	account := rawGPT56ResponsesAPIKeyAccount("gpt-6-astra", "gpt-6-astra")
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body)))
+	SetOpenAIClientTransport(ctx, OpenAIClientTransportHTTP)
+	result, err := svc.Forward(context.Background(), ctx, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.JSONEq(t, string(body), string(upstream.lastBody))
+	require.Equal(t, "ultra", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+}
+
 func TestNormalizeOpenAIReasoningEffortForMaxCapableModels(t *testing.T) {
 	tests := []struct {
 		name  string
