@@ -4440,6 +4440,8 @@ const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform,
 // Defaults belong to one open draft; old responses cannot populate another identity.
 let mappingGeneration = 0
 watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
+// A selection edit, including an intentional clear, ends pending default seeding.
+watch([allowedModels, modelMappings], () => { mappingGeneration++ }, { deep: true, flush: 'sync' })
 const loadAntigravityMappings = async () => {
   const request = ++mappingGeneration
   await reloadPresets()
