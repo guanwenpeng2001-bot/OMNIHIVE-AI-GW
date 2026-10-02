@@ -11,10 +11,10 @@ class ModelMethodsReviewTests(unittest.TestCase):
         self.profiles = [profile for profile in self.inputs["profiles"]
                          if (profile["platform"], profile["provider_profile"]) in presets.METHOD_REVIEW_SCOPES]
 
-    def test_target_identity_sets_remain_36_and_72(self):
+    def test_reviewed_october_identity_sets_are_44_and_86(self):
         frozen = {
-            "opencode_go": (36, "7e4aa084998f52d50eab4ef9a8f1fc92920d4ac058d0818ff1d752008c4a0bbd"),
-            "commandcode": (72, "ee4e97fb26b3fc27219c4b1708426a604fb5fc9ba438a234c5651c9311ab3d63"),
+            "opencode_go": (44, "ffd35167a7782f2cd538571d925acdd9ddb620688abf7c8da37b28822f998005"),
+            "commandcode": (86, "01ae0bb504f63de01d6714ac98042103254cb4d0314bdd3f528fbd41ad7e21dc"),
         }
         for profile in self.profiles:
             identifiers = sorted(model["id"] for model in profile["models"])
@@ -33,7 +33,7 @@ class ModelMethodsReviewTests(unittest.TestCase):
                 self.assertTrue(record["remaining_gap"])
             self.assertEqual("partial", profile["coverage_status"])
             self.assertFalse(profile["coverage_scope"]["official_full_inventory"])
-        self.assertEqual({"confirmed": 99, "conflicting": 0, "unavailable": 9}, totals)
+        self.assertEqual({"confirmed": 119, "conflicting": 0, "unavailable": 11}, totals)
         presets.generate(self.inputs)
 
     def test_methods_require_exact_hosted_endpoint_evidence(self):
@@ -43,7 +43,9 @@ class ModelMethodsReviewTests(unittest.TestCase):
                                ("endpoints", ["https://opencode.ai/zen/v1/chat/completions"])):
             with self.subTest(field=field):
                 changed = copy.deepcopy(self.profiles[0])
-                changed["coverage_scope"]["methods_review"]["records"][0][field] = invalid
+                record = next(r for r in changed["coverage_scope"]["methods_review"]["records"]
+                              if r["decision"] == "confirmed")
+                record[field] = invalid
                 with self.assertRaises(ValueError):
                     presets.reviewed_methods(changed, self.inputs["sources"])
         changed = copy.deepcopy(self.profiles[0])
@@ -65,7 +67,8 @@ class ModelMethodsReviewTests(unittest.TestCase):
     def test_unknown_and_conflicting_methods_stay_unasserted(self):
         for decision in ("unavailable", "conflicting"):
             changed = copy.deepcopy(self.profiles[0])
-            record = changed["coverage_scope"]["methods_review"]["records"][0]
+            record = next(r for r in changed["coverage_scope"]["methods_review"]["records"]
+                          if r["decision"] == "confirmed")
             record["decision"] = decision
             with self.assertRaisesRegex(ValueError, "unasserted"):
                 presets.reviewed_methods(changed, self.inputs["sources"])
@@ -81,7 +84,8 @@ class ModelMethodsReviewTests(unittest.TestCase):
                 source = self.inputs["sources"][before[model["id"]]["source"]]
                 self.assertEqual(source["observed_at"], model["verified_at"])
                 self.assertEqual(source["content_sha256"], model["source_content_hash"])
-                self.assertTrue(model["verified_at"].startswith("2026-09-20"))
+                if not before[model["id"]]["source"].startswith("official-oct03-"):
+                    self.assertTrue(model["verified_at"].startswith("2026-09-20"))
                 self.assertEqual(source["url"], model["field_sources"]["lifecycle"])
 
     def test_provider_projection_contains_no_prices_or_credentials(self):

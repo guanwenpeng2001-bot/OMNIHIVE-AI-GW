@@ -106,6 +106,8 @@ export function usePlatformModelPresets(
   }
   watch(context, () => { void reload() }, { immediate: true, flush: 'sync' })
   onScopeDispose(() => { disposed = true; generation++ })
-  const models = computed(() => [...new Set(presets.value.flatMap(preset => (preset.models ?? []).map(model => model.id)))])
+  const models = computed(() => [...new Set(presets.value.flatMap(preset => (preset.models ?? [])
+    .filter(model => model.lifecycle !== 'retired')
+    .map(model => model.id)))])
   return { presets, models, loading, loaded, error, reload }
 }
