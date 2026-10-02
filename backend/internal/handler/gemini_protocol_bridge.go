@@ -34,6 +34,13 @@ func GeminiProtocolBridge(messages, countTokens, embeddings gin.HandlerFunc) gin
 			}
 			return
 		}
+		continuationContext, cleanedBody, continuationErr := service.PrepareGoogleContinuation(c.Request.Context(), body, service.GatewayTargetPlatform(c))
+		if continuationErr != nil {
+			googleError(c, 400, continuationErr.Error())
+			return
+		}
+		c.Request = c.Request.WithContext(continuationContext)
+		body = cleanedBody
 		// The public URL remains intact for action requirements and audit. The
 		// resolved model belongs in the transformed body, never in shared key state.
 		if resolved, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && resolved != "" {
@@ -93,6 +100,7 @@ func GeminiProtocolBridge(messages, countTokens, embeddings gin.HandlerFunc) gin
 		c.Set(gin.BodyBytesKey, converted)
 		writer := service.NewGeminiProtocolWriter(c.Writer, callerModel, action, stream, count)
 		writer.ConfigureThinking(body)
+		c.Request = c.Request.WithContext(service.WithGeminiProtocolWriter(c.Request.Context(), writer))
 		if stream && c.Query("alt") != "sse" {
 			writer.UseJSONStream()
 		}

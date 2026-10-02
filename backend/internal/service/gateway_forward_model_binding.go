@@ -62,6 +62,16 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 	if plan == nil {
 		return ""
 	}
+	if account != nil && account.Platform == PlatformOpenRouter {
+		switch plan.Snapshot().Protocol {
+		case "chat_completions", "gemini":
+			return CompositeRouteEndpointChatCompletions
+		case "anthropic":
+			return CompositeRouteEndpointMessages
+		case "responses":
+			return CompositeRouteEndpointResponses
+		}
+	}
 	if account != nil && account.IsCursor() && account.Type != AccountTypeUpstream && (plan.Snapshot().Protocol == "chat_completions" || plan.Snapshot().Protocol == "anthropic" || plan.Snapshot().Protocol == "responses") {
 		return CompositeRouteEndpointChatCompletions
 	}

@@ -16,6 +16,10 @@ import (
 // GeminiProtocolWriter only adapts the existing Messages/count/embedding
 // writers. It never owns transport, scheduling, retries or settlement.
 type GeminiProtocolWriter struct {
+	openRouterSource    *openRouterContinuationSource
+	openRouterDetails   []json.RawMessage
+	openRouterToolParts []any
+	openRouterToolBytes int
 	gin.ResponseWriter
 	model, action                        string
 	stream                               bool
@@ -83,7 +87,7 @@ func (w *GeminiProtocolWriter) Write(p []byte) (int, error) {
 	}
 	w.consumed += len(p)
 	w.buffer = append(w.buffer, p...)
-	if len(w.buffer) > 8<<20 {
+	if len(w.buffer) > googleBridgeResponseLimit {
 		w.err = fmt.Errorf("bridge response exceeds limit")
 		return 0, w.err
 	}
@@ -247,6 +251,12 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 			return fmt.Errorf("missing content block")
 		}
 		w.blocks[index] = e.ContentBlock
+		if w.openRouterSource != nil && e.ContentBlock.Type == "tool_use" {
+			w.openRouterToolBytes += len(e.ContentBlock.Input) + len(e.ContentBlock.ID) + len(e.ContentBlock.Name)
+			if w.openRouterToolBytes > googleBridgeResponseLimit {
+				return fmt.Errorf("tool state exceeds bridge limit")
+			}
+		}
 		if e.ContentBlock.Type == "thinking" && !w.includeThoughts {
 			return nil
 		}
@@ -276,6 +286,12 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 			if block := w.blocks[index]; block == nil || block.Type != "tool_use" {
 				return fmt.Errorf("tool argument delta has no tool call")
 			}
+			if w.openRouterSource != nil {
+				w.openRouterToolBytes += len(e.Delta.PartialJSON)
+				if w.openRouterToolBytes > googleBridgeResponseLimit {
+					return fmt.Errorf("tool state exceeds bridge limit")
+				}
+			}
 			w.args[index] += e.Delta.PartialJSON
 		case "signature_delta":
 			return nil
@@ -290,6 +306,10 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 			part, err := messagesBlockToGeminiPart(*block)
 			if err != nil {
 				return err
+			}
+			if w.openRouterSource != nil {
+				w.openRouterToolParts = append(w.openRouterToolParts, part)
+				return nil
 			}
 			return w.emit(w.chunk([]any{part}, ""))
 		}
@@ -310,7 +330,15 @@ func (w *GeminiProtocolWriter) event(e *apicompat.AnthropicStreamEvent) error {
 		if w.stop == "" {
 			return fmt.Errorf("upstream stream ended without stop reason")
 		}
-		result := w.chunk([]any{}, geminiFinishReason(w.stop))
+		parts := []any{}
+		var err error
+		if w.openRouterSource != nil {
+			parts, err = w.attachOpenRouterContinuation(w.openRouterToolParts)
+		}
+		if err != nil {
+			return err
+		}
+		result := w.chunk(parts, geminiFinishReason(w.stop))
 		result["usageMetadata"] = geminiUsage(w.usage)
 		w.terminal = true
 		return w.emit(result)
@@ -411,6 +439,10 @@ func (w *GeminiProtocolWriter) Finish() (finishErr error) {
 				return w.fail(err.Error())
 			}
 			parts = append(parts, part)
+		}
+		parts, err := w.attachOpenRouterContinuation(parts)
+		if err != nil {
+			return w.fail(err.Error())
 		}
 		result := w.chunk(parts, geminiFinishReason(apicompat.AnthropicStopReasonString(response.StopReason)))
 		result["usageMetadata"] = geminiUsage(response.Usage)

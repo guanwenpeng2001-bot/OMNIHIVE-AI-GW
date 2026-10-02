@@ -3881,7 +3881,7 @@ function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['valu
     accountMode.value = 'payg'
     // 协议选项由后端声明决定（见 accountProtocolOptions / declaredProtocolPlatform），
     // 默认保持既有的 chat_completions 直通，用户可在协议卡上切到已声明的原生协议。
-    apiProtocol.value = 'chat_completions'
+    apiProtocol.value = platform === 'openrouter' ? 'adaptive' : 'chat_completions'
   }
   if (platform === 'commandcode') {
     form.type = 'apikey'

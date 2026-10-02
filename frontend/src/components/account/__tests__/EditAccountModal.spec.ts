@@ -2625,8 +2625,8 @@ describe('editor candidate identity and additive discovery', () => {
 describe('late platform edit mode, protocol and endpoint persistence', () => {
   const platforms = [
     { platform: 'hunyuan', payg: 'https://tokenhub.tencentmaas.com/v1', coding: 'https://api.lkeap.cloud.tencent.com/coding/v3', anthropic: 'https://api.lkeap.cloud.tencent.com/coding/anthropic', protocols: 4 },
-    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: null, protocols: 3 },
-    { platform: 'qianfan', payg: 'https://qianfan.baidubce.com/v2', coding: 'https://qianfan.baidubce.com/v2/tokenplan/personal', anthropic: null, protocols: 3 },
+    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: 'https://ark.cn-beijing.volces.com/api/coding', protocols: 3 },
+    { platform: 'qianfan', payg: 'https://qianfan.baidubce.com/v2', coding: 'https://qianfan.baidubce.com/v2/tokenplan/personal', anthropic: 'https://qianfan.baidubce.com/anthropic/tokenplan/personal', protocols: 3 },
     { platform: 'mistral', payg: 'https://api.mistral.ai/v1', coding: null, anthropic: null, protocols: 1 }
   ]
   it.each(platforms)('normalizes legacy choices and saves the mode-aware fallback for $platform', async ({ platform, coding, payg }) => {

@@ -26,7 +26,7 @@ func openRouterActionDescriptor(d ActionDescriptor, action, adapter string) Acti
 			return d
 		}
 		d.Status, d.Adapter = ActionImplemented, adapter
-		d.Evidence = "Public text converted through the existing POST /chat/completions adapter; https://openrouter.ai/docs/api-reference/overview (checked 2026-10-02)"
+		d.Evidence = "Raw Chat and Google compatibility use /chat/completions; native Messages and Responses retain opaque provider content (OpenRouter API reference, checked 2026-10-02)"
 		d.CredentialPolicy = "OpenRouter API key with Authorization: Bearer; account base_url or https://openrouter.ai/api/v1"
 		d.ModelPolicy = "Exact account model ID including provider prefix and colon variant"
 		d.UsagePolicy = "Observed response token counters and frozen customer pricing; upstream cost is separate"

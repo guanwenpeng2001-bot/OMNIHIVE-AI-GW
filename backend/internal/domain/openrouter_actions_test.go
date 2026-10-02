@@ -4,8 +4,8 @@ import "testing"
 
 func TestOpenRouterCoreContract(t *testing.T) {
 	p, ok := LookupPlatform("openrouter")
-	if !ok || !p.ChatOnly || p.MessagesPOST != EndpointBridge || p.ResponsesPOST != EndpointBridge || p.NativeMultiProtocolResponses {
-		t.Fatalf("missing OpenRouter chat bridge: %+v", p)
+	if !ok || !p.ChatOnly || p.MessagesPOST != EndpointNative || p.ResponsesPOST != EndpointNative || !p.NativeMultiProtocolResponses {
+		t.Fatalf("missing OpenRouter native protocol declaration: %+v", p)
 	}
 	for _, action := range []string{"chat", "messages", "responses", "generate_content"} {
 		cell := PlatformAction(ActionIdentity{Platform: "openrouter", HostedAccountType: AccountTypeAPIKey}, action)

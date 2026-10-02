@@ -825,7 +825,7 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	// Forward checks the raw Chat Completions fallback before passthrough.
 	// These API-key accounts therefore apply normal account model_mapping and
 	// upstream normalization, but never compact_model_mapping.
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if account != nil && account.Platform == PlatformOpenRouter || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		upstreamModel := resolveOpenAIForwardModel(account, requestedModel, "")
 		return normalizeOpenAIModelForUpstream(account, upstreamModel)
 	}
