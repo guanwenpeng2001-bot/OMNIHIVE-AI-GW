@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,7 +31,15 @@ var discoveryFixtures = []struct {
 	{"match", "1232082e7a0a657865632d636865636bd202210a03617069120f76616c69646174696f6e5f6563686f1a0963616c6c2d6563686f"},
 	{"foreign", "122b082f7a0c657865632d666f726569676ed202180a056f74686572120f76616c69646174696f6e5f6563686f"},
 	{"other tool", "122208307a0f657865632d6f746865722d746f6f6cd2020c0a0361706912056f74686572"},
+	{"default api", officialDefaultDiscovery},
+	{"default match", officialDefaultPrecheck},
 }
+
+// Official toBinary fixtures from the same installed bundle, with proto3 defaults.
+const officialDefaultDiscovery = "1208a202050a03617069"
+const officialDefaultPrecheck = "1219d202160a03617069120f76616c69646174696f6e5f6563686f"
+const officialDefaultEmptyDiscoveryReply = "1205a202020a00"
+const officialDefaultAllowedPrecheckReply = "1205d202020801"
 
 const officialMCPCall = "125908315a4a0a136170692d76616c69646174696f6e5f6563686f120d0a0576616c756512041a024f4b1a0963616c6c2d6563686f22036170692a0f76616c69646174696f6e5f6563686f4a036170697a09657865632d6563686f"
 const officialShellExec = "1210082d12007a0a657865632d7368656c6c"
@@ -194,9 +203,11 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 				require.NoError(t, err)
 				requestExec := discoveryExecFields(t, requestBytes)
 				replyExec := discoveryExecFields(t, replies[index])
+				require.Equal(t, findField(requestExec, 1).number, findField(replyExec, 1).number)
+				require.Equal(t, findField(requestExec, 15).number, findField(replyExec, 15).number)
 				require.Equal(t, findField(requestExec, 1).integer, findField(replyExec, 1).integer)
 				require.Equal(t, findField(requestExec, 15).data, findField(replyExec, 15).data)
-				if index < 4 {
+				if findField(requestExec, execMCPState).number != 0 {
 					result, err := fields(findField(replyExec, 36).data)
 					require.NoError(t, err)
 					require.Equal(t, uint64(1), findField(result, 1).number)
@@ -226,7 +237,7 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 				} else {
 					result, err := fields(findField(replyExec, 42).data)
 					require.NoError(t, err)
-					require.Equal(t, mode != "no_tools" && fixture.name == "match", findField(result, 1).integer == 1)
+					require.Equal(t, mode != "no_tools" && (fixture.name == "match" || fixture.name == "default match"), findField(result, 1).integer == 1)
 				}
 			}
 			if mode != "no_tools" {
@@ -304,7 +315,7 @@ func TestMCPDiscoveryGroupsOnlySuppliedDefinitions(t *testing.T) {
 func TestMCPDiscoveryRejectsMalformedMetadata(t *testing.T) {
 	for _, encoded := range []string{
 		"121508297a0e657865632d646973636f76657279a00200", // field 36 must be a message
-		"12070829a202020801",                             // missing exec_id and non-string filter
+		"12070829a202020801",                             // default exec_id is valid, non-string filter is not
 		"1216082a7a08657865632d617069a202070a036170690a", // truncated argument
 		"12080880808080107a00",                           // unsupported uint32 identity/empty exec_id is not discovery
 	} {
@@ -335,6 +346,192 @@ func TestMCPDiscoveryWriteFailureDoesNotReplay(t *testing.T) {
 		return nil
 	})
 	require.ErrorContains(t, err, "MCP metadata reply failed")
+	require.Equal(t, "mcp_metadata_reply_failed", DiagnosticCode(err))
 	require.NotErrorIs(t, err, errToolReply, "metadata failure is not a real tool execution reply")
 	require.Equal(t, 1, attempts)
+}
+
+func TestMCPMetadataDefaultIdentityOfficialReplies(test *testing.T) {
+	foreign := discoveryTool()
+	foreign.Server = "other"
+	otherTool := discoveryTool()
+	otherTool.Name = "other"
+	for _, scenario := range []struct {
+		name, request, reply string
+		tools                []ToolDefinition
+	}{
+		{"empty catalog", officialDefaultDiscovery, officialDefaultEmptyDiscoveryReply, nil},
+		{"unknown server", officialDefaultDiscovery, officialDefaultEmptyDiscoveryReply, []ToolDefinition{foreign}},
+		{"matching precheck", officialDefaultPrecheck, officialDefaultAllowedPrecheckReply, []ToolDefinition{discoveryTool()}},
+		{"foreign provider", officialDefaultPrecheck, "1203d20200", []ToolDefinition{foreign}},
+		{"other tool", officialDefaultPrecheck, "1203d20200", []ToolDefinition{otherTool}},
+		{"no tools precheck", officialDefaultPrecheck, "1203d20200", nil},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			payload, err := hex.DecodeString(scenario.request)
+			require.NoError(test, err)
+			reply, handled, err := replyMCPMetadata(payload, scenario.tools)
+			require.NoError(test, err)
+			require.True(test, handled)
+			require.Equal(test, scenario.reply, hex.EncodeToString(reply))
+		})
+	}
+}
+
+func TestMCPMetadataIdentityPresenceAndBounds(test *testing.T) {
+	for _, operation := range []uint64{execMCPState, execMCPPrecheck} {
+		for _, identity := range []struct {
+			name          string
+			idPresent     bool
+			id            uint64
+			execIDPresent bool
+			execID        string
+		}{
+			{name: "omitted"},
+			{name: "explicit defaults", idPresent: true, execIDPresent: true},
+			{name: "numeric only", idPresent: true, id: 41},
+			{name: "exec only", execIDPresent: true, execID: "exec-metadata"},
+			{name: "maximum uint32", idPresent: true, id: 0xffffffff, execIDPresent: true, execID: "exec-metadata"},
+		} {
+			test.Run(fmt.Sprintf("%d/%s", operation, identity.name), func(test *testing.T) {
+				var exec, payload message
+				if identity.idPresent {
+					exec.number(1, identity.id)
+				}
+				if identity.execIDPresent {
+					exec.text(15, identity.execID)
+				}
+				exec.bytes(operation, nil)
+				payload.bytes(2, exec)
+				reply, handled, err := replyMCPMetadata(payload, nil)
+				require.NoError(test, err)
+				require.True(test, handled)
+				values := discoveryExecFields(test, reply)
+				id, execID := findField(values, 1), findField(values, 15)
+				require.Equal(test, identity.id, id.integer)
+				require.Equal(test, identity.execID, string(execID.data))
+				require.Equal(test, identity.id != 0, id.number != 0)
+				require.Equal(test, identity.execID != "", execID.number != 0)
+			})
+		}
+	}
+}
+
+func TestMCPMetadataMalformedDiagnostics(test *testing.T) {
+	for _, scenario := range []struct{ name, encoded, code string }{
+		{"filter with absent exec id", "12070829a202020801", "malformed_mcp_server_filter"},
+		{"overflow discovery", "1209088080808010a20200", "malformed_mcp_metadata_identity"},
+		{"overflow precheck", "1209088080808010d20200", "malformed_mcp_metadata_identity"},
+		{"bytes id", "12050a00a20200", "malformed_mcp_metadata_identity"},
+		{"varint exec id", "12057800d20200", "malformed_mcp_metadata_identity"},
+		{"varint operation", "1203a00200", "malformed_mcp_metadata_identity"},
+		{"varint provider", "1205d202020801", "malformed_mcp_precheck"},
+		{"varint tool", "1205d202021001", "malformed_mcp_precheck"},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			payload, err := hex.DecodeString(scenario.encoded)
+			require.NoError(test, err)
+			reply, handled, err := replyMCPMetadata(payload, []ToolDefinition{discoveryTool()})
+			require.True(test, handled)
+			require.Nil(test, reply)
+			require.Error(test, err)
+			require.Equal(test, scenario.code, DiagnosticCode(fmt.Errorf("wrapped: %w", err)))
+		})
+	}
+}
+
+func TestMCPMetadataDefaultIdentityDoesNotRelaxExecution(test *testing.T) {
+	payload, err := hex.DecodeString(officialMCPCall)
+	require.NoError(test, err)
+	values := discoveryExecFields(test, payload)
+	for _, explicitEmpty := range []bool{false, true} {
+		var exec, envelope message
+		exec.number(1, 49)
+		exec.bytes(11, findField(values, 11).data)
+		if explicitEmpty {
+			exec.text(15, "")
+		}
+		envelope.bytes(2, exec)
+		_, handled, err := replyMCPMetadata(envelope, []ToolDefinition{discoveryTool()})
+		require.NoError(test, err)
+		require.False(test, handled)
+		call, err := parseToolCall(envelope)
+		require.Error(test, err)
+		require.Nil(test, call)
+	}
+}
+
+func TestMCPMetadataHTTP2RejectsInvalidRequests(test *testing.T) {
+	for _, scenario := range []struct{ name, encoded, diagnostic string }{
+		{"malformed filter", "12070829a202020801", "malformed_mcp_server_filter"},
+		{"overflow identity", "1209088080808010a20200", "malformed_mcp_metadata_identity"},
+		{"malformed precheck", "1205d202020801", "malformed_mcp_precheck"},
+		{"native shell", officialShellExec, "unclassified"},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			payload, err := hex.DecodeString(scenario.encoded)
+			require.NoError(test, err)
+			serverErrors := make(chan error, 1)
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				serverErrors <- func() error {
+					if request.ProtoMajor != 2 {
+						return fmt.Errorf("expected HTTP/2")
+					}
+					if _, err := readFrame(request.Body); err != nil {
+						return err
+					}
+					_, err := writer.Write(encodeFrame(payload))
+					return err
+				}()
+			}))
+			server.EnableHTTP2 = true
+			server.StartTLS()
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			generationSends := 0
+			ctx = WithGenerationSendHook(ctx, func(request *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+				generationSends++
+				return send(request)
+			})
+			_, err = (&Client{HTTPClient: server.Client(), BaseURL: server.URL}).RunWithTools(ctx, Credentials{}, nil, "default", ToolOptions{
+				Definitions: []ToolDefinition{discoveryTool()},
+				Execute: func(context.Context, ToolCall) (ToolResult, error) {
+					test.Fatal("rejected request must not execute a tool")
+					return ToolResult{}, nil
+				},
+			}, func(StreamEvent) error { test.Fatal("rejected request must not emit an event"); return nil })
+			require.NoError(test, <-serverErrors)
+			require.Error(test, err)
+			require.Equal(test, scenario.diagnostic, DiagnosticCode(err))
+			if scenario.name == "native shell" {
+				require.ErrorContains(test, err, "unsupported exec operation")
+			}
+			require.Equal(test, 1, generationSends)
+		})
+	}
+}
+
+func TestMCPMetadataWriteFailurePreservesTransportCause(test *testing.T) {
+	payload, err := hex.DecodeString(officialDefaultDiscovery)
+	require.NoError(test, err)
+	cause := &net.OpError{Op: "write", Err: fmt.Errorf("private transport context")}
+	attempts := 0
+	client := &Client{RunHosts: []string{"https://first.invalid", "https://second.invalid"}, HTTPClient: &http.Client{Transport: mcpRoundTripper(func(request *http.Request) (*http.Response, error) {
+		attempts++
+		if _, err := readFrame(request.Body); err != nil {
+			return nil, err
+		}
+		require.NoError(test, request.Body.(*io.PipeReader).CloseWithError(cause))
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(encodeFrame(payload)))}, nil
+	})}}
+	_, err = client.RunWithTools(context.Background(), Credentials{}, nil, "default", ToolOptions{}, func(StreamEvent) error {
+		test.Fatal("metadata must not emit an event")
+		return nil
+	})
+	require.ErrorIs(test, err, errMCPMetadataReply)
+	require.ErrorIs(test, err, cause)
+	require.NotErrorIs(test, err, errToolReply)
+	require.Equal(test, "write_failed", DiagnosticCode(err))
+	require.Equal(test, 1, attempts)
 }

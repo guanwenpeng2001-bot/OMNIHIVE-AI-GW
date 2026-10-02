@@ -3,6 +3,8 @@ package cursor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -41,4 +43,45 @@ type errorRoundTripper struct{ err error }
 
 func (transport errorRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, transport.err
+}
+
+func TestMCPMetadataDiagnosticSentinels(test *testing.T) {
+	for _, scenario := range []struct {
+		sentinel error
+		code     string
+	}{
+		{errMalformedMCPMetadataIdentity, "malformed_mcp_metadata_identity"},
+		{errMalformedMCPServerFilter, "malformed_mcp_server_filter"},
+		{errMalformedMCPPrecheck, "malformed_mcp_precheck"},
+		{errMCPMetadataReply, "mcp_metadata_reply_failed"},
+	} {
+		test.Run(scenario.code, func(test *testing.T) {
+			wrapped := fmt.Errorf("private-context: %w", scenario.sentinel)
+			require.ErrorIs(test, wrapped, scenario.sentinel)
+			require.Equal(test, scenario.code, DiagnosticCode(scenario.sentinel))
+			require.Equal(test, scenario.code, DiagnosticCode(wrapped))
+			require.Equal(test, "unclassified", DiagnosticCode(errors.New(scenario.sentinel.Error())), "text alone cannot select a diagnostic")
+		})
+	}
+}
+
+func TestMCPMetadataReplyDiagnosticPreservesTransportPrecedence(test *testing.T) {
+	for _, scenario := range []struct {
+		cause error
+		code  string
+	}{
+		{context.Canceled, "canceled"},
+		{context.DeadlineExceeded, "deadline_exceeded"},
+		{&net.OpError{Op: "dial", Err: errors.New("private address")}, "dial_failed"},
+		{&net.OpError{Op: "read", Err: errors.New("private address")}, "read_failed"},
+		{&net.OpError{Op: "write", Err: errors.New("private address")}, "write_failed"},
+		{io.ErrUnexpectedEOF, "stream_truncated"},
+	} {
+		test.Run(scenario.code, func(test *testing.T) {
+			failure := fmt.Errorf("%w: %w", errMCPMetadataReply, &url.Error{Op: "Post", URL: "https://private.invalid", Err: scenario.cause})
+			require.ErrorIs(test, failure, errMCPMetadataReply)
+			require.ErrorIs(test, failure, scenario.cause)
+			require.Equal(test, scenario.code, DiagnosticCode(fmt.Errorf("wrapped: %w", failure)))
+		})
+	}
 }

@@ -8,6 +8,13 @@ import (
 	"net"
 )
 
+var (
+	errMalformedMCPMetadataIdentity = errors.New("cursor: malformed MCP metadata identity")
+	errMalformedMCPServerFilter     = errors.New("cursor: malformed MCP server filter")
+	errMalformedMCPPrecheck         = errors.New("cursor: malformed MCP precheck")
+	errMCPMetadataReply             = errors.New("cursor: MCP metadata reply failed")
+)
+
 // TransportError keeps typed causes for local admission and retry decisions.
 // Its printable form never includes a URL, credential, or transport error text.
 type TransportError struct{ cause error }
@@ -72,6 +79,16 @@ func DiagnosticCode(err error) string {
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return "stream_truncated"
+	}
+	switch {
+	case errors.Is(err, errMalformedMCPMetadataIdentity):
+		return "malformed_mcp_metadata_identity"
+	case errors.Is(err, errMalformedMCPServerFilter):
+		return "malformed_mcp_server_filter"
+	case errors.Is(err, errMalformedMCPPrecheck):
+		return "malformed_mcp_precheck"
+	case errors.Is(err, errMCPMetadataReply):
+		return "mcp_metadata_reply_failed"
 	}
 	return "unclassified"
 }

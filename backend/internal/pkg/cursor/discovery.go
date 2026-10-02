@@ -33,8 +33,9 @@ func replyMCPMetadata(payload []byte, tools []ToolDefinition) (message, bool, er
 		return nil, false, nil
 	}
 	id, execID := findField(values, 1), findField(values, 15)
-	if (id.number != 0 && (id.wire != wireVarint || id.integer > 0xffffffff)) || execID.wire != wireBytes || len(execID.data) == 0 || operation.wire != wireBytes {
-		return nil, true, fmt.Errorf("cursor: malformed MCP metadata identity")
+	// Metadata identity uses proto3 scalars: omitted id/exec_id mean 0/"".
+	if (id.number != 0 && (id.wire != wireVarint || id.integer > 0xffffffff)) || (execID.number != 0 && execID.wire != wireBytes) || operation.wire != wireBytes {
+		return nil, true, errMalformedMCPMetadataIdentity
 	}
 	args, err := fields(operation.data)
 	if err != nil {
@@ -46,7 +47,7 @@ func replyMCPMetadata(payload []byte, tools []ToolDefinition) (message, bool, er
 		for _, arg := range args {
 			if arg.number == 1 {
 				if arg.wire != wireBytes {
-					return nil, true, fmt.Errorf("cursor: malformed MCP server filter")
+					return nil, true, errMalformedMCPServerFilter
 				}
 				servers[string(arg.data)] = true
 			}
@@ -56,7 +57,7 @@ func replyMCPMetadata(payload []byte, tools []ToolDefinition) (message, bool, er
 	} else {
 		provider, name := findField(args, 1), findField(args, 2)
 		if (provider.number != 0 && provider.wire != wireBytes) || (name.number != 0 && name.wire != wireBytes) {
-			return nil, true, fmt.Errorf("cursor: malformed MCP precheck")
+			return nil, true, errMalformedMCPPrecheck
 		}
 		for _, tool := range tools {
 			if tool.Server == string(provider.data) && tool.Name == string(name.data) {
@@ -66,8 +67,12 @@ func replyMCPMetadata(payload []byte, tools []ToolDefinition) (message, bool, er
 		}
 	}
 	var reply, client message
-	reply.number(1, id.integer)
-	reply.bytes(15, execID.data)
+	if id.integer != 0 {
+		reply.number(1, id.integer)
+	}
+	if len(execID.data) != 0 {
+		reply.bytes(15, execID.data)
+	}
 	reply.bytes(operation.number, result)
 	client.bytes(2, reply)
 	return client, true, nil
