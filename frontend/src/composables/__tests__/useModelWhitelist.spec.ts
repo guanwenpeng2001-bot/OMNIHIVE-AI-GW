@@ -9,6 +9,22 @@ vi.mock('@/api/admin/accounts', () => ({
 import { buildModelMappingObject, getModelsByPlatform, modelCandidateKey, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('excludes only retired editorial candidates without mutating metadata or saved mappings', () => {
+    const models = [
+      { id: 'retired', lifecycle: 'retired' },
+      ...['active', 'preview', 'deprecated', 'unknown'].map(lifecycle => ({ id: lifecycle, lifecycle })),
+      { id: 'missing-status' },
+    ]
+    const presets = [{ platform: 'openai', provider_profile: 'native', models }] as PlatformModelPreset[]
+    const before = JSON.stringify(presets)
+    const expected = ['active', 'preview', 'deprecated', 'unknown', 'missing-status']
+    expect(getModelsByPlatform('openai', {}, presets)).toEqual(expected)
+    expect(getPresetMappingsByPlatform('openai', {}, presets).map(mapping => mapping.from)).toEqual(expected)
+    expect(JSON.stringify(presets)).toBe(before)
+    const saved = { retired: 'retired', alias: 'retired' }
+    const selection = splitModelMappingObject(saved)
+    expect(buildModelMappingObject('combined', selection.allowedModels, selection.modelMappings)).toEqual(saved)
+  })
   it('projects server candidates without inventing IDs or aliases', () => {
     const presets = [{ platform: 'openai', provider_profile: 'native', models: [{ id: 'server-model', display_name: 'Server model' }] }] as PlatformModelPreset[]
     expect(getModelsByPlatform('openai', {}, presets)).toEqual(['server-model'])

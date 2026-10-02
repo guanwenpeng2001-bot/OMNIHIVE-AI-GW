@@ -7,6 +7,7 @@ import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { adminAPI } from '@/api/admin'
+import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
 
 const { showError, showSuccess, translate, catalogPreview } = vi.hoisted(() => ({
   catalogPreview: vi.fn(),
@@ -89,6 +90,36 @@ function mountModal(extraProps: Record<string, unknown> = {}, realDialogs = fals
 }
 
 describe('BulkEditAccountModal', () => {
+  it('preserves existing mapping intent during preset reload and omits unselected mapping writes', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'openai', provider_profile: 'native', models: [
+      { id: 'retired-model', lifecycle: 'retired' }, { id: 'current-model', lifecycle: 'active' },
+    ] }] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelValue', ['retired-model'])
+    selector.vm.$emit('update:modelMappings', [{ from: 'saved-alias', to: 'retired-model' }])
+    await flushPromises()
+    await (wrapper.vm as unknown as { reloadPresets: () => Promise<void> }).reloadPresets()
+    await flushPromises()
+    expect(selector.props('modelValue')).toEqual(['retired-model'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
+    expect((wrapper.vm as unknown as { filteredPresets: { from: string }[] }).filteredPresets.map(preset => preset.from)).toEqual(['current-model'])
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1)?.[1].credentials?.model_mapping).toEqual({
+      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+    })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(false)
+    await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
+    await (wrapper.vm as unknown as { reloadPresets: () => Promise<void> }).reloadPresets()
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1)?.[1].credentials ?? {}).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'antigravity', models: [{ id: 'gemini-3.1-flash-image' }, { id: 'gemini-2.5-flash-image' }] }] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+  })
   it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
     catalogPreview.mockReset().mockResolvedValue({ candidate_models: ['shared'], models: ['shared'], discovery_complete: true, complete: true })
     const wrapper = mountModal({ selectedPlatforms: ['openai'] })

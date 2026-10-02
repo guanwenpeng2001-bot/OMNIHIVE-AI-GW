@@ -215,6 +215,31 @@ function buildAccount() {
   } as any
 }
 
+it('preserves saved retired mappings during preset reload and edit submission', async () => {
+  const savedMapping = { 'retired-model': 'retired-model', 'saved-alias': 'retired-model' }
+  const account = buildAccount()
+  account.credentials.model_mapping = savedMapping
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'openai', provider_profile: 'native', models: [
+    { id: 'retired-model', lifecycle: 'retired' }, { id: 'current-model', lifecycle: 'active' },
+  ] }] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+  const wrapper = mountModal(account, false, true)
+  await flushPromises()
+  await (wrapper.vm as unknown as { reloadPresets: () => Promise<void> }).reloadPresets()
+  await flushPromises()
+  const selector = wrapper.getComponent(ModelWhitelistSelector)
+  expect(selector.props('modelValue')).toEqual(['retired-model'])
+  expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
+  expect((wrapper.vm as unknown as { presetMappings: { from: string }[] }).presetMappings.map(preset => preset.from)).toEqual(['current-model'])
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock.mock.calls.at(-1)?.[1].credentials.model_mapping).toEqual(savedMapping)
+  expect(account.credentials.model_mapping).toEqual(savedMapping)
+  wrapper.unmount()
+  vi.mocked(getPlatformModelPresets).mockResolvedValue([])
+})
+
 function buildOpenAISparkShadowAccount() {
   const account = buildAccount()
   return {

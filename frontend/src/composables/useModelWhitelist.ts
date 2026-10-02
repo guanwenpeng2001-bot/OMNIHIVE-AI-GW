@@ -35,11 +35,12 @@ export function modelCandidateKey(platform: string, identity: ModelCandidateIden
 // Pure projections of the current API response; absence is an explicit empty set.
 export function getModelsByPlatform(platform: string, identity: ModelCandidateIdentity = {}, presets: PlatformModelPreset[] = []): string[] {
   return [...new Set(selectPlatformModelPresets(presets, [platform], identity).flatMap(preset =>
-    (preset.models ?? []).map(model => model.id)))]
+    (preset.models ?? []).filter(model => model.lifecycle !== 'retired').map(model => model.id)))]
 }
 
 export function getPresetMappingsByPlatform(platform: string, identity: ModelCandidateIdentity = {}, presets: PlatformModelPreset[] = []) {
-  const models = selectPlatformModelPresets(presets, [platform], identity).flatMap(preset => preset.models ?? [])
+  const models = selectPlatformModelPresets(presets, [platform], identity)
+    .flatMap(preset => preset.models ?? []).filter(model => model.lifecycle !== 'retired')
   return [...new Map(models.map(model => [model.id, {
     label: model.display_name || model.id, from: model.id, to: model.id,
     color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'

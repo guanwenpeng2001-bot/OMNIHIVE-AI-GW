@@ -240,6 +240,31 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('preserves manual retired mappings during preset reload and creation', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'openai', provider_profile: 'native', models: [
+      { id: 'retired-model', lifecycle: 'retired' }, { id: 'current-model', lifecycle: 'active' },
+    ] }] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+    const wrapper = mountModal([], true)
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await openReview(wrapper)
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelValue', ['retired-model'])
+    selector.vm.$emit('update:modelMappings', [{ from: 'saved-alias', to: 'retired-model' }])
+    await flushPromises()
+    await (wrapper.vm as unknown as { reloadPresets: () => Promise<void> }).reloadPresets()
+    await flushPromises()
+    expect(selector.props('modelValue')).toEqual(['retired-model'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'saved-alias', to: 'retired-model' }])
+    expect((wrapper.vm as unknown as { presetMappings: { from: string }[] }).presetMappings.map(preset => preset.from)).toEqual(['current-model'])
+    await confirmReview(wrapper)
+    expect(createAccountMock.mock.calls.at(-1)?.[0].credentials.model_mapping).toEqual({
+      'retired-model': 'retired-model', 'saved-alias': 'retired-model',
+    })
+    wrapper.unmount()
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([])
+  })
   it.each(['current', 'legacy'])('opens mixed-channel confirmation for %s conflicts and retries the captured payload', async (format) => {
     const metadata = { group_id: 27, group_name: 'Mixed group', current_platform: 'Anthropic', other_platform: 'Antigravity' }
     createAccountMock.mockRejectedValueOnce(format === 'current'

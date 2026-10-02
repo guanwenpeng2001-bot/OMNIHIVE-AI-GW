@@ -318,7 +318,9 @@ const { presets: platformPresets } = usePlatformModelPresets(
 const presetModelsByPlatform = computed<Record<string, string[]>>(() => {
   const byPlatform: Record<string, string[]> = {}
   for (const preset of platformPresets.value) {
-    const ids = (preset.models ?? []).map((model) => model.id).filter(Boolean)
+    const ids = (preset.models ?? [])
+      .filter((model) => model.lifecycle !== 'retired')
+      .map((model) => model.id).filter(Boolean)
     byPlatform[preset.platform] = [...new Set([...(byPlatform[preset.platform] ?? []), ...ids])]
   }
   return byPlatform

@@ -165,11 +165,42 @@ afterEach(() => {
 
 describe('MonitorFormDialog linked account selector', () => {
   beforeEach(() => {
+    vi.mocked(getPlatformModelPresets).mockReset().mockResolvedValue([])
     listTemplates.mockReset().mockResolvedValue({ items: [] })
     accountsList.mockReset().mockResolvedValue({ items: [] })
     accountsGetById.mockReset()
     monitorCreate.mockReset().mockResolvedValue({})
     monitorUpdate.mockReset().mockResolvedValue({})
+  })
+
+  it.each(['active', 'preview', 'deprecated', 'unknown', undefined])('skips a retired first default and retains lifecycle %s', async lifecycle => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([
+      { platform: 'anthropic', provider_profile: 'native', models: [
+        { id: 'retired-first', task_type: 'chat', lifecycle: 'retired' },
+        { id: 'next-model', task_type: 'text_generation', lifecycle },
+      ] },
+    ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('[data-testid="monitor-primary-model"]').element.value).toBe('next-model')
+    expect(wrapper.findAll('#monitor-preset-models option').map(option => option.attributes('value'))).toEqual(['next-model'])
+  })
+
+  it('preserves a saved retired primary model through preset reload and submission', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([
+      { platform: 'openai', provider_profile: 'native', models: [
+        { id: 'saved-retired', task_type: 'chat', lifecycle: 'retired' },
+        { id: 'active-model', task_type: 'chat', lifecycle: 'active' },
+      ] },
+    ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+    const wrapper = mountDialog(makeMonitor({ primary_model: 'saved-retired' }))
+    await flushPromises()
+    await (wrapper.vm as unknown as { reloadPresets: () => Promise<void> }).reloadPresets()
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('[data-testid="monitor-primary-model"]').element.value).toBe('saved-retired')
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+    expect(monitorUpdate).toHaveBeenCalledWith(42, expect.objectContaining({ primary_model: 'saved-retired' }))
   })
 
   it('loads the first page of provider accounts when quota mode is enabled', async () => {
@@ -380,7 +411,7 @@ describe('MonitorFormDialog linked account selector', () => {
     ['commandcode', 'gpt-5.6-luna', 'https://api.commandcode.ai/provider/v1'],
   ])('prefills %s inference and disables quota modes', async (provider, model, endpoint) => {
     vi.mocked(getPlatformModelPresets).mockResolvedValue([
-      { platform: provider, provider_profile: 'native', models: [{ id: model, task_type: 'text_generation' }] }
+      { platform: provider, provider_profile: provider === 'qianwen' ? 'alibaba-cn' : 'native', models: [{ id: model, task_type: 'text_generation' }] }
     ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
 
     const wrapper = mountDialog()

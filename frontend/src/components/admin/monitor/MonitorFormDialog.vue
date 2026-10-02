@@ -687,6 +687,7 @@ const { presets: platformPresets, models: presetModels, error: presetError, relo
 watch(platformPresets, presets => {
   if (!form.primary_model.trim() && usesProbePart.value) {
     form.primary_model = presets.flatMap(preset => preset.models ?? [])
+      .filter(model => model.lifecycle !== 'retired')
       .find(model => model.task_type === 'text_generation' || model.task_type === 'chat')?.id ?? ''
   }
 })
