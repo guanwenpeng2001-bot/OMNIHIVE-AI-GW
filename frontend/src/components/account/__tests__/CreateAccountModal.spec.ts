@@ -1098,6 +1098,95 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
   })
 
+  describe('delayed Antigravity presets', () => {
+    let finishPresets: () => void
+    let wrapper: ReturnType<typeof mountModal>
+
+    beforeEach(async () => {
+      const response = new Promise<Awaited<ReturnType<typeof getPlatformModelPresets>>>(resolve => {
+        finishPresets = () => resolve([{ platform: 'antigravity', models: [{ id: 'Preset/Exact' }] }] as any)
+      })
+      vi.mocked(getPlatformModelPresets).mockImplementation(() => response)
+      wrapper = mountModal([], true)
+      await selectButtonByText(wrapper, 'Antigravity')
+      const workflow = wrapper.vm as unknown as { createWithOptions: (payload: CreateAccountRequest) => Promise<never> }
+      await workflow.createWithOptions({ name: 'Delayed preset fixture', platform: 'antigravity', type: 'oauth', concurrency: 1, priority: 1,
+        credentials: { credential_draft: 'preset-draft', revision: 'initial', platform: 'antigravity', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } }).catch(() => {})
+      await flushPromises()
+    })
+
+    afterEach(() => {
+      wrapper.unmount()
+      vi.mocked(getPlatformModelPresets).mockResolvedValue([])
+    })
+
+    async function addCustomSelection() {
+      await wrapper.get('input[aria-label="admin.accounts.customModelName"]').setValue('Custom/Direct')
+      await wrapper.get('input[aria-label="admin.accounts.customModelName"]').trigger('keydown.enter')
+      await selectButtonByText(wrapper, 'admin.accounts.addMapping')
+      await wrapper.get('input[aria-label="admin.accounts.requestModel"]').setValue('Custom/Alias')
+      await wrapper.get('input[aria-label="admin.accounts.actualModel"]').setValue('Private/Target')
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['Custom/Direct'])
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([{ from: 'Custom/Alias', to: 'Private/Target' }])
+    }
+
+    it('retains custom direct IDs and aliases edited while presets are pending', async () => {
+      await addCustomSelection()
+      finishPresets()
+      await flushPromises()
+      const selector = wrapper.getComponent(ModelWhitelistSelector)
+      expect(selector.props('modelValue')).toEqual(['Custom/Direct'])
+      expect(selector.props('modelMappings')).toEqual([{ from: 'Custom/Alias', to: 'Private/Target' }])
+      expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('Preset/Exact')
+      await confirmReview(wrapper)
+      expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Custom/Direct': 'Custom/Direct', 'Custom/Alias': 'Private/Target' })
+    })
+
+    it('seeds a still-pristine draft when delayed presets arrive', async () => {
+      finishPresets()
+      await flushPromises()
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['Preset/Exact'])
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
+    })
+
+    it.each(['confirm', 'cancel'] as const)('preserves selection after clear %s while presets are pending', async action => {
+      await addCustomSelection()
+      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
+      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit(action)
+      await flushPromises()
+      finishPresets()
+      await flushPromises()
+      const selector = wrapper.getComponent(ModelWhitelistSelector)
+      expect(selector.props('modelValue')).toEqual(action === 'confirm' ? [] : ['Custom/Direct'])
+      expect(selector.props('modelMappings')).toEqual(action === 'confirm' ? [] : [{ from: 'Custom/Alias', to: 'Private/Target' }])
+    })
+
+    it('preserves an explicit clear even when the selection was already empty', async () => {
+      await wrapper.get('[data-testid="clear-model-selection"]').trigger('click')
+      wrapper.getComponent(ModelWhitelistSelector).getComponent(ConfirmDialog).vm.$emit('confirm')
+      await flushPromises()
+      finishPresets()
+      await flushPromises()
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual([])
+      expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
+    })
+
+    it.each(['platform', 'reopen'] as const)('rejects an old response after %s changes draft identity', async change => {
+      const state = wrapper.vm as unknown as { form: { platform: string }; allowedModels: string[]; modelMappings: unknown[] }
+      if (change === 'platform') {
+        state.form.platform = 'openai'
+        await flushPromises()
+      } else {
+        await wrapper.setProps({ show: false })
+        await wrapper.setProps({ show: true })
+      }
+      finishPresets()
+      await flushPromises()
+      expect(state.allowedModels).toEqual([])
+      expect(state.modelMappings).toEqual([])
+    })
+  })
+
   it('seeds Antigravity identity presets into the shared selection and preserves review aliases', async () => {
     vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'antigravity', models: [{ id: 'Preset/Exact' }] }] as any)
     const wrapper = mountModal([], true)
