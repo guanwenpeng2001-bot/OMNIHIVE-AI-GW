@@ -11,6 +11,16 @@ import (
 // Chat Completions intermediary round-trip (e.g. thinking, cache_control,
 // structured system prompts).
 func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
+	return anthropicToResponses(req, false)
+}
+
+// AnthropicToResponsesWithCacheControl opts into public Responses text boundaries.
+// The caller must verify the transport; the default converter never injects them.
+func AnthropicToResponsesWithCacheControl(req *AnthropicRequest) (*ResponsesRequest, error) {
+	return anthropicToResponses(req, true)
+}
+
+func anthropicToResponses(req *AnthropicRequest, mapCacheControl bool) (*ResponsesRequest, error) {
 	if req == nil {
 		return nil, fmt.Errorf("anthropic request is nil")
 	}
@@ -25,7 +35,7 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
 		return nil, err
 	}
-	input, err := convertAnthropicToResponsesInput(req.System, req.Messages)
+	input, err := convertAnthropicToResponsesInput(req.System, req.Messages, mapCacheControl)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +101,9 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		out.ToolChoice = tc
 	}
 
+	if mapCacheControl && HasResponsesPromptCacheBreakpoint(out.Input) {
+		out.PromptCacheOptions = json.RawMessage(`{"mode":"explicit"}`)
+	}
 	return out, nil
 }
 
@@ -129,14 +142,14 @@ func convertAnthropicToolChoiceToResponses(raw json.RawMessage) (json.RawMessage
 
 // convertAnthropicToResponsesInput builds the Responses API input items array
 // from the Anthropic system field and message list.
-func convertAnthropicToResponsesInput(system json.RawMessage, msgs []AnthropicMessage) ([]ResponsesInputItem, error) {
+func convertAnthropicToResponsesInput(system json.RawMessage, msgs []AnthropicMessage, mapCacheControl bool) ([]ResponsesInputItem, error) {
 	var out []ResponsesInputItem
 
 	// System prompt → developer role input item. ChatGPT Codex SSE behaves like
 	// Codex CLI here: keeping Anthropic system text in input preserves the
 	// conversation/cache shape better than moving it into instructions.
 	if len(system) > 0 {
-		sysParts, err := parseAnthropicSystemContentParts(system)
+		sysParts, err := parseAnthropicSystemContentPartsWithCacheControl(system, mapCacheControl)
 		if err != nil {
 			return nil, err
 		}
@@ -151,7 +164,7 @@ func convertAnthropicToResponsesInput(system json.RawMessage, msgs []AnthropicMe
 	}
 
 	for _, m := range msgs {
-		items, err := anthropicMsgToResponsesItems(m)
+		items, err := anthropicMsgToResponsesItems(m, mapCacheControl)
 		if err != nil {
 			return nil, err
 		}
@@ -164,6 +177,9 @@ func convertAnthropicToResponsesInput(system json.RawMessage, msgs []AnthropicMe
 // be a plain string or an array of text blocks. Claude Code may include an
 // x-anthropic-billing-header block; airgate drops it before sending to Codex.
 func parseAnthropicSystemContentParts(raw json.RawMessage) ([]ResponsesContentPart, error) {
+	return parseAnthropicSystemContentPartsWithCacheControl(raw, false)
+}
+func parseAnthropicSystemContentPartsWithCacheControl(raw json.RawMessage, mapCacheControl bool) ([]ResponsesContentPart, error) {
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
 		if isAnthropicBillingHeaderText(s) || s == "" {
@@ -178,7 +194,7 @@ func parseAnthropicSystemContentParts(raw json.RawMessage) ([]ResponsesContentPa
 	var parts []ResponsesContentPart
 	for _, b := range blocks {
 		if b.Type == "text" && b.Text != "" && !isAnthropicBillingHeaderText(b.Text) {
-			parts = append(parts, ResponsesContentPart{Type: "input_text", Text: b.Text})
+			parts = append(parts, anthropicTextPartWithCacheControl("input_text", b, mapCacheControl))
 		}
 	}
 	return parts, nil
@@ -190,21 +206,21 @@ func isAnthropicBillingHeaderText(text string) bool {
 
 // anthropicMsgToResponsesItems converts a single Anthropic message into one
 // or more Responses API input items.
-func anthropicMsgToResponsesItems(m AnthropicMessage) ([]ResponsesInputItem, error) {
+func anthropicMsgToResponsesItems(m AnthropicMessage, mapCacheControl bool) ([]ResponsesInputItem, error) {
 	switch m.Role {
 	case "user":
-		return anthropicUserToResponses(m.Content)
+		return anthropicUserToResponses(m.Content, mapCacheControl)
 	case "assistant":
-		return anthropicAssistantToResponses(m.Content)
+		return anthropicAssistantToResponses(m.Content, mapCacheControl)
 	default:
-		return anthropicUserToResponses(m.Content)
+		return anthropicUserToResponses(m.Content, mapCacheControl)
 	}
 }
 
 // anthropicUserToResponses handles an Anthropic user message. Content can be a
 // plain string or an array of blocks. tool_result blocks are extracted into
 // function_call_output items. Image blocks are converted to input_image parts.
-func anthropicUserToResponses(raw json.RawMessage) ([]ResponsesInputItem, error) {
+func anthropicUserToResponses(raw json.RawMessage, mapCacheControl bool) ([]ResponsesInputItem, error) {
 	// Try plain string.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
@@ -247,7 +263,7 @@ func anthropicUserToResponses(raw json.RawMessage) ([]ResponsesInputItem, error)
 		switch b.Type {
 		case "text":
 			if b.Text != "" {
-				parts = append(parts, ResponsesContentPart{Type: "input_text", Text: b.Text})
+				parts = append(parts, anthropicTextPartWithCacheControl("input_text", b, mapCacheControl))
 			}
 		case "image":
 			if uri := anthropicImageToDataURI(b.Source); uri != "" {
@@ -274,7 +290,7 @@ func anthropicUserToResponses(raw json.RawMessage) ([]ResponsesInputItem, error)
 // thinking blocks with signature → reasoning items (encrypted_content) so
 // multi-turn Grok/Codex prompt cache can reuse prior reasoning prefixes.
 // thinking without signature remains ignored (not accepted as plain text input).
-func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, error) {
+func anthropicAssistantToResponses(raw json.RawMessage, mapCacheControl bool) ([]ResponsesInputItem, error) {
 	// Try plain string.
 	var s string
 	if err := json.Unmarshal(raw, &s); err == nil {
@@ -316,6 +332,23 @@ func anthropicAssistantToResponses(raw json.RawMessage) ([]ResponsesInputItem, e
 	text := extractAnthropicTextFromBlocks(blocks)
 	if text != "" {
 		parts := []ResponsesContentPart{{Type: "output_text", Text: text}}
+		hasBoundary := false
+		if mapCacheControl {
+			for _, block := range blocks {
+				if block.Type == "text" && block.Text != "" && block.CacheControl != nil && strings.TrimSpace(block.CacheControl.Type) == "ephemeral" {
+					hasBoundary = true
+					break
+				}
+			}
+		}
+		if hasBoundary {
+			parts = nil
+			for _, block := range blocks {
+				if block.Type == "text" && block.Text != "" {
+					parts = append(parts, anthropicTextPartWithCacheControl("output_text", block, true))
+				}
+			}
+		}
 		partsJSON, err := json.Marshal(parts)
 		if err != nil {
 			return nil, err
@@ -552,4 +585,37 @@ func normalizeToolParameters(schema json.RawMessage) json.RawMessage {
 		return schema
 	}
 	return out
+}
+
+func anthropicTextPartWithCacheControl(kind string, block AnthropicContentBlock, enabled bool) ResponsesContentPart {
+	part := ResponsesContentPart{Type: kind, Text: block.Text}
+	if enabled && block.CacheControl != nil && strings.TrimSpace(block.CacheControl.Type) == "ephemeral" {
+		part.PromptCacheBreakpoint = &ResponsesPromptCacheBreakpoint{Mode: "explicit"}
+	}
+	return part
+}
+
+// HasResponsesPromptCacheBreakpoint examines surviving input, after any replay trimming.
+func HasResponsesPromptCacheBreakpoint(input json.RawMessage) bool {
+	var items []struct {
+		PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint"`
+		Content               json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(input, &items) != nil {
+		return false
+	}
+	for _, item := range items {
+		if len(item.PromptCacheBreakpoint) > 0 && string(item.PromptCacheBreakpoint) != "null" {
+			return true
+		}
+		var parts []ResponsesContentPart
+		if json.Unmarshal(item.Content, &parts) == nil {
+			for _, part := range parts {
+				if part.PromptCacheBreakpoint != nil {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

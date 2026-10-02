@@ -101,6 +101,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	anthropicDigestChain := ""
 	anthropicMatchedDigestChain := ""
 	compatPromptCacheInjected := false
+	// Native Codex session identity follows the transport and caller session,
+	// not the model catalog. Keep the legacy digest fallback below unchanged.
+	if promptCacheKey == "" && account.Platform == PlatformOpenAI && account.UsesOpenAICodexProtocol() {
+		promptCacheKey = extractClaudeCodeSessionID(c, body)
+		compatPromptCacheInjected = promptCacheKey != ""
+	}
 	// Grok is outside the gpt-5/codex compat injector, but Claude Code still
 	// carries a stable session id. Prefer that as the Grok prompt-cache seed so
 	// multi-turn /v1/messages traffic can hit xAI's server-side cache.
@@ -147,11 +153,20 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
-	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
+	convertRequest := apicompat.AnthropicToResponses
+	if isPublicOpenAIResponsesAccount(account) {
+		convertRequest = apicompat.AnthropicToResponsesWithCacheControl
+	}
+	responsesReq, err := convertRequest(&anthropicReq)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
+	callerCacheOptions := gjson.GetBytes(body, "prompt_cache_options")
+	if isPublicOpenAIResponsesAccount(account) && callerCacheOptions.Exists() {
+		responsesReq.PromptCacheOptions = json.RawMessage(callerCacheOptions.Raw)
+	}
+	mappedCacheBoundaries := isPublicOpenAIResponsesAccount(account) && apicompat.HasResponsesPromptCacheBreakpoint(responsesReq.Input)
 
 	// Upstream always uses streaming (upstream may not support sync mode).
 	// The client's original preference determines the response format.
@@ -259,7 +274,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 		applyCodexAccountIdentityClientMetadataMap(reqBody, codexAccountIdentitySource(c, account), apiKeyID)
 		delete(reqBody, "prompt_cache_key")
-		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
+		if promptCacheKey != "" {
 			compatTurnState = s.getOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey)
 		}
 		// OAuth codex transform forces stream=true upstream, so always use
@@ -341,6 +356,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
+	// Continuation may have trimmed away the last automatically mapped boundary.
+	if isPublicOpenAIResponsesAccount(account) && (!callerCacheOptions.Exists() || mappedCacheBoundaries) {
+		responsesBody, err = clearOpenAIExplicitCacheModeWithoutMarkers(responsesBody)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// 5. Get access token
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
@@ -403,11 +426,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// account/cache identity. Match forwardGrokResponses: one strip+retry before
 	// treating the 400 as a hard failure / failover trigger.
 	var resp *http.Response
+	rejectedFieldRetry := openAIResponsesRejectedFieldRetryStateForRequest(c, responsesBody)
 	for attempt := 0; ; attempt++ {
-		if attempt > 0 {
-			if account.Platform != PlatformGrok {
-				break
-			}
+		if attempt > 0 && account.Platform == PlatformGrok {
 			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
 			upstreamReq, err = buildGrokResponsesRequest(upstreamCtxRetry, c, account, responsesBody, token, grokCacheIdentity, s.cfg, s.settingService)
 			releaseRetry()
@@ -418,6 +439,24 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if isPublicOpenAIResponsesAccount(account) && resp.StatusCode == http.StatusBadRequest {
+			respBody := s.readUpstreamErrorBody(resp)
+			_ = resp.Body.Close()
+			retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, responsesBody, respBody)
+			if retryErr != nil {
+				return nil, retryErr
+			}
+			if changed && rejectedFieldRetry.Allow(retryBody) {
+				responsesBody = retryBody
+				upstreamReq = upstreamReq.Clone(upstreamReq.Context())
+				upstreamReq.Body = io.NopCloser(bytes.NewReader(retryBody))
+				upstreamReq.ContentLength = int64(len(retryBody))
+				upstreamReq.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(retryBody)), nil }
+				logger.L().Info("openai messages: retrying rejected Responses field", zap.String("reason", reason), zap.Int64("account_id", account.ID))
+				continue
+			}
+			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		}
 		if account.Platform != PlatformGrok || attempt > 0 || resp.StatusCode != http.StatusBadRequest {
 			break
