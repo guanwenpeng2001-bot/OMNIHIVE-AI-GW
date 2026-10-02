@@ -4,6 +4,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,179 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+// This transport returns fixed protocol fixtures; no provider or socket is used.
+type geminiThoughtReplayUpstream struct {
+	requestPlanHTTPFixture
+	bodies          [][]byte
+	omitMessageStop bool
+}
+
+func (upstream *geminiThoughtReplayUpstream) Do(request *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+	upstream.calls++
+	upstream.plan = service.GatewayRequestPlanFromContext(request.Context())
+	require.NotNil(upstream.t, upstream.plan)
+	require.False(upstream.t, upstream.plan.State().Finalized)
+	require.Equal(upstream.t, int64(7), accountID)
+	require.Equal(upstream.t, "thought-fixture.example", request.URL.Host)
+	require.Equal(upstream.t, "/v1/messages", request.URL.Path)
+	body, err := io.ReadAll(request.Body)
+	require.NoError(upstream.t, err)
+	upstream.bodies = append(upstream.bodies, body)
+	model := gjson.GetBytes(body, "model").String()
+	events := []string{fmt.Sprintf(`{"type":"message_start","message":{"id":"fixture-message-%d","type":"message","role":"assistant","model":%q,"content":[],"usage":{"input_tokens":5,"output_tokens":0}}}`, upstream.calls, model)}
+	stopReason := "end_turn"
+	if upstream.calls == 1 {
+		stopReason = "tool_use"
+		events = append(events,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"fixed fixture thought"}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque-upstream-secret"}}`,
+			`{"type":"content_block_stop","index":0}`,
+			`{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"validation-echo-call","name":"validation_echo","input":{}}}`,
+			`{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"value\":\"echoed fixture\"}"}}`,
+			`{"type":"content_block_stop","index":1}`)
+	} else {
+		events = append(events,
+			`{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+			`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"echoed fixture"}}`,
+			`{"type":"content_block_stop","index":0}`)
+	}
+	events = append(events, fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q},"usage":{"output_tokens":3}}`, stopReason))
+	if !upstream.omitMessageStop {
+		events = append(events, `{"type":"message_stop"}`)
+	}
+	var stream strings.Builder
+	for _, event := range events {
+		fmt.Fprintf(&stream, "event: %s\ndata: %s\n\n", gjson.Get(event, "type").String(), event)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream.String()))}, nil
+}
+
+func TestGeminiPlaintextThoughtReplayMessagesHandlerLifecycle(t *testing.T) {
+	for _, scenario := range []struct{ name, platform, protocol, model string }{
+		{"deepseek_adaptive", service.PlatformDeepseek, service.APIProtocolAdaptive, "deepseek-v4-flash"},
+		{"unknown_anthropic", service.PlatformKimi, service.APIProtocolAnthropic, "private-custom-model"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			if scenario.name == "unknown_anthropic" {
+				require.Equal(t, service.ThinkingProtocolUnknown, service.ResolveThinkingProtocol(scenario.model))
+			}
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: scenario.platform, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture", "api_protocol": scenario.protocol, "api_base_urls": map[string]any{"anthropic": "https://thought-fixture.example"}, "model_mapping": map[string]any{scenario.model: scenario.model}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
+			if scenario.protocol == service.APIProtocolAnthropic {
+				account.Credentials["base_url"] = "https://thought-fixture.example"
+			}
+			repo := &openAIWSUsageHandlerAccountRepoStub{account: account}
+			usage := &cursorRouteUsageRepo{}
+			receipts := newHunyuanSTTReceiptRepository()
+			upstream := &geminiThoughtReplayUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}}
+			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
+			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+			defer billing.Stop()
+			handler := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+			group := &service.Group{ID: 3, Platform: scenario.platform, Status: service.StatusActive, Hydrated: true}
+			action := "/" + scenario.model + ":streamGenerateContent"
+			invoke := func(body string, wantStatus int) string {
+				ctx, recorder := requestPlanHTTPContext("/v1beta/models"+action+"?alt=sse", body, group)
+				ctx.Params = gin.Params{{Key: "modelAction", Value: action}}
+				GeminiProtocolBridge(handler.Messages, handler.CountTokens, handler.Embeddings)(ctx)
+				require.Equal(t, wantStatus, recorder.Code, recorder.Body.String())
+				if wantStatus == http.StatusOK {
+					require.Contains(t, recorder.Header().Get("Content-Type"), "text/event-stream")
+				}
+				return recorder.Body.String()
+			}
+			// Invalid replay must fail before the real handler acquires a usage owner.
+			for _, invalid := range []string{
+				`{"role":"model","parts":[{"thought":true,"text":" \n"}]}`,
+				`{"role":"user","parts":[{"thought":true,"text":"fixture thought"}]}`,
+				`{"role":"model","parts":[{"thoughtSignature":"opaque-only"}]}`,
+			} {
+				rejected := invoke(`{"contents":[`+invalid+`]}`, http.StatusBadRequest)
+				require.Equal(t, "INVALID_ARGUMENT", gjson.Get(rejected, "error.status").String())
+				require.Zero(t, upstream.calls)
+				require.Zero(t, len(usage.logs)+len(receipts.receipts))
+			}
+			request := map[string]any{
+				"contents":         []any{map[string]any{"role": "user", "parts": []any{map[string]any{"text": "Echo the fixture value"}}}},
+				"tools":            []any{map[string]any{"functionDeclarations": []any{map[string]any{"name": "validation_echo", "parameters": map[string]any{"type": "OBJECT", "properties": map[string]any{"value": map[string]any{"type": "STRING"}}, "required": []string{"value"}}}}}},
+				"generationConfig": map[string]any{"maxOutputTokens": 2048, "thinkingConfig": map[string]any{"includeThoughts": true}},
+				"toolConfig":       map[string]any{"functionCallingConfig": map[string]any{"mode": "AUTO"}},
+			}
+			var firstPlan *service.GatewayRequestPlan
+			for turn := 0; turn < 2; turn++ {
+				body, err := json.Marshal(request)
+				require.NoError(t, err)
+				reply := invoke(string(body), http.StatusOK)
+				require.NotContains(t, reply, `"error"`)
+				require.NotContains(t, reply, "thoughtSignature")
+				require.NotContains(t, reply, "opaque-upstream-secret")
+				require.Equal(t, turn+1, upstream.calls)
+				require.True(t, upstream.plan.State().Finalized)
+				require.True(t, upstream.plan.State().UsageClaimed)
+				require.Equal(t, turn+1, len(usage.logs)+len(receipts.receipts))
+				require.False(t, gjson.GetBytes(upstream.bodies[turn], "thinking").Exists())
+				var parts []any
+				finishCount := 0
+				for _, line := range strings.Split(reply, "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					payload := strings.TrimPrefix(line, "data: ")
+					require.True(t, gjson.Valid(payload), payload)
+					if finish := gjson.Get(payload, "candidates.0.finishReason"); finish.Exists() {
+						require.Equal(t, "STOP", finish.String())
+						finishCount++
+					}
+					for _, part := range gjson.Get(payload, "candidates.0.content.parts").Array() {
+						parts = append(parts, part.Value())
+					}
+				}
+				require.Equal(t, 1, finishCount)
+				if turn == 0 {
+					firstPlan = upstream.plan
+					require.Len(t, parts, 2)
+					require.Equal(t, map[string]any{"thought": true, "text": "fixed fixture thought"}, parts[0])
+					callPart, ok := parts[1].(map[string]any)
+					require.True(t, ok)
+					call, ok := callPart["functionCall"].(map[string]any)
+					require.True(t, ok)
+					require.Equal(t, "validation_echo", call["name"])
+					require.Equal(t, "validation-echo-call", call["id"])
+					// Execute validation_echo against the actual streamed arguments.
+					arguments, ok := call["args"].(map[string]any)
+					require.True(t, ok)
+					result := map[string]any{"value": arguments["value"], "ok": true}
+					require.Equal(t, "echoed fixture", result["value"])
+					contents, ok := request["contents"].([]any)
+					require.True(t, ok)
+					request["contents"] = append(contents, map[string]any{"role": "model", "parts": parts}, map[string]any{"role": "user", "parts": []any{map[string]any{"functionResponse": map[string]any{"id": call["id"], "name": call["name"], "response": result}}}})
+					request["toolConfig"] = map[string]any{"functionCallingConfig": map[string]any{"mode": "NONE"}}
+					require.Equal(t, "auto", gjson.GetBytes(upstream.bodies[turn], "tool_choice.type").String())
+				} else {
+					require.NotSame(t, firstPlan, upstream.plan)
+					require.Equal(t, []any{map[string]any{"text": "echoed fixture"}}, parts)
+					sent := upstream.bodies[turn]
+					require.JSONEq(t, `[{"type":"thinking","thinking":"fixed fixture thought"},{"type":"tool_use","id":"validation-echo-call","name":"validation_echo","input":{"value":"echoed fixture"}}]`, gjson.GetBytes(sent, "messages.1.content").Raw)
+					require.Equal(t, "validation-echo-call", gjson.GetBytes(sent, "messages.2.content.0.tool_use_id").String())
+					require.JSONEq(t, `{"value":"echoed fixture","ok":true}`, gjson.GetBytes(sent, "messages.2.content.0.content").String())
+					require.Equal(t, "none", gjson.GetBytes(sent, "tool_choice.type").String())
+					require.NotContains(t, string(sent), "signature")
+					require.NotContains(t, string(sent), "thoughtSignature")
+					require.NotContains(t, string(sent), "opaque-")
+				}
+			}
+			// A stop reason without message_stop must not complete the Google stream.
+			upstream.omitMessageStop = true
+			body, err := json.Marshal(request)
+			require.NoError(t, err)
+			truncated := invoke(string(body), http.StatusOK)
+			require.Contains(t, truncated, `"error"`)
+			require.NotContains(t, truncated, `"finishReason":"STOP"`)
+		})
+	}
+}
 
 type geminiBridgeLifecycleUpstream struct {
 	requestPlanHTTPFixture

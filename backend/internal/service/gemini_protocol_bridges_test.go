@@ -37,6 +37,39 @@ func TestGeminiIngressToolCorrelationAndControls(t *testing.T) {
 	require.Equal(t, "ANY", gjson.GetBytes(back, "toolConfig.functionCallingConfig.mode").String())
 }
 
+func TestGeminiIngressPlaintextThoughtReplay(t *testing.T) {
+	for _, signature := range []string{"", `,"thoughtSignature":"opaque-native-secret"`} {
+		body := []byte(`{"contents":[{"role":"model","parts":[{"thought":true,"text":"  fixture thought\n"` + signature + `},{"thought":true,"text":"second thought"},{"text":"ordinary text"},{"functionCall":{"id":"echo-call","name":"validation_echo","args":{"value":"echoed"}},"thoughtSignature":"opaque-call-secret"}]},{"role":"user","parts":[{"functionResponse":{"id":"echo-call","name":"validation_echo","response":{"value":"echoed","ok":true}}}]}],"generationConfig":{"thinkingConfig":{"includeThoughts":true}}}`)
+		converted, err := GeminiToMessages(body, "private-custom-model", true)
+		require.NoError(t, err)
+		require.JSONEq(t, `[{"type":"thinking","thinking":"  fixture thought\n"},{"type":"thinking","thinking":"second thought"},{"type":"text","text":"ordinary text"},{"type":"tool_use","id":"echo-call","name":"validation_echo","input":{"value":"echoed"}}]`, gjson.GetBytes(converted, "messages.0.content").Raw)
+		require.Equal(t, "assistant", gjson.GetBytes(converted, "messages.0.role").String())
+		require.Equal(t, "echo-call", gjson.GetBytes(converted, "messages.1.content.0.tool_use_id").String())
+		require.Equal(t, "tool_result", gjson.GetBytes(converted, "messages.1.content.0.type").String())
+		require.JSONEq(t, `{"value":"echoed","ok":true}`, gjson.GetBytes(converted, "messages.1.content.0.content").String())
+		require.NotContains(t, string(converted), "opaque-")
+		require.NotContains(t, string(converted), "signature")
+		require.NotContains(t, string(converted), "thoughtSignature")
+		require.False(t, gjson.GetBytes(converted, "thinking").Exists())
+	}
+}
+
+func TestGeminiIngressUnrepresentableThoughtReplay(t *testing.T) {
+	for _, scenario := range []struct{ name, role, part, message string }{
+		{"empty", "model", `{"thought":true,"text":""}`, "Gemini thought replay cannot be authenticated by another provider"},
+		{"whitespace", "model", `{"thought":true,"text":" \n\t"}`, "Gemini thought replay cannot be authenticated by another provider"},
+		{"user", "user", `{"thought":true,"text":"fixture thought"}`, "Gemini thought replay cannot be authenticated by another provider"},
+		{"nonstring", "model", `{"thought":true,"text":42}`, "part text must be a string"},
+		{"signature_only", "model", `{"thoughtSignature":"opaque-secret"}`, "part must contain exactly one supported content field"},
+		{"missing_text", "model", `{"thought":true}`, "part must contain exactly one supported content field"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			_, err := GeminiToMessages([]byte(fmt.Sprintf(`{"contents":[{"role":%q,"parts":[%s]}]}`, scenario.role, scenario.part)), "private-custom-model", false)
+			require.EqualError(t, err, scenario.message)
+		})
+	}
+}
+
 func TestGeminiIngressRejectsLossySemanticParts(t *testing.T) {
 	for _, body := range []string{
 		`{"contents":[{"parts":[{"inlineData":{"mimeType":"audio/wav","data":"YQ=="}}]}]}`,
