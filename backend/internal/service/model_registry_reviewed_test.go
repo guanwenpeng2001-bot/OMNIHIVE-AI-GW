@@ -44,6 +44,17 @@ func TestReviewedRegistryRealPresetsAndCatalog(t *testing.T) {
 	registry := &ModelRegistry{trustedPin: pin}
 	snapshot, err := registry.build(catalog, body, presets, nil)
 	require.NoError(t, err)
+	for _, scenario := range []struct{ platform, base, profile, id string }{
+		{PlatformKimi, "https://api.moonshot.cn/v1", "moonshotai-cn", "kimi-k2.6"},
+		{PlatformKimi, "https://api.moonshot.ai/v1", "moonshot", "kimi-k2.6"},
+		{PlatformZhipu, "https://open.bigmodel.cn/api/paas/v4", "zhipuai", "glm-5.3"},
+		{PlatformZhipu, "https://api.z.ai/api/paas/v4", "zai", "glm-5.3"},
+	} {
+		account := &Account{Platform: scenario.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": scenario.base}}
+		profile := resolveCapabilityProfile(account)
+		require.Equal(t, scenario.profile, profile)
+		require.Equal(t, "matched", lookupCapabilityMetadata(snapshot.capabilities, profile, scenario.id).Status)
+	}
 	cn, ok := snapshot.capabilities.LookupExact("moonshotai-cn", "kimi-k2.6")
 	require.True(t, ok)
 	require.Zero(t, cn.ContextWindow)
@@ -85,4 +96,30 @@ func TestReviewedRegistryRealPresetsAndCatalog(t *testing.T) {
 			require.False(t, wrong)
 		}
 	}
+}
+
+func TestReviewedPresetFieldEvidenceIsolation(t *testing.T) {
+	data := []byte(`[{"platform":"zhipu","provider_profile":"zhipuai","coverage_scope":{"official_review":{"records":[{"exact_id":"exact-model","method_or_field":"context_window","decision":"confirmed","evidence_url":"https://official.example/model","capture_sha256":"` + strings.Repeat("b", 64) + `","observed_at":"2026-10-02T19:30:00Z"}]}}}]`)
+	captures, err := presetFieldCaptures(data)
+	require.NoError(t, err)
+	preset := PlatformModelPreset{Platform: "zhipu", ProviderProfile: "zhipuai"}
+	model := PlatformPresetModel{ID: "exact-model", VerifiedAt: "2026-09-17T00:00:00Z", SourceContentHash: strings.Repeat("a", 64), FieldSources: map[string]string{
+		"context_window": "https://official.example/model", "max_output_tokens": "https://official.example/model", "input_modalities": "https://models.dev/api.json"}}
+	current := presetCapabilityFieldSource(preset, model, "context_window", "bundle", captures)
+	require.Equal(t, strings.Repeat("b", 64), current.ContentHash)
+	require.Equal(t, "2026-10-02T19:30:00Z", current.ObservedAt)
+	require.Equal(t, "verified", current.Confidence)
+	unreviewedSibling := presetCapabilityFieldSource(preset, model, "max_output_tokens", "bundle", captures)
+	require.Empty(t, unreviewedSibling.ContentHash)
+	require.Empty(t, unreviewedSibling.ObservedAt)
+	require.Equal(t, "observed", unreviewedSibling.Confidence)
+	old := presetCapabilityFieldSource(preset, model, "input_modalities", "bundle", captures)
+	require.Equal(t, model.SourceContentHash, old.ContentHash)
+	require.Equal(t, model.VerifiedAt, old.ObservedAt)
+	require.Equal(t, "observed", old.Confidence)
+	model.ID = "another-model"
+	require.Empty(t, presetCapabilityFieldSource(preset, model, "context_window", "bundle", captures).ObservedAt)
+	model.ID = "exact-model"
+	preset.ProviderProfile = "zhipuai-coding-plan"
+	require.Empty(t, presetCapabilityFieldSource(preset, model, "context_window", "bundle", captures).ObservedAt)
 }

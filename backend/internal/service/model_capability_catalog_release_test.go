@@ -18,7 +18,11 @@ func TestModelCapabilityReleaseEveryPublishedRecordLoadsOffline(t *testing.T) {
 		Records []CapabilityRecord `json:"records"`
 	}
 	require.NoError(t, json.Unmarshal(modelcapabilities.JSON(), &catalog))
-	require.Len(t, catalog.Records, 296)
+	var manifest struct {
+		RecordCount int `json:"record_count"`
+	}
+	require.NoError(t, json.Unmarshal(modelcapabilities.ManifestJSON(), &manifest))
+	require.Len(t, catalog.Records, manifest.RecordCount)
 	snapshot, err := buildModelCapabilitySnapshot(nil)
 	require.NoError(t, err)
 	hashPattern := regexp.MustCompile(`^[0-9a-f]{64}$`)

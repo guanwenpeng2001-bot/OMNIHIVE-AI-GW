@@ -8184,15 +8184,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/bge-large-en; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/bge-large-en; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/bge-large-en; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 512
+        "context_window": 512,
+        "embedding_dimensions": 1024,
+        "mode": "embedding"
       },
       "model_id": "bge-large-en",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/bge-large-en; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/bge-large-en; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8212,15 +8228,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/bge-large-zh; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/bge-large-zh; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/bge-large-zh; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 512
+        "context_window": 512,
+        "embedding_dimensions": 1024,
+        "mode": "embedding"
       },
       "model_id": "bge-large-zh",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/bge-large-zh; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/bge-large-zh; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8240,15 +8272,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/embedding-v1; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/embedding-v1; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/embedding-v1; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 384
+        "context_window": 384,
+        "embedding_dimensions": 384,
+        "mode": "embedding"
       },
       "model_id": "embedding-v1",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/embedding-v1; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/embedding-v1; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8268,15 +8316,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/qwen3-embedding-0.6b; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-0.6b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-0.6b; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 8192
+        "context_window": 8192,
+        "embedding_dimensions": 1024,
+        "mode": "embedding"
       },
       "model_id": "qwen3-embedding-0.6b",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/qwen3-embedding-0.6b; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/qwen3-embedding-0.6b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8296,15 +8360,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/qwen3-embedding-4b; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-4b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-4b; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 8192
+        "context_window": 8192,
+        "embedding_dimensions": 2560,
+        "mode": "embedding"
       },
       "model_id": "qwen3-embedding-4b",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/qwen3-embedding-4b; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/qwen3-embedding-4b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8324,15 +8404,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/qwen3-embedding-8b; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-8b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/qwen3-embedding-8b; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 8192
+        "context_window": 8192,
+        "embedding_dimensions": 4096,
+        "mode": "embedding"
       },
       "model_id": "qwen3-embedding-8b",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/qwen3-embedding-8b; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/qwen3-embedding-8b; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -8352,15 +8448,31 @@
           "observed_at": "2026-10-02",
           "proof_scope": "C: exact qianfan/tao-8k; field context_window; public documentation only, no account entitlement or protocol activation",
           "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "embedding_dimensions": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/tao-8k; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "mode": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/tao-8k; field mode; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
       "fields": {
         "context_limit_kind": "total",
-        "context_window": 8192
+        "context_window": 8192,
+        "embedding_dimensions": 1024,
+        "mode": "embedding"
       },
       "model_id": "tao-8k",
       "profile": "qianfan",
-      "proof_scope": "C: exact qianfan/tao-8k; field context_window; public documentation only, no account entitlement or protocol activation",
+      "proof_scope": "C: exact qianfan/tao-8k; field embedding_dimensions; public documentation only, no account entitlement or protocol activation",
       "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
       "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
@@ -36045,26 +36157,20 @@
         "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
       ],
       "field_sources": {
-        "reasoning_control": {
+        "max_output_tokens": {
           "confidence": "verified",
-          "content_hash": "ce172e602449e2fd125cdc089a4ba52eeda57aa01a2e2ab708bb40d3216199c9",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
           "observed_at": "2026-10-02",
-          "proof_scope": "C: exact qianfan/deepseek-v4-flash; field reasoning_control; public documentation only, no account entitlement or protocol activation",
-          "source": "https://cloud.baidu.com/doc/qianfan-docs/s/Wm95lyynv"
+          "proof_scope": "C: exact qianfan/deepseek-flash; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
         }
       },
-      "model_id": "deepseek-v4-flash",
+      "max_output_tokens": 393216,
+      "model_id": "deepseek-flash",
       "profile": "qianfan",
       "provider": "qianfan",
-      "reasoning_control": {
-        "effort_values": [
-          "high",
-          "max"
-        ],
-        "kind": "effort"
-      },
-      "source": "https://cloud.baidu.com/doc/qianfan-docs/s/Wm95lyynv",
-      "source_content_hash": "ce172e602449e2fd125cdc089a4ba52eeda57aa01a2e2ab708bb40d3216199c9",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
     },
     {
@@ -36078,6 +36184,108 @@
         "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
       ],
       "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v3.2-think; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        }
+      },
+      "max_output_tokens": 65536,
+      "model_id": "deepseek-v3.2-think",
+      "profile": "qianfan",
+      "provider": "qianfan",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4-flash; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
+        "reasoning_control": {
+          "confidence": "verified",
+          "content_hash": "ce172e602449e2fd125cdc089a4ba52eeda57aa01a2e2ab708bb40d3216199c9",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4-flash; field reasoning_control; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan-docs/s/Wm95lyynv"
+        }
+      },
+      "max_output_tokens": 393216,
+      "model_id": "deepseek-v4-flash",
+      "profile": "qianfan",
+      "provider": "qianfan",
+      "reasoning_control": {
+        "effort_values": [
+          "high",
+          "max"
+        ],
+        "kind": "effort"
+      },
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4-flash-0731; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        }
+      },
+      "max_output_tokens": 393216,
+      "model_id": "deepseek-v4-flash-0731",
+      "profile": "qianfan",
+      "provider": "qianfan",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4-pro; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        },
         "reasoning_control": {
           "confidence": "verified",
           "content_hash": "ce172e602449e2fd125cdc089a4ba52eeda57aa01a2e2ab708bb40d3216199c9",
@@ -36086,6 +36294,7 @@
           "source": "https://cloud.baidu.com/doc/qianfan-docs/s/Wm95lyynv"
         }
       },
+      "max_output_tokens": 393216,
       "model_id": "deepseek-v4-pro",
       "profile": "qianfan",
       "provider": "qianfan",
@@ -36096,8 +36305,62 @@
         ],
         "kind": "effort"
       },
-      "source": "https://cloud.baidu.com/doc/qianfan-docs/s/Wm95lyynv",
-      "source_content_hash": "ce172e602449e2fd125cdc089a4ba52eeda57aa01a2e2ab708bb40d3216199c9",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4-pro-0813; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        }
+      },
+      "max_output_tokens": 393216,
+      "model_id": "deepseek-v4-pro-0813",
+      "profile": "qianfan",
+      "provider": "qianfan",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+      "verified_at": "2026-10-02"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "field_sources": {
+        "max_output_tokens": {
+          "confidence": "verified",
+          "content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
+          "observed_at": "2026-10-02",
+          "proof_scope": "C: exact qianfan/deepseek-v4.1-flash; field max_output_tokens; public documentation only, no account entitlement or protocol activation",
+          "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j"
+        }
+      },
+      "max_output_tokens": 393216,
+      "model_id": "deepseek-v4.1-flash",
+      "profile": "qianfan",
+      "provider": "qianfan",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "7885dff7c9d1c8f83a65ab91167e3a4a8997d4333f74f2cf04d0f037b1922fc1",
       "verified_at": "2026-10-02"
     },
     {

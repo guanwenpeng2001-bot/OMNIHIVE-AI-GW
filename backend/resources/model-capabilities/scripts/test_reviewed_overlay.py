@@ -60,6 +60,13 @@ class ReviewedOverlayTests(unittest.TestCase):
         self.assertTrue(any(e['value'] == 262144 for e in cn['field_evidence']['context_window']))
         self.assertEqual(len(records), len(coverage['models']))
 
+    def test_exact_hosted_ranges_and_embedding_dimensions(self):
+        result, _, _ = catalog.generate(self.inputs)
+        records = {(r['profile'], r['model_id']): r for r in result['records']}
+        self.assertEqual(393216, records['qianfan', 'deepseek-v4-pro']['max_output_tokens'])
+        self.assertEqual(1024, records['qianfan', 'bge-large-zh']['embedding_dimensions'])
+        self.assertEqual('embedding', records['qianfan', 'bge-large-zh']['mode'])
+
 
 if __name__ == '__main__':
     unittest.main()

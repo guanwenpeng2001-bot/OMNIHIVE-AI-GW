@@ -29,6 +29,10 @@ func TestReviewedCapabilitySuppressionAndProvenance(t *testing.T) {
 	require.Equal(t, "2026-10-02", metadata.FieldEvidence["supports_vision"].ObservedAt)
 	require.Equal(t, "verified", metadata.FieldEvidence["supports_vision"].Confidence)
 	require.NotContains(t, metadata.FieldEvidence, "max_output_tokens")
+	public, err := json.Marshal(metadata)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(public, &fields))
+	require.NotContains(t, fields, "max_output_tokens")
 }
 
 func TestReviewedCapabilityCandidateFacts(t *testing.T) {
