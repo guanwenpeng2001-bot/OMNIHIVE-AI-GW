@@ -36,7 +36,9 @@ func (u *openRouterHandlerUpstream) DoWithTLS(request *http.Request, proxy strin
 	return u.Do(request, proxy, id, concurrency)
 }
 
-func TestOpenRouterActualPublicHandlers(t *testing.T) {
+func TestOpenRouterActualPublicHandlers(t *testing.T)    { testOpenRouterPublicHandlers(t, false) }
+func TestOpenRouterActualCompositeHandlers(t *testing.T) { testOpenRouterPublicHandlers(t, true) }
+func testOpenRouterPublicHandlers(t *testing.T, composite bool) {
 	for _, model := range []string{"openai/gpt-5-high", "openai/gpt-4o:free", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro", "vendor/future:thinking"} {
 		for _, protocol := range []string{"chat", "messages", "responses", "google"} {
 			for _, stream := range []bool{false, true} {
@@ -52,6 +54,9 @@ func TestOpenRouterActualPublicHandlers(t *testing.T) {
 					defer billing.Stop()
 					h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 					group := &service.Group{ID: 3, Platform: service.PlatformOpenRouter, Status: service.StatusActive, Hydrated: true}
+					if composite {
+						group.Platform = service.PlatformComposite
+					}
 					path := "/v1/chat/completions"
 					payload := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"max_tokens":32}`, model)
 					next := h.ChatCompletions
@@ -104,6 +109,9 @@ func TestOpenRouterActualPublicHandlers(t *testing.T) {
 						path = "/v1beta/models/" + model + ":" + action + "?alt=sse"
 					}
 					c, rec := requestPlanHTTPContext(path, payload, group)
+					if composite {
+						c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), service.CompositeRouteDecision{Matched: true, Source: service.CompositeRouteSourceExplicit, PublicModel: model, UpstreamModel: model, TargetPlatform: service.PlatformOpenRouter}))
+					}
 					if protocol == "google" {
 						c.Params = gin.Params{{Key: "modelAction", Value: "/" + model + ":" + action}}
 					}

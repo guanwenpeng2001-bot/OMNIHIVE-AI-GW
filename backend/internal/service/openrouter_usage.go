@@ -13,14 +13,15 @@ import (
 // Key spending is distinct from account credits. Nil cap/remaining with
 // Unlimited true means the provider explicitly reported a null limit.
 type OpenRouterKeyUsage struct {
-	Limit      *float64 `json:"limit"`
-	Remaining  *float64 `json:"remaining"`
-	Unlimited  bool     `json:"unlimited"`
-	LimitReset *string  `json:"limit_reset"`
-	Usage      *float64 `json:"usage"`
-	Daily      *float64 `json:"daily"`
-	Weekly     *float64 `json:"weekly"`
-	Monthly    *float64 `json:"monthly"`
+	Limit              *float64 `json:"limit"`
+	Remaining          *float64 `json:"remaining"`
+	Unlimited          bool     `json:"unlimited"`
+	RemainingUnlimited bool     `json:"remaining_unlimited"`
+	LimitReset         *string  `json:"limit_reset"`
+	Usage              *float64 `json:"usage"`
+	Daily              *float64 `json:"daily"`
+	Weekly             *float64 `json:"weekly"`
+	Monthly            *float64 `json:"monthly"`
 }
 
 func parseOpenRouterKeyUsage(body []byte) (*OpenRouterKeyUsage, error) {
@@ -45,6 +46,7 @@ func parseOpenRouterKeyUsage(body []byte) (*OpenRouterKeyUsage, error) {
 		}
 	}
 	result.Unlimited = string(data["limit"]) == "null"
+	result.RemainingUnlimited = string(data["limit_remaining"]) == "null"
 	if value, ok := data["limit_reset"]; ok && string(value) != "null" {
 		if json.Unmarshal(value, &result.LimitReset) != nil {
 			return nil, fmt.Errorf("invalid OpenRouter key reset")

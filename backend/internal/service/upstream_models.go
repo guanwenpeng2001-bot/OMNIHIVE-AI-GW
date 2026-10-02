@@ -1955,15 +1955,7 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 			continue
 		}
 		var capability upstreamModelCapabilityEntry
-		capabilityRaw := raw
-		if len(platform) > 0 && platform[0] == PlatformOpenRouter {
-			var fields map[string]json.RawMessage
-			if json.Unmarshal(raw, &fields) == nil && bytes.HasPrefix(bytes.TrimSpace(fields["reasoning"]), []byte("{")) {
-				delete(fields, "reasoning") // OpenRouter's mandatory object is not a reasoning-support boolean.
-				capabilityRaw, _ = json.Marshal(fields)
-			}
-		}
-		invalidOptional := decodeUpstreamModelCapabilities(capabilityRaw, &capability)
+		invalidOptional := decodeUpstreamModelCapabilities(raw, &capability)
 		capability.upstreamModelEntry = identity
 		// max_tokens has incompatible meanings across APIs. Only the Anthropic
 		// model-list contract establishes that it is an output limit.
@@ -1972,6 +1964,7 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		}
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
 		if len(platform) > 0 && platform[0] == PlatformOpenRouter {
+			entry.Reasoning = capability.Reasoning // Preserve explicit support, not a boolean inferred from effort options.
 			entry = openRouterModelMetadata(raw, entry)
 		}
 		if len(platform) > 0 && platform[0] == PlatformCommandCode {

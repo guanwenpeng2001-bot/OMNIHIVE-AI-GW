@@ -122,7 +122,7 @@
       <div v-else-if="usageInfo?.openrouter_key" class="space-y-1 text-xs text-gray-600 dark:text-gray-300">
         <div>{{ t('admin.accounts.openrouterUsage.spending') }}: {{ keyUsageMoney(usageInfo.openrouter_key.usage) }}</div>
         <div>{{ t('admin.accounts.openrouterUsage.cap') }}: {{ usageInfo.openrouter_key.unlimited ? t('admin.accounts.openrouterUsage.unlimited') : keyUsageMoney(usageInfo.openrouter_key.limit) }}</div>
-        <div>{{ t('admin.accounts.openrouterUsage.remaining') }}: {{ usageInfo.openrouter_key.unlimited ? t('admin.accounts.openrouterUsage.unlimited') : keyUsageMoney(usageInfo.openrouter_key.remaining) }}</div>
+        <div>{{ t('admin.accounts.openrouterUsage.remaining') }}: {{ usageInfo.openrouter_key.remaining_unlimited ? t('admin.accounts.openrouterUsage.unlimited') : keyUsageMoney(usageInfo.openrouter_key.remaining) }}</div>
         <div>{{ t('admin.accounts.openrouterUsage.windows') }}: {{ keyUsageMoney(usageInfo.openrouter_key.daily) }} / {{ keyUsageMoney(usageInfo.openrouter_key.weekly) }} / {{ keyUsageMoney(usageInfo.openrouter_key.monthly) }}</div>
         <div v-if="usageInfo.openrouter_key.limit_reset">{{ t('admin.accounts.openrouterUsage.reset') }}: {{ usageInfo.openrouter_key.limit_reset }}</div>
       </div>

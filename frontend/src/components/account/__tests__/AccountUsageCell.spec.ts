@@ -1835,7 +1835,7 @@ describe('OpenRouter key usage', () => {
       props: {
         account: makeAccount({ platform: 'openrouter', type: 'apikey' }),
         requestBatchedUsage: vi.fn(),
-        batchedUsage: { five_hour: null, openrouter_key: { limit: null, remaining: null, unlimited: true, limit_reset: null, usage: 12, daily: 1, weekly: 2, monthly: 3 } }
+        batchedUsage: { five_hour: null, openrouter_key: { limit: null, remaining: null, unlimited: true, remaining_unlimited: true, limit_reset: null, usage: 12, daily: 1, weekly: 2, monthly: 3 } }
       }
     })
     await flushPromises()
@@ -1844,11 +1844,16 @@ describe('OpenRouter key usage', () => {
     expect(wrapper.text()).toContain('admin.accounts.openrouterUsage.unlimited')
     expect(wrapper.text()).toContain('$1.0000 / $2.0000 / $3.0000')
     expect(wrapper.text()).not.toContain('noUpstreamUsageApi')
-    await wrapper.setProps({ batchedUsage: { five_hour: null, openrouter_key: { limit: 20, remaining: 8, unlimited: false, limit_reset: 'monthly', usage: 12, daily: null, weekly: null, monthly: null } } })
+    await wrapper.setProps({ batchedUsage: { five_hour: null, openrouter_key: { limit: 20, remaining: 8, unlimited: false, remaining_unlimited: false, limit_reset: 'monthly', usage: 12, daily: null, weekly: null, monthly: null } } })
     await flushPromises()
     expect(wrapper.text()).toContain('$20.0000')
     expect(wrapper.text()).toContain('$8.0000')
     expect(wrapper.text()).not.toContain('admin.accounts.openrouterUsage.unlimited')
+    await wrapper.setProps({ batchedUsage: { five_hour: null, openrouter_key: { limit: 10, remaining: null, unlimited: false, remaining_unlimited: true, limit_reset: null, usage: 1, daily: null, weekly: null, monthly: null } } })
+    expect(wrapper.text()).toContain('$10.0000')
+    expect(wrapper.text()).toContain('admin.accounts.openrouterUsage.remaining: admin.accounts.openrouterUsage.unlimited')
+    await wrapper.setProps({ batchedUsage: { five_hour: null, openrouter_key: { limit: 10, remaining: null, unlimited: false, remaining_unlimited: false, limit_reset: null, usage: 1, daily: null, weekly: null, monthly: null } } })
+    expect(wrapper.text()).toContain('admin.accounts.openrouterUsage.remaining: —')
     wrapper.unmount()
   })
 })
