@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 // Forward forwards request to OpenAI API
@@ -1058,6 +1059,37 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	compactModelFallbackRetried := false
 	agentTaskRecoveryTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
+	initialCacheOptions, initialCacheBreakpoint := openAIExplicitCacheFieldPresence(canonicalImageIntentBody)
+	observeCacheFields := initialCacheOptions || initialCacheBreakpoint
+	upstreamAttempts, rejectedFieldRetries := 0, 0
+	rejectedFieldRetryPending := false
+	firstUpstreamStatus, finalUpstreamStatus := 0, 0
+	var firstSentBody, finalSentBody []byte
+	defer func() {
+		if !observeCacheFields || upstreamAttempts == 0 {
+			return
+		}
+		// Bodies are replaced, not mutated, by retry transforms. Inspect only the
+		// first and final sent bodies, not every large intermediate retry body.
+		firstOptions, firstBreakpoint := openAIExplicitCacheFieldPresence(firstSentBody)
+		finalOptions, finalBreakpoint := firstOptions, firstBreakpoint
+		if upstreamAttempts > 1 {
+			finalOptions, finalBreakpoint = openAIExplicitCacheFieldPresence(finalSentBody)
+		}
+		// Scoped to this Forward call/account, including unsuccessful exits.
+		// HTTP status is not generation completion, field acceptance, or a cache hit.
+		logger.FromContext(c.Request.Context()).Info("openai cache fields: upstream HTTP observation",
+			zap.Int64("account_id", account.ID),
+			zap.Int("upstream_attempt_count", upstreamAttempts),
+			zap.Int("retry_count", upstreamAttempts-1),
+			zap.Int("rejected_field_retry_count", rejectedFieldRetries),
+			zap.Int("first_upstream_status_code", firstUpstreamStatus),
+			zap.Int("final_upstream_status_code", finalUpstreamStatus),
+			zap.Bool("first_prompt_cache_options_present", firstOptions),
+			zap.Bool("first_prompt_cache_breakpoint_present", firstBreakpoint),
+			zap.Bool("final_prompt_cache_options_present", finalOptions),
+			zap.Bool("final_prompt_cache_breakpoint_present", finalBreakpoint))
+	}()
 	for {
 		// Build upstream request
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
@@ -1086,7 +1118,25 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 		// Send request
 		upstreamStart := time.Now()
+		upstreamAttempts++
+		if rejectedFieldRetryPending {
+			rejectedFieldRetries++
+			rejectedFieldRetryPending = false
+		}
+		if observeCacheFields {
+			if upstreamAttempts == 1 {
+				firstSentBody = body
+			}
+			finalSentBody = body
+		}
+		finalUpstreamStatus = 0 // No HTTP response on a transport failure.
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+		if resp != nil {
+			finalUpstreamStatus = resp.StatusCode
+		}
+		if upstreamAttempts == 1 {
+			firstUpstreamStatus = finalUpstreamStatus
+		}
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		if headerGuard != nil && headerGuard.stopHeaderWait() {
 			if resp != nil && resp.Body != nil {
@@ -1167,7 +1217,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				body = retryBody
 				requestView = newOpenAIRequestView(body)
 				reqBody = nil
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request after %s (account: %s)", reason, account.Name)
+				rejectedFieldRetryPending = true
+				logOpenAIRejectedFieldRetry(c, account.ID, resp.StatusCode, rejectedFieldRetries+1, reason)
 				continue
 			}
 			if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
