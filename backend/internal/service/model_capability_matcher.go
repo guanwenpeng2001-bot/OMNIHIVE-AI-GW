@@ -38,12 +38,33 @@ func resolveCapabilityProfile(account *Account) string {
 		return "bedrock"
 	}
 	baseURL := upstreamModelRegistryBaseURL(account)
+	// Discovery may substitute a protocol default; metadata must retain the
+	// configured endpoint, including custom Anthropic relays.
+	if configured := strings.TrimSpace(account.GetCredential("base_url")); configured != "" {
+		baseURL = configured
+	}
 	host := account.modelRegistryHostname(baseURL)
+	path := ""
+	if parsed, err := account.parsedBaseURL(baseURL); err == nil {
+		path = strings.TrimRight(parsed.Path, "/")
+	}
+	mode := account.GetAccountMode()
+	at := func(paths ...string) bool {
+		for _, candidate := range paths {
+			if path == candidate {
+				return true
+			}
+		}
+		return false
+	}
 	// Regional hosting domains must be matched on DNS-label boundaries.
 	if strings.HasSuffix(host, ".aiplatform.googleapis.com") || strings.HasSuffix(host, "-aiplatform.googleapis.com") || host == "aiplatform.googleapis.com" {
 		if account.Type == AccountTypeServiceAccount {
 			return "vertex_ai"
 		}
+	}
+	if account.Type == AccountTypeServiceAccount {
+		return "custom:" + account.normalizeModelRegistryBaseURL(baseURL)
 	}
 	if bedrockAPIHostname.MatchString(host) {
 		return "bedrock"
@@ -52,10 +73,41 @@ func resolveCapabilityProfile(account *Account) string {
 		return "volcengine"
 	}
 	switch host {
-	case "open.bigmodel.cn":
-		return "zhipu"
-	case "api.minimax.io", "api.minimaxi.com", "api.minimax.chat":
-		return "minimax"
+	case "open.bigmodel.cn", "api.z.ai":
+		profile := "zhipuai"
+		if host == "api.z.ai" {
+			profile = "zai"
+		}
+		// Preserve the registered legacy /v1 identity. Official /api bases
+		// use separate regional and plan profiles.
+		if host == "open.bigmodel.cn" && path == "/v1" && mode != AccountModeCoding {
+			return "zhipu"
+		}
+		if at("/api/coding/paas/v4") && mode != AccountModePayG {
+			return profile + "-coding-plan"
+		}
+		if at("", "/api/paas/v4", "/api/v1", "/api/anthropic") {
+			if mode == AccountModeCoding {
+				return profile + "-coding-plan"
+			}
+			return profile
+		}
+	case "api.minimax.io", "api.minimaxi.com":
+		if at("", "/v1", "/anthropic") {
+			profile := "minimax"
+			if host == "api.minimaxi.com" {
+				profile = "minimax-cn"
+			}
+			if mode == AccountModeCoding {
+				profile += "-coding-plan"
+			}
+			return profile
+		}
+	case "api.minimax.chat":
+		// Legacy API identity has no admitted Coding Plan mapping.
+		if at("", "/v1") && mode != AccountModeCoding {
+			return "minimax"
+		}
 	case "qianfan.baidubce.com", "aip.baidubce.com":
 		return "qianfan"
 	case "api.hunyuan.cloud.tencent.com", "hunyuan.tencentcloudapi.com", "hunyuan.ai.tencentcloudapi.com":
@@ -97,10 +149,18 @@ func resolveCapabilityProfile(account *Account) string {
 		}
 	case "api.x.ai":
 		return "xai"
-	case "dashscope.aliyuncs.com":
-		return "alibaba-cn"
-	case "dashscope-intl.aliyuncs.com":
-		return "alibaba"
+	case "coding.dashscope.aliyuncs.com":
+		if at("", "/v1", "/apps/anthropic") && mode != AccountModePayG {
+			return "alibaba-coding-plan-cn"
+		}
+	case "dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com":
+		// No international Coding Plan endpoint is admitted.
+		if mode != AccountModeCoding && at("", "/compatible-mode/v1", "/apps/anthropic", "/api/v1") {
+			if host == "dashscope.aliyuncs.com" {
+				return "alibaba-cn"
+			}
+			return "alibaba"
+		}
 	case "opencode.ai":
 		return "opencode-go"
 	}
