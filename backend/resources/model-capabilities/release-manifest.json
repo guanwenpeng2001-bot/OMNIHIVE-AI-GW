@@ -3,8 +3,8 @@
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
   "applicability": "reviewed-profile-model",
-  "approved_generation": 1790974547,
-  "catalog_sha256": "47c9916cdb3485bd8a7e3d89854019696d69169b53236d2d514e5e87d9cc4d44",
+  "approved_generation": 1790976494,
+  "catalog_sha256": "96ef25ec11c77653579f50dceed93409a72119d2cb94bee0766497187adfffe9",
   "code_versions": {
     "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
@@ -22,9 +22,9 @@
     "resources/model-capabilities/release.go": "162d39bad99e33835ea6e901edf07a418eb0fd734705e4325a1770dcde4417d0"
   },
   "inputs_sha256": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
-  "presets_sha256": "f84d5bbfe3845542c6f778293fb935b3f86d8c78d8b29883d1f828228bf1fc2d",
+  "presets_sha256": "e05922bf14f65291381ed3974db10ce3ecf5d0b109ae0f6e26f4d2006559be0d",
   "record_count": 912,
-  "review_sha256": "c6ebe359df4d2fa797957fa20c8e603d683c4c32125b9e6242c15c24102c22db",
+  "review_sha256": "44f8807c972241c9b993455c433c0475aaea50438893cbdad2f3c5d50e175c8f",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

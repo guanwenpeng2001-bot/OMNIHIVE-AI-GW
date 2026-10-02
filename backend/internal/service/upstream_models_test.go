@@ -978,7 +978,16 @@ func TestSyncUpstreamModelCatalogEnrichesOfficialOpenAIHostWithoutRegistryAPIFie
 	require.NotNil(t, astra.Reasoning)
 	require.True(t, *astra.Reasoning)
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, astra.SupportedReasoningLevels)
-	require.Equal(t, []string{"text", "image", "pdf"}, astra.InputModalities)
+	// ID-only discovery is enriched from the reviewed official overlay first.
+	// Keep the models.dev PDF claim above to prove it cannot replace that fact.
+	require.Equal(t, []string{"text", "image"}, astra.InputModalities)
+	modalitiesEvidence := astra.FieldEvidence["input_modalities"]
+	require.Equal(t, "https://developers.openai.com/api/docs/models/gpt-6-astra", modalitiesEvidence.Source)
+	require.Equal(t, "ba68a10e49001b19ad84fac85259c96d0c91d45dc2a76467e4988f62b3828fd8", modalitiesEvidence.ContentHash)
+	require.Equal(t, "2026-10-02", modalitiesEvidence.ObservedAt)
+	require.Equal(t, "verified", modalitiesEvidence.Confidence)
+	require.Equal(t, "openai", modalitiesEvidence.ProviderProfile)
+	require.Equal(t, "gpt-6-astra", modalitiesEvidence.MatchedModelID)
 	require.Equal(t, int64(922_000), astra.ContextWindow)
 
 	require.Nil(t, repo.updates, "preview must not persist")

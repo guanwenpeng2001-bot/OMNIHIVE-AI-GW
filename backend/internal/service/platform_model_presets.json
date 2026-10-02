@@ -7599,8 +7599,8 @@
         ],
         "lifecycle": "unknown",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "text",
@@ -8389,7 +8389,7 @@
         "lifecycle": "deprecated",
         "max_output_tokens": 2000,
         "methods": [
-          "audio_transcriptions",
+          "transcriptions",
           "realtime"
         ],
         "output_modalities": [
@@ -8456,7 +8456,7 @@
         ],
         "lifecycle": "unknown",
         "methods": [
-          "audio_speech"
+          "speech"
         ],
         "output_modalities": [
           "audio"
@@ -8561,7 +8561,7 @@
         "lifecycle": "deprecated",
         "max_output_tokens": 2000,
         "methods": [
-          "audio_transcriptions",
+          "transcriptions",
           "realtime"
         ],
         "output_modalities": [
@@ -8595,7 +8595,7 @@
         "lifecycle": "deprecated",
         "max_output_tokens": 2000,
         "methods": [
-          "audio_transcriptions"
+          "transcriptions"
         ],
         "output_modalities": [
           "text"
@@ -10100,8 +10100,8 @@
         ],
         "lifecycle": "deprecated",
         "methods": [
-          "images_edits",
-          "images_generations",
+          "images/edits",
+          "images/generations",
           "responses"
         ],
         "output_modalities": [
@@ -10133,8 +10133,8 @@
         ],
         "lifecycle": "deprecated",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "image"
@@ -10165,8 +10165,8 @@
         ],
         "lifecycle": "deprecated",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "text",
@@ -10218,8 +10218,8 @@
         ],
         "lifecycle": "unknown",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "image"
@@ -10269,8 +10269,8 @@
         ],
         "lifecycle": "active",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "image"
@@ -10297,8 +10297,8 @@
         ],
         "lifecycle": "active",
         "methods": [
-          "images_edits",
-          "images_generations"
+          "images/edits",
+          "images/generations"
         ],
         "output_modalities": [
           "image"
@@ -10694,7 +10694,7 @@
         ],
         "lifecycle": "unknown",
         "methods": [
-          "audio_transcriptions"
+          "transcriptions"
         ],
         "output_modalities": [
           "text"
@@ -11147,7 +11147,7 @@
     ],
     "platform": "openai",
     "provider_profile": "openai",
-    "revision": "f0fc67a2b3a4c2bc",
+    "revision": "678267cfa5572c8d",
     "source_refs": [
       "https://developers.openai.com/api/docs/models",
       "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
@@ -49811,7 +49811,7 @@
         "input_modalities_status": "partial",
         "lifecycle": "active",
         "methods": [
-          "audio_transcriptions"
+          "transcriptions"
         ],
         "output_modalities": [
           "text"
@@ -49867,7 +49867,7 @@
         "input_modalities_status": "partial",
         "lifecycle": "active",
         "methods": [
-          "audio_transcriptions"
+          "transcriptions"
         ],
         "output_modalities": [
           "text"
@@ -49896,7 +49896,7 @@
         "input_modalities_status": "partial",
         "lifecycle": "active",
         "methods": [
-          "audio_speech"
+          "speech"
         ],
         "output_modalities": [
           "audio"
@@ -50068,7 +50068,7 @@
     ],
     "platform": "mistral",
     "provider_profile": "native",
-    "revision": "79408b3a5b7f7933",
+    "revision": "328f28d4712f57fc",
     "source_refs": [
       "https://docs.mistral.ai/models",
       "https://docs.mistral.ai/models/codestral-embed-25-05",

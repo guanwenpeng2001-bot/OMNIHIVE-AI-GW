@@ -1,6 +1,6 @@
 {
   "description": "Model specifications with per-field source evidence and observation dates. Conflicting observations and unverified controls remain unknown. Embedding outputs are numerical vectors. Deployment eligibility and current availability are determined separately.",
-  "generated_at": "2026-10-02T20:55:47Z",
+  "generated_at": "2026-10-02T21:28:14Z",
   "records": [
     {
       "applicable_content_hashes": [
@@ -7084,7 +7084,7 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "audio_transcriptions",
+        "transcriptions",
         "realtime"
       ],
       "verified_at": "2026-09-17"
@@ -7225,7 +7225,7 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "audio_speech"
+        "speech"
       ],
       "verified_at": "2026-09-17"
     },
@@ -7715,7 +7715,7 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "audio_transcriptions",
+        "transcriptions",
         "realtime"
       ],
       "verified_at": "2026-09-17"
@@ -7806,7 +7806,7 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "audio_transcriptions"
+        "transcriptions"
       ],
       "verified_at": "2026-09-17"
     },
@@ -13298,8 +13298,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations",
+        "images/edits",
+        "images/generations",
         "responses"
       ],
       "supports_function_calling": false,
@@ -13360,8 +13360,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "verified_at": "2026-09-17"
     },
@@ -13434,8 +13434,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "supports_function_calling": false,
       "supports_vision": true,
@@ -13543,8 +13543,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "supports_function_calling": false,
       "supports_vision": true,
@@ -13658,8 +13658,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "supports_function_calling": false,
       "supports_prompt_caching": true,
@@ -13781,8 +13781,8 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "supports_function_calling": false,
       "supports_prompt_caching": true,
@@ -14936,7 +14936,7 @@
       "source": "local-data:resources/model-capabilities/scripts/inputs.json",
       "source_content_hash": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
       "supported_methods": [
-        "audio_transcriptions"
+        "transcriptions"
       ],
       "supports_function_calling": false,
       "verified_at": "2026-09-17"
@@ -20436,7 +20436,7 @@
       "source": "https://docs.mistral.ai/models/voxtral-tts-26-03",
       "source_content_hash": "c57042eb2cdb56be217a55fc69e559d68a899e4e0b7724051f43231887bb740d",
       "supported_methods": [
-        "audio_speech"
+        "speech"
       ],
       "verified_at": "2026-09-20"
     },
@@ -20468,7 +20468,7 @@
       "source": "https://docs.mistral.ai/models/voxtral-mini-transcribe-26-02",
       "source_content_hash": "94b8b68675db591883270d77dd74ecbf98d6f6ba05674ddf9f839a695d3be9a1",
       "supported_methods": [
-        "audio_transcriptions"
+        "transcriptions"
       ],
       "verified_at": "2026-09-20"
     },
@@ -20500,7 +20500,7 @@
       "source": "https://docs.mistral.ai/models/voxtral-mini-transcribe-realtime-26-02",
       "source_content_hash": "de5201513a724361ae074b8113091c0eb23c5d5ea7b6c2cc2a485f0b512650e1",
       "supported_methods": [
-        "audio_transcriptions"
+        "transcriptions"
       ],
       "verified_at": "2026-09-20"
     },
@@ -46004,8 +46004,8 @@
       "source": "https://developers.openai.com/api/docs/models/chatgpt-image-latest",
       "source_content_hash": "b2d83677c1bf03a3b64fe7cfb21f8833a34add497bc9452fcf75001c869e987d",
       "supported_methods": [
-        "images_edits",
-        "images_generations"
+        "images/edits",
+        "images/generations"
       ],
       "supports_function_calling": false,
       "verified_at": "2026-10-02"

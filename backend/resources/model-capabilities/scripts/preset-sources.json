@@ -7580,8 +7580,8 @@
           ],
           "lifecycle": "unknown",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "text",
@@ -8809,8 +8809,8 @@
           ],
           "lifecycle": "deprecated",
           "methods": [
-            "images_edits",
-            "images_generations",
+            "images/edits",
+            "images/generations",
             "responses"
           ],
           "output_modalities": [
@@ -8841,8 +8841,8 @@
           ],
           "lifecycle": "deprecated",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "image"
@@ -8872,8 +8872,8 @@
           ],
           "lifecycle": "deprecated",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "text",
@@ -8904,8 +8904,8 @@
           ],
           "lifecycle": "unknown",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "image"
@@ -9284,8 +9284,8 @@
           ],
           "lifecycle": "active",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "image"
@@ -9311,8 +9311,8 @@
           ],
           "lifecycle": "active",
           "methods": [
-            "images_edits",
-            "images_generations"
+            "images/edits",
+            "images/generations"
           ],
           "output_modalities": [
             "image"
@@ -9673,7 +9673,7 @@
           "lifecycle": "deprecated",
           "max_output_tokens": 2000,
           "methods": [
-            "audio_transcriptions",
+            "transcriptions",
             "realtime"
           ],
           "output_modalities": [
@@ -9737,7 +9737,7 @@
           ],
           "lifecycle": "unknown",
           "methods": [
-            "audio_speech"
+            "speech"
           ],
           "output_modalities": [
             "audio"
@@ -9838,7 +9838,7 @@
           "lifecycle": "deprecated",
           "max_output_tokens": 2000,
           "methods": [
-            "audio_transcriptions",
+            "transcriptions",
             "realtime"
           ],
           "output_modalities": [
@@ -9871,7 +9871,7 @@
           "lifecycle": "deprecated",
           "max_output_tokens": 2000,
           "methods": [
-            "audio_transcriptions"
+            "transcriptions"
           ],
           "output_modalities": [
             "text"
@@ -10871,7 +10871,7 @@
           ],
           "lifecycle": "unknown",
           "methods": [
-            "audio_transcriptions"
+            "transcriptions"
           ],
           "output_modalities": [
             "text"
@@ -44552,7 +44552,7 @@
           "input_modalities_status": "partial",
           "lifecycle": "active",
           "methods": [
-            "audio_speech"
+            "speech"
           ],
           "output_modalities": [
             "audio"
@@ -44579,7 +44579,7 @@
           "input_modalities_status": "partial",
           "lifecycle": "active",
           "methods": [
-            "audio_transcriptions"
+            "transcriptions"
           ],
           "output_modalities": [
             "text"
@@ -44606,7 +44606,7 @@
           "input_modalities_status": "partial",
           "lifecycle": "active",
           "methods": [
-            "audio_transcriptions"
+            "transcriptions"
           ],
           "output_modalities": [
             "text"

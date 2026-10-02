@@ -5,6 +5,23 @@ never fetch models, contact an account, grant eligibility, publish a release, or
 write a trust pin. The separate collect.py command is described below.
 Script-relative inputs work from any current directory.
 
+Reviewed method projections use `speech` and `transcriptions` for the existing
+audio endpoint families. The exact capture labels `audio_speech` and
+`audio_transcriptions` are projected to those names; `images_generations` and
+`images_edits` are projected to the existing distinct method names
+`images/generations` and `images/edits`. This is source-data normalization, not
+model-ID aliasing. Preserve the raw capture, URL, hash and observation time when
+recording the translation. Task/mode values have a separate vocabulary and must
+not be rewritten by this rule. Unknown methods and unrelated methods such as
+FIM, OCR, realtime and live retain their existing meaning and support status.
+
+The account catalog consumes `speech`/`transcriptions` only when the platform's
+action adapter is implemented. Its image scheduling family is `images`, derived
+from existing task/output facts; distinct image method names do not themselves
+add a transport, imply chat support, or grant account permission. Regenerate both
+presets and catalog after a reviewed method correction, then bind a strictly newer
+release generation through the existing manifest and explicit pin process.
+
 `inputs.json` is the reviewed price-free projection, not a raw registry response.
 `reviewed.json` contains explicitly reviewed model specifications, including their
 historical evidence references. Those references are provenance strings, not files
