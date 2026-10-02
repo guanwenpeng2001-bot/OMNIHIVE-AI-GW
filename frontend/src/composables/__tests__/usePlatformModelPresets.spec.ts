@@ -2,7 +2,7 @@ import { effectScope, ref } from 'vue'
 import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
-import { usePlatformModelPresets } from '../usePlatformModelPresets'
+import { selectPlatformModelPresets, usePlatformModelPresets } from '../usePlatformModelPresets'
 
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn() }))
 const requestPresets = vi.mocked(getPlatformModelPresets)
@@ -86,5 +86,97 @@ describe('platform preset source', () => {
     complete(response)
     await flushPromises()
     expect(source.models.value).toEqual([])
+  })
+})
+
+const profileFixtures = Object.entries({
+  kimi: ['moonshotai', 'moonshotai-cn', 'kimi-for-coding'],
+  zhipu: ['zhipuai', 'zhipuai-coding-plan', 'zai', 'zai-coding-plan'],
+  minimax: ['minimax', 'minimax-cn', 'minimax-coding-plan', 'minimax-cn-coding-plan'],
+  qianwen: ['alibaba', 'alibaba-cn', 'alibaba-coding-plan', 'alibaba-coding-plan-cn'],
+  gemini: ['google', 'vertex-gemini'], anthropic: ['anthropic', 'vertex-anthropic'],
+  deepseek: ['deepseek'], openai: ['openai'], grok: ['xai'], bedrock: ['native']
+}).flatMap(([platform, profiles]) => profiles.map(provider_profile => ({
+  platform, provider_profile, models: [{ id: provider_profile + '-fixture' }]
+}))) as PlatformModelPreset[]
+
+describe('account profile selection', () => {
+  it.each([
+    ['kimi', '', '', 'moonshotai-cn'],
+    ['kimi', '', 'coding', 'kimi-for-coding'],
+    ['kimi', 'https://api.moonshot.ai/v1', 'payg', 'moonshotai'],
+    ['kimi', 'https://API.KIMI.COM/coding/v1/', '', 'kimi-for-coding'],
+    ['zhipu', '', '', 'zhipuai'],
+    ['zhipu', '', 'coding', 'zhipuai-coding-plan'],
+    ['zhipu', 'https://api.z.ai/api/paas/v4', '', 'zai'],
+    ['zhipu', 'https://api.z.ai/api/coding/paas/v4', '', 'zai-coding-plan'],
+    ['zhipu', 'https://open.bigmodel.cn/api/anthropic', 'coding', 'zhipuai-coding-plan'],
+    ['minimax', '', '', 'minimax-cn'],
+    ['minimax', '', 'coding', 'minimax-cn-coding-plan'],
+    ['minimax', 'https://api.minimax.io/v1', '', 'minimax'],
+    ['minimax', 'https://api.minimax.io/anthropic', 'coding', 'minimax-coding-plan'],
+    ['qianwen', '', '', 'alibaba-cn'],
+    ['qianwen', '', 'coding', 'alibaba-coding-plan-cn'],
+    ['qianwen', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', '', 'alibaba'],
+    ['qianwen', 'https://coding.dashscope.aliyuncs.com/apps/anthropic', '', 'alibaba-coding-plan-cn'],
+    ['qianwen', 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', 'coding', ''],
+    ['qianwen', 'https://coding-intl.dashscope.aliyuncs.com/v1', 'coding', ''],
+    ['kimi', 'https://api.kimi.com/coding/private', '', ''],
+    ['kimi', 'https://api.moonshot.cn/v1', 'coding', ''],
+    ['zhipu', 'https://api.z.ai.example/api/paas/v4', '', ''],
+    ['minimax', 'https://api.minimax.io/private', '', ''],
+    ['qianwen', 'https://relay.example/v1', '', '']
+  ])('%s %s %s selects only %s', (platform, host, mode, profile) => {
+    expect(selectPlatformModelPresets(profileFixtures, [platform], { host, mode })
+      .map(p => p.provider_profile)).toEqual(profile ? [profile] : [])
+  })
+
+  it('honors explicit candidates, even on a custom host, without falling back for unknown profiles', () => {
+    for (const platform of ['kimi', 'zhipu', 'minimax', 'qianwen']) {
+      for (const preset of profileFixtures.filter(p => p.platform === platform)) {
+        expect(selectPlatformModelPresets(profileFixtures, [platform], { profile: preset.provider_profile, host: 'https://relay.example', mode: 'coding' })).toEqual([preset])
+      }
+      expect(selectPlatformModelPresets(profileFixtures, [platform], { profile: 'missing' })).toEqual([])
+    }
+  })
+
+  it('keeps hosted candidates scoped to existing profiles and bedrock empty', () => {
+    for (const [platform, profile] of [['gemini', 'vertex-gemini'], ['vertex', 'vertex-gemini'], ['anthropic', 'vertex-anthropic']]) {
+      expect(selectPlatformModelPresets(profileFixtures, [platform], { type: 'service_account', region: 'us-central1' }).map(p => p.provider_profile)).toEqual([profile])
+      expect(selectPlatformModelPresets(profileFixtures.filter(p => !p.provider_profile.startsWith('vertex-')), [platform], { type: 'service_account' })).toEqual([])
+    }
+    expect(selectPlatformModelPresets(profileFixtures, ['bedrock'], { type: 'bedrock' })).toEqual([])
+    expect(selectPlatformModelPresets(profileFixtures, ['anthropic'], { type: 'bedrock' })).toEqual([])
+    for (const platform of ['openai', 'grok', 'deepseek']) {
+      expect(selectPlatformModelPresets(profileFixtures, [platform], { type: 'oauth' })).toHaveLength(1)
+    }
+  })
+
+  it.each(['create', 'edit'])('%s caller reacts to host/mode/profile/region without changing saved mappings', async () => {
+    requestPresets.mockResolvedValue(profileFixtures)
+    const account = ref({ platform: 'minimax', type: 'apikey', credentials: { base_url: '', provider_profile: '', account_mode: 'payg', region: '', model_mapping: { saved: 'historical-id' } } })
+    const before = JSON.stringify(account.value.credentials.model_mapping)
+    const scope = effectScope()
+    const source = scope.run(() => usePlatformModelPresets(() => [account.value.platform], () => ({
+      host: account.value.credentials.base_url, type: account.value.type,
+      profile: account.value.credentials.provider_profile, mode: account.value.credentials.account_mode,
+      region: account.value.credentials.region
+    })))!
+    await flushPromises()
+    expect(source.models.value).toEqual(['minimax-cn-fixture'])
+    account.value.credentials.base_url = 'https://api.minimax.io/v1'
+    await flushPromises()
+    expect(source.models.value).toEqual(['minimax-fixture'])
+    account.value.credentials.account_mode = 'coding'
+    await flushPromises()
+    expect(source.models.value).toEqual(['minimax-coding-plan-fixture'])
+    account.value.credentials.region = 'cn-beijing'
+    await flushPromises()
+    expect(source.models.value).toEqual(['minimax-coding-plan-fixture'])
+    account.value.credentials.provider_profile = 'minimax-cn'
+    await flushPromises()
+    expect(source.models.value).toEqual(['minimax-cn-fixture'])
+    expect(JSON.stringify(account.value.credentials.model_mapping)).toBe(before)
+    scope.stop()
   })
 })

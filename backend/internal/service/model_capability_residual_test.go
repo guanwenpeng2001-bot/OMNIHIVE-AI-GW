@@ -102,7 +102,9 @@ func TestModelCapabilityResidualNativeThinkingAndPDF(t *testing.T) {
 func TestModelCapabilityResidualKimiProfileReleaseScope(t *testing.T) {
 	snapshot, err := buildModelCapabilitySnapshot(nil)
 	require.NoError(t, err)
-	for _, host := range []string{"api.moonshot.cn", "api.moonshot.ai"} {
+	// The global deployment retains historical moonshot records; CN has a
+	// separately reviewed identity (covered by the regional isolation fixture).
+	for _, host := range []string{"api.moonshot.ai"} {
 		a := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://" + host + "/v1"}}
 		require.Equal(t, "moonshot", resolveCapabilityProfile(a))
 		require.Equal(t, "matched", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(a), "kimi-k2.5").Status)
