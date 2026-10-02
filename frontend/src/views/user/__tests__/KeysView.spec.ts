@@ -575,6 +575,7 @@ describe('user KeysView column settings', () => {
     expect(credentials.findAll('code').map((address) => address.text())).toEqual([
       `${window.location.origin}/v1`,
       `${window.location.origin}/v1/messages`,
+      `${window.location.origin}/v1beta`,
       `${window.location.origin}/v1/images/generations`,
       `${window.location.origin}/v1/images/edits`,
       `${window.location.origin}/v1/videos/generations`,
@@ -586,7 +587,7 @@ describe('user KeysView column settings', () => {
     expect(credentials.text()).toContain(translations.generationTitle)
     expect(credentials.text()).toContain(translations.generationHint)
     const copyButtons = credentials.findAll('button')
-    for (const [index, protocol] of [translations.openai, translations.anthropic].entries()) {
+    for (const [index, protocol] of [translations.openai, translations.anthropic, translations.gemini].entries()) {
       expect(copyButtons[index].attributes('aria-label')).toBe(
         translations.copyAddress.replace('{protocol}', protocol)
       )
@@ -594,11 +595,13 @@ describe('user KeysView column settings', () => {
     }
     expect(copyToClipboard).toHaveBeenNthCalledWith(1, `${window.location.origin}/v1`, translations.copied)
     expect(copyToClipboard).toHaveBeenNthCalledWith(2, `${window.location.origin}/v1/messages`, translations.copied)
-    expect(copyButtons[2].attributes('aria-label')).toBe(
+    expect(credentials.text()).toContain(translations.gemini)
+    expect(copyToClipboard).toHaveBeenNthCalledWith(3, `${window.location.origin}/v1beta`, translations.copied)
+    expect(copyButtons[3].attributes('aria-label')).toBe(
       translations.copyAddress.replace('{protocol}', translations.imageGeneration)
     )
-    await copyButtons[2].trigger('click')
-    expect(copyToClipboard).toHaveBeenNthCalledWith(3, `${window.location.origin}/v1/images/generations`, translations.copied)
+    await copyButtons[3].trigger('click')
+    expect(copyToClipboard).toHaveBeenNthCalledWith(4, `${window.location.origin}/v1/images/generations`, translations.copied)
     expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
     wrapper.unmount()
   })
@@ -610,6 +613,7 @@ describe('user KeysView column settings', () => {
     expect(wrapper.findAll('section code').map((address) => address.text())).toEqual([
       'https://gateway.example:8443/v1',
       'https://gateway.example:8443/v1/messages',
+      'https://gateway.example:8443/v1beta',
       'https://gateway.example:8443/v1/images/generations',
       'https://gateway.example:8443/v1/images/edits',
       'https://gateway.example:8443/v1/videos/generations',
@@ -620,18 +624,26 @@ describe('user KeysView column settings', () => {
     ])
     expect(buildGatewayUrl).toHaveBeenCalledWith('/v1')
     expect(buildGatewayUrl).toHaveBeenCalledWith('/v1/messages')
+    expect(buildGatewayUrl).toHaveBeenCalledWith('/v1beta')
     expect(buildGatewayUrl).toHaveBeenCalledWith('/v1/images/generations')
     wrapper.unmount()
   })
 
-  it('resolves relative gateway subpaths against the current site origin', async () => {
-    vi.spyOn(gatewayUrl, 'buildGatewayUrl').mockImplementation((path) => `/proxy/sub2api${path}`)
-    const wrapper = await mountView()
-    expect(wrapper.get('section code').text()).toBe(`${window.location.origin}/proxy/sub2api/v1`)
-    await wrapper.get('section button').trigger('click')
-    expect(copyToClipboard).toHaveBeenCalledWith(`${window.location.origin}/proxy/sub2api/v1`, englishDashboard.keys.payAsYouGo.copied)
-    wrapper.unmount()
-  })
+  it.each(['/proxy/sub2api', 'https://gateway.example:8443/proxy/sub2api'])(
+    'copies the Gemini base URL with gateway prefix %s', async (prefix) => {
+      vi.spyOn(gatewayUrl, 'buildGatewayUrl').mockImplementation((path) => `${prefix}${path}`)
+      const wrapper = await mountView()
+      const gatewayRoot = new URL(prefix, window.location.origin).href
+      expect(wrapper.get('section code').text()).toBe(`${gatewayRoot}/v1`)
+      await wrapper.get('section button').trigger('click')
+      expect(copyToClipboard).toHaveBeenCalledWith(`${gatewayRoot}/v1`, englishDashboard.keys.payAsYouGo.copied)
+      const geminiRow = wrapper.findAll('section dl > div').find(row => row.text().includes(englishDashboard.keys.payAsYouGo.gemini))!
+      expect(geminiRow.get('code').text()).toBe(`${gatewayRoot}/v1beta`)
+      await geminiRow.get('button').trigger('click')
+      expect(copyToClipboard).toHaveBeenLastCalledWith(`${gatewayRoot}/v1beta`, englishDashboard.keys.payAsYouGo.copied)
+      wrapper.unmount()
+    }
+  )
 
   it('keeps quota editing without any panel-side usage reset', async () => {
     const key: ApiKey = {

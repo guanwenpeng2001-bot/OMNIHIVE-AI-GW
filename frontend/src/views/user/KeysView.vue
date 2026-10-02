@@ -1407,7 +1407,8 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const gatewayEndpoints = [
   { protocol: 'openai', label: 'keys.payAsYouGo.openai', path: '/v1' },
-  { protocol: 'anthropic', label: 'keys.payAsYouGo.anthropic', path: '/v1/messages' }
+  { protocol: 'anthropic', label: 'keys.payAsYouGo.anthropic', path: '/v1/messages' },
+  { protocol: 'gemini', label: 'keys.payAsYouGo.gemini', path: '/v1beta' }
 ].map((endpoint) => ({
   ...endpoint,
   url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href

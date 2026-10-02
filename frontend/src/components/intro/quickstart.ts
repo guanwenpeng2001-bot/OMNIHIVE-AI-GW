@@ -1,4 +1,4 @@
-import { sanitizeUrl } from '@/utils/url'
+import { buildClientBaseUrl, sanitizeUrl } from '@/utils/url'
 
 export type Protocol = 'chat/completions' | 'responses' | 'messages' | 'embeddings' | 'images/generations' | 'gemini'
 export const protocols: Protocol[] = ['chat/completions', 'responses', 'messages', 'embeddings', 'images/generations', 'gemini']
@@ -11,8 +11,7 @@ export function publicRoot(configured: string, fallback: string): string {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
     throw new Error('Invalid public gateway URL')
   }
-  url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/v1$/, '')
-  return url.toString().replace(/\/+$/, '')
+  return buildClientBaseUrl(url.toString()).replace(/\/+$/, '')
 }
 
 export interface VisibleModel { id: string; endpoints: Protocol[] | null }
@@ -20,7 +19,7 @@ export function parseModels(payload: unknown): VisibleModel[] {
   if (!payload || typeof payload !== 'object' || !('data' in payload) || !Array.isArray(payload.data)) {
     throw new Error('Invalid model catalogue')
   }
-  const aliases: Record<string, Protocol> = { chat_completions: 'chat/completions', images: 'images/generations', generateContent: 'gemini' }
+  const aliases: Record<string, Protocol> = { chat_completions: 'chat/completions', images: 'images/generations', generateContent: 'gemini', generate_content: 'gemini' }
   return payload.data.flatMap((item: unknown) => {
     if (!item || typeof item !== 'object' || !('id' in item) || typeof item.id !== 'string' || !item.id.trim()) return []
     const raw = 'endpoints' in item ? item.endpoints : 'supported_endpoints' in item ? item.supported_endpoints : null
