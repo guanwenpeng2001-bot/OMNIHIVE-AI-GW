@@ -20,6 +20,7 @@ class ReleaseTests(unittest.TestCase):
                 record['model_version'] = '001'
         review = copy.deepcopy(catalog.read(catalog.REVIEWED))
         review['records'] = []
+        review['overlays'] = []
         candidate, _, _ = catalog.generate(inputs, review)
         catalog.validate(candidate)
         self.assertTrue(all(record['created_at'] == '2024-01-01T00:00:00Z'
@@ -44,6 +45,7 @@ class ReleaseTests(unittest.TestCase):
                             verified_at='2026-09-17', output=target))
             review = catalog.read(catalog.REVIEWED)
             review['records'] = []
+            review['overlays'] = []
             candidate, _, _ = catalog.generate(catalog.read(target), review)
             record = candidate['records'][0]
             self.assertEqual(0, record['reasoning_control']['budget_min'])

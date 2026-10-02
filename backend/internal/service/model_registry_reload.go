@@ -1,12 +1,14 @@
 package service
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
 )
@@ -34,6 +36,10 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 	if err != nil {
 		return nil, err
 	}
+	captures, err := presetFieldCaptures(presets)
+	if err != nil {
+		return nil, err
+	}
 	for _, preset := range definitions {
 		profile := preset.ProviderProfile
 		if profile == "native" {
@@ -43,8 +49,8 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 		switch profile {
 		case "google":
 			profile = "gemini"
-		case "zhipuai":
-			profile = "zhipu"
+		case "vertex-gemini", "vertex-anthropic":
+			profile = "vertex_ai"
 		}
 		for _, model := range preset.Models {
 			key := capabilityKey(profile, model.ID)
@@ -66,10 +72,10 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 				fallback.MaxOutputTokens = &limit
 			}
 			for _, field := range []string{"created_at", "model_version", "max_input_tokens", "max_output_tokens", "input_modalities", "output_modalities", "context_window", "context_limit_kind", "control", "mode", "supported_methods", "embedding_dimensions"} {
-				fallback.FieldSources[field] = CapabilityFieldSource{Source: "platform-preset", ContentHash: binding.PresetsSHA256}
+				fallback.FieldSources[field] = presetCapabilityFieldSource(preset, model, field, binding.PresetsSHA256, captures)
 			}
 			for name := range model.TaskLimits {
-				fallback.FieldSources["task_limits."+name] = CapabilityFieldSource{Source: "platform-preset", ContentHash: binding.PresetsSHA256}
+				fallback.FieldSources["task_limits."+name] = presetCapabilityFieldSource(preset, model, "task_limits."+name, binding.PresetsSHA256, captures)
 			}
 			record = fillCapabilityFields(record, fallback)
 			if record.SupportedMethods == nil {
@@ -81,6 +87,79 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 	capabilities.aliases = buildCapabilityAliasIndex(capabilities.records)
 	capabilities.version = identity.ManifestSHA256
 	return &ModelRegistrySnapshot{release: identity, presets: definitions, capabilities: capabilities}, nil
+}
+
+// Consume only exact confirmed field captures from the signed preset bundle.
+// Model-wide review timestamps cannot establish a refreshed sibling field.
+func presetFieldCaptures(body []byte) (map[string]CapabilityFieldSource, error) {
+	var scopes []struct {
+		Platform string `json:"platform"`
+		Profile  string `json:"provider_profile"`
+		Coverage struct {
+			Review struct {
+				Records []struct {
+					ID         string `json:"exact_id"`
+					Field      string `json:"method_or_field"`
+					Decision   string `json:"decision"`
+					URL        string `json:"evidence_url"`
+					Hash       string `json:"capture_sha256"`
+					ObservedAt string `json:"observed_at"`
+				} `json:"records"`
+			} `json:"official_review"`
+		} `json:"coverage_scope"`
+	}
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, err
+	}
+	result := make(map[string]CapabilityFieldSource)
+	for _, scope := range scopes {
+		for _, record := range scope.Coverage.Review.Records {
+			if record.Decision != "confirmed" || record.ID == "" || record.Field == "" || !strings.HasPrefix(record.URL, "https://") {
+				continue
+			}
+			if _, err := hex.DecodeString(record.Hash); err != nil || len(record.Hash) != 64 {
+				return nil, fmt.Errorf("invalid preset field capture hash")
+			}
+			if _, err := time.Parse(time.RFC3339Nano, record.ObservedAt); err != nil {
+				return nil, fmt.Errorf("invalid preset field capture date: %w", err)
+			}
+			key := strings.Join([]string{scope.Platform, scope.Profile, record.ID, record.Field, record.URL}, "\x00")
+			evidence := CapabilityFieldSource{Source: record.URL, ContentHash: record.Hash, ObservedAt: record.ObservedAt, Confidence: "verified"}
+			if previous, exists := result[key]; exists && previous != evidence {
+				return nil, fmt.Errorf("ambiguous preset field capture: %s/%s", record.ID, record.Field)
+			}
+			result[key] = evidence
+		}
+	}
+	return result, nil
+}
+
+func presetCapabilityFieldSource(preset PlatformModelPreset, model PlatformPresetModel, field, bundleHash string, captures map[string]CapabilityFieldSource) CapabilityFieldSource {
+	switch field {
+	case "mode":
+		field = "task_type"
+	case "supported_methods":
+		field = "methods"
+	case "control":
+		field = "reasoning_control"
+	}
+	url := model.FieldSources[field]
+	if url == "" && strings.HasPrefix(field, "task_limits.") {
+		url = model.FieldSources["task_limits"]
+	}
+	key := strings.Join([]string{preset.Platform, preset.ProviderProfile, model.ID, field, url}, "\x00")
+	if evidence, ok := captures[key]; ok {
+		return evidence
+	}
+	// This legacy source explicitly describes the model-level captured registry
+	// observation. It remains observed, never fresh official verification.
+	if url == "https://models.dev/api.json" {
+		return CapabilityFieldSource{Source: url, ContentHash: model.SourceContentHash, ObservedAt: model.VerifiedAt, Confidence: "observed"}
+	}
+	if url != "" {
+		return CapabilityFieldSource{Source: url, Confidence: "observed"}
+	}
+	return CapabilityFieldSource{Source: "platform-preset", ContentHash: bundleHash, Confidence: "observed"}
 }
 
 // ReloadApprovedLocalPackage accepts only a local directory containing the

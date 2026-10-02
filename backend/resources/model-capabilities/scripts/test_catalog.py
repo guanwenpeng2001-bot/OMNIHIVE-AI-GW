@@ -22,7 +22,7 @@ class CatalogTests(unittest.TestCase):
                         for record in catalog.read(catalog.REVIEWED)["records"])
         self.assertEqual(expected, {(record["profile"], record["model_id"])
                                     for record in self.generated["records"]})
-        self.assertEqual(27, self.report["summary"]["conflicting_fields"])
+        self.assertEqual(31, self.report["summary"]["conflicting_fields"])
 
     def test_conflicts_do_not_override_source_limits_or_tasks(self):
         records = {(r["profile"], r["model_id"]): r for r in self.generated["records"]}
@@ -43,7 +43,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual("unknown", reasoner["reasoning_control"])
         self.assertNotIn(("cursor", "gpt-4o"), records)
         self.assertNotIn(("google", "gemini-2.5-pro"), records)
-        self.assertEqual(18, self.report["summary"]["complete"])
+        self.assertEqual(31, self.report["summary"]["complete"])
 
     def test_explicit_empty_fields_remain_present_but_incomplete(self):
         inputs = copy.deepcopy(self.inputs)
@@ -53,6 +53,7 @@ class CatalogTests(unittest.TestCase):
         source_record.update(input_modalities=[], output_modalities=[], supports_vision=False)
         review = catalog.read(catalog.REVIEWED)
         review['records'] = []
+        review['overlays'] = []
         generated, report, _ = catalog.generate(inputs, review)
         record = generated['records'][0]
         self.assertEqual([], record['input_modalities'])

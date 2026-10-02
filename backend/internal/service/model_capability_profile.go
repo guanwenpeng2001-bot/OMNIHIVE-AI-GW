@@ -331,6 +331,38 @@ func cloneCapabilityEvidence(in map[string]ModelCapabilityEvidence) map[string]M
 	return out
 }
 
+// Publication preserves the observation of each field, including inherited
+// historical facts. A merge or lookup is not a new observation.
+func stampCapabilityRecordEvidence(m *UpstreamModelMetadata, r CapabilityRecord, version, rule string) {
+	stampCapabilityEvidence(m, r.Source, version, r.Profile, r.ModelID, rule, capabilitySourceConfidence(r.Source))
+	fields := map[string]string{"task_type": "mode", "input_modalities_status": "input_modalities", "reasoning": "supports_reasoning", "reasoning_control": "control",
+		"supported_reasoning_levels": "control", "default_reasoning_level": "control"}
+	if r.MaxInputTokens != nil {
+		fields["context_window"], fields["context_limit_kind"] = "max_input_tokens", "max_input_tokens"
+	}
+	if r.InputModalities == nil && r.SupportsVision != nil {
+		fields["input_modalities"], fields["input_modalities_status"] = "supports_vision", "supports_vision"
+	}
+	for target, evidence := range m.FieldEvidence {
+		field := target
+		if mapped, ok := fields[target]; ok {
+			field = mapped
+		}
+		source := capabilitySourceForField(r, field)
+		evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
+		evidence.ObservedAt, evidence.Confidence = source.ObservedAt, source.Confidence
+		m.FieldEvidence[target] = evidence
+	}
+	for name := range r.TaskLimits {
+		field := "task_limits." + name
+		source := capabilitySourceForField(r, field)
+		evidence := m.FieldEvidence["task_limits"]
+		evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
+		evidence.ObservedAt, evidence.Confidence = source.ObservedAt, source.Confidence
+		m.FieldEvidence[field] = evidence
+	}
+}
+
 func reasoningControlFromOptions(m UpstreamModelMetadata, options []modelsDevReasoningOption) *ReasoningControl {
 	if m.Reasoning != nil && !*m.Reasoning {
 		return normalizeReasoningControl(m)

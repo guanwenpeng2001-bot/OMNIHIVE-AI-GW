@@ -26,6 +26,14 @@
 
 ## 批准包重载与离线运行
 
+### 已实现的逐字段覆盖与抑制合同
+
+离线 `reviewed.json` 的 `overlays` 只定位已有的准确 `(profile, model_id)`，仅替换明确列出的字段，不新增重复身份；未替换的同记录字段保留旧来源、哈希与观察日期。覆盖字段分别携带 `source`、`content_hash`、`observed_at`、`confidence` 与 `proof_scope`，查找或合并时间不能冒充观察时间，也不能把历史 `observed` 提升为新 `verified`。
+
+显式 `suppress_fields` 生成受 release pin 绑定的 `suppressed_fields`，仅允许 `context_window`、`context_limit_kind`、`max_input_tokens`、`max_output_tokens`。这些字段在价格基线与预设补全后仍须缺省，旧值保留在原始输入和 coverage 证据中；普通缺省仍允许原有补全，包括 `gpt-5-pro` 的既有行为。抑制按准确画像与模型生效，不能跨 CN/global、API/Coding 或原生/托管画像传播。未知或受抑制数字及其公开字段证据均省略，不填零。
+
+预设补全只有在 confirmed 官方审阅记录的 platform、预设 profile、准确 model ID、field 与当前来源 URL 全部匹配时，才使用该字段的捕获哈希和日期。沿用模型原始来源的历史字段保留旧哈希、旧日期及 `observed`；其他无法匹配的 URL 保留未知哈希/日期，无字段 URL 时仅标识预设包来源，不能借用兄弟字段、其他模型或画像的新捕获。候选事实与逐字段可信度均不证明账号权限。
+
 运行时重载采用管理员触发的批准本地包入口（U4a），保留既有签名、release pin 和审批链。不接受任意远程 URL，不以文件变化绕过审批，不新增自动启用资料的通道。O5 定时采集只生成待审差异。
 
 1. 必须完整校验制品、签名、pin、防降级规则、身份关联和解析结果，再原子替换快照；半包不得可见。

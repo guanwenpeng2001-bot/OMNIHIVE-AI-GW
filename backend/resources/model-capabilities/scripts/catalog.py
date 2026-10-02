@@ -22,6 +22,9 @@ BOOLS = ("supports_reasoning", "supports_vision", "supports_function_calling", "
 MODALITIES = ("input_modalities", "output_modalities")
 FIELDS = LIMITS + BOOLS + MODALITIES
 EXTENDED_FIELDS = ("supported_methods", "embedding_dimensions", "reasoning_control", "created_at", "model_version")
+REVIEW_FIELDS = set(FIELDS + EXTENDED_FIELDS + ("mode", "context_window", "context_limit_kind"))
+# Suppression is explicit signed per-record data, never inferred from omission.
+SUPPRESSION_FIELDS = set(LIMITS + ('context_window', 'context_limit_kind'))
 TEXT_MODES = {"chat", "responses", "completion"}
 TIERS = {"local-data", "online-registry", "official-schema"}
 # Provider namespaces are audited here, never used to create model aliases.
@@ -185,7 +188,8 @@ def generate(inputs, reviewed=None):
             record[field] = observed[0][1]
             source = observed[0][0]
             record["field_sources"][field] = {
-                "source": f"{source['tier']}:{source['id']}", "content_hash": source["content_hash"]}
+                "source": f"{source['tier']}:{source['id']}", "content_hash": source["content_hash"],
+                "observed_at": source["verified_at"], "confidence": "observed"}
         if record.get("supports_reasoning") is not False and "reasoning_control" not in record:
             record["reasoning_control"] = "unknown"
         required = list(LIMITS + ("supports_reasoning", "supports_vision", "supports_function_calling", "supported_methods") + MODALITIES)
@@ -217,6 +221,7 @@ def generate(inputs, reviewed=None):
     catalog["generated_at"] = reviewed["generated_at"]
     catalog["description"] = reviewed["description"]
     records.extend(copy.deepcopy(reviewed["records"]))
+    apply_reviewed_overlays(records, rows, reviewed.get("overlays", []))
     validate(catalog)
     counts = {field: sum(field in record for record in records) for field in FIELDS}
     source_counts = {source["id"]: {"models": len(source["records"]), **{
@@ -240,19 +245,29 @@ def generate(inputs, reviewed=None):
                   "P0 supports only unknown reasoning_control; no effort, budget, toggle or fixed values are invented",
                   "schema documents prove field shapes, not per-model or hosted deployment facts"],
               "models": rows}
-    for record in reviewed["records"]:
+    for record in records[len(by_key):]:
         required = ["max_input_tokens", "input_modalities", "output_modalities", "supported_methods", "embedding_dimensions"] if record.get("mode") == "embedding" else ["task_specific_required_fields", "gateway_endpoint_evidence"]
         missing = missing_fields(record, required)
-        rows.append({"original_id": record["model_id"], "profile": record["profile"],
-                     "task": record["mode"], "status": "incomplete" if missing else "complete", "missing_fields": missing,
+        prior_row = next((row for row in rows if row['profile'] == record['profile'] and row['original_id'] == record['model_id']), None)
+        row = {"original_id": record["model_id"], "profile": record["profile"],
+                     "task": record.get("mode", "unknown"), "status": "incomplete" if missing else "complete", "missing_fields": missing,
                      "required_fields": required,
                      "conflicts": [], "match_rule": "exact-profile-and-original-id",
-                     "field_evidence": {field: [{"source": record["source"],
-                         "content_hash": record["source_content_hash"], "verified_at": record["verified_at"],
-                         "value": record[field], "deployment": {k: record[k] for k in ("profile", "region", "protocol")}}]
-                         for field in FIELDS + ("mode", "supported_methods", "embedding_dimensions") if field in record}})
+                     "field_evidence": {field: [{**record.get('field_sources', {}).get(field, {
+                         "source": record["source"], "content_hash": record["source_content_hash"], "observed_at": record["verified_at"]}),
+                         "value": record[field], "deployment": {k: record[k] for k in ("profile", "region", "protocol") if k in record}}]
+                         for field in sorted(REVIEW_FIELDS) if field in record}}
+        if prior_row is not None:
+            row['conflicts'] = prior_row['conflicts']
+            row['field_evidence'].update(prior_row['field_evidence'])
+            row['missing_fields'] = sorted(set(row['missing_fields'] + prior_row['missing_fields']))
+            row['status'] = 'incomplete' if row['missing_fields'] or row['conflicts'] else 'complete'
+            rows.remove(prior_row)
+        rows.append(row)
     report["summary"].update(models=len(records), complete=sum(r["status"] == "complete" for r in rows),
-                             incomplete=sum(r["status"] == "incomplete" for r in rows))
+                             incomplete=sum(r["status"] == "incomplete" for r in rows),
+                             conflicting_fields=sum(len(r['conflicts']) for r in rows),
+                             models_with_conflicts=sum(bool(r['conflicts']) for r in rows))
     report["limitations"] = ["Local observations are historical, not native authority.",
         "Structured reasoning_control maps to internal control; unknown remains unknown.",
         "Embedding output modality embedding denotes a numeric vector; text describes its input only.",
@@ -271,7 +286,8 @@ def validate(catalog):
     require(isinstance(catalog.get("records"), list) and catalog["records"], "empty catalog")
     allowed = set(FIELDS) | {"provider", "profile", "model_id", "region", "protocol", "mode",
         "reasoning_control", "supported_methods", "embedding_dimensions", "aliases", "created_at", "model_version",
-        "source", "verified_at", "source_content_hash", "applicable_content_hashes", "field_sources"}
+        "source", "verified_at", "source_content_hash", "applicable_content_hashes", "field_sources",
+        "context_window", "context_limit_kind", "suppressed_fields"}
     seen = set()
     for record in catalog["records"]:
         require(not (set(record) - allowed), f"unsupported/price fields: {set(record) - allowed}")
@@ -282,6 +298,24 @@ def validate(catalog):
         require(key not in seen, f"duplicate identity {key}")
         seen.add(key)
         check_fields(record)
+        suppressed = record.get('suppressed_fields', [])
+        require(isinstance(suppressed, list) and len(suppressed) == len(set(suppressed)) and
+                set(suppressed) <= SUPPRESSION_FIELDS, 'invalid suppression field')
+        require(not set(suppressed) & set(record), 'suppressed field still present')
+        if 'context_window' in record:
+            require(type(record['context_window']) is int and 0 < record['context_window'] <= 2**63 - 1,
+                    'invalid context window')
+            require(record.get('context_limit_kind') in ('input', 'total'), 'missing context limit kind')
+        for field, provenance in record.get('field_sources', {}).items():
+            require(field in REVIEW_FIELDS, 'unknown evidence field')
+            require(not set(provenance) - {'source', 'content_hash', 'observed_at', 'confidence', 'proof_scope'},
+                    'unknown provenance field')
+            require(provenance.get('source') and re.fullmatch(r'[0-9a-f]{64}', provenance.get('content_hash', '')),
+                    'invalid field provenance')
+            if 'observed_at' in provenance:
+                date.fromisoformat(provenance['observed_at'])
+            if 'confidence' in provenance:
+                require(provenance['confidence'] in ('verified', 'observed'), 'invalid confidence')
         validate_control(record)
         if "embedding_dimensions" in record:
             require(type(record["embedding_dimensions"]) is int and 0 < record["embedding_dimensions"] <= 2**63 - 1,
@@ -304,6 +338,67 @@ def validate(catalog):
 
 
 CONTROL_KINDS = {"none", "effort", "toggle", "budget", "adaptive", "fixed", "unknown"}
+
+
+def apply_reviewed_overlays(records, rows, overlays):
+    indexed = {(r['profile'], r['model_id']): r for r in records}
+    coverage = {(r['profile'], r['original_id']): r for r in rows}
+    seen = set()
+    for note in overlays:
+        require(not set(note) - {'profile', 'model_id', 'source', 'source_content_hash', 'verified_at',
+                                'proof_scope', 'fields', 'suppress_fields', 'field_sources', 'prior_evidence'}, 'unknown overlay field')
+        key = (note['profile'], note['model_id'])
+        require(key in indexed and key not in seen, 'overlay must name one existing identity')
+        seen.add(key)
+        require(note.get('proof_scope') and note['source'].startswith('https://'), 'missing overlay proof scope')
+        require(re.fullmatch(r'[0-9a-f]{64}', note['source_content_hash']), 'invalid overlay hash')
+        date.fromisoformat(note['verified_at'])
+        fields, suppressed = note.get('fields', {}), note.get('suppress_fields', [])
+        require(isinstance(fields, dict) and set(fields) <= REVIEW_FIELDS, 'unknown reviewed field')
+        require(isinstance(note.get('field_sources', {}), dict) and set(note.get('field_sources', {})) <= set(fields),
+                'overlay provenance must name an asserted field')
+        require(isinstance(suppressed, list) and len(suppressed) == len(set(suppressed)) and
+                set(suppressed) <= SUPPRESSION_FIELDS, 'invalid suppression field')
+        require(not set(fields) & set(suppressed), 'review cannot assert a suppressed field')
+        record = indexed[key]
+        row = coverage.get(key)
+        prior = note.get('prior_evidence', {})
+        require(isinstance(prior, dict) and set(prior) <= set(suppressed), 'unknown prior evidence field')
+        if row is None and suppressed:
+            row = {'original_id': key[1], 'profile': key[0], 'task': record.get('mode', 'unknown'),
+                   'field_evidence': {}, 'conflicts': [], 'missing_fields': [], 'status': 'incomplete',
+                   'required_fields': [], 'match_rule': 'exact-profile-and-original-id'}
+            rows.append(row)
+            coverage[key] = row
+        provenance = {'source': note['source'], 'content_hash': note['source_content_hash'],
+                      'observed_at': note['verified_at'], 'confidence': 'verified', 'proof_scope': note['proof_scope']}
+        for field in suppressed:
+            if field in prior:
+                require(isinstance(prior[field], list) and prior[field], 'missing prior evidence')
+                row['field_evidence'].setdefault(field, []).extend(copy.deepcopy(prior[field]))
+            require(row is not None and field in row['field_evidence'], 'suppression needs original evidence')
+            record.pop(field, None)
+            record['field_sources'].pop(field, None)
+            if field not in row['conflicts']:
+                row['conflicts'].append(field)
+            row['field_evidence'][field].append({**provenance, 'value': 'unknown', 'reason': note['proof_scope']})
+            row['status'] = 'incomplete'
+            if field not in row['missing_fields']:
+                row['missing_fields'].append(field)
+        if suppressed:
+            record['suppressed_fields'] = sorted(suppressed)
+        for field, value in fields.items():
+            record[field] = copy.deepcopy(value)
+            source = copy.deepcopy(note.get('field_sources', {}).get(field, provenance))
+            record.setdefault('field_sources', {})[field] = source
+            if row is not None:
+                row['field_evidence'].setdefault(field, []).append({**source, 'value': value})
+                if field in row['conflicts']:
+                    row['conflicts'].remove(field)
+                    row.setdefault('resolved_conflicts', []).append(field)
+                if field in row['missing_fields']:
+                    row['missing_fields'].remove(field)
+                row['status'] = 'incomplete' if row['missing_fields'] or row['conflicts'] else 'complete'
 
 
 def validate_control(record):
