@@ -116,21 +116,25 @@ type ToolOptions struct {
 func encodeTools(tools []ToolDefinition) message {
 	var result message
 	for _, tool := range tools {
-		var definition message
-		definition.text(1, tool.Server+"-"+tool.Name)
-		definition.text(2, tool.Description)
-		definition.text(4, tool.Server)
-		definition.text(5, tool.Name)
-		// Cursor agent 2026.09.26-dd393fe uses google.protobuf.Value for
-		// Run's input_schema (field 3). The gateway already validates the JSON.
-		var schema any
-		_ = json.Unmarshal(tool.InputSchema, &schema)
-		value, _ := structpb.NewValue(schema)
-		data, _ := proto.Marshal(value)
-		definition.bytes(3, data)
-		result.bytes(1, definition)
+		result.bytes(1, encodeToolDefinition(tool))
 	}
 	return result
+}
+
+func encodeToolDefinition(tool ToolDefinition) message {
+	var definition message
+	definition.text(1, tool.Server+"-"+tool.Name)
+	definition.text(2, tool.Description)
+	definition.text(4, tool.Server)
+	definition.text(5, tool.Name)
+	// Cursor agent 2026.09.26-dd393fe uses google.protobuf.Value for
+	// Run's input_schema (field 3). The gateway already validates the JSON.
+	var schema any
+	_ = json.Unmarshal(tool.InputSchema, &schema)
+	value, _ := structpb.NewValue(schema)
+	data, _ := proto.Marshal(value)
+	definition.bytes(3, data)
+	return definition
 }
 
 func parseToolCall(payload []byte) (*ToolCall, error) {

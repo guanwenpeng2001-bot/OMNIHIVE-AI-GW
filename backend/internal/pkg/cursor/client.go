@@ -125,6 +125,9 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		return TokenUsage{}, fmt.Errorf("cursor: invalid Run endpoint")
 	}
 	request.Header = headers(credentials, runID)
+	if len(options.Definitions) > 0 {
+		request.Header.Set("X-Cursor-Agent-Allowed-Tools", "mcp_tool_call,get_mcp_tools_tool_call")
+	}
 	response, err := sendGeneration(client.HTTPClient, request)
 	if err != nil {
 		return TokenUsage{}, &TransportError{cause: err}
@@ -170,6 +173,16 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		if handled {
 			if err := write(reply); err != nil {
 				return usage, err
+			}
+			continue
+		}
+		metadataReply, metadataHandled, err := replyMCPMetadata(frame.payload, options.Definitions)
+		if err != nil {
+			return usage, err
+		}
+		if metadataHandled {
+			if err := write(metadataReply); err != nil {
+				return usage, fmt.Errorf("cursor: MCP metadata reply failed: %w", err)
 			}
 			continue
 		}
