@@ -8,6 +8,19 @@ func openRouterActionDescriptor(d ActionDescriptor, action, adapter string) Acti
 		return d
 	}
 	switch action {
+	case "image.generate", "audio.tts", "audio.stt", "embeddings", "rerank", "video.generate", "video.status", "video.content":
+		d.Status, d.Adapter = ActionImplemented, "openrouter."+action
+		d.Evidence = "Official OpenRouter media schema checked 2026-10-02; service/openrouter_media.go validates the translated request and actual result"
+		d.CredentialPolicy = "API-key Bearer via account base URL and egress"
+		d.ModelPolicy = "Exact mapped model, existing group/key/model admission"
+		d.UsagePolicy = "Observed tokens/images/audio seconds or submitted TTS characters; existing customer tariff and receipt settlement"
+		d.Lifecycle = "synchronous request"
+		if action == "video.generate" || action == "video.status" || action == "video.content" {
+			d.Lifecycle = "durable owner-bound job; submit acknowledgement never settles"
+			d.UsagePolicy = "terminal artifact with frozen explicit per-request tariff, otherwise completed needs_review without debit"
+			d.Evidence = "Official OpenRouter video-generation submit/poll/download schema checked 2026-10-02; service/openrouter_video.go"
+		}
+		return d
 	case "chat", "messages", "responses", "generate_content":
 		if adapter == "" {
 			return d

@@ -82,6 +82,12 @@ func mistralActionRequiredCapability(kind mistralActionKind) service.OpenAIEndpo
 // mistralActionPlanProtocol labels the request-plan protocol dimension for this
 // action, mirroring the sibling chat-only entries (embeddings / audio).
 func mistralActionPlanProtocol(kind mistralActionKind) string {
+	if kind == "image.generate" {
+		return "images"
+	}
+	if kind == "rerank" {
+		return "rerank"
+	}
 	if kind == mistralActionEmbeddings {
 		return "embeddings"
 	}
@@ -166,6 +172,11 @@ func mistralVoicesSubpath(c *gin.Context) string {
 }
 
 func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralActionKind) {
+	h.handleAPIKeyMediaAction(c, service.PlatformMistral, kind)
+}
+
+// Shared admission, scheduling, failover and receipts; providers own wire shapes.
+func (h *OpenAIGatewayHandler) handleAPIKeyMediaAction(c *gin.Context, platform string, kind mistralActionKind) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -207,6 +218,10 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 	}
 
 	contentType := c.GetHeader("Content-Type")
+	if platform == service.PlatformOpenRouter && kind != mistralActionTranscription && gjson.GetBytes(body, "model").Type != gjson.String {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model must be a string")
+		return
+	}
 	requestModel := mistralActionRequestModel(kind, contentType, body)
 	if mistralActionRequiresModel(kind) && strings.TrimSpace(requestModel) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
@@ -225,6 +240,12 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 
 	if kind == mistralActionEmbeddings {
 		if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, "openai_embeddings", requestModel, body); decision != nil && !decision.AllowNextStage {
+			h.openAISecurityAuditError(c, decision)
+			return
+		}
+	}
+	if kind == "image.generate" {
+		if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, body); decision != nil && !decision.AllowNextStage {
 			h.openAISecurityAuditError(c, decision)
 			return
 		}
@@ -298,7 +319,7 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 			false,
 			false,
 			false,
-			service.PlatformMistral,
+			platform,
 		)
 		// Own an eagerly acquired slot before any rejection.
 		if selection != nil && selection.Acquired {
@@ -315,7 +336,7 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 				zap.Int("excluded_account_count", len(failoverState.FailedAccountIDs)),
 			)
 			if len(failoverState.FailedAccountIDs) == 0 {
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, service.PlatformMistral)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, platform)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
@@ -330,7 +351,7 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, service.PlatformMistral)
+			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, requestModel, platform)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
 			}
@@ -364,6 +385,9 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer releaseAccount()
+			if platform == service.PlatformOpenRouter {
+				return h.gatewayService.ForwardOpenRouterMedia(requestCtx, c, account, string(kind), body, contentType)
+			}
 			switch kind {
 			case mistralActionEmbeddings:
 				return h.gatewayService.ForwardMistralEmbeddings(requestCtx, c, account, body, "")
@@ -431,7 +455,7 @@ func (h *OpenAIGatewayHandler) handleMistralAction(c *gin.Context, kind mistralA
 		}
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account, mistralActionScheduleModel(account, requestModel, result), true, nil)
-		if shouldRecordMistralActionUsage(kind, result) {
+		if (platform == service.PlatformOpenRouter && result != nil) || shouldRecordMistralActionUsage(kind, result) {
 			h.recordMistralActionUsage(c, reqLog, apiKey, subject, subscription, account, result, requestModel, body)
 		}
 		reqLog.Debug("mistral_action.request_completed",

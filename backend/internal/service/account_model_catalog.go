@@ -401,6 +401,34 @@ func InvalidAccountCatalogAliases(account *Account, snapshot *AccountModelCatalo
 // Model declarations describe endpoints; account eligibility remains a live scheduler check.
 func accountCatalogModelEndpoints(account *Account, modelID string, metadata UpstreamModelMetadata) []string {
 	task := accountCatalogEndpointTask(account, modelID, metadata)
+	if account.Platform == PlatformOpenRouter && len(metadata.SupportedMethods) == 0 {
+		// OpenRouter's authenticated all-modalities cards use modality labels,
+		// not native endpoint names. Project only installed media families;
+		// keep text+audio input eligible for the existing text bridge as well.
+		methods := append([]string(nil), metadata.SupportedMethods...)
+		for _, output := range metadata.OutputModalities {
+			switch output {
+			case "embedding", "embeddings":
+				methods = append(methods, "embeddings")
+			case "audio", "speech":
+				methods = append(methods, "speech")
+			case "rerank", "score":
+				methods = append(methods, "rerank")
+			case "transcription":
+				methods = append(methods, "transcriptions")
+			}
+		}
+		endpoints := chatOnlyAccountCatalogModelEndpoints(account, task, metadata)
+		if slices.Contains(metadata.InputModalities, "audio") && slices.Contains(metadata.OutputModalities, "text") {
+			methods = append(methods, "transcriptions")
+		}
+		for _, method := range methods {
+			if platformActionAdapterBound(account, chatOnlyCatalogEndpointAction(method)) {
+				endpoints = append(endpoints, method)
+			}
+		}
+		return dedupeAndSortModelIDs(endpoints)
+	}
 	if IsChatOnlyPlatform(account.Platform) {
 		return chatOnlyAccountCatalogModelEndpoints(account, task, metadata)
 	}

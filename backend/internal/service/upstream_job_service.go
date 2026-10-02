@@ -156,7 +156,7 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	if job == nil || job.UserID <= 0 || job.APIKeyID <= 0 || job.AccountID <= 0 || submit == nil {
 		return nil, errors.New("invalid job submission")
 	}
-	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
+	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && !(job.Platform == PlatformOpenRouter && job.Family == "video") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
 		return nil, ErrUpstreamJobTariff
 	}
 	if len(accounts) > 0 {
@@ -402,6 +402,11 @@ func (s *UpstreamJobService) settle(ctx context.Context, j *UpstreamJob, tx Upst
 	log, cmd, err := s.charge(j)
 	if errors.Is(err, ErrUpstreamJobUnsupportedUsage) || errors.Is(err, ErrUpstreamJobTariff) {
 		logJobEvent(ctx, j, "needs_review")
+		if j.Platform == PlatformOpenRouter && j.Family == "video" && j.ResultRef != "" {
+			j.Billing.PricingState = PricingStateUnpriced
+			s.finish(j, "succeeded", "settlement_needs_review", "Generation completed; retail quantity or tariff is unknown and no charge was applied")
+			return nil
+		}
 		s.finish(j, "failed", "unsupported_usage", "Usage cannot be priced; evidence retained for review")
 		return nil
 	}
