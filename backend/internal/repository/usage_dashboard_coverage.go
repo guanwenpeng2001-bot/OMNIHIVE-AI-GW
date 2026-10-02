@@ -264,3 +264,53 @@ func (coverage dashboardCoverage) summaryComplete(today, now time.Time) bool {
 	}
 	return historyComplete && coverage.requireRaw(today, now) == nil && coverage.requireRaw(now.UTC().Truncate(time.Hour), now) == nil && coverage.requireRaw(now.Add(-5*time.Minute), now) == nil
 }
+
+// summaryMetadata matches the archive interval and raw wings of the existing SUM.
+// Empty archive days are zero by the publication contract, not missing buckets.
+func (coverage dashboardCoverage) summaryMetadata(today, now time.Time) *usagestats.Coverage {
+	metadata := coverage.metadataFor(coverage.summaryComplete(today, now))
+	first := now
+	if coverage.daily.Valid {
+		first = coverage.daily.Time
+	}
+	closed := coverage.watermark()
+	if now.Before(closed) {
+		closed = now
+	}
+	closed = bucketFloor(closed, "day")
+	from := coverage.raw
+	valid := !now.Before(from)
+	if closed.After(first) {
+		valid = coverage.requireRaw(closed, now) == nil
+		if first.Before(from) {
+			from = first
+		}
+	}
+	if valid {
+		metadata.RetainedComplete = true
+		metadata.WindowFrom, metadata.WindowUntil = &from, &now
+		metadata.Reason = ""
+	}
+	return metadata
+}
+
+func (coverage dashboardCoverage) rawSummaryMetadata(now time.Time) *usagestats.Coverage {
+	metadata := coverage.metadataFor(coverage.rawHistoryComplete())
+	if !now.Before(coverage.raw) {
+		from := coverage.raw
+		metadata.RetainedComplete = true
+		metadata.WindowFrom, metadata.WindowUntil = &from, &now
+		metadata.Reason = ""
+	}
+	return metadata
+}
+
+func (coverage dashboardCoverage) rangeMetadata(start, end time.Time) *usagestats.Coverage {
+	metadata := coverage.metadataFor(false)
+	if end.After(start) && coverage.requireRaw(start, end) == nil {
+		metadata.RangeComplete = true
+		metadata.WindowFrom, metadata.WindowUntil = &start, &end
+		metadata.Reason = ""
+	}
+	return metadata
+}

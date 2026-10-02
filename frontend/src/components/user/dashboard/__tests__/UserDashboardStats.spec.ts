@@ -20,6 +20,7 @@ import type { PlatformQuotaItem } from '@/types'
 function makeStats(over: Partial<UserStatsType> = {}): UserStatsType {
   return {
     total_api_keys: 1,
+  coverage: { complete: true, raw_retained_from: '2026-01-01T00:00:00Z', published_before: '', timezone: 'UTC', projection_version: 2 },
     active_api_keys: 1,
     total_requests: 0,
     total_input_tokens: 0,
@@ -172,7 +173,7 @@ describe('UserDashboardStats money display', () => {
       props: { isSimple: false, balance: 0, stats: {} as UserStatsType },
       global: { stubs: { Icon: true } },
     })
-    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD -'])
+    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD —'])
     wrapper.unmount()
   })
 })
@@ -211,6 +212,34 @@ describe('UserDashboardStats historical totals', () => {
     expect(card.text()).toContain('$0.00000000')
     expect(card.text()).not.toContain('—')
     expect(card.findAll('.font-mono').filter(node => node.text() === '0')).toHaveLength(2)
+    wrapper.unmount()
+  })
+})
+
+
+describe('verified summary scopes', () => {
+  it.each(['all_time', 'retained', 'range', 'unknown', 'legacy'] as const)('renders %s without inventing lifetime coverage', scope => {
+    const coverage = { complete: scope === 'all_time', retained_complete: scope === 'retained', range_complete: scope === 'range',
+      window_from: '2026-09-11T16:00:00Z', window_until: '2026-10-02T05:00:00Z', timezone: 'Asia/Shanghai',
+      raw_retained_from: '2026-09-11T16:00:00Z', published_before: '2026-10-02T04:00:00Z', projection_version: 2,
+      reason: 'history_before_coverage_floor_unverified' }
+    const wrapper = mountStats(makeStats({ total_requests: 987654, average_duration_ms: 0, coverage: scope === 'legacy' ? undefined : coverage }))
+    const text = wrapper.text()
+    expect(text).not.toContain('history_before_coverage_floor_unverified')
+    if (scope === 'unknown' || scope === 'legacy') {
+      expect(text).toContain('dashboard.scopeUnknown')
+      expect(text).not.toContain('987,654')
+      expect(text).toContain('—')
+    } else {
+      expect(text).toContain('987,654')
+      expect(text).toContain('0ms')
+      if (scope !== 'all_time') {
+        expect(text).toContain(scope === 'range' ? 'dashboard.scopeRange' : 'dashboard.scopeRetained')
+        expect(text).not.toContain('common.total')
+        expect(text).toContain('2026-09-12 00:00')
+        expect(text).not.toContain('T16:00:00Z')
+      }
+    }
     wrapper.unmount()
   })
 })

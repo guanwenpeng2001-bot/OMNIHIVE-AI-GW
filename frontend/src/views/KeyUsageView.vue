@@ -314,6 +314,7 @@
           >
             <div class="px-8 py-5 border-b border-gray-200 dark:border-dark-700">
               <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.tokenStats') }}</h3>
+              <p v-if="summaryScope !== 'all_time'" class="text-xs text-gray-500 dark:text-dark-400" data-testid="summary-scope">{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-100 dark:bg-dark-800">
               <div
@@ -455,6 +456,9 @@
 </template>
 
 <script setup lang="ts">
+import { usageScope } from '@/utils/usageScope'
+import { formatReportDateTime } from '@/utils/format'
+
 import type { KeyUsageResponse } from '@/types/user'
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -503,6 +507,17 @@ const showResults = ref(false)
 const showLoading = ref(false)
 const showDatePicker = ref(false)
 const resultData = ref<KeyUsageResponse | null>(null)
+const summaryScope = computed(() => usageScope(resultData.value?.usage?.coverage))
+const summaryLabel = computed(() => summaryScope.value === 'all_time' ? t('common.total')
+  : t('keyUsage.' + (summaryScope.value === 'retained' ? 'scopeRetained' : summaryScope.value === 'range' ? 'scopeRange' : 'scopeUnknown')))
+const summaryWindow = computed(() => {
+  const coverage = resultData.value?.usage?.coverage
+  if (!coverage?.window_from || !coverage.window_until || !['retained', 'range'].includes(summaryScope.value)) return ''
+  const zone = resultData.value?.usage?.coverage?.timezone || 'UTC'
+  return t('keyUsage.scopeFrom', { start: formatReportDateTime(coverage.window_from, zone) }) + ' · '
+    + t('keyUsage.scopeUntil', { end: formatReportDateTime(coverage.window_until, zone) })
+})
+
 const now = ref(new Date())
 
 // Panel-session query (signed-in users, by key ID).
@@ -888,14 +903,14 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.todayCacheRead'), value: fmtNum(today.cache_read_tokens) },
     { label: t('keyUsage.todayCost'), value: usd(today.actual_cost) },
     { label: t('keyUsage.rpmTpm'), value: `${usage.rpm || 0} / ${usage.tpm || 0}` },
-    { label: t('keyUsage.totalRequests'), value: fmtNum(total.requests) },
-    { label: t('keyUsage.totalInputTokens'), value: fmtNum(total.input_tokens) },
-    { label: t('keyUsage.totalOutputTokens'), value: fmtNum(total.output_tokens) },
-    { label: t('keyUsage.totalTokensLabel'), value: fmtNum(total.total_tokens) },
-    { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
-    { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
-    { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
-    { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalRequests') : summaryLabel.value + ' · ' + t('keyUsage.requests'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.requests) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalInputTokens') : summaryLabel.value + ' · ' + t('keyUsage.inputTokens'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.input_tokens) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalOutputTokens') : summaryLabel.value + ' · ' + t('keyUsage.outputTokens'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.output_tokens) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalTokensLabel') : summaryLabel.value + ' · ' + t('dashboard.tokens'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.total_tokens) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalCacheCreation') : summaryLabel.value + ' · ' + t('keyUsage.cacheWriteTokens'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.cache_creation_tokens) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalCacheRead') : summaryLabel.value + ' · ' + t('keyUsage.cacheReadTokens'), value: summaryScope.value === 'unknown' ? '—' : fmtNum(total.cache_read_tokens) },
+    { label: summaryScope.value === 'all_time' ? t('keyUsage.totalCost') : summaryLabel.value + ' · ' + t('keyUsage.cost'), value: summaryScope.value === 'unknown' ? '—' : usd(total.actual_cost) },
+    { label: t('keyUsage.avgDuration'), value: summaryScope.value === 'unknown' || usage.average_duration_ms == null ? '—' : `${Math.round(usage.average_duration_ms)} ms` },
   ]
 })
 

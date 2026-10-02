@@ -1,5 +1,11 @@
 export default {
   dashboard: {
+    scopeRetained: '保留记录累计',
+    scopeRange: '区间累计',
+    scopeUnknown: '保留记录的累计无法核对',
+    scopeFrom: '自 {start} 起',
+    scopeUntil: '至 {end}',
+
 
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',

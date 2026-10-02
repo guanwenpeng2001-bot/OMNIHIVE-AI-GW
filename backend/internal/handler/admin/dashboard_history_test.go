@@ -110,7 +110,7 @@ func TestDashboardSnapshotInternalErrorIsPrivate(t *testing.T) {
 	require.NotContains(t, response.Body.String(), "secret")
 }
 func TestDashboardCoverageRevisionInvalidatesCaches(t *testing.T) {
-	for _, path := range []string{"/trend", "/models", "/groups", "/users", "/keys", "/snapshot?include_stats=false"} {
+	for _, path := range []string{"/trend", "/models", "/groups", "/users", "/keys", "/snapshot?include_stats=false", "/snapshot?include_stats=true"} {
 		t.Run(path, func(t *testing.T) {
 			resetDashboardReadCachesForTest()
 			t.Cleanup(resetDashboardReadCachesForTest)

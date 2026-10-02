@@ -116,6 +116,12 @@ export default {
 
   // Key Usage Query Page
   keyUsage: {
+    scopeRetained: '保留记录累计',
+    scopeRange: '区间累计',
+    scopeUnknown: '保留记录的累计无法核对',
+    scopeFrom: '自 {start} 起',
+    scopeUntil: '至 {end}',
+
     title: 'API Key 用量查询',
     subtitle: '登录后可按 Key ID 查询自己的密钥；也可粘贴外部持有的密钥查询用量与状态',
     placeholder: '粘贴你的 API Key（本站默认为 sk- 开头的密钥）',

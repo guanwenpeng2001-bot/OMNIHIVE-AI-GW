@@ -661,6 +661,10 @@ export interface RedeemCodeRequest {
 // Matches usagestats.Coverage; timestamps are RFC3339 strings.
 
 export interface UsageCoverage {
+  retained_complete?: boolean
+  range_complete?: boolean
+  window_from?: string
+  window_until?: string
   history_known_empty_before?: string
   complete: boolean
   reason?: string
@@ -982,6 +986,7 @@ export interface KeyUsageSummary {
   remaining?: number
   unit?: string
   usage?: {
+    coverage?: UsageCoverage
     today: KeyUsageTotals
     total: KeyUsageTotals
     average_duration_ms: number
