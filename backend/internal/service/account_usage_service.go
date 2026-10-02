@@ -534,6 +534,7 @@ type AICredit struct {
 
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
+	OpenRouterKey      *OpenRouterKeyUsage `json:"openrouter_key,omitempty"`
 	CursorMonthly      *CursorMonthlyUsage `json:"cursor_monthly,omitempty"`
 	Source             string              `json:"source,omitempty"`               // "passive" or "active"
 	UpdatedAt          *time.Time          `json:"updated_at,omitempty"`           // 更新时间
@@ -644,6 +645,7 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
+	openRouterGateway *OpenAIGatewayService
 	cursorSessions    *CursorSessionProvider
 	cursorUsageClient interface {
 		Do(*http.Request) (*http.Response, error)
@@ -717,6 +719,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	account, identityErr = loadRuntimeCredentialOwner(ctx, s.accountRepo, account)
 	if identityErr != nil {
 		return nil, identityErr
+	}
+	if account.Platform == PlatformOpenRouter {
+		return s.getOpenRouterUsage(ctx, account, forceProbe)
 	}
 	if account.Platform == PlatformCursor {
 		return s.getCursorUsage(ctx, account, forceProbe), nil

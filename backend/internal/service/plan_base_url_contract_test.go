@@ -95,7 +95,7 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 
 	// Defaults follow the real capability declarations; explicit inventory below
 	// remains independent so adding/removing a preset cannot silently shrink coverage.
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformHunyuan, PlatformVolcengine, PlatformQianfan, PlatformOpenCodeGo, PlatformCommandCode, PlatformMistral, PlatformDeepseek, PlatformQianwen} {
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformHunyuan, PlatformVolcengine, PlatformQianfan, PlatformOpenCodeGo, PlatformCommandCode, PlatformMistral, PlatformOpenRouter, PlatformDeepseek, PlatformQianwen} {
 		descriptor, exists := domain.LookupPlatform(platform)
 		require.True(t, exists)
 		protocols := []string{APIProtocolChatCompletions}
@@ -112,7 +112,7 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 		switch platform {
 		case PlatformOpenCodeGo:
 			modes = []string{AccountModeGo, AccountModeZen}
-		case PlatformCommandCode, PlatformMistral, PlatformDeepseek:
+		case PlatformCommandCode, PlatformMistral, PlatformOpenRouter, PlatformDeepseek:
 			modes = []string{AccountModePayG}
 		}
 		for _, mode := range modes {

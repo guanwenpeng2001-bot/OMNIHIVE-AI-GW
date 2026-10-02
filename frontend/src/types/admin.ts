@@ -806,6 +806,7 @@ export interface CursorMonthlyUsage {
 }
 
 export interface AccountUsageInfo {
+  openrouter_key?: { limit: number | null; remaining: number | null; unlimited: boolean; limit_reset: string | null; usage: number | null; daily: number | null; weekly: number | null; monthly: number | null }
   cursor_monthly?: CursorMonthlyUsage
 
   source?: 'passive' | 'active'

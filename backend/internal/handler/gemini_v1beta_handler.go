@@ -623,12 +623,12 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 	}
 
 	// Standard: {model}:{action}
-	if i := strings.Index(rest, ":"); i > 0 && i < len(rest)-1 {
+	if i := strings.LastIndex(rest, ":"); i > 0 && i < len(rest)-1 {
 		return rest[:i], rest[i+1:], nil
 	}
 
 	// Fallback: {model}/{action}
-	if i := strings.Index(rest, "/"); i > 0 && i < len(rest)-1 {
+	if i := strings.LastIndex(rest, "/"); i > 0 && i < len(rest)-1 {
 		return rest[:i], rest[i+1:], nil
 	}
 

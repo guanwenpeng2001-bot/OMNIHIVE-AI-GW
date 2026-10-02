@@ -355,7 +355,7 @@ export function cnSupportsNativeResponses(platform: string): boolean {
 // 原生 Anthropic Messages / Responses，也拿不到火山方舟与千帆的原生 Responses。
 
 /** 后端已声明原生文本协议、但不在既有国产多协议集合里的平台。 */
-export type DeclaredProtocolPlatform = 'hunyuan' | 'volcengine' | 'qianfan' | 'mistral'
+export type DeclaredProtocolPlatform = 'hunyuan' | 'volcengine' | 'qianfan' | 'mistral' | 'openrouter'
 
 /** 后端描述符声明的原生文本协议。 */
 interface DeclaredTextProtocols {
@@ -376,7 +376,8 @@ export const DECLARED_PLATFORM_TEXT_PROTOCOLS: Record<DeclaredProtocolPlatform, 
   hunyuan: { messages: true, responses: true },
   volcengine: { messages: false, responses: true },
   qianfan: { messages: false, responses: true },
-  mistral: { messages: false, responses: false }
+  mistral: { messages: false, responses: false },
+  openrouter: { messages: false, responses: false }
 }
 
 export function isDeclaredProtocolPlatform(platform: string): platform is DeclaredProtocolPlatform {
@@ -384,17 +385,17 @@ export function isDeclaredProtocolPlatform(platform: string): platform is Declar
 }
 
 /** 平台已声明的原生协议（不含 adaptive）；chat_completions 是所有条目的既有 trunk。 */
-export function declaredPlatformNativeProtocols(platform: DeclaredProtocolPlatform): CnNativeApiProtocol[] {
+export function declaredPlatformNativeProtocols(platform: DeclaredProtocolPlatform, mode: CnAccountMode = 'payg'): CnNativeApiProtocol[] {
   const declared = DECLARED_PLATFORM_TEXT_PROTOCOLS[platform]
   const protocols: CnNativeApiProtocol[] = ['chat_completions']
-  if (declared.messages) protocols.push('anthropic')
+  if (declared.messages || (mode === 'coding' && (platform === 'qianfan' || platform === 'volcengine'))) protocols.push('anthropic')
   if (declared.responses) protocols.push('responses')
   return protocols
 }
 
 /** 协议卡选项：只有一种原生协议时没有可自适应的第二协议，因此不给 adaptive。 */
-export function declaredPlatformApiProtocols(platform: DeclaredProtocolPlatform): CnApiProtocol[] {
-  const protocols = declaredPlatformNativeProtocols(platform)
+export function declaredPlatformApiProtocols(platform: DeclaredProtocolPlatform, mode: CnAccountMode = 'payg'): CnApiProtocol[] {
+  const protocols = declaredPlatformNativeProtocols(platform, mode)
   return protocols.length > 1 ? ['adaptive', ...protocols] : protocols
 }
 
@@ -423,7 +424,7 @@ export function showsAccountModeCard(platform: string): boolean {
  */
 export function showsCodingPlanMode(platform: string): boolean {
   if (!showsAccountModeCard(platform)) return false
-  return platform !== 'deepseek' && platform !== 'mistral'
+  return platform !== 'deepseek' && platform !== 'mistral' && platform !== 'openrouter'
 }
 
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
@@ -706,6 +707,7 @@ export const CN_BASE_URL_PRESETS: Record<CnBaseUrlPresetPlatform, CnBaseUrlPrese
     ...qianfanTeamPresets()
   ],
   mistral: paygSitePresets('mistral', 'Mistral'),
+  openrouter: paygSitePresets('openrouter', 'OpenRouter'),
   minimax: [
     { mode: 'payg', protocol: 'chat_completions', label: 'MiniMax CN', url: 'https://api.minimaxi.com/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'MiniMax CN Anthropic', url: 'https://api.minimaxi.com/anthropic' },
@@ -784,6 +786,7 @@ export function defaultCNBaseUrl(
     case 'volcengine':
     case 'qianfan':
     case 'mistral':
+    case 'openrouter':
       return latePlatformCodingBaseUrl(platform, mode, protocol) || CHAT_PLATFORM_BASE_URLS[platform]
     default:
       return ''

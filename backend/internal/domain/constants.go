@@ -44,6 +44,7 @@ const (
 	PlatformQianfan    = "qianfan"
 	PlatformHunyuan    = "hunyuan"
 	PlatformMistral    = "mistral"
+	PlatformOpenRouter = "openrouter"
 	// PlatformBedrock is a legacy storage alias; hosting belongs to account type.
 	PlatformBedrock     = "bedrock"
 	PlatformVolcengine  = "volcengine"

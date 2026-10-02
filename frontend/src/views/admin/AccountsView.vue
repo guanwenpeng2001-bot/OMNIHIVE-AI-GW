@@ -769,6 +769,7 @@ const buildDefaultTodayStats = (): WindowStats => ({
 })
 
 const accountSupportsBatchUsage = (account: Account) => {
+  if (account.platform === 'openrouter') return account.type === 'apikey'
   if (account.platform === 'cursor') return account.type !== 'upstream'
   if (account.platform === 'anthropic') {
     return account.type === 'oauth' || account.type === 'setup-token'

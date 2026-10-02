@@ -409,7 +409,9 @@ func prepareOpenAIInputTokensCountRequest(
 	}
 
 	originalModel := anthropicReq.Model
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	if account.Platform != PlatformOpenRouter {
+		applyOpenAICompatModelNormalization(&anthropicReq)
+	}
 	normalizedModel := anthropicReq.Model
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, strings.TrimSpace(defaultMappedModel))
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)

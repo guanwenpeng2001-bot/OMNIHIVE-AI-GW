@@ -47,6 +47,10 @@ func referenceMergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata
 		merged.OutputModalities = slices.Clone(fallback.OutputModalities)
 		changed = true
 	}
+	if merged.SupportedParameters == nil && fallback.SupportedParameters != nil {
+		merged.SupportedParameters = slices.Clone(fallback.SupportedParameters)
+		changed = true
+	}
 	if merged.SupportedMethods == nil && fallback.SupportedMethods != nil {
 		merged.SupportedMethods = slices.Clone(fallback.SupportedMethods)
 		changed = true
@@ -299,7 +303,7 @@ func TestCapabilityMergeEquivalentAndIsolated(t *testing.T) {
 	full := UpstreamModelMetadata{
 		ID: " sample ", DisplayName: " name ", Description: " description ", ProviderProfile: "openai",
 		Category: "text", TaskType: "text_generation", InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"},
-		SupportedMethods: []string{"responses"}, SupportedReasoningLevels: []string{"low", "high"}, DefaultReasoningLevel: "high",
+		SupportedParameters: []string{"tools", "reasoning"}, SupportedMethods: []string{"responses"}, SupportedReasoningLevels: []string{"low", "high"}, DefaultReasoningLevel: "high",
 		Reasoning: &yes, SupportsVision: &yes, SupportsPDF: &no, SupportsFunctionCalling: &yes, SupportsPromptCaching: &no,
 		ReasoningControl: &ReasoningControl{Kind: "effort", SupportedKinds: []string{"effort"}, EffortValues: []string{"low", "high"}, ToggleValues: []bool{false}, BudgetMin: &minimum, BudgetMax: &maximum, Adaptive: &yes, Default: json.RawMessage(`"high"`)},
 		ContextWindow:    100, MaxContextWindow: 200, MaxOutputTokens: 50, ContextLimitKind: "total", EmbeddingDimensions: 32,

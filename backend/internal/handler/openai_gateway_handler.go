@@ -1286,7 +1286,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
-	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
+	routingModel := strings.TrimSpace(reqModel)
+	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenRouter {
+		routingModel = service.NormalizeOpenAICompatRequestedModel(reqModel)
+	}
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 

@@ -496,6 +496,8 @@ func metadataFieldEqual(left, right *UpstreamModelMetadata, field string) bool {
 		return left.Category == right.Category
 	case "task_type":
 		return left.TaskType == right.TaskType
+	case "supported_parameters":
+		return (left.SupportedParameters == nil) == (right.SupportedParameters == nil) && slices.Equal(left.SupportedParameters, right.SupportedParameters)
 	case "supported_methods":
 		return (left.SupportedMethods == nil) == (right.SupportedMethods == nil) && slices.Equal(left.SupportedMethods, right.SupportedMethods)
 	case "output_modalities":
@@ -537,6 +539,8 @@ func rejectedCapabilityFieldIsZero(metadata *UpstreamModelMetadata, field string
 		return metadata.InputModalities == nil
 	case "output_modalities":
 		return metadata.OutputModalities == nil
+	case "supported_parameters":
+		return metadata.SupportedParameters == nil
 	case "supported_methods":
 		return metadata.SupportedMethods == nil
 	case "context_window":
@@ -577,6 +581,8 @@ func rejectedCapabilityFieldValue(metadata *UpstreamModelMetadata, field string)
 		return metadata.InputModalities
 	case "output_modalities":
 		return metadata.OutputModalities
+	case "supported_parameters":
+		return metadata.SupportedParameters
 	case "supported_methods":
 		return metadata.SupportedMethods
 	case "context_window":

@@ -24,6 +24,7 @@ var identityPlatformContract = []struct {
 	{"qianfan", "qianfan", ""},
 	{"hunyuan", "hunyuan", ""},
 	{"mistral", "mistral", ""},
+	{"openrouter", "openrouter", ""},
 	{"volcengine", "volcengine", ""},
 	{"commandcode", "commandcode", ""},
 	{"composite", "composite", ""},

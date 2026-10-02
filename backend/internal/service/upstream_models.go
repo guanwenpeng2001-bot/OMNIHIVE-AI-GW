@@ -34,10 +34,11 @@ const (
 )
 
 type UpstreamModelMetadata struct {
-	CreatedAt          string `json:"created_at,omitempty"`
-	ModelVersion       string `json:"model_version,omitempty"`
-	CreatedAtStatus    string `json:"created_at_status,omitempty"`
-	ModelVersionStatus string `json:"model_version_status,omitempty"`
+	SupportedParameters []string `json:"supported_parameters,omitempty"`
+	CreatedAt           string   `json:"created_at,omitempty"`
+	ModelVersion        string   `json:"model_version,omitempty"`
+	CreatedAtStatus     string   `json:"created_at_status,omitempty"`
+	ModelVersionStatus  string   `json:"model_version_status,omitempty"`
 
 	SupportsPDF             *bool                              `json:"supports_pdf,omitempty"`
 	RejectedCandidates      []ModelCapabilityRejection         `json:"rejected_candidates,omitempty"`
@@ -607,6 +608,10 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.TaskType = fallback.TaskType
 		changed = true
 	}
+	if merged.SupportedParameters == nil && fallback.SupportedParameters != nil {
+		merged.SupportedParameters = slices.Clone(fallback.SupportedParameters)
+		changed = true
+	}
 	if merged.OutputModalities == nil && fallback.OutputModalities != nil {
 		merged.OutputModalities = slices.Clone(fallback.OutputModalities)
 		changed = true
@@ -764,6 +769,7 @@ func cloneUpstreamModelMetadata(metadata UpstreamModelMetadata) UpstreamModelMet
 	}
 	metadata.SupportedMethods = slices.Clone(metadata.SupportedMethods)
 	metadata.OutputModalities = slices.Clone(metadata.OutputModalities)
+	metadata.SupportedParameters = slices.Clone(metadata.SupportedParameters)
 	metadata.InputModalities = slices.Clone(metadata.InputModalities)
 	metadata.SupportedReasoningLevels = slices.Clone(metadata.SupportedReasoningLevels)
 	if metadata.CodexToolCapabilities != nil {
@@ -1038,6 +1044,8 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 	}
 	if baseURL := strings.TrimSpace(account.GetCredential("base_url")); baseURL == "" {
 		switch account.Platform {
+		case PlatformOpenRouter:
+			return openRouterDefaultBaseURL
 		case PlatformMistral:
 			return mistralDefaultBaseURL
 		case PlatformHunyuan:
@@ -1299,6 +1307,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
 	case account.Platform == PlatformHunyuan:
 		return buildOpenAIAPIKeyModelsRequest(ctx, account, s.validateUpstreamBaseURL)
+	case account.Platform == PlatformOpenRouter:
+		return s.buildOpenRouterModelsRequest(ctx, account)
 	case account.Platform == PlatformMistral:
 		return s.buildMistralModelsRequest(ctx, account)
 	case account.Platform == PlatformVolcengine:
@@ -1945,7 +1955,15 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 			continue
 		}
 		var capability upstreamModelCapabilityEntry
-		invalidOptional := decodeUpstreamModelCapabilities(raw, &capability)
+		capabilityRaw := raw
+		if len(platform) > 0 && platform[0] == PlatformOpenRouter {
+			var fields map[string]json.RawMessage
+			if json.Unmarshal(raw, &fields) == nil && bytes.HasPrefix(bytes.TrimSpace(fields["reasoning"]), []byte("{")) {
+				delete(fields, "reasoning") // OpenRouter's mandatory object is not a reasoning-support boolean.
+				capabilityRaw, _ = json.Marshal(fields)
+			}
+		}
+		invalidOptional := decodeUpstreamModelCapabilities(capabilityRaw, &capability)
 		capability.upstreamModelEntry = identity
 		// max_tokens has incompatible meanings across APIs. Only the Anthropic
 		// model-list contract establishes that it is an output limit.
@@ -1953,6 +1971,9 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 			capability.MaxTokens = 0
 		}
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if len(platform) > 0 && platform[0] == PlatformOpenRouter {
+			entry = openRouterModelMetadata(raw, entry)
+		}
 		if len(platform) > 0 && platform[0] == PlatformCommandCode {
 			var endpoints []string
 			invalidOptional = decodeUpstreamOptionalFields(raw, map[string]any{"supported_endpoints": &endpoints}) || invalidOptional
@@ -2350,7 +2371,7 @@ func dedupeAndSortModelIDs(models []string) []string {
 // while [] continues to mean that the source explicitly supports no values.
 func (m UpstreamModelMetadata) MarshalJSON() ([]byte, error) {
 	type plain UpstreamModelMetadata
-	return MarshalModelCapabilityLists(plain(m), map[string][]string{"supported_methods": m.SupportedMethods, "input_modalities": m.InputModalities, "output_modalities": m.OutputModalities, "supported_reasoning_levels": m.SupportedReasoningLevels})
+	return MarshalModelCapabilityLists(plain(m), map[string][]string{"supported_parameters": m.SupportedParameters, "supported_methods": m.SupportedMethods, "input_modalities": m.InputModalities, "output_modalities": m.OutputModalities, "supported_reasoning_levels": m.SupportedReasoningLevels})
 }
 
 // MarshalModelCapabilityLists shares the nil/empty presence contract between
@@ -2612,11 +2633,17 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			NextPageToken string `json:"nextPageToken"`
 			NextCursor    string `json:"next_cursor"`
 			Next          string `json:"next"`
+			Links         struct {
+				Next string `json:"next"`
+			} `json:"links"`
 		}
 		if bytes.HasPrefix(bytes.TrimSpace(body), []byte("{")) {
 			if err := json.Unmarshal(body, &paging); err != nil {
 				return assemble(newUpstreamModelSyncUpstreamError("Invalid model pagination", err))
 			}
+		}
+		if account.Platform == PlatformOpenRouter && paging.Next == "" {
+			paging.Next = paging.Links.Next
 		}
 		next := request.Clone(request.Context())
 		cursor, parameter := paging.NextPageToken, "pageToken"

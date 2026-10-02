@@ -275,8 +275,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		writeEvents(events)
 	})
 
-	if account.Platform == PlatformMistral && !scan.UsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !scan.UsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
 	}
 	if scan.Err != nil {
 		return &OpenAIForwardResult{

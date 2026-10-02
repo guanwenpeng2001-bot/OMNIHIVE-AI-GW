@@ -44,7 +44,7 @@ func TestChatOnlyPlatformTextCellsReachOnlyBoundAdapters(t *testing.T) {
 		handlers[adapter] = record(adapter)
 	}
 	dispatch := NewGatewayActionDispatch(handlers)
-	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine, PlatformQianfan, PlatformMistral} {
+	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine, PlatformQianfan, PlatformMistral, PlatformOpenRouter} {
 		router := gin.New()
 		router.Use(func(requestContext *gin.Context) {
 			requestContext.Set("api_key", &APIKey{Group: &Group{Platform: platform}})

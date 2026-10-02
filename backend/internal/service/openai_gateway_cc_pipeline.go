@@ -88,6 +88,9 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
+	if account != nil && account.Platform == PlatformOpenRouter {
+		return s.openRouterFailover(ctx, account, resp, respBody, upstreamMsg)
+	}
 	if failure := commandCodeCreditFailover(c, account, resp.StatusCode, resp.Header, respBody); failure != nil {
 		return failure
 	}
@@ -347,12 +350,16 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 
 		if u := extractCCStreamUsage(payload); u != nil {
-			if account.Platform != PlatformMistral || mistralChatUsageKnown([]byte(payload)) {
+			if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
 				st.Usage = *u
 				st.UsageKnown = true
 			}
 		}
 
+		if account.Platform == PlatformOpenRouter && openRouterStreamError(payload) {
+			st.Err = fmt.Errorf("OpenRouter stream failed")
+			break
+		}
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
@@ -403,9 +410,9 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 		return nil, OpenAIUsage{}, fmt.Errorf("read upstream body: %w", err)
 	}
 
-	if account.Platform == PlatformMistral && !mistralChatUsageKnown(respBody) {
-		writeError(c, http.StatusBadGateway, "upstream_error", "Mistral usage is unknown")
-		return nil, OpenAIUsage{}, fmt.Errorf("mistral usage is unknown")
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
+		writeError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
+		return nil, OpenAIUsage{}, fmt.Errorf("upstream chat usage is unknown")
 	}
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {

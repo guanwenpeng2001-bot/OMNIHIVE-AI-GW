@@ -373,7 +373,8 @@ export default {
       apiKey: 'API Key',
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
-      platforms: {
+      openrouterUsage: {'spending': '密钥已用（美元）', 'cap': '密钥上限', 'remaining': '密钥剩余', 'windows': '日 / 周 / 月用量', 'reset': '上限重置周期', 'unlimited': '无限制'},
+    platforms: {
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',
@@ -389,6 +390,7 @@ export default {
         bedrock: 'Amazon Bedrock',
         vertex: 'Vertex AI',
         mistral: 'Mistral',
+        openrouter: 'OpenRouter',
         hunyuan: '腾讯混元',
         qianfan: '百度千帆',
         volcengine: '火山引擎',

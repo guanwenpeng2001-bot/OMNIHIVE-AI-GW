@@ -33,16 +33,16 @@ func TestConcretePlatformContracts(t *testing.T) {
 	require.True(t, IsMultiProtocolAPIKeyProvider(PlatformQianwen))
 	require.True(t, IsMultiProtocolAPIKeyProvider(PlatformCommandCode))
 	require.False(t, IsMultiProtocolAPIKeyProvider(PlatformCursor))
-	require.Equal(t, 38, schedulerCanonicalBucketCount())
-	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
+	require.Equal(t, 2*len(platforms)+2, schedulerCanonicalBucketCount())
+	for _, platform := range []string{PlatformQianwen, PlatformCommandCode, PlatformOpenRouter} {
 		require.Contains(t, schedulerCanonicalBuckets(7), SchedulerBucket{GroupID: 7, Platform: platform, Mode: SchedulerModeSingle})
 		require.Contains(t, schedulerCanonicalBuckets(7), SchedulerBucket{GroupID: 7, Platform: platform, Mode: SchedulerModeForced})
 	}
 }
 
 func TestNewPlatformExplicitRoutesPreserveSharedModelIDs(t *testing.T) {
-	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
-		for _, model := range []string{"deepseek-v4-pro", "glm-5", "kimi-k3", "qwen-max", "Qwen/Qwen3-Max"} {
+	for _, platform := range []string{PlatformQianwen, PlatformCommandCode, PlatformOpenRouter} {
+		for _, model := range []string{"deepseek-v4-pro", "glm-5", "kimi-k3", "qwen-max", "Qwen/Qwen3-Max", "openai/gpt-4o", "vendor/future-model:free"} {
 			t.Run(platform+"/"+model, func(t *testing.T) {
 				detected, _ := DetectModelPlatform(model)
 				require.NotEqual(t, PlatformQianwen, detected)

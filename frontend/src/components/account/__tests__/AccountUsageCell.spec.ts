@@ -1828,3 +1828,27 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('7d F')
   })
 })
+
+describe('OpenRouter key usage', () => {
+  it('labels key spending and unlimited cap without inventing a wallet', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({ platform: 'openrouter', type: 'apikey' }),
+        requestBatchedUsage: vi.fn(),
+        batchedUsage: { five_hour: null, openrouter_key: { limit: null, remaining: null, unlimited: true, limit_reset: null, usage: 12, daily: 1, weekly: 2, monthly: 3 } }
+      }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.openrouterUsage.spending')
+    expect(wrapper.text()).toContain('$12.0000')
+    expect(wrapper.text()).toContain('admin.accounts.openrouterUsage.unlimited')
+    expect(wrapper.text()).toContain('$1.0000 / $2.0000 / $3.0000')
+    expect(wrapper.text()).not.toContain('noUpstreamUsageApi')
+    await wrapper.setProps({ batchedUsage: { five_hour: null, openrouter_key: { limit: 20, remaining: 8, unlimited: false, limit_reset: 'monthly', usage: 12, daily: null, weekly: null, monthly: null } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('$20.0000')
+    expect(wrapper.text()).toContain('$8.0000')
+    expect(wrapper.text()).not.toContain('admin.accounts.openrouterUsage.unlimited')
+    wrapper.unmount()
+  })
+})
