@@ -412,6 +412,58 @@ describe('IP group account configuration', () => {
 })
 
 describe('model selection saves preserve unrelated account drafts', () => {
+  it('retains the Antigravity legacy whitelist fallback in shared state', async () => {
+    const account = { ...buildAntigravityAccount(), credentials: { model_whitelist: [' LegacyExact '] } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    expect(wrapper.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['LegacyExact'])
+    expect(wrapper.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([])
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping).toEqual({ LegacyExact: 'LegacyExact' })
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('model_whitelist')
+    wrapper.unmount()
+  })
+
+  it.each(['oauth', 'apikey'])('hydrates Antigravity %s identities and aliases through save and reopen', async type => {
+    const mapping = { Exact: 'Exact', Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' }
+    const account = { ...buildAntigravityAccount(), type, credentials: { model_mapping: mapping }, credentials_status: { has_api_key: true } }
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '7' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '8' })
+    vi.mocked(accountsAPI.getById).mockResolvedValue(account)
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, false, true)
+    await wrapper.setProps({ onUpdated: updated => { void wrapper.setProps({ account: { ...updated } }) } })
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('modelValue')).toEqual(['Exact'])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'Alias', to: 'PrivateTarget' }, { from: 'family-*', to: 'FamilyTarget' }])
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('PrivateTarget')
+    const expiryLabel = wrapper.findAll('label').find(label => label.text() === 'admin.accounts.autoPauseOnExpired')!
+    const expiryToggle = wrapper.findAll('button').find(button => button.element === expiryLabel.element.parentElement!.parentElement!.querySelector('button'))!
+    await expiryToggle.trigger('click')
+    expect(selector.props('configurationDirty')).toBe(false)
+    expect(wrapper.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, expect.objectContaining({ model_mapping: mapping }))
+    expect(expiryToggle.classes()).toContain('bg-primary-600')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0][1].auto_pause_on_expired).toBe(true)
+    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping).toEqual(mapping)
+    wrapper.unmount()
+    const reopened = mountModal({ ...account, credentials: updateAccountMock.mock.calls[0][1].credentials }, false, true)
+    await flushPromises()
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelValue')).toEqual(['Exact'])
+    expect(reopened.getComponent(ModelWhitelistSelector).props('modelMappings')).toEqual([{ from: 'Alias', to: 'PrivateTarget' }, { from: 'family-*', to: 'FamilyTarget' }])
+    reopened.unmount()
+  })
+
   it('preserves unsaved account fields after the parent echoes an independently saved credential change', async () => {
     const account = buildAccount()
     credentialAccountRead.mockResolvedValue({ ...account, updated_at: '2026-10-01T00:00:00Z' })

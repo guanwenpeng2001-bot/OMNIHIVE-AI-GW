@@ -2399,7 +2399,7 @@
 
       </details>
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
-        v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
+        v-model="allowedModels" v-model:mappings="modelMappings" :presets="presetMappings"
         :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
@@ -3133,17 +3133,6 @@ const readUpstreamRequestIdHeader = (extra: unknown): string => {
 }
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
-const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
-const antigravityWhitelistModels = ref<string[]>([])
-const antigravityModelMappings = ref<ModelMapping[]>([])
-const workflowAllowedModels = computed({
-  get: () => props.account?.platform === 'antigravity' ? antigravityWhitelistModels.value : allowedModels.value,
-  set: (models: string[]) => { if (props.account?.platform === 'antigravity') antigravityWhitelistModels.value = models; else allowedModels.value = models }
-})
-const workflowModelMappings = computed({
-  get: () => props.account?.platform === 'antigravity' ? antigravityModelMappings.value : modelMappings.value,
-  set: (mappings: ModelMapping[]) => { if (props.account?.platform === 'antigravity') antigravityModelMappings.value = mappings; else modelMappings.value = mappings }
-})
 
 const tempUnschedEnabled = ref(false)
 const accountSchedulingThresholdOverrideEnabled = ref(false)
@@ -3622,7 +3611,7 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
   openAIResponsesMode.value, mixedScheduling.value
 ]))
-const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value, antigravityModelMappings.value]))
+const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value]))
 const savedModelDiscovery = ref('')
 const modelConfigurationDirty = computed(() => modelDiscoveryContext.value !== savedModelDiscovery.value)
 const markModelConfigurationSaved = () => {
@@ -3846,38 +3835,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     resetQuotaNotify()
   }
 
-  // Load antigravity model mapping (Antigravity 只支持映射模式)
-  if (newAccount.platform === 'antigravity') {
-    const credentials = newAccount.credentials as Record<string, unknown> | undefined
-
-    // Antigravity 始终使用映射模式
-    antigravityModelRestrictionMode.value = 'mapping'
-    antigravityWhitelistModels.value = []
-
-    // 从 model_mapping 读取映射配置
-    const rawAgMapping = credentials?.model_mapping as Record<string, string> | undefined
-    if (rawAgMapping && typeof rawAgMapping === 'object') {
-      const entries = Object.entries(rawAgMapping)
-      // 无论是白名单样式(key===value)还是真正的映射，都统一转换为映射列表
-      antigravityModelMappings.value = entries.map(([from, to]) => ({ from, to }))
-    } else {
-      // 兼容旧数据：从 model_whitelist 读取，转换为映射格式
-      const rawWhitelist = credentials?.model_whitelist
-      if (Array.isArray(rawWhitelist) && rawWhitelist.length > 0) {
-        antigravityModelMappings.value = rawWhitelist
-          .map((v) => String(v).trim())
-          .filter((v) => v.length > 0)
-          .map((m) => ({ from: m, to: m }))
-      } else {
-        antigravityModelMappings.value = []
-      }
-    }
-  } else {
-    antigravityModelRestrictionMode.value = 'mapping'
-    antigravityWhitelistModels.value = []
-    antigravityModelMappings.value = []
-  }
-
   // Load quota control settings (Anthropic OAuth/SetupToken only)
   loadQuotaControlSettings(newAccount)
 
@@ -4065,8 +4022,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
             : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
-    // Load model mappings for OpenAI/Grok OAuth accounts
-    if (['openai', 'grok', 'cursor'].includes(newAccount.platform) && newAccount.credentials) {
+    // Load model mappings for supported OAuth accounts
+    if (['openai', 'grok', 'cursor', 'antigravity'].includes(newAccount.platform) && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -4079,6 +4036,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     poolModeRetryStatusCodesInput.value = ''
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
+  }
+  // Preserve legacy Antigravity selections without a second model-state path.
+  if (newAccount.platform === 'antigravity' &&
+      (!credentials?.model_mapping || typeof credentials.model_mapping !== 'object') &&
+      Array.isArray(credentials?.model_whitelist)) {
+    const legacyModels = credentials.model_whitelist.map(model => String(model).trim()).filter(Boolean)
+    loadModelRestrictionFromMapping(Object.fromEntries(legacyModels.map(model => [model, model])))
   }
   editApiKey.value = ''
   markModelConfigurationSaved()
@@ -4634,7 +4598,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
   if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   accountForm.value?.querySelectorAll<HTMLElement>('[aria-invalid="true"]').forEach(revealField)
   if (!confirmation) antigravityMixedChannelConfirmed.value = false
-  const restrictionErrors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
+  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
   if (restrictionErrors.length) { modelConfigurationSection.value?.revealValidation(restrictionErrors); appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id
@@ -5028,16 +4992,8 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         applyAntigravityProjectID(newCredentials, antigravityProjectId.value, 'edit')
       }
 
-      // 移除旧字段
       delete newCredentials.model_whitelist
-      delete newCredentials.model_mapping
-
-      // 只使用映射模式
-      const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
-      )
-      if (antigravityModelMapping) {
-        newCredentials.model_mapping = antigravityModelMapping
-      }
+      newCredentials.model_mapping = buildModelRestrictionMapping() ?? {}
 
       updatePayload.credentials = newCredentials
     }

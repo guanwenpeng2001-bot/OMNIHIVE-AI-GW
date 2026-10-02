@@ -19,7 +19,7 @@
       <h2 class="input-label" tabindex="-1">{{ t('admin.accounts.modelSync.configureModels') }}</h2>
       <Select v-if="pendingAccountRequests.length > 1" v-model="selectedReviewIndex" :options="pendingAccountRequests.map((payload, index) => ({ value: index, label: payload.name }))" />
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
-      <AccountModelConfigurationSection v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings"
+      <AccountModelConfigurationSection v-model="allowedModels" v-model:mappings="modelMappings"
         :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
         :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" />
       <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
@@ -3435,7 +3435,7 @@ import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
-import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors } from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -4116,17 +4116,6 @@ const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigra
 const antigravityProjectId = ref('')
 const upstreamBaseUrl = ref('') // For upstream type: base URL
 const upstreamApiKey = ref('') // For upstream type: API key
-const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
-const antigravityWhitelistModels = ref<string[]>([])
-const antigravityModelMappings = ref<ModelMapping[]>([])
-const workflowAllowedModels = computed({
-  get: () => form.platform === 'antigravity' ? antigravityWhitelistModels.value : allowedModels.value,
-  set: (models: string[]) => { if (form.platform === 'antigravity') antigravityWhitelistModels.value = models; else allowedModels.value = models }
-})
-const workflowModelMappings = computed({
-  get: () => form.platform === 'antigravity' ? antigravityModelMappings.value : modelMappings.value,
-  set: (mappings: ModelMapping[]) => { if (form.platform === 'antigravity') antigravityModelMappings.value = mappings; else modelMappings.value = mappings }
-})
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -4455,7 +4444,11 @@ const loadAntigravityMappings = async () => {
   const request = ++mappingGeneration
   await reloadPresets()
   const mappings = presetMappings.value.map(({ from, to }) => ({ from, to }))
-  if (request === mappingGeneration && props.show && form.platform === 'antigravity') antigravityModelMappings.value = [...mappings]
+  if (request === mappingGeneration && props.show && form.platform === 'antigravity') {
+    const selection = splitModelMappingObject(Object.fromEntries(mappings.map(({ from, to }) => [from, to])))
+    allowedModels.value = selection.allowedModels
+    modelMappings.value = selection.modelMappings
+  }
 }
 
 // Watchers
@@ -4469,15 +4462,10 @@ watch(
         .catch(() => { tlsFingerprintProfiles.value = [] })
       // Start with an explicit empty selection; candidates remain available in the picker.
       allowedModels.value = []
-      // Antigravity: 默认使用映射模式并填充默认映射
+      modelMappings.value = []
+      // Seed Antigravity presets through the shared identity/alias split.
       if (form.platform === 'antigravity') {
-        antigravityModelRestrictionMode.value = 'mapping'
         void loadAntigravityMappings()
-        antigravityWhitelistModels.value = []
-      } else {
-        antigravityWhitelistModels.value = []
-        antigravityModelMappings.value = []
-        antigravityModelRestrictionMode.value = 'mapping'
       }
     } else {
       resetForm()
@@ -4542,19 +4530,14 @@ watch(
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
-    // Antigravity: 默认使用映射模式并填充默认映射
+    // Seed Antigravity presets through the shared identity/alias split.
     if (newPlatform === 'antigravity') {
-      antigravityModelRestrictionMode.value = 'mapping'
       void loadAntigravityMappings()
-      antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
     } else {
       allowOverages.value = false
       antigravityProjectId.value = ''
-      antigravityWhitelistModels.value = []
-      antigravityModelMappings.value = []
-      antigravityModelRestrictionMode.value = 'mapping'
     }
     if (newPlatform === 'grok') {
       accountCategory.value = 'oauth-based'
@@ -4655,15 +4638,6 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   }
   geminiOAuthType.value = oauthType
 }
-
-watch(
-  [antigravityModelRestrictionMode, () => form.platform],
-  ([, platform]) => {
-    if (platform !== 'antigravity') return
-    // Antigravity 默认不做限制：白名单留空表示允许所有（包含未来新增模型）。
-    // 如果需要快速填充常用模型，可在组件内点“填充相关模型”。
-  }
-)
 
 // Model mapping helpers
 
@@ -4880,7 +4854,7 @@ const selectedReviewIndex = ref(0)
 const selectedReviewRequest = computed(() => pendingAccountRequests.value[selectedReviewIndex.value])
 const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => ({
   ...payload,
-  credentials: { ...payload.credentials, model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {} }
+  credentials: { ...payload.credentials, model_mapping: buildModelMappingObject('combined', allowedModels.value, modelMappings.value) ?? {} }
 })))
 const credentialPreview = computed(() => {
   const payload = reviewedRequests.value[selectedReviewIndex.value]
@@ -4890,7 +4864,7 @@ const credentialPreview = computed(() => {
       base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
       api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
     } : {}),
-    model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {},
+    model_mapping: buildModelMappingObject('combined', allowedModels.value, modelMappings.value) ?? {},
     credential_draft: payload.credential_draft, credential_draft_revision: payload.credential_draft_revision }
 })
 // 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
@@ -4912,7 +4886,7 @@ async function confirmAccountReview(confirmedPayloads?: AccountWorkflowRequest[]
   if (reviewSubmitting.value) return
   const payloads = JSON.parse(JSON.stringify(confirmedPayloads ?? reviewedRequests.value)) as AccountWorkflowRequest[]
   if (!payloads.length) return
-  const errors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
+  const errors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
   if (errors.length) { reviewError.value = translateModelRestrictionErrors(errors, t); return }
   reviewSubmitting.value = true
   reviewError.value = ''
@@ -5074,9 +5048,6 @@ const resetForm = () => {
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = []
 
-  antigravityModelRestrictionMode.value = 'mapping'
-  antigravityWhitelistModels.value = []
-  antigravityModelMappings.value = []
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''
@@ -5471,9 +5442,8 @@ const handleSubmit = async () => {
       api_key: upstreamApiKey.value.trim()
     }
 
-    // Antigravity 只使用映射模式
-    const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
-    )
+    // Serialize the shared model selection.
+    const antigravityModelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (antigravityModelMapping) {
       credentials.model_mapping = antigravityModelMapping
     }
@@ -6585,9 +6555,8 @@ const handleAntigravityExchange = async (authCode: string) => {
 		const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo))
 		applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
 		applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-		// Antigravity 只使用映射模式
-		const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
-		)
+		// Serialize the shared model selection.
+		const antigravityModelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
 		if (antigravityModelMapping) {
 			credentials.model_mapping = antigravityModelMapping
 		}
