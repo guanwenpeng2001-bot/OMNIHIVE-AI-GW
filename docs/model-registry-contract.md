@@ -72,19 +72,21 @@ OAuth/Setup/Cursor 授权成功后必须仅交付服务端短期 opaque 草稿�
 
 ## 极简模型列表与单模型字段
 
+**当前公开格式校正（2026-10-03，`43e61400d`）**：本节保留历史实施要求的背景，但公开行为以 `backend/internal/handler/model_list_serialization.go` 为准。普通条目已提供顶层已知保证值 `context_window`、`context_length`、`max_input_tokens`、`max_output_tokens`、`supports_reasoning`、`supported_reasoning_levels`、`supports_function_calling` 和输入/输出模态；未知值省略。这些附加事实不授予权限，富目录仍独立提供 `capabilities`、来源、不确定性及端点提示。客户调用示例见 [API 使用手册](usage-guide.md)。
+
 `GET /v1/models` 和 `GET /v1/models/:id` 必须由请求协议选择 DTO，默认 OpenAI，存在 `anthropic-version` 时选择完整 Anthropic 协议；不得按组平台或 User-Agent 猜测。所有平台来源均可投影为 OpenAI 条目，不能外层 OpenAI、内层 Anthropic。响应必须带相应 `Vary: anthropic-version`，不得跨 Key 复用授权响应。
 
 | 协议面 | 列表外层与字段 | 单模型字段及约束 |
 | --- | --- | --- |
-| 默认 OpenAI | `object: "list"`、`data: Model[]` | `id: string` 为公开名，`object: "model"`，`created: integer` 为稳定 Unix 秒，`owned_by: string` 为公开归属，不得是账号/凭据拥有者 ID |
-| Anthropic | `data: Model[]`、`has_more: boolean`、`first_id: string 或 null`、`last_id: string 或 null`；空页两个 ID 为 null | `id: string`、`type: "model"`、`display_name: string`、`created_at: string` 为同一可信时间的 UTC RFC3339 表达 |
+| 默认 OpenAI | `object: "list"`、`data: Model[]` | `id: string` 为公开名，`object: "model"`，可选 `created: integer` 为可信稳定 Unix 秒，`owned_by: string` 为公开归属，不得是账号/凭据拥有者 ID；可有上述客户端事实 |
+| Anthropic | `data: Model[]`、`has_more: boolean`、`first_id: string 或 null`、`last_id: string 或 null`；空页两个 ID 为 null | `id: string`、`type: "model"`、`display_name: string`；可选 `created_at: string` 为可信时间的 UTC RFC3339 表达；可有上述客户端事实 |
 | Google 原生 `/v1beta/models` 与单查 | `models: Model[]`、有后页才返回 `nextPageToken: string` | `name` 为原生公开资源名；`baseModelId`、`version`、`displayName`、`description`、`inputTokenLimit`、`outputTokenLimit` 按真实已知事实投影；未知可选值省略，不伪造版本或填 0；`supportedGenerationMethods` 来自真实动作，包括有实现的 `countTokens` |
 
-极简 DTO 只能包含相应协议字段；不得注入 `capabilities`、`catalog_source`、内部 identity、pricing、evidence 或诊断。详情不存在与不可见必须一致返回 404，不能通过单查绕过列表权限。内部消费者先迁富目录，再停止极简元数据扩展。Codex manifest 必须迁到既有专属入口，旧显式 `client_version` 只作有迁移期限文档和测试的兼容委托；普通查询参数不得偶然改列表 schema，不在本合同虚构退出日期。
+普通 DTO 包含相应协议字段及上述已知客户端事实，不包含富目录的 `capabilities` 对象，也不公开内部 identity、pricing 或私有诊断。详情不存在与不可见必须一致返回 404，不能通过单查绕过列表权限。Codex manifest 使用既有专属入口；当前 `GatewayModelsHandler` 对非空 `client_version` 直接委托，带期限的 legacy helper 未接入该生产分派，不能把 helper 中的退出日期当作当前公开保证。
 
 ### 创建时间与分页规则
 
-创建时间必须优先使用身份匹配且可信的上游创建时间，否则使用持久首次登记时间。首次登记时间跨刷新、重启和换页稳定；不得使用响应时钟、刷新时间、账号创建时间或固定 2024 值冒充。时间来源必须在富目录/管理证据中标明，极简 DTO 不增加非协议字段。新可信来源替代旧来源时必须推进 revision，使排序和游标可检测变化。
+创建时间必须使用可信且稳定的来源；当前序列化在无可信持久时间时省略普通条目的 `created` / `created_at`，富目录标记 `created_at_source: "unavailable"`。不得使用响应时钟、刷新时间、账号创建时间或固定 2024 值冒充，亦不能承诺总有首次登记时间兜底。新可信来源替代旧来源时必须推进 revision，使排序和游标可检测变化。
 
 Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时间降序、ID 稳定消歧；两个方向互斥，非法/失效游标返回协议化 400。默认 OpenAI 完整有限列表不强加 Anthropic 分页字段。Google 必须支持 `pageSize/pageToken`，可以同源上游分页或对最终授权集合本地分页，但页令牌必须绑定来源与 revision。
 

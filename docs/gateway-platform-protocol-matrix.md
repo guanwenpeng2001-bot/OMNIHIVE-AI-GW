@@ -6,6 +6,10 @@ Registration, protocol conversion, account model evidence, streaming support and
 billable completion are independent conditions. A static descriptor is only an
 upper bound; no row grants an account permission or changes a selling price.
 
+Customer examples are in the [API usage guide](usage-guide.md). Public-contract
+corrections below were checked against `43e61400d` on 2026-10-03; they do not
+recertify every historical platform claim or deployment.
+
 ## Current concrete platforms
 
 The current descriptor set has 19 concrete platforms. Composite is a group routing
@@ -28,20 +32,18 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | cursor | OAuth/upstream account forms | Cursor conversion | B / rejected / rejected | Cursor-specific count-token estimate and model mapping; no generic provider grant |
 | qianwen | API key, domestic/international and account mode | Compatible chat and bounded native actions | N conditional / rejected / rejected | Native text/image/audio/video/files actions have separate gates below |
 | commandcode | API key | Model-selected native protocol | B / rejected / rejected | Keep model routing and upstream IDs; no static capability-based grant |
-| volcengine | Runtime API key, exact deployment/ep target | Chat and native Responses; tools conditional | N / rejected / rejected | SSE adapter locally covered; no Anthropic Messages endpoint exists for CN, so that cell is a hard conflict |
-| qianfan | Domestic API key, v2 base | Chat and native Responses; tools conditional | N / rejected / rejected | Nonstream/SSE adapter; /v2/responses is live while /v2/messages answers 404, so Messages is a hard conflict |
+| volcengine | Runtime API key, exact deployment/ep target | Chat and native Responses; Messages B; tools conditional | N / rejected / rejected | Public Messages bridges through the existing text trunk; absence of a native PAYG Messages URL does not reject the public bridge |
+| qianfan | Domestic API key, v2 base | Chat and native Responses; Messages B; tools conditional | N / rejected / rejected | Public Messages bridges through the existing text trunk; the native /v2/messages result does not determine public Messages support |
 | hunyuan | Compatibility API key | Nonstream chat/tools; native Responses and Anthropic Messages on the same TokenHub site | N / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance; the Anthropic path authenticates with x-api-key |
-| mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero; no /v1/responses and no /v1/messages exist, so both cells are hard conflicts |
+| mistral | API key, original IDs including fine-tuned IDs | Chat N; Messages B; tools conditional | B / rejected / rejected | Public Messages/Responses bridge to Chat; no native Messages/Responses URL is implied; missing usage cannot settle as trusted zero |
 | openrouter | API key only; Bearer at account base URL, default https://openrouter.ai/api/v1 | Raw Chat N; Messages N; Google generateContent B through Chat; tools conditional | N / rejected / rejected | Nonstream/SSE text; adaptive or matching fixed protocol, exact provider/variant IDs; passive monitoring only; media limits below |
 | bedrock | Regional runtime API key or IAM SigV4 | Claude Invoke or non-Claude Converse; tools conditional | B / rejected / rejected | Messages/Responses/Chat POST admitted; ConverseStream/Claude streams; region/profile/ARN and catalog evidence still required |
 
-The new chat-only ingress guard admits Chat Completions POST plus model/usage
-reads; Bedrock and OpenRouter additionally admit Messages and Responses POST.
-OpenRouter also has the Google compatibility and media action bindings below. It preserves the
-existing 404 OpenAI-style not_found_error on other guarded paths, including the
-existing wording. Gemini-native failures retain their Google shape and older
-platforms retain their own dispatch behavior. This document does not normalize
-those errors or expand old protocols to make the table uniform.
+The current action dispatcher resolves the concrete target and its registered
+adapter per action, then retains account/model qualification. A provider's lack
+of a native Messages or Responses URL does not by itself reject an implemented
+public bridge. Unsupported actions are rejected; error envelopes follow the
+public protocol and the selected handler rather than one universal body shape.
 
 ## Core endpoint contracts
 
@@ -55,7 +57,7 @@ those errors or expand old protocols to make the table uniform.
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
 | POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch; OpenRouter uses a local estimate without an upstream count request | Input-token result, no normal generation claim |
 | POST | Responses other subpaths | IsForwardableOpenAIResponsesRequestPath | Unknown/action-unsafe paths reject before scheduling |
-| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan, Volcengine and OpenRouter bind an embeddings adapter; other platforms retain their action gates | No streaming/tools promise |
+| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan, Volcengine, Mistral and OpenRouter bind an embeddings adapter; other platforms retain their action gates | No streaming/tools promise |
 | POST | /v1/rerank; /rerank | Platform action matrix: Qianwen, Qianfan, Bedrock and OpenRouter bind a rerank adapter; OpenAI and other platforms retain their action gates | Ranked results, no generation claim |
 | POST | /v1/images/variations; /images/variations | Platform action matrix: OpenAI and Bedrock bind a variation adapter; chat-only platforms reject | OpenAI variation shape only |
 | GET | /v1/models; /models | Existing membership and allowlist first | Optional capabilities below; no generation |
@@ -69,17 +71,16 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 
 | Method | Action path | Existing behavior and limits |
 | --- | --- | --- |
-| POST | /v1beta/models/{model}:generateContent | Gemini/Antigravity account and native action gate; OpenRouter compatibility through Chat Completions; nonstream |
-| POST | /v1beta/models/{model}:streamGenerateContent | Same qualified model and adapter; OpenRouter compatibility through Chat Completions; SSE |
+| POST | /v1beta/models/{model}:generateContent | Native Gemini/Antigravity/OpenCode adapters or the registered public Google bridge; underlying text action and model remain qualified |
+| POST | /v1beta/models/{model}:streamGenerateContent | Same qualified model and adapter; use alt=sse for SSE; no universal streaming grant |
 | POST | /v1beta/models/{model}:countTokens | Gemini scope/fallback-specific count; no inference support implied |
-| POST | /v1beta/models/{model}:embedContent | No advertised native action support |
-| POST | /v1beta/models/{model}:batchEmbedContents | No advertised native action support |
+| POST | /v1beta/models/{model}:embedContent; :batchEmbedContents | Public Gemini bridge converts to embeddings where that action is bound and qualified; not a universal native Gemini grant |
 | POST | /v1beta/models/{model}:unknown | Existing action whitelist rejects; not an extension mechanism |
 | POST | /v1/alpha/search; /alpha/search; /backend-api/codex/alpha/search | OpenAI/Codex-specific qualification |
 | POST | /v1/live; /backend-api/codex/realtime/calls | OpenAI Live account capability and session model; multipart supported by existing path |
 | GET | /v1/live/:call_id; /backend-api/codex/:call_id | Live sideband ownership/capability checks |
-| POST | /v1/images/generations | OpenAI or Grok after Composite target resolution; OpenRouter synchronous raster generation through its image action |
-| POST | /v1/images/edits | OpenAI or Grok image edit qualification |
+| POST | /v1/images/generations | Registered image.generate adapter after target/model qualification; includes OpenAI/Grok and separately bound provider adapters, not the narrower async subset |
+| POST | /v1/images/edits | Registered image.edit adapter; OpenAI/Grok and other separately bound providers have distinct JSON/multipart contracts |
 | POST | /v1/images/generations/async | Existing persistent asynchronous image service |
 | POST | /v1/images/edits/async | Existing persistent asynchronous edit service |
 | GET | /v1/images/tasks/:task_id | Owned image task state, no new inference |
@@ -106,8 +107,8 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | GET | /v1/videos/extensions/:request_id/content | Extension content |
 | POST | /v1/tts; /tts | Grok TTS, account-specific native transport |
 | POST | /v1/stt; /stt | Grok STT, account-specific native transport |
-| POST | /v1/audio/speech; /audio/speech | Platform action matrix: Hunyuan, Qianfan and OpenRouter bind an OpenAI-shaped speech adapter; Qianwen keeps its DashScope native path, Grok keeps the native /v1/tts entry and OpenAI speech stays unverified |
-| POST | /v1/audio/transcriptions; /audio/transcriptions | Platform action matrix: Hunyuan and OpenRouter speech recognition bind an adapter; OpenAI transcription stays unverified |
+| POST | /v1/audio/speech; /audio/speech | Hunyuan, Qianfan, Qianwen, Mistral and OpenRouter bind speech adapters; schemas/output differ (Qianwen WAV, Mistral may return base64 JSON); Grok uses its dedicated /v1/tts entry; OpenAI speech has no action binding |
+| POST | /v1/audio/transcriptions; /audio/transcriptions | Hunyuan, Qianwen, Mistral and OpenRouter bind recognition adapters with platform-specific multipart/format limits; OpenAI transcription has no action binding |
 | POST | /v1/audio/translations; /audio/translations | OpenAI audio translation adapter; every other platform rejects before scheduling |
 | POST | /v1/custom-voices; /custom-voices | Grok custom voice creation |
 | GET | /v1/custom-voices; /custom-voices | Grok custom voice list |
@@ -187,14 +188,16 @@ credential certification.
 
 ## Public Models projection
 
-Ordinary catalog-backed lists add an optional `capabilities` object *after* the
-existing member/allowlist decision. It contains only agreed stored specification
-fields: context_window with context_limit_kind, max_output_tokens, input_modalities,
-output_modalities, reasoning, supports_vision, supports_function_calling,
-supports_prompt_caching, supports_pdf and embedding_dimensions. Missing means
-unknown; false and [] remain explicit. Conflicting or absent facts on a qualified
-exit are omitted. No account ID, deployment URL, identity/revision, source body,
-trace, declaration reason, private routing evidence or price is serialized.
+Ordinary catalog-backed entries expose known guaranteed facts as optional
+top-level fields after authorization: `context_window`, `context_length`,
+`max_input_tokens`, `max_output_tokens`, `supports_reasoning`,
+`supported_reasoning_levels`, `supports_function_calling`, `input_modalities`
+and `output_modalities`. They do not contain the rich `capabilities` object.
+The separate `/v1/models/catalog` resource contains capabilities with
+`guaranteed`, `available`, `unknown` and source evidence, plus aliases, model
+version and authorized endpoint hints. Missing facts are unknown, not false or
+zero; metadata cannot add models to the authorized set. These facts do not
+guarantee available capacity or successful execution.
 
 Stored specifications reuse the existing directory account read per request;
 Composite ownership and credential-parent lookups retain their existing behavior.
@@ -490,13 +493,12 @@ client stream: the HTTP status is already committed as `200`.
 - Partial output is never replayed as if it were the complete answer. A client
   that wants the full response has to send a new request; the gateway cannot
   promise that the upstream did not already bill the interrupted attempt.
-- `Idempotency-Key` on generation routes prevents *local* duplicate dispatch and
-  duplicate billing; it does not resurrect a provider-side stream. A retry with the
-  same key and the same body never starts a second generation: it returns `409`
-  with a stable machine code and an `X-Idempotency-State` header
-  (`interrupted` when the recorded execution stopped mid-stream, or
-  `stream_not_replayable` when a streaming body was already produced). A retry
-  with a different body under the same key is `409 IDEMPOTENCY_KEY_CONFLICT`.
+- Do not assume `Idempotency-Key` deduplicates public generation requests.
+  `GatewayGenerationIdempotency` exists with isolated tests, but the current
+  production gateway route chain does not install it. Its replay/409 behavior
+  is therefore not a public generation guarantee. Resource-specific contracts
+  such as image-batch submission remain separate; a new generation may incur
+  another upstream action and charge.
 - The gateway does not buffer unbounded SSE to make interrupted streams replayable,
   and it does not claim exactly-once upstream side effects.
 
@@ -509,14 +511,17 @@ Both minimal and rich `/v1/models/catalog` (and `/v1/models/catalog/:model`) res
 one authorized revision; rich cursors bind that revision and Key. Refresh after a
 cursor invalidation. `catalog` is reserved; use the rich single-model route to
 retrieve a model whose public ID is `catalog`. Responses are private and no-store.
-Capabilities, aliases and uncertainty belong to the rich catalog. Creation time
+Rich capabilities, aliases and uncertainty belong to the rich catalog; ordinary
+entries also carry the known top-level client facts described above. Creation time
 is omitted when no trusted persisted value exists, with rich `created_at_source`
 set to `unavailable`; no refresh or account timestamp is substituted.
 
-Codex manifests use `/backend-api/codex/models`. Explicit `client_version` on the
-ordinary collection delegates until 2027-03-21 UTC and emits Sunset and Link
-headers. After that date it is an ordinary list query parameter. User-Agent does
-not select a manifest. A pinned Codex manifest does not establish ordinary model
+Codex manifests use `/backend-api/codex/models`. Nonempty `client_version` on the
+ordinary collection currently delegates through `GatewayModelsHandler`.
+The 2027-03-21 cutoff exists in a separate legacy helper that is not called by
+that production dispatcher; do not promise automatic expiry or Sunset/Link
+headers from that helper. User-Agent does not select a manifest.
+A pinned Codex manifest does not establish ordinary model
 visibility. Gemini keeps native query `key` authentication on `/v1beta/`; header
 `x-goog-api-key` is recommended. Query keys are unsupported on `/v1`.
 
@@ -568,5 +573,5 @@ segments must use their documented canonical spelling (write `/models`, not
 | `POST /v1/moderations` | Standard owned resource; Moderations; shared gateway authentication and body limit |
 | `POST /v1/tools/search_pro` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
 | `POST /v1/tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
-| `POST /v1/videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |
-| `POST /videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |
+| `POST /v1/videos/:request_id/cancel` | Qianfan owner-bound task cancellation; Qianwen owner-bound PENDING cancellation request, whose acknowledgement is nonterminal and requires continued polling |
+| `POST /videos/:request_id/cancel` | Same Qianfan/Qianwen qualification as the /v1 alias; cancellation acknowledgement is not a universal completed-cancellation guarantee |
