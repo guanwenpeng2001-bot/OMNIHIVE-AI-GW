@@ -71,6 +71,13 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
+	if account.Platform == PlatformOpenRouter {
+		if err := openRouterProtocolAllowed(account, APIProtocolChatCompletions); err != nil {
+			writeChatCompletionsError(c, 400, "unsupported_protocol_conversion", err.Error())
+			return nil, err
+		}
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 	if IsChatOnlyPlatform(account.Platform) && !account.IsAnthropicProtocol() && account.GetAPIProtocol() != APIProtocolResponses {
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}

@@ -67,7 +67,7 @@ var platformDescriptors = []PlatformDescriptor{
 	// the OpenAI-shaped chat trunk the other two protocols share (1823/130078).
 	{ID: PlatformHunyuan, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, MultiProtocol: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMistral, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformOpenRouter, ResponsesPOST: EndpointBridge, MessagesPOST: EndpointBridge, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformOpenRouter, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, ChatOnly: true, MultiProtocol: true, NativeMultiProtocolResponses: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
 

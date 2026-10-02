@@ -39,6 +39,9 @@ func TestOpenRouterPublicTextForwarding(t *testing.T) {
 						contentType = "text/event-stream"
 						output = "data: " + `{"id":"fixture","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}` + "\n\ndata: " + `{"id":"fixture","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":17,"completion_tokens":8,"cost":99}}` + "\n\ndata: [DONE]\n\n"
 					}
+					if protocol == "messages" || protocol == "responses" {
+						output = openRouterNativeTextFixture(protocol, model, stream, 17, 8)
+					}
 					upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(output))}}
 					gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
 					account := openRouterFixtureAccount()
@@ -58,14 +61,25 @@ func TestOpenRouterPublicTextForwarding(t *testing.T) {
 					}
 					require.NoError(t, err)
 					require.NotNil(t, result)
-					require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.lastReq.URL.String())
+					expectedURL := "https://openrouter.ai/api/v1/chat/completions"
+					if protocol == "messages" || protocol == "responses" {
+						expectedURL = "https://openrouter.ai/api/v1/" + protocol
+					}
+					require.Equal(t, expectedURL, upstream.lastReq.URL.String())
 					require.Equal(t, "Bearer fixture-key", upstream.lastReq.Header.Get("Authorization"))
 					require.Equal(t, model, gjson.GetBytes(upstream.lastBody, "model").String())
-					require.Equal(t, "weather", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
-					require.Equal(t, "object", gjson.GetBytes(upstream.lastBody, "tools.0.function.parameters.type").String())
+					namePath, schemaPath := "tools.0.function.name", "tools.0.function.parameters.type"
+					if protocol == "messages" {
+						namePath, schemaPath = "tools.0.name", "tools.0.input_schema.type"
+					}
+					if protocol == "responses" {
+						namePath, schemaPath = "tools.0.name", "tools.0.parameters.type"
+					}
+					require.Equal(t, "weather", gjson.GetBytes(upstream.lastBody, namePath).String())
+					require.Equal(t, "object", gjson.GetBytes(upstream.lastBody, schemaPath).String())
 					require.Equal(t, 17, result.Usage.InputTokens)
 					require.Equal(t, 8, result.Usage.OutputTokens)
-					if stream {
+					if stream && protocol == "chat" {
 						require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 					}
 					require.Contains(t, recorder.Body.String(), "hello")
@@ -240,4 +254,19 @@ func TestOpenRouterErrorStateIsNotModelRevocation(t *testing.T) {
 			require.False(t, repo.rateUntil.IsZero())
 		}
 	}
+}
+
+func openRouterNativeTextFixture(protocol, model string, stream bool, input, output int) string {
+	if protocol == "messages" {
+		body := fmt.Sprintf(`{"id":"native-message","type":"message","role":"assistant","model":%q,"content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":%d,"output_tokens":%d}}`, model, input, output)
+		if !stream {
+			return body
+		}
+		return fmt.Sprintf("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"native-message\",\"type\":\"message\",\"role\":\"assistant\",\"model\":%q,\"content\":[],\"usage\":{\"input_tokens\":%d,\"output_tokens\":0}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"hello\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":%d}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n", model, input, output)
+	}
+	body := fmt.Sprintf(`{"id":"native-response","object":"response","status":"completed","model":%q,"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":%d,"output_tokens":%d}}`, model, input, output)
+	if !stream {
+		return body
+	}
+	return "event: response.completed\ndata: " + `{"type":"response.completed","response":` + body + `}` + "\n\n"
 }

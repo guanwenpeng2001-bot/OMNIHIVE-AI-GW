@@ -1530,7 +1530,7 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
-	if a.IsOpenCodeGo() || a.Platform == PlatformQianwen || a.IsCommandCode() {
+	if a.IsOpenCodeGo() || a.Platform == PlatformQianwen || a.IsCommandCode() || a.Platform == PlatformOpenRouter {
 		return APIProtocolAdaptive
 	}
 	if a.Platform == PlatformVolcengine || a.Platform == PlatformQianfan {

@@ -509,7 +509,7 @@ func accountUsesHTTPResponsesPassthrough(ctx context.Context, account *Account, 
 	}
 	// Forward chooses these installed compatibility adapters before inspecting
 	// the passthrough flag. They still send the account mapping's target.
-	if account.IsAnthropicProtocol() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+	if account.Platform == PlatformOpenRouter || account.IsAnthropicProtocol() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return false
 	}
 	if _, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket {

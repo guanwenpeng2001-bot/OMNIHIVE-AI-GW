@@ -377,7 +377,7 @@ export const DECLARED_PLATFORM_TEXT_PROTOCOLS: Record<DeclaredProtocolPlatform, 
   volcengine: { messages: false, responses: true },
   qianfan: { messages: false, responses: true },
   mistral: { messages: false, responses: false },
-  openrouter: { messages: false, responses: false }
+  openrouter: { messages: true, responses: true }
 }
 
 export function isDeclaredProtocolPlatform(platform: string): platform is DeclaredProtocolPlatform {
@@ -734,6 +734,8 @@ export function defaultCNBaseUrl(
     switch (platform) {
       case 'commandcode':
         return 'https://api.commandcode.ai/provider/v1'
+      case 'openrouter':
+        return CHAT_PLATFORM_BASE_URLS.openrouter
       case 'qianwen':
         return mode === 'coding' ? 'https://coding.dashscope.aliyuncs.com/apps/anthropic' : 'https://dashscope.aliyuncs.com/apps/anthropic'
       case 'kimi':

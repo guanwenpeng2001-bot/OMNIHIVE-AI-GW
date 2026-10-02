@@ -535,7 +535,7 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 	}
 	textTask := task == "" || task == "text_generation"
 	if textTask && (len(metadata.SupportedMethods) == 0 || chatOnlyCatalogHasTextMethod(metadata.SupportedMethods)) {
-		if len(metadata.SupportedMethods) == 0 || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions) {
+		if (len(metadata.SupportedMethods) == 0 || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions)) && (account.Platform != PlatformOpenRouter || account.GetAPIProtocol() == APIProtocolAdaptive || account.GetAPIProtocol() == APIProtocolChatCompletions) {
 			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
 		}
 		// A chat-only entry that publishes a native text protocol on the same
@@ -585,6 +585,16 @@ func chatOnlyCatalogHasTextMethod(methods []string) bool {
 func chatOnlyPublishedTextFamilies(account *Account) []string {
 	if account == nil {
 		return nil
+	}
+	if account.Platform == PlatformOpenRouter && !account.IsAdaptiveAPIProtocol() {
+		switch account.GetAPIProtocol() {
+		case APIProtocolAnthropic:
+			return []string{CompositeRouteEndpointMessages}
+		case APIProtocolResponses:
+			return []string{CompositeRouteEndpointResponses}
+		default:
+			return nil
+		}
 	}
 	descriptor, known := domain.LookupPlatform(account.Platform)
 	if !known {
@@ -887,6 +897,19 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
+	if account.Platform == PlatformOpenRouter {
+		switch account.GetAPIProtocol() {
+		case APIProtocolAdaptive:
+			return []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointResponses}
+		case APIProtocolAnthropic:
+			return []string{CompositeRouteEndpointMessages}
+		case APIProtocolResponses:
+			return []string{CompositeRouteEndpointResponses}
+		default:
+			return []string{CompositeRouteEndpointChatCompletions}
+		}
+	}
+
 	if account.IsGrokOAuth() {
 		// The CLI adapter implements both text wire protocols. A saved model
 		// selection authorizes either adapter without requiring optional discovery

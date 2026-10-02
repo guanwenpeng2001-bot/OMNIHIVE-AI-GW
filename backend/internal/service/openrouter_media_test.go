@@ -21,7 +21,7 @@ func TestOpenRouterDiscoveredMediaModalitiesProjectInstalledFamilies(t *testing.
 		require.Len(t, snapshot.EligibleModels, 1)
 		require.Contains(t, snapshot.EligibleModels[0].Endpoints, fixture.endpoint)
 	}
-	require.Equal(t, []string{"chat_completions"}, accountCatalogModelEndpoints(account, "vendor/unknown", UpstreamModelMetadata{}))
+	require.ElementsMatch(t, []string{"chat_completions", "messages", "responses"}, accountCatalogModelEndpoints(account, "vendor/unknown", UpstreamModelMetadata{}))
 }
 
 func TestOpenRouterVideoContentCannotFollowStoredURLsOrChangedEgress(t *testing.T) {

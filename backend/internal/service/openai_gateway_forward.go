@@ -31,6 +31,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			forwarded.RequestedReasoningEffort = requestedEffort
 		}
 	}()
+	if account.Platform == PlatformOpenRouter {
+		return s.forwardOpenRouterNative(ctx, c, account, body, APIProtocolResponses, "")
+	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -1443,7 +1446,10 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter {
+	if account.Platform == PlatformOpenRouter {
+		return false
+	}
+	if account.Platform == PlatformMistral {
 		// Public Responses/Messages are converted; Mistral has no Responses URL.
 		return true
 	}

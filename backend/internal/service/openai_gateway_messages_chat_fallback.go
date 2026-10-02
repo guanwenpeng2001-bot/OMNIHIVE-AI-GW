@@ -75,6 +75,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions request: %w", err)
 	}
+	if account.Platform == PlatformOpenRouter {
+		chatBody, err = s.prepareOpenRouterGoogleReplay(ctx, c, account, chatBody)
+		if err != nil {
+			writeAnthropicError(c, 400, "invalid_continuation", err.Error())
+			return nil, err
+		}
+	}
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
 		chatBody = normalizedBody
 	}
@@ -291,6 +298,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
 
+	if account.Platform == PlatformOpenRouter && openRouterGoogleIngress(c.Request.Context()) && !scan.SawDone {
+		return nil, newOpenAIUpstreamStreamReadError(ErrOpenAIUpstreamStreamTruncated)
+	}
 	// Finalize: close open blocks + emit message_delta/message_stop.
 	finalEvents := apicompat.FinalizeChatCompletionsAnthropicStream(anthropicState)
 	if !clientDisconnected {

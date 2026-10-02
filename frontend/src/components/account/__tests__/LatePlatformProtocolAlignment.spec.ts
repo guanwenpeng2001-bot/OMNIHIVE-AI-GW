@@ -348,7 +348,7 @@ describe('late platform protocol declarations', () => {
       volcengine: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
       qianfan: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
       mistral: { messagesPost: 'bridge', responsesPost: 'bridge', protocols: ['chat_completions'] },
-      openrouter: { messagesPost: 'bridge', responsesPost: 'bridge', protocols: ['chat_completions'] }
+      openrouter: { messagesPost: 'native', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'anthropic', 'responses'] }
     } as const
 
     for (const [platform, facts] of Object.entries(expected)) {
@@ -968,14 +968,14 @@ describe('cross-language plan URL runtime contract', () => {
 })
 
 describe('OpenRouter core account wiring', () => {
-  it('creates an API-key chat account with the official portable base', async () => {
+  it('creates an adaptive API-key account with the official portable native bases', async () => {
     createAccountMock.mockReset().mockResolvedValue({ id: 79, platform: 'openrouter', type: 'apikey' })
     const wrapper = mountModal()
     await selectPlatform(wrapper, 'openrouter')
-    expect(protocolCardValues(wrapper)).toEqual(['chat_completions'])
+    expect(protocolCardValues(wrapper)).toEqual(['adaptive', 'chat_completions', 'anthropic', 'responses'])
     expect(showsCodingPlanMode('openrouter')).toBe(false)
     await submitApiKey(wrapper, 'OpenRouter fixture')
-    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({ platform: 'openrouter', type: 'apikey', credentials: expect.objectContaining({ base_url: 'https://openrouter.ai/api/v1' }) }))
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({ platform: 'openrouter', type: 'apikey', credentials: expect.objectContaining({ api_protocol: 'adaptive', base_url: 'https://openrouter.ai/api/v1', api_base_urls: { chat_completions: 'https://openrouter.ai/api/v1', anthropic: 'https://openrouter.ai/api/v1', responses: 'https://openrouter.ai/api/v1' } }) }))
     wrapper.unmount()
   })
 })

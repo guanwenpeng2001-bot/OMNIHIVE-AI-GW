@@ -2811,7 +2811,7 @@ const editApiProtocol = ref<CnApiProtocol | null>('adaptive')
  * 只用于缺失、空值或与平台不匹配的历史值，不改变显式合法值。
  */
 function defaultMultiProtocolApiProtocol(platform: string): CnApiProtocol {
-  return platform === 'opencode_go' || platform === 'qianwen' || platform === 'commandcode'
+  return platform === 'opencode_go' || platform === 'qianwen' || platform === 'commandcode' || platform === 'openrouter'
     ? 'adaptive'
     : 'chat_completions'
 }
@@ -2823,7 +2823,7 @@ function defaultMultiProtocolApiProtocol(platform: string): CnApiProtocol {
 function resolveStoredMultiProtocolApiProtocol(platform: string, stored: unknown): CnApiProtocol {
   const normalized = typeof stored === 'string' ? stored.trim() : stored
   if (isDeclaredProtocolPlatform(platform)) {
-    return declaredPlatformApiProtocols(platform, editAccountMode.value).find(protocol => protocol === normalized) ?? 'chat_completions'
+    return declaredPlatformApiProtocols(platform, editAccountMode.value).find(protocol => protocol === normalized) ?? (platform === 'openrouter' ? 'adaptive' : 'chat_completions')
   }
   switch (normalized) {
     case 'adaptive':

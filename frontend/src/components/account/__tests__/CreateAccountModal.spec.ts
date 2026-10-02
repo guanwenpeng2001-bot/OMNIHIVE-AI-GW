@@ -842,7 +842,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform, type: 'apikey', credentials: { api_key: 'fixture-key', base_url: baseURL } })
-    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toBeUndefined()
+    if (platform === 'openrouter') {
+      expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_protocol).toBe('adaptive')
+      expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toEqual({ chat_completions: baseURL, anthropic: baseURL, responses: baseURL })
+    } else {
+      expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toBeUndefined()
+    }
   })
 
   it.each(['qianwen', 'commandcode'] as const)('creates %s as API-key-only with protocol defaults', async (platform) => {

@@ -42,6 +42,9 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 			"account_mode": mode, "api_protocol": protocol, "api_key": "contract-test-key",
 		}}
 		resolveBase := func() string {
+			if platform == PlatformOpenRouter {
+				return openRouterProtocolBase(account, protocol)
+			}
 			if protocol == APIProtocolAnthropic {
 				return account.GetAnthropicProtocolBaseURL()
 			}
@@ -64,7 +67,18 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 			CanonicalSource: source, ResolvedURL: resolveBase(),
 			NativeAction: domain.PlatformAction(domain.ActionIdentity{Platform: platform, Protocol: protocol}, action).Status}
 		var validationErr error
-		if protocol == APIProtocolAnthropic {
+		if platform == PlatformOpenRouter {
+			validated, err := gateway.validateUpstreamBaseURL(openRouterProtocolBase(account, protocol))
+			validationErr = err
+			endpoint := "/v1/chat/completions"
+			if protocol == APIProtocolAnthropic {
+				endpoint = "/v1/messages"
+			}
+			if protocol == APIProtocolResponses {
+				endpoint = "/v1/responses"
+			}
+			entry.TargetURL = account.buildOpenAIEndpointURL(validated, endpoint)
+		} else if protocol == APIProtocolAnthropic {
 			entry.TargetURL, validationErr = gateway.nativeAnthropicTargetURL(account)
 		} else {
 			switch platform {

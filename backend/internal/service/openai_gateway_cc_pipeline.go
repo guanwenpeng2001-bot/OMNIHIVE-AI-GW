@@ -360,6 +360,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.Err = fmt.Errorf("OpenRouter stream failed")
 			break
 		}
+		if err := captureOpenRouterGoogleDetails(c, []byte(payload), true); err != nil {
+			st.Err = err
+			break
+		}
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
@@ -413,6 +417,9 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
 		writeError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
 		return nil, OpenAIUsage{}, fmt.Errorf("upstream chat usage is unknown")
+	}
+	if err := captureOpenRouterGoogleDetails(c, respBody, false); err != nil {
+		return nil, OpenAIUsage{}, err
 	}
 	var ccResp apicompat.ChatCompletionsResponse
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
