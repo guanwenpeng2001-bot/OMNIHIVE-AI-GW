@@ -21,13 +21,13 @@ func testModelOfficialProfileBoundaries(t *testing.T) {
 		name, platform, accountType, baseURL, mode, profile string
 	}{
 		{"coding_default", PlatformKimi, AccountTypeAPIKey, "", AccountModeCoding, "kimi-for-coding"},
-		{"payg_default", PlatformKimi, AccountTypeAPIKey, "", AccountModePayG, "moonshot"},
+		{"payg_default", PlatformKimi, AccountTypeAPIKey, "", AccountModePayG, "moonshotai-cn"},
 		{"coding_chat", PlatformKimi, AccountTypeAPIKey, DefaultKimiCodingBaseURL, "", "kimi-for-coding"},
 		{"coding_anthropic", PlatformKimi, AccountTypeAPIKey, DefaultKimiCodingAnthropicBaseURL, AccountModeCoding, "kimi-for-coding"},
 		{"coding_normalized_host", PlatformKimi, AccountTypeAPIKey, "https://API.KIMI.COM/coding/v1/", "", "kimi-for-coding"},
-		{"payg_china", PlatformKimi, AccountTypeAPIKey, DefaultKimiPayGBaseURL, "", "moonshot"},
+		{"payg_china", PlatformKimi, AccountTypeAPIKey, DefaultKimiPayGBaseURL, "", "moonshotai-cn"},
 		{"payg_global", PlatformKimi, AccountTypeAPIKey, "https://api.moonshot.ai/v1", "", "moonshot"},
-		{"payg_anthropic", PlatformKimi, AccountTypeAPIKey, DefaultKimiPayGAnthropicBaseURL, "", "moonshot"},
+		{"payg_anthropic", PlatformKimi, AccountTypeAPIKey, DefaultKimiPayGAnthropicBaseURL, "", "moonshotai-cn"},
 		{"coding_host_without_path", PlatformKimi, AccountTypeAPIKey, "https://api.kimi.com/v1", AccountModeCoding, "custom:"},
 		{"coding_path_boundary", PlatformKimi, AccountTypeAPIKey, "https://api.kimi.com/coding-other/v1", "", "custom:"},
 		{"coding_unknown_path", PlatformKimi, AccountTypeAPIKey, "https://api.kimi.com/coding/private", "", "custom:"},
@@ -193,4 +193,18 @@ func TestModelProfileSignedLimitIsolation(t *testing.T) {
 		delete(records, capabilityKey("vertex_ai", "shared-id"))
 		require.Equal(t, "not_found", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(account), "shared-id").Status)
 	}
+}
+
+func TestMoonshotRegionalMetadataDoesNotBorrow(t *testing.T) {
+	records := map[string]CapabilityRecord{capabilityKey("moonshot", "kimi-k2.5"): {Profile: "moonshot", ModelID: "kimi-k2.5", ContextWindow: 1234, Source: "historical:test"}}
+	snapshot := &ModelCapabilitySnapshot{records: records}
+	cn := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://api.moonshot.cn/v1"}}
+	global := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://api.moonshot.ai/v1"}}
+	require.Equal(t, "moonshotai-cn", resolveCapabilityProfile(cn))
+	require.Equal(t, "not_found", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(cn), "kimi-k2.5").Status)
+	require.Equal(t, "moonshot", resolveCapabilityProfile(global))
+	require.Equal(t, "matched", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(global), "kimi-k2.5").Status)
+	records[capabilityKey("moonshotai-cn", "cn-only")] = CapabilityRecord{Profile: "moonshotai-cn", ModelID: "cn-only", ContextWindow: 4567, Source: "reviewed:test"}
+	require.Equal(t, "matched", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(cn), "cn-only").Status)
+	require.Equal(t, "not_found", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(global), "cn-only").Status)
 }

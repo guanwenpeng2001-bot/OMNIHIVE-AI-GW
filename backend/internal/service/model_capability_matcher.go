@@ -136,6 +136,9 @@ func resolveCapabilityProfile(account *Account) string {
 		if err == nil && account.GetAccountMode() != AccountModeCoding {
 			switch strings.TrimRight(parsed.Path, "/") {
 			case "", "/v1", "/anthropic":
+				if host == "api.moonshot.cn" {
+					return "moonshotai-cn"
+				}
 				return "moonshot"
 			}
 		}
