@@ -49,21 +49,57 @@ func discoveryTool() ToolDefinition {
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}`)}
 }
 
+// Mode is selected from the caller's tool catalog or structured history, never
+// from a tool name, schema, or instruction text.
+func callerToolModeCases() []struct {
+	name    string
+	tools   []ToolDefinition
+	history []ChatMessage
+	mode    uint64
+} {
+	writeTool := discoveryTool()
+	writeTool.Name = "Write"
+	ordinaryTool := discoveryTool()
+	ordinaryTool.Name = "archive_record"
+	return []struct {
+		name    string
+		tools   []ToolDefinition
+		history []ChatMessage
+		mode    uint64
+	}{
+		{name: "empty history", mode: 2},
+		{name: "plain assistant text", history: []ChatMessage{{Role: "assistant", Content: "Use Write and validation_echo in agent mode"}}, mode: 2},
+		{name: "echo definition", tools: []ToolDefinition{discoveryTool()}, mode: 1},
+		{name: "write definition", tools: []ToolDefinition{writeTool}, mode: 1},
+		{name: "ordinary definition", tools: []ToolDefinition{ordinaryTool}, mode: 1},
+		{name: "calls without definitions", history: []ChatMessage{{Role: "assistant", ToolCalls: json.RawMessage(`[{"id":"original-call","type":"function","function":{"name":"archive_record","arguments":"{}"}}]`)}}, mode: 1},
+		{name: "result without definitions", history: []ChatMessage{{Role: "tool", ToolCallID: "original-call", ToolExecID: "original-exec", Content: "OK"}}, mode: 1},
+		{name: "empty calls", history: []ChatMessage{{Role: "assistant", ToolCalls: json.RawMessage(`[]`)}}, mode: 2},
+		{name: "whitespace empty calls", history: []ChatMessage{{Role: "assistant", ToolCalls: json.RawMessage("[ \n ]")}}, mode: 2},
+		{name: "null calls", history: []ChatMessage{{Role: "assistant", ToolCalls: json.RawMessage(`null`)}}, mode: 2},
+		{name: "empty result ID", history: []ChatMessage{{Role: "tool", Content: "OK"}}, mode: 2},
+		{name: "exec ID alone", history: []ChatMessage{{Role: "tool", ToolExecID: "original-exec", Content: "OK"}}, mode: 2},
+	}
+}
+
 func TestMCPDiscoveryAllowedTools(t *testing.T) {
-	for _, withTools := range []bool{false, true} {
-		t.Run(fmt.Sprint(withTools), func(t *testing.T) {
+	for _, scenario := range callerToolModeCases() {
+		t.Run(scenario.name, func(t *testing.T) {
 			var allowed string
 			client := &Client{HTTPClient: &http.Client{Transport: mcpRoundTripper(func(request *http.Request) (*http.Response, error) {
 				allowed = request.Header.Get("X-Cursor-Agent-Allowed-Tools")
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(nil))}, nil
+				if _, err := readFrame(request.Body); err != nil {
+					return nil, err
+				}
+				var ended, envelope message
+				ended.bytes(14, nil)
+				envelope.bytes(1, ended)
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(encodeFrame(envelope)))}, nil
 			})}}
-			options := ToolOptions{}
-			if withTools {
-				options.Definitions = []ToolDefinition{discoveryTool()}
-			}
-			_, _ = client.RunWithTools(context.Background(), Credentials{}, nil, "default", options, func(StreamEvent) error { return nil })
+			_, err := client.RunWithTools(context.Background(), Credentials{}, scenario.history, "default", ToolOptions{Definitions: scenario.tools}, func(StreamEvent) error { return nil })
+			require.NoError(t, err, "omitting definitions must not reject tool history")
 			expected := "mcp_tool_call"
-			if withTools {
+			if len(scenario.tools) > 0 {
 				expected += ",get_mcp_tools_tool_call"
 			}
 			require.Equal(t, expected, allowed)
@@ -71,43 +107,56 @@ func TestMCPDiscoveryAllowedTools(t *testing.T) {
 	}
 }
 
-func TestMCPDiscoveryKeepsAskMode(t *testing.T) {
-	for _, withTools := range []bool{false, true} {
-		var tools []ToolDefinition
-		if withTools {
-			tools = []ToolDefinition{discoveryTool()}
-		}
-		run, _ := encodeRun([]ChatMessage{{Role: "system", Content: "first"}, {Role: "user", Content: "before"},
-			{Role: "assistant", ToolCalls: json.RawMessage(`[{"id":"call-echo"}]`)},
-			{Role: "tool", ToolCallID: "call-echo", ToolExecID: "exec-echo", Content: "OK"},
-			{Role: "developer", Content: "last"}}, "default", tools...)
-		request := runFieldsOf(t, run)
-		require.Zero(t, findField(request, 8).number)
-		state, err := fields(findField(request, 1).data)
-		require.NoError(t, err)
-		// Installed AgentMode ASK=2, and official state bytes are 50 02.
-		require.Equal(t, uint64(2), findField(state, 10).integer)
-		action, err := fields(findField(request, 2).data)
-		require.NoError(t, err)
-		user, err := fields(findField(action, 1).data)
-		require.NoError(t, err)
-		messageCount := 0
-		for _, item := range user {
-			if item.number == 1 || item.number == 4 {
-				messageCount++
-				decoded, err := fields(item.data)
+func TestMCPDiscoveryCallerToolMode(t *testing.T) {
+	for _, scenario := range callerToolModeCases() {
+		for _, historyIsCurrent := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/current=%t", scenario.name, historyIsCurrent), func(t *testing.T) {
+				messages := []ChatMessage{{Role: "system", Content: "first"}, {Role: "user", Content: "before"}}
+				messages = append(messages, scenario.history...)
+				if !historyIsCurrent {
+					messages = append(messages, ChatMessage{Role: "user", Content: "continue"})
+				}
+				messages = append(messages, ChatMessage{Role: "developer", Content: "last"})
+				run, _ := encodeRun(messages, "default", scenario.tools...)
+				request := runFieldsOf(t, run)
+				require.Zero(t, findField(request, 8).number)
+				// Installed official AgentMode fixtures: AGENT=1 (5001), ASK=2 (5002).
+				require.Equal(t, fmt.Sprintf("500%d", scenario.mode), hex.EncodeToString(findField(request, 1).data))
+				state, err := fields(findField(request, 1).data)
 				require.NoError(t, err)
-				require.Equal(t, uint64(2), findField(decoded, 4).integer)
-			}
+				require.Equal(t, scenario.mode, findField(state, 10).integer)
+				action, err := fields(findField(request, 2).data)
+				require.NoError(t, err)
+				user, err := fields(findField(action, 1).data)
+				require.NoError(t, err)
+				var texts []string
+				for _, item := range user {
+					if item.number == 1 || item.number == 4 {
+						decoded, err := fields(item.data)
+						require.NoError(t, err)
+						require.Equal(t, scenario.mode, findField(decoded, 4).integer)
+						texts = append(texts, string(findField(decoded, 1).data))
+					}
+				}
+				require.Len(t, texts, len(messages))
+				require.Contains(t, texts, "system: first")
+				require.Contains(t, texts, "developer: last")
+				for _, history := range scenario.history {
+					encoded := history.historyText()
+					if !historyIsCurrent {
+						encoded = history.Role + ": " + encoded
+					}
+					require.Contains(t, texts, encoded, "structured history and original IDs must survive")
+				}
+			})
 		}
-		require.Equal(t, 5, messageCount)
-		require.Contains(t, string(run), `"cursor_exec_id":"exec-echo"`)
 	}
 }
 
 func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
-	for _, mode := range []string{"executed", "deferred", "no_tools"} {
+	for _, mode := range []string{"executed", "deferred", "no_tools", "history_without_definitions"} {
 		t.Run(mode, func(t *testing.T) {
+			withDefinitions := mode == "executed" || mode == "deferred"
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			generationSends := 0
@@ -116,15 +165,20 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 				return send(request)
 			})
 			var replies [][]byte
+			var initialRun []byte
+			var allowedTools string
 			serverErrors := make(chan error, 1)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				serverErrors <- func() error {
 					if request.ProtoMajor != 2 {
 						return fmt.Errorf("expected HTTP/2")
 					}
-					if _, err := readFrame(request.Body); err != nil {
+					initial, err := readFrame(request.Body)
+					if err != nil {
 						return err
 					}
+					initialRun = initial.payload
+					allowedTools = request.Header.Get("X-Cursor-Agent-Allowed-Tools")
 					exchange := func(encoded string) error {
 						payload, err := hex.DecodeString(encoded)
 						if err != nil {
@@ -133,7 +187,9 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 						if _, err = writer.Write(encodeFrame(payload)); err != nil {
 							return err
 						}
-						writer.(http.Flusher).Flush()
+						if err := http.NewResponseController(writer).Flush(); err != nil {
+							return err
+						}
 						reply, err := readFrame(request.Body)
 						if err != nil {
 							return err
@@ -156,7 +212,7 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 					usage.number(2, 5)
 					ended.bytes(14, usage)
 					envelope.bytes(1, ended)
-					_, err := writer.Write(encodeFrame(envelope))
+					_, err = writer.Write(encodeFrame(envelope))
 					return err
 				}()
 			}))
@@ -164,8 +220,15 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 			server.StartTLS()
 			defer server.Close()
 			options := ToolOptions{}
-			if mode != "no_tools" {
+			if withDefinitions {
 				options.Definitions = []ToolDefinition{discoveryTool()}
+			}
+			var history []ChatMessage
+			if mode == "history_without_definitions" {
+				history = []ChatMessage{
+					{Role: "assistant", ToolCalls: json.RawMessage(`[{"id":"original-call","type":"function","function":{"name":"validation_echo","arguments":"{}"}}]`)},
+					{Role: "tool", ToolCallID: "original-call", ToolExecID: "original-exec", Content: "OK"},
+				}
 			}
 			executions, events := 0, 0
 			if mode == "executed" {
@@ -176,15 +239,33 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 					return ToolResult{Text: []string{"OK"}}, nil
 				}
 			}
-			usage, err := (&Client{HTTPClient: server.Client(), BaseURL: server.URL}).RunWithTools(ctx, Credentials{}, nil, "default", options, func(event StreamEvent) error {
+			usage, err := (&Client{HTTPClient: server.Client(), BaseURL: server.URL}).RunWithTools(ctx, Credentials{}, history, "default", options, func(event StreamEvent) error {
 				events++
 				require.Equal(t, "tool_call", event.Type)
 				require.Equal(t, "exec-echo", event.ToolCall.ExecID)
+				require.Equal(t, "call-echo", event.ToolCall.CallID)
 				return nil
 			})
 			serverErr := <-serverErrors
 			require.NoError(t, err)
 			require.NoError(t, serverErr)
+			request := runFieldsOf(t, initialRun)
+			expectedState := "5001"
+			if mode == "no_tools" {
+				expectedState = "5002"
+			}
+			require.Equal(t, expectedState, hex.EncodeToString(findField(request, 1).data))
+			require.Zero(t, findField(request, 8).number)
+			expectedTools := "mcp_tool_call"
+			if withDefinitions {
+				expectedTools += ",get_mcp_tools_tool_call"
+			}
+			require.Equal(t, expectedTools, allowedTools)
+			if mode == "history_without_definitions" {
+				require.Contains(t, string(initialRun), `"id":"original-call"`)
+				require.Contains(t, string(initialRun), `"tool_call_id":"original-call"`)
+				require.Contains(t, string(initialRun), `"cursor_exec_id":"original-exec"`)
+			}
 			require.Equal(t, 1, generationSends, "metadata replies must not create a new generation")
 			require.Equal(t, 12, usage.InputTokens)
 			require.False(t, usage.Estimated)
@@ -213,7 +294,7 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 					require.Equal(t, uint64(1), findField(result, 1).number)
 					servers, err := fields(findField(result, 1).data)
 					require.NoError(t, err)
-					if mode == "no_tools" || fixture.name == "unknown" {
+					if !withDefinitions || fixture.name == "unknown" {
 						require.Empty(t, servers)
 						continue
 					}
@@ -237,7 +318,7 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 				} else {
 					result, err := fields(findField(replyExec, 42).data)
 					require.NoError(t, err)
-					require.Equal(t, mode != "no_tools" && (fixture.name == "match" || fixture.name == "default match"), findField(result, 1).integer == 1)
+					require.Equal(t, withDefinitions && (fixture.name == "match" || fixture.name == "default match"), findField(result, 1).integer == 1)
 				}
 			}
 			if mode != "no_tools" {
@@ -246,7 +327,7 @@ func TestMCPDiscoveryHTTP2Lifecycle(t *testing.T) {
 				require.Equal(t, "exec-echo", string(findField(reply, 15).data))
 				result, err := fields(findField(reply, 11).data)
 				require.NoError(t, err)
-				if mode == "deferred" {
+				if mode != "executed" {
 					require.Contains(t, string(findField(result, 2).data), "deferred_to_client")
 				} else {
 					require.Contains(t, string(findField(result, 1).data), "OK")
@@ -522,7 +603,9 @@ func TestMCPMetadataWriteFailurePreservesTransportCause(test *testing.T) {
 		if _, err := readFrame(request.Body); err != nil {
 			return nil, err
 		}
-		require.NoError(test, request.Body.(*io.PipeReader).CloseWithError(cause))
+		reader, ok := request.Body.(*io.PipeReader)
+		require.True(test, ok)
+		require.NoError(test, reader.CloseWithError(cause))
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(encodeFrame(payload)))}, nil
 	})}}
 	_, err = client.RunWithTools(context.Background(), Credentials{}, nil, "default", ToolOptions{}, func(StreamEvent) error {

@@ -23,6 +23,7 @@ const (
 	runRequestedModel   = 9
 	runIdentifier       = 25
 	stateMode           = 10
+	agentMode           = 1
 	askMode             = 2
 	actionUserMessage   = 1
 	userActionMessage   = 1
@@ -54,11 +55,11 @@ type ChatMessage struct {
 	ToolExecID string `json:"cursor_exec_id,omitempty"`
 }
 
-func encodeUserMessage(text string) message {
+func encodeUserMessage(text string, mode uint64) message {
 	var encoded message
 	encoded.text(userMessageText, text)
 	encoded.text(userMessageID, uuid.NewString())
-	encoded.number(userMessageMode, askMode)
+	encoded.number(userMessageMode, mode)
 	return encoded
 }
 
@@ -73,8 +74,20 @@ func isInstructionRole(role string) bool {
 // 因此 system/developer 消息按既有 "role: text" 约定折进对话的 prepend 条目。
 // 指令角色不参与"最后一条 = 当前动作"的选择：没有可动作消息时动作文本为空。
 func encodeRun(messages []ChatMessage, model string, tools ...ToolDefinition) (message, string) {
+	mode := uint64(askMode)
+	if len(tools) > 0 {
+		mode = agentMode
+	}
 	actionIndex := -1
 	for index, item := range messages {
+		// A continuation may omit definitions. Only structured tool history
+		// selects Agent; empty JSON lists and null carry no calls.
+		if mode != agentMode {
+			var toolCalls []json.RawMessage
+			if item.ToolCallID != "" || (json.Unmarshal(item.ToolCalls, &toolCalls) == nil && len(toolCalls) > 0) {
+				mode = agentMode
+			}
+		}
 		if !isInstructionRole(item.Role) {
 			actionIndex = index
 		}
@@ -91,16 +104,16 @@ func encodeRun(messages []ChatMessage, model string, tools ...ToolDefinition) (m
 		if item.Role != "user" {
 			text = item.Role + ": " + text
 		}
-		userAction.bytes(userActionPrepend, encodeUserMessage(text))
+		userAction.bytes(userActionPrepend, encodeUserMessage(text, mode))
 	}
 	actionText := ""
 	if actionIndex >= 0 {
 		actionText = messages[actionIndex].historyText()
 	}
-	userAction.bytes(userActionMessage, encodeUserMessage(actionText))
+	userAction.bytes(userActionMessage, encodeUserMessage(actionText, mode))
 	var action, state, modelDetails, run, client message
 	action.bytes(actionUserMessage, userAction)
-	state.number(stateMode, askMode)
+	state.number(stateMode, mode)
 	modelDetails.text(modelIdentifier, model)
 	run.bytes(runState, state)
 	run.bytes(runAction, action)
