@@ -14,9 +14,13 @@ class PresetEvidenceTests(unittest.TestCase):
         self.assertEqual(catalog.read(presets.PRESETS), self.generated)
         self.assertEqual({"anthropic", "openai", "gemini", "grok", "kimi", "zhipu", "deepseek",
                           "minimax", "opencode_go", "qianwen", "cursor", "antigravity", "commandcode",
-                          "volcengine", "qianfan", "hunyuan", "mistral", "bedrock"},
+                          "volcengine", "qianfan", "hunyuan", "mistral", "bedrock", "openrouter"},
                          {profile["platform"] for profile in self.generated})
         for profile in self.generated:
+            if profile["platform"] == "openrouter":
+                self.assertEqual("unconfigured", profile["coverage_status"])
+                self.assertEqual([], profile["models"])
+                continue
             self.assertTrue(profile["models"], profile["platform"])
             self.assertTrue(profile["source_refs"])
             self.assertEqual("partial", profile["coverage_status"])
@@ -69,7 +73,8 @@ class PresetEvidenceTests(unittest.TestCase):
                              for identifier in models))
 
     def test_reviewed_legacy_defaults_keep_exact_platform_identity(self):
-        profiles = {profile["platform"]: profile for profile in self.generated}
+        profiles = {profile["platform"]: profile for profile in self.generated
+                    if "legacy_default_review" in profile["coverage_scope"]}
         included_count = excluded_count = 0
         for platform in ("openai", "gemini", "cursor", "antigravity", "grok"):
             profile = profiles[platform]
