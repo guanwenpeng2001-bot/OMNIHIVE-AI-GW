@@ -15,7 +15,8 @@ func shouldAutoInjectPromptCacheKeyForCompat(model string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(model))
 	canonical := canonicalizeOpenAIModelAliasSpelling(trimmed)
 	// GPT-6 is the public alias for Astra. Keep this deliberately scoped to
-	// Astra so other GPT-6 families do not inherit Messages compatibility state.
+	// Astra for API-key injection and legacy digest fallback. Native Codex
+	// session identity with a real caller session is independent of this gate.
 	if canonical == "gpt-6" || canonical == "gpt-6-astra" {
 		return true
 	}

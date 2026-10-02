@@ -1639,8 +1639,8 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 	// 固定 metadata key 压住后续 turn 的缓存滚动。
 	//
 	// Claude Code 的 X-Claude-Code-Session-Id 是比 body content fallback 更稳定的
-	// 会话边界，但它只用于本地账号粘性；不要把它提升为 prompt_cache_key 或上游
-	// session_id，否则会改变现有 Messages→Codex 缓存滚动语义。
+	// 会话边界。这里仅处理本地粘性；选定原生 Codex transport 后，service 会在
+	// 没有显式 caller identity 时用同一 session 生成隔离的上游 session_id。
 	if promptCacheKey == "" {
 		if claudeSessionID := service.ClaudeCodeSessionIDFromHeader(c); claudeSessionID != "" {
 			return service.DeriveSessionHashFromSeed(claudeSessionID), promptCacheKey
