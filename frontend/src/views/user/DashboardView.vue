@@ -5,7 +5,7 @@
       <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
       <template v-else>
         <UsageStatsState v-if="statsState !== 'known'" :state="statsState" />
-        <UserDashboardStats v-if="stats" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
+        <UserDashboardStats v-if="stats" :time-zone="reportTimeZone" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
         <div v-if="historyGap || chartError" data-testid="chart-state" class="card space-y-3 p-4">
           <DateRangePicker v-model:start-date="startDate" v-model:end-date="endDate" @change="loadCharts" />
           <Select v-model="granularity" :options="[{ value: 'day', label: t('dashboard.day') }, { value: 'hour', label: t('dashboard.hour') }]" @change="loadCharts" />

@@ -116,6 +116,12 @@ export default {
 
   // Key Usage Query Page
   keyUsage: {
+    scopeRetained: 'Retained total',
+    scopeRange: 'Range total',
+    scopeUnknown: 'Retained total cannot be verified',
+    scopeFrom: 'From {start}',
+    scopeUntil: 'Through {end}',
+
     title: 'API Key Usage',
     subtitle: 'Signed in, query your own keys by ID; or paste a key you hold externally to check its usage and status',
     placeholder: 'Paste your API key (keys on this site start with sk-)',

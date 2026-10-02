@@ -83,19 +83,22 @@ func (r *usageLogRepository) GetUserStats(ctx context.Context, userID int64, sta
 type DashboardStats = usagestats.DashboardStats
 
 func (r *usageLogRepository) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
+	return r.getDashboardStatsAt(ctx, timezone.Now())
+}
+
+func (r *usageLogRepository) getDashboardStatsAt(ctx context.Context, now time.Time) (*DashboardStats, error) {
 	if needsUsageSnapshot(r) {
 		return usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, coverage dashboardCoverage) (*DashboardStats, error) {
-			stats, err := snapshot.GetDashboardStats(ctx)
+			stats, err := snapshot.getDashboardStatsAt(ctx, now)
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = coverage.metadataFor(coverage.summaryComplete(timezone.Today(), timezone.Now()))
+			stats.Coverage = coverage.summaryMetadata(bucketFloor(now, "day"), now)
 			return stats, nil
 		})
 	}
 	stats := &DashboardStats{}
-	now := timezone.Now()
-	todayStart := timezone.Today()
+	todayStart := bucketFloor(now, "day")
 
 	if err := r.fillDashboardEntityStats(ctx, stats, todayStart, now); err != nil {
 		return nil, err
@@ -124,9 +127,7 @@ func (r *usageLogRepository) GetDashboardStatsWithRange(ctx context.Context, sta
 			if err != nil {
 				return nil, err
 			}
-			now := timezone.Now()
-			today := timezone.Today()
-			stats.Coverage = c.metadataFor(c.requireRaw(today, today.AddDate(0, 0, 1)) == nil && c.requireRaw(now.UTC().Truncate(time.Hour), now.UTC().Truncate(time.Hour).Add(time.Hour)) == nil && c.requireRaw(now.Add(-5*time.Minute), now) == nil)
+			stats.Coverage = c.rangeMetadata(start, end)
 			return stats, nil
 		})
 	}
@@ -400,18 +401,22 @@ type PlatformDashboardStats = usagestats.PlatformDashboardStats
 
 // GetUserDashboardStats 获取用户专属的仪表盘统计
 func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID int64) (*UserDashboardStats, error) {
+	return r.getUserDashboardStatsAt(ctx, userID, timezone.Now())
+}
+
+func (r *usageLogRepository) getUserDashboardStatsAt(ctx context.Context, userID int64, now time.Time) (*UserDashboardStats, error) {
 	if needsUsageSnapshot(r) {
 		return usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) (*UserDashboardStats, error) {
-			stats, err := snapshot.GetUserDashboardStats(ctx, userID)
+			stats, err := snapshot.getUserDashboardStatsAt(ctx, userID, now)
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = c.metadataFor(c.rawHistoryComplete())
+			stats.Coverage = c.rawSummaryMetadata(now)
 			return stats, nil
 		})
 	}
 	stats := &UserDashboardStats{}
-	today := timezone.Today()
+	today := bucketFloor(now, "day")
 
 	// API Key 统计
 	if err := scanSingleRow(
@@ -445,13 +450,13 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
-		WHERE user_id = $1 AND created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1)
+		WHERE user_id = $1 AND created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1) AND created_at < $2
 	`
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
 		totalStatsQuery,
-		[]any{userID},
+		[]any{userID, now},
 		&stats.TotalRequests,
 		&stats.TotalInputTokens,
 		&stats.TotalOutputTokens,
@@ -519,12 +524,12 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		FROM usage_logs ul
 		LEFT JOIN groups g ON g.id = ul.group_id
 		LEFT JOIN accounts a ON a.id = ul.account_id
-		WHERE ul.user_id = $1 AND ul.created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1)
+		WHERE ul.user_id = $1 AND ul.created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1) AND ul.created_at < $3
 		GROUP BY ` + usageLogEffectivePlatformExpr + `
 		HAVING ` + usageLogEffectivePlatformExpr + ` IS NOT NULL AND ` + usageLogEffectivePlatformExpr + ` <> ''
 		ORDER BY total_actual_cost DESC
 	`
-	rows, err := r.sql.QueryContext(ctx, platformQuery, userID, today)
+	rows, err := r.sql.QueryContext(ctx, platformQuery, userID, today, now)
 	if err != nil {
 		return nil, err
 	}
@@ -575,18 +580,22 @@ func (r *usageLogRepository) getPerformanceStatsByAPIKey(ctx context.Context, ap
 
 // GetAPIKeyDashboardStats 获取指定 API Key 的仪表盘统计（按 api_key_id 过滤）
 func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	return r.getAPIKeyDashboardStatsAt(ctx, apiKeyID, timezone.Now())
+}
+
+func (r *usageLogRepository) getAPIKeyDashboardStatsAt(ctx context.Context, apiKeyID int64, now time.Time) (*UserDashboardStats, error) {
 	if needsUsageSnapshot(r) {
 		return usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) (*UserDashboardStats, error) {
-			stats, err := snapshot.GetAPIKeyDashboardStats(ctx, apiKeyID)
+			stats, err := snapshot.getAPIKeyDashboardStatsAt(ctx, apiKeyID, now)
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = c.metadataFor(c.rawHistoryComplete())
+			stats.Coverage = c.rawSummaryMetadata(now)
 			return stats, nil
 		})
 	}
 	stats := &UserDashboardStats{}
-	today := timezone.Today()
+	today := bucketFloor(now, "day")
 
 	// API Key 维度不需要统计 key 数量，设为 1
 	stats.TotalAPIKeys = 1
@@ -604,13 +613,13 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
 		FROM usage_logs
-		WHERE api_key_id = $1 AND created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1)
+		WHERE api_key_id = $1 AND created_at >= (SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id=1) AND created_at < $2
 	`
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
 		totalStatsQuery,
-		[]any{apiKeyID},
+		[]any{apiKeyID, now},
 		&stats.TotalRequests,
 		&stats.TotalInputTokens,
 		&stats.TotalOutputTokens,

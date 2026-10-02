@@ -41,7 +41,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, unknown>) => key + (params ? ':' + JSON.stringify(params) : '')
     })
   }
 })
@@ -55,6 +55,7 @@ const formatLocalDate = (date: Date): string => {
 
 const createDashboardStats = (): DashboardStats => ({
   total_users: 0,
+  coverage: { complete: true, raw_retained_from: '2026-01-01T00:00:00Z', published_before: '', timezone: 'UTC', projection_version: 2 },
   today_new_users: 0,
   active_users: 0,
   hourly_active_users: 0,
@@ -117,6 +118,50 @@ describe('admin DashboardView', () => {
       start_date: '',
       end_date: ''
     })
+  })
+
+  it.each(['all_time', 'retained', 'range', 'unknown', 'legacy'] as const)('labels %s counters and their average', async scope => {
+    const coverage = { complete: scope === 'all_time', retained_complete: scope === 'retained', range_complete: scope === 'range',
+      window_from: '2026-09-11T16:00:00Z', window_until: '2026-10-02T05:00:00Z', timezone: 'Asia/Shanghai',
+      raw_retained_from: '2026-09-11T16:00:00Z', published_before: '', projection_version: 2, reason: 'history_before_coverage_floor_unverified' }
+    getSnapshotV2.mockResolvedValueOnce({ stats: { ...createDashboardStats(), total_requests: 987654, coverage: scope === 'legacy' ? undefined : coverage }, trend: [], models: [] })
+    const wrapper = mount(DashboardView, { props: { timeZone: 'Asia/Shanghai' }, global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true, Icon: true, DateRangePicker: true,
+      Select: true, ModelDistributionChart: true, TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).not.toContain('history_before_coverage_floor_unverified')
+    if (scope === 'unknown' || scope === 'legacy') {
+      expect(text).toContain('dashboard.scopeUnknown'); expect(text).not.toContain('987,654')
+    } else {
+      expect(text).toContain('987,654'); expect(text).toContain('0ms')
+      if (scope !== 'all_time') {
+        expect(text).toContain(scope === 'range' ? 'dashboard.scopeRange' : 'dashboard.scopeRetained')
+        expect(text).toContain('2026-09-12 00:00')
+        expect(text).toContain('2026-10-02 13:00')
+        expect(text).not.toContain('T16:00:00Z')
+      }
+    }
+    wrapper.unmount()
+  })
+
+  it('keeps loading and failed overview requests separate from unknown coverage', async () => {
+    let rejectQuery!: (error: Error) => void
+    getSnapshotV2.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectQuery = reject }))
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true, Icon: true, DateRangePicker: true,
+      Select: true, ModelDistributionChart: true, TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'LoadingSpinner' }).exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('dashboard.scopeUnknown')
+    rejectQuery(new Error('Synthetic overview failure'))
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'LoadingSpinner' }).exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('dashboard.scopeUnknown')
+    expect(wrapper.getComponent({ name: 'UsageStatsState' }).props('state')).toBe('error')
+    wrapper.unmount()
   })
 
   it('hides unverified historical totals and keeps independently returned entities and today values', async () => {

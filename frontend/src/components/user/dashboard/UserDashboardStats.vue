@@ -1,4 +1,5 @@
 <template>
+  <p v-if="summaryScope !== 'all_time'" class="text-xs text-gray-500 dark:text-gray-400" data-testid="summary-scope">{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
   <!-- Row 1: Core Stats -->
   <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <!-- Balance -->
@@ -40,7 +41,7 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayRequests') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.today_requests || 0 }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ stats?.coverage?.complete === false ? '—' : formatNumber(stats?.total_requests || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}</p>
         </div>
       </div>
     </div>
@@ -58,9 +59,9 @@
             <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ formatCost(stats?.today_cost) }}</span>
           </p>
           <p class="text-xs">
-            <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats?.total_actual_cost) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats?.total_cost) }}</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ summaryLabel }}: </span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_actual_cost) }}</span>
+            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_cost) }}</span>
           </p>
         </div>
       </div>
@@ -90,9 +91,9 @@
           <Icon name="database" size="md" class="text-indigo-600 dark:text-indigo-400" :stroke-width="2" />
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalTokens') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ summaryScope === 'all_time' ? t('dashboard.totalTokens') : summaryLabel + ' · Token' }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_input_tokens) }} / {{ t('dashboard.output') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_output_tokens) }} / {{ t('dashboard.cache') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens((stats.total_cache_creation_tokens) + (stats.total_cache_read_tokens)) }}</p>
         </div>
       </div>
     </div>
@@ -125,8 +126,8 @@
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.coverage?.complete === false ? '—' : formatDuration(stats?.average_duration_ms || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.averageTime') }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}</p>
         </div>
       </div>
     </div>
@@ -158,7 +159,7 @@
             {{ item.isOther ? t('dashboard.platformOther') : platformLabel(item.platform) }}
           </span>
           <span class="font-mono text-sm text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">
-            {{ stats?.coverage?.complete === false ? '—' : `$${formatCost(item.total_actual_cost)}` }}
+            {{ summaryScope === 'unknown' ? '—' : `$${formatCost(item.total_actual_cost)}` }}
           </span>
         </div>
         <div class="mt-2 space-y-1 text-xs">
@@ -169,13 +170,13 @@
           <div class="flex items-center justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.requests') }}</span>
             <span class="font-mono text-gray-700 dark:text-gray-300">
-              {{ stats?.coverage?.complete === false ? '—' : formatNumber(item.total_requests) }}
+              {{ summaryScope === 'unknown' ? '—' : formatNumber(item.total_requests) }}
             </span>
           </div>
           <div class="flex items-center justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.tokens') }}</span>
             <span class="font-mono text-gray-700 dark:text-gray-300">
-              {{ stats?.coverage?.complete === false ? '—' : formatTokens(item.total_tokens) }}
+              {{ summaryScope === 'unknown' ? '—' : formatTokens(item.total_tokens) }}
             </span>
           </div>
         </div>
@@ -225,6 +226,9 @@
 </template>
 
 <script setup lang="ts">
+import { usageScope } from '@/utils/usageScope'
+import { formatReportDateTime, resolveReportTimeZone } from '@/utils/format'
+
 import { formatBalanceAmount, formatLedgerAmount } from '@/utils/money'
 import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { computed } from 'vue'
@@ -244,12 +248,23 @@ interface FusedPlatformCard {
 }
 
 const props = defineProps<{
+  timeZone?: string
   stats: UserStatsType
   balance: number
   isSimple: boolean
   platformQuotas?: PlatformQuotaItem[] | null
 }>()
 const { t } = useI18n()
+const summaryScope = computed(() => usageScope(props.stats?.coverage))
+const summaryLabel = computed(() => summaryScope.value === 'all_time' ? t('common.total')
+  : t('dashboard.' + (summaryScope.value === 'retained' ? 'scopeRetained' : summaryScope.value === 'range' ? 'scopeRange' : 'scopeUnknown')))
+const summaryWindow = computed(() => {
+  const coverage = props.stats?.coverage
+  if (!coverage?.window_from || !coverage.window_until || !['retained', 'range'].includes(summaryScope.value)) return ''
+  const zone = props.timeZone || props.stats?.coverage?.timezone || resolveReportTimeZone()
+  return t('dashboard.scopeFrom', { start: formatReportDateTime(coverage.window_from, zone) }) + ' · '
+    + t('dashboard.scopeUntil', { end: formatReportDateTime(coverage.window_until, zone) })
+})
 
 // 平台名统一取自共享词条表 admin.accounts.platforms.*（getPlatformLabel），
 // 避免本页自建一份缺平台的名表后回落到机器 id。

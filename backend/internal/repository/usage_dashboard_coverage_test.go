@@ -11,6 +11,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRetainedSummaryCoverage(test *testing.T) {
+	previous := timezone.Name()
+	require.NoError(test, timezone.Init("Asia/Shanghai"))
+	test.Cleanup(func() { require.NoError(test, timezone.Init(previous)) })
+	floor := time.Date(2026, 9, 12, 0, 0, 0, 0, timezone.Location())
+	now := floor.AddDate(0, 0, 20).Add(13 * time.Hour)
+	base := dashboardCoverage{raw: floor, daily: sql.NullTime{Time: floor, Valid: true}, published: now.Add(-time.Hour), zone: timezone.Name(), version: 2}
+	for _, scenario := range []struct {
+		name   string
+		change func(*dashboardCoverage)
+		from   time.Time
+		valid  bool
+	}{
+		{"unknown origin", func(*dashboardCoverage) {}, floor, true},
+		{"archive earlier", func(coverage *dashboardCoverage) { coverage.raw = floor.AddDate(0, 0, 2) }, floor, true},
+		{"raw earlier", func(coverage *dashboardCoverage) { coverage.daily.Time = floor.AddDate(0, 0, 2) }, floor, true},
+		{"dirty gap", func(coverage *dashboardCoverage) {
+			coverage.raw = floor.AddDate(0, 0, 2)
+			coverage.dirty = sql.NullTime{Time: floor.AddDate(0, 0, 1), Valid: true}
+		}, time.Time{}, false},
+		{"timezone mismatch raw only", func(coverage *dashboardCoverage) { coverage.zone = "UTC"; coverage.raw = floor.AddDate(0, 0, 2) }, floor.AddDate(0, 0, 2), true},
+		{"projection mismatch raw only", func(coverage *dashboardCoverage) { coverage.version = 1; coverage.raw = floor.AddDate(0, 0, 2) }, floor.AddDate(0, 0, 2), true},
+		{"no archive", func(coverage *dashboardCoverage) { coverage.daily = sql.NullTime{} }, floor, true},
+		{"future floor", func(coverage *dashboardCoverage) { coverage.daily = sql.NullTime{}; coverage.raw = now.Add(time.Hour) }, time.Time{}, false},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			coverage := base
+			scenario.change(&coverage)
+			metadata := coverage.summaryMetadata(bucketFloor(now, "day"), now)
+			require.False(test, metadata.Complete)
+			require.Equal(test, scenario.valid, metadata.RetainedComplete)
+			if scenario.valid {
+				require.Equal(test, scenario.from, *metadata.WindowFrom)
+				require.Equal(test, now, *metadata.WindowUntil)
+				require.Empty(test, metadata.Reason)
+			} else {
+				require.Nil(test, metadata.WindowFrom)
+				require.Nil(test, metadata.WindowUntil)
+				require.NotEmpty(test, metadata.Reason)
+			}
+		})
+	}
+}
+
 func TestUsageSnapshotRequiresDatabasePool(t *testing.T) {
 	for _, repo := range []*usageLogRepository{{}, {sql: (*sql.DB)(nil)}} {
 		_, err := usageReadSnapshot(context.Background(), repo, func(*usageLogRepository, dashboardCoverage) (int, error) {

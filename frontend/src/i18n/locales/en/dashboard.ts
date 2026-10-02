@@ -1,5 +1,11 @@
 export default {
   dashboard: {
+    scopeRetained: 'Retained total',
+    scopeRange: 'Range total',
+    scopeUnknown: 'Retained total cannot be verified',
+    scopeFrom: 'From {start}',
+    scopeUntil: 'Through {end}',
+
 
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",

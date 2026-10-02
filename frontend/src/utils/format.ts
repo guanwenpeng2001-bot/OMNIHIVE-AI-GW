@@ -273,6 +273,18 @@ export function resolveReportTimeZone(explicit?: string): string {
   }
 }
 
+/** Human-readable instant in the same zone as the report, without raw ISO text. */
+export function formatReportDateTime(value: string, timeZone: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: resolveReportTimeZone(timeZone), year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date)
+  const part = (type: string) => parts.find(item => item.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:${part('minute')}`
+}
+
 export function formatReportDateInput(date: Date, timeZone: string): string {
   if (Number.isNaN(date.getTime())) return ''
   const parts = new Intl.DateTimeFormat('en', {

@@ -28,6 +28,12 @@ func NormalizeModelSource(source string) string {
 // DashboardStats 仪表盘统计
 // Coverage records verified data availability, independently of monetary totals.
 type Coverage struct {
+	// Complete is lifetime coverage; retained/range flags describe only the returned sum.
+	// Verified windows are half-open [WindowFrom, WindowUntil), shared by counts and duration.
+	RetainedComplete        bool       `json:"retained_complete"`
+	RangeComplete           bool       `json:"range_complete"`
+	WindowFrom              *time.Time `json:"window_from,omitempty"`
+	WindowUntil             *time.Time `json:"window_until,omitempty"`
 	HistoryKnownEmptyBefore *time.Time `json:"history_known_empty_before,omitempty"`
 	Complete                bool       `json:"complete"`
 	Reason                  string     `json:"reason,omitempty"`

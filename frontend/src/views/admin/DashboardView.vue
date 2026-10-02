@@ -9,6 +9,7 @@
 
       <UsageStatsState v-else-if="!stats" :state="chartError ? 'error' : 'unknown'" />
       <template v-else-if="stats">
+        <p v-if="summaryScope !== 'all_time'" class="text-xs text-gray-500 dark:text-gray-400" data-testid="summary-scope">{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total API Keys -->
@@ -70,7 +71,7 @@
                   {{ stats.today_requests }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('common.total') }}: {{ stats?.coverage?.complete === false ? '—' : formatNumber(stats.total_requests) }}
+                  {{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}
                 </p>
               </div>
             </div>
@@ -143,28 +144,28 @@
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.totalTokens') }}
+                  {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + ' · Token' }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats.total_tokens) }}
+                  {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}
                 </p>
                 <p class="text-xs">
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >{{ t('admin.dashboard.actual') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats.total_actual_cost) }}</span
+                    >{{ t('admin.dashboard.actual') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ stats?.coverage?.complete === false ? '—' : formatAccountCost(stats.total_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ summaryScope === 'unknown' ? '—' : formatAccountCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >{{ t('admin.dashboard.standard') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats.total_cost) }}</span
+                    >{{ t('admin.dashboard.standard') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_cost) }}</span
                   >
                 </p>
               </div>
@@ -208,8 +209,9 @@
                   {{ t('admin.dashboard.avgResponse') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats?.coverage?.complete === false ? '—' : formatDuration(stats.average_duration_ms) }}
+                  {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
                 </p>
+                <p v-if="summaryScope === 'retained' || summaryScope === 'range'" class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}</p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
                 </p>
@@ -355,9 +357,11 @@
 </template>
 
 <script setup lang="ts">
-import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
+import { usageScope } from '@/utils/usageScope'
+import { formatReportDateTime, resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
 import { isKnownAmount } from '@/utils/money'
 import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+
 const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
@@ -417,6 +421,17 @@ const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const stats = ref<DashboardStats | null>(null)
+const summaryScope = computed(() => usageScope(stats.value?.coverage))
+const summaryLabel = computed(() => summaryScope.value === 'all_time' ? t('common.total')
+  : t('dashboard.' + (summaryScope.value === 'retained' ? 'scopeRetained' : summaryScope.value === 'range' ? 'scopeRange' : 'scopeUnknown')))
+const summaryWindow = computed(() => {
+  const coverage = stats.value?.coverage
+  if (!coverage?.window_from || !coverage.window_until || !['retained', 'range'].includes(summaryScope.value)) return ''
+  const zone = reportTimeZone
+  return t('dashboard.scopeFrom', { start: formatReportDateTime(coverage.window_from, zone) }) + ' · '
+    + t('dashboard.scopeUntil', { end: formatReportDateTime(coverage.window_until, zone) })
+})
+
 const loading = ref(false)
 const chartsLoading = ref(false)
 const userTrendLoading = ref(false)

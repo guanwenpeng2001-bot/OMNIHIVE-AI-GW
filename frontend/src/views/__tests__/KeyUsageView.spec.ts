@@ -105,7 +105,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: Record<string, unknown>) => (messages[key] ?? key) + (params ? ':' + JSON.stringify(params) : ''),
       locale: { value: 'en' },
     }),
   }
@@ -203,6 +203,54 @@ describe('KeyUsageView daily detail', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.unstubAllGlobals()
+  })
+
+  it.each(['all_time', 'retained', 'range', 'unknown', 'legacy'] as const)('shows the %s scope for key totals', async scope => {
+    const response = await vi.mocked(fetch)('/fixture')
+    const payload = await response.json()
+    payload.usage.total.requests = 987654
+    payload.usage.average_duration_ms = 0
+    payload.usage.coverage = scope === 'legacy' ? undefined : {
+      complete: scope === 'all_time', retained_complete: scope === 'retained', range_complete: scope === 'range',
+      window_from: '2026-09-11T16:00:00Z', window_until: '2026-10-02T05:00:00Z', timezone: 'Asia/Shanghai',
+      reason: 'history_before_coverage_floor_unverified'
+    }
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => payload } as Response)
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    const text = wrapper.text()
+    expect(text).not.toContain('history_before_coverage_floor_unverified')
+    if (scope === 'unknown' || scope === 'legacy') {
+      expect(text).toContain('keyUsage.scopeUnknown'); expect(text).not.toContain('987,654')
+    } else {
+      expect(text).toContain('987,654'); expect(text).toContain('0 ms')
+      if (scope !== 'all_time') {
+        expect(text).toContain(scope === 'range' ? 'keyUsage.scopeRange' : 'keyUsage.scopeRetained')
+        expect(text).not.toContain('Total Requests')
+        expect(text).toContain('2026-09-12 00:00')
+        expect(text).toContain('2026-10-02 13:00')
+        expect(text).not.toContain('T16:00:00Z')
+      } else expect(text).toContain('Total Requests')
+    }
+    wrapper.unmount()
+  })
+
+  it('keeps pending and failed key queries separate from unknown coverage', async () => {
+    let rejectQuery!: (error: Error) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectQuery = reject }))
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    expect(wrapper.find('.skeleton').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('keyUsage.scopeUnknown')
+    rejectQuery(new Error('Synthetic query failure'))
+    await flushPromises()
+    expect(wrapper.find('.skeleton').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('keyUsage.scopeUnknown')
+    expect(showError).toHaveBeenCalledWith('Synthetic query failure')
+    wrapper.unmount()
   })
 
   it('renders daily usage detail rows after a successful query', async () => {
