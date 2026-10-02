@@ -39,6 +39,7 @@ func TestChatOnlyPlatformTextCellsReachOnlyBoundAdapters(t *testing.T) {
 		"qianfan.video.generate", "qianfan.video.status", "qianfan.video.content", "qianfan.video.cancel",
 		"qianfan.audio.tts", "qianfan.voice", "qianfan.search",
 		"mistral.embeddings", "mistral.audio.stt", "mistral.audio.tts", "mistral.voice",
+		"openrouter.image.generate", "openrouter.embeddings", "openrouter.rerank", "openrouter.audio.stt", "openrouter.audio.tts", "openrouter.video.generate", "openrouter.video.status", "openrouter.video.content",
 		"grok.video.generate", "gateway.messages", "gateway.generate_content_compat",
 	} {
 		handlers[adapter] = record(adapter)

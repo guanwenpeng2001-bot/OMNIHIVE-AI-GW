@@ -171,6 +171,10 @@ func (h *OpenAIGatewayHandler) OpenAIAudioTranslations(c *gin.Context) {
 // it to the shared upstream job trunk. Submission is idempotent on the caller's
 // body, so a retry resolves the same durable job instead of a second video.
 func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action string) {
+	h.handleVideoSubmit(c, action, service.PlatformOpenAI)
+}
+
+func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platform string) {
 	streamStarted := false
 	requestStart := time.Now()
 
@@ -209,6 +213,12 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 	// The documented create body defaults to sora-2, the only priced family the
 	// adapter accepts; the same default keeps account selection on that family.
 	requestModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	if platform == service.PlatformOpenRouter {
+		if err := service.ValidateOpenRouterVideoRequest(body); err != nil {
+			h.errorResponse(c, 400, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	if requestModel == "" {
 		requestModel = "sora-2"
 	}
@@ -236,6 +246,12 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 		billableSeconds = seconds
 	}
 
+	if platform == service.PlatformOpenRouter {
+		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+		if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
+			return
+		}
+	}
 	setOpsRequestContext(c, requestModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 	// Video prompts are moderated through the same media protocol the Grok media
@@ -272,7 +288,7 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	account, accountRelease, ok := h.selectOpenAIMediaAccount(c, apiKey, reqLog, sessionHash, requestModel)
+	account, accountRelease, ok := h.selectAPIKeyMediaAccount(c, apiKey, reqLog, sessionHash, requestModel, platform)
 	if !ok {
 		return
 	}
@@ -283,7 +299,13 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 
 	// The tariff is frozen after selection: the mapped model, the resolution
 	// tier and the group price all belong to the account that will serve the job.
-	billing, err := service.OpenAIVideoBillingSnapshot(apiKey.Group, account, apiKey, body, subscription, source)
+	var billing service.UpstreamJobBilling
+	var err error
+	if platform == service.PlatformOpenRouter {
+		billing = h.gatewayService.OpenRouterVideoBillingSnapshot(c.Request.Context(), apiKey.Group, account, apiKey, body, subscription)
+	} else {
+		billing, err = service.OpenAIVideoBillingSnapshot(apiKey.Group, account, apiKey, body, subscription, source)
+	}
 	if err != nil {
 		h.errorResponse(c, http.StatusUnprocessableEntity, "unsupported_operation_error", err.Error())
 		return
@@ -305,9 +327,11 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 
 	// Preserve the existing selection and tariff checks, then give the child
 	// submission its TPM repository and scope before it can contact upstream.
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+	if platform != service.PlatformOpenRouter {
+		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+	}
 	template := &service.UpstreamJob{
-		Platform:  service.PlatformOpenAI,
+		Platform:  platform,
 		Family:    "video",
 		AccountID: account.ID,
 		UserID:    apiKey.UserID,
@@ -316,7 +340,13 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 		Billing:   billing,
 	}
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
-		update, submitErr := h.gatewayService.SubmitOpenAIVideo(ctx, account, action, contentType, upstreamBody, billing.Model, billableSeconds)
+		var update service.UpstreamJobUpdate
+		var submitErr error
+		if platform == service.PlatformOpenRouter {
+			update, submitErr = h.gatewayService.SubmitOpenRouterVideo(ctx, account, upstreamBody, billing.Model)
+		} else {
+			update, submitErr = h.gatewayService.SubmitOpenAIVideo(ctx, account, action, contentType, upstreamBody, billing.Model, billableSeconds)
+		}
 		if submitErr != nil {
 			reqLog.Warn("openai_video.adapter_submit_failed", zap.Int64("account_id", account.ID), zap.Error(submitErr))
 		}
@@ -348,6 +378,10 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 // handleOpenAIVideoRead resolves one owner-bound video job and either renders
 // its durable state or streams its settled content.
 func (h *OpenAIGatewayHandler) handleOpenAIVideoRead(c *gin.Context, content bool) {
+	h.handleVideoRead(c, content, service.PlatformOpenAI)
+}
+
+func (h *OpenAIGatewayHandler) handleVideoRead(c *gin.Context, content bool, platform string) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
@@ -361,13 +395,13 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoRead(c *gin.Context, content boo
 		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Video jobs are unavailable")
 		return
 	}
-	job, ok := h.resolveOpenAIVideoJob(c, apiKey, reqLog)
+	job, ok := h.resolveVideoJob(c, apiKey, reqLog, platform)
 	if !ok {
 		return
 	}
 	setOpsRequestContext(c, openAIVideoClientModel(job), false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
-	setOpsSelectedAccount(c, job.AccountID, service.PlatformOpenAI)
+	setOpsSelectedAccount(c, job.AccountID, platform)
 	if !content {
 		c.JSON(http.StatusOK, openAIVideoJobObject(job))
 		return
@@ -376,7 +410,17 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoRead(c *gin.Context, content boo
 		h.errorResponse(c, http.StatusConflict, "resource_not_ready", "Video content is not ready")
 		return
 	}
-	response, err := h.gatewayService.OpenOpenAIVideoContent(c.Request.Context(), job)
+	var response *http.Response
+	var err error
+	if platform == service.PlatformOpenRouter {
+		if index := c.Query("index"); index != "" && index != "0" {
+			h.errorResponse(c, 400, "invalid_request_error", "Only the primary video artifact is supported")
+			return
+		}
+		response, err = h.gatewayService.OpenOpenRouterVideoContent(c.Request.Context(), job)
+	} else {
+		response, err = h.gatewayService.OpenOpenAIVideoContent(c.Request.Context(), job)
+	}
 	if err != nil {
 		reqLog.Warn("openai_video.content_failed", zap.String("request_id", job.PublicRequestID), zap.Error(err))
 		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Video content unavailable")
@@ -397,8 +441,12 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoRead(c *gin.Context, content boo
 // resolveOpenAIVideoJob resolves one video job for the requesting user and key.
 // An unknown, foreign or non-video id is indistinguishable from a missing one.
 func (h *OpenAIGatewayHandler) resolveOpenAIVideoJob(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger) (*service.UpstreamJob, bool) {
+	return h.resolveVideoJob(c, apiKey, reqLog, service.PlatformOpenAI)
+}
+
+func (h *OpenAIGatewayHandler) resolveVideoJob(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger, platform string) (*service.UpstreamJob, bool) {
 	job, err := h.upstreamJobs.Get(c.Request.Context(), c.Param("request_id"), apiKey.UserID, apiKey.ID)
-	if err != nil || job == nil || job.Platform != service.PlatformOpenAI || job.Family != "video" {
+	if err != nil || job == nil || job.Platform != platform || job.Family != "video" {
 		reqLog.Debug("openai_video.lookup_miss", zap.Error(err))
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Video not found")
 		return nil, false
@@ -441,6 +489,9 @@ func (h *OpenAIGatewayHandler) resolveOpenAIVideoSource(c *gin.Context, apiKey *
 // account is held for the duration of the submit through the same slot the
 // other media ingresses acquire.
 func (h *OpenAIGatewayHandler) selectOpenAIMediaAccount(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger, sessionHash, requestedModel string) (*service.Account, func(), bool) {
+	return h.selectAPIKeyMediaAccount(c, apiKey, reqLog, sessionHash, requestedModel, service.PlatformOpenAI)
+}
+func (h *OpenAIGatewayHandler) selectAPIKeyMediaAccount(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger, sessionHash, requestedModel, platform string) (*service.Account, func(), bool) {
 	excluded := map[int64]struct{}{}
 	for attempt := 0; attempt < openAIMediaIngressAccountAttempts; attempt++ {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -455,11 +506,11 @@ func (h *OpenAIGatewayHandler) selectOpenAIMediaAccount(c *gin.Context, apiKey *
 			false,
 			false,
 			false,
-			service.PlatformOpenAI,
+			platform,
 		)
 		if err != nil || selection == nil || selection.Account == nil {
 			reqLog.Warn("openai_media.account_select_failed", zap.Error(err), zap.Int("excluded_account_count", len(excluded)))
-			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No OpenAI account is available for this action")
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No API-key media account is available for this action")
 			return nil, nil, false
 		}
 		streamStarted := false
@@ -475,7 +526,7 @@ func (h *OpenAIGatewayHandler) selectOpenAIMediaAccount(c *gin.Context, apiKey *
 		}
 		excluded[selection.Account.ID] = struct{}{}
 	}
-	h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No OpenAI account is available for this action")
+	h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No API-key media account is available for this action")
 	return nil, nil, false
 }
 
@@ -560,6 +611,13 @@ func openAIVideoJobObject(job *service.UpstreamJob) gin.H {
 		}
 		if size := gjson.GetBytes(job.UsageJSON, "size"); size.Exists() {
 			object["size"] = size.String()
+		}
+	}
+	if job.Platform == service.PlatformOpenRouter {
+		object["pricing_state"] = job.Billing.PricingState
+		if job.Status == "succeeded" && job.ErrorCode == "settlement_needs_review" {
+			object["billing_status"] = "needs_review"
+			return object
 		}
 	}
 	if job.ErrorCode != "" {
