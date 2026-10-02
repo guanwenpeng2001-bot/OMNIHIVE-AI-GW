@@ -427,6 +427,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// treating the 400 as a hard failure / failover trigger.
 	var resp *http.Response
 	rejectedFieldRetry := openAIResponsesRejectedFieldRetryStateForRequest(c, responsesBody)
+	rejectedFieldRetryOrdinal := 0
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 && account.Platform == PlatformGrok {
 			upstreamCtxRetry, releaseRetry := detachUpstreamContext(ctx)
@@ -453,7 +454,8 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 				upstreamReq.Body = io.NopCloser(bytes.NewReader(retryBody))
 				upstreamReq.ContentLength = int64(len(retryBody))
 				upstreamReq.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(retryBody)), nil }
-				logger.L().Info("openai messages: retrying rejected Responses field", zap.String("reason", reason), zap.Int64("account_id", account.ID))
+				rejectedFieldRetryOrdinal++
+				logOpenAIRejectedFieldRetry(c, account.ID, resp.StatusCode, rejectedFieldRetryOrdinal, reason)
 				continue
 			}
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
