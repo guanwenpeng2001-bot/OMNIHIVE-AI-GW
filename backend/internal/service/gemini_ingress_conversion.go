@@ -148,7 +148,10 @@ func GeminiToMessages(body []byte, model string, stream bool) ([]byte, error) {
 					return nil, fmt.Errorf("part text must be a string")
 				}
 				if part["thought"] == true {
-					return nil, fmt.Errorf("Gemini thought replay cannot be authenticated by another provider")
+					if role != "assistant" || strings.TrimSpace(text) == "" {
+						return nil, fmt.Errorf("Gemini thought replay cannot be authenticated by another provider")
+					}
+					blocks = append(blocks, map[string]any{"type": "thinking", "thinking": text})
 				} else {
 					blocks = append(blocks, map[string]any{"type": "text", "text": text})
 				}
