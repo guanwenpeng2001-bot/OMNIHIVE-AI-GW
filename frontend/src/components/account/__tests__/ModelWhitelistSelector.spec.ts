@@ -682,14 +682,16 @@ describe('explicit preview adoption', () => {
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
-  it('rejects alias collisions explicitly without replacing aliases or selection', async () => {
+  it('skips configured alias keys while adding other preview IDs without replacing targets', async () => {
     syncUpstreamModelsPreview.mockResolvedValueOnce(completePreview)
     const wrapper = mountSelector({ syncCredentials: { platform: 'openai', api_key: 'key' }, modelMappings: [{ from: 'new-id', to: 'alias-target' }] })
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
-    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(wrapper.get('[role="alert"]').text()).toContain('admin.accounts.modelValidation.conflictingTarget')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['Second.Case/ID']]])
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    expect(wrapper.props('modelMappings')).toEqual([{ from: 'new-id', to: 'alias-target' }])
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     wrapper.unmount()
   })
   it('keeps catalog-only views without a selection owner read-only', async () => {

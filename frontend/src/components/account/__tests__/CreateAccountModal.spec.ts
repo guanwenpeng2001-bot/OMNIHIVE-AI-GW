@@ -88,6 +88,7 @@ import AccountProxySelector from '@/components/common/AccountProxySelector.vue'
 vi.mock('@/api/admin/proxyGroups', () => ({ proxyGroupsAPI: { list: vi.fn().mockResolvedValue({ items: [], total: 0 }), get: vi.fn().mockRejectedValue(new Error('unavailable')) } }))
 import { apiClient } from '@/api/client'
 import { accountsAPI } from '@/api/admin/accounts'
+import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
 import zhAdminAccounts from '@/i18n/locales/zh/admin/accounts'
 import type { CreateAccountRequest } from '@/types'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
@@ -1095,6 +1096,32 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload?.upstream_billing_probe_enabled).toBe(true)
     // 创建成功后前端立即发起一次首探（与其他 apikey 平台一致）。
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+  })
+
+  it('seeds Antigravity identity presets into the shared selection and preserves review aliases', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([{ platform: 'antigravity', models: [{ id: 'Preset/Exact' }] }] as any)
+    const wrapper = mountModal([], true)
+    await selectButtonByText(wrapper, 'Antigravity')
+    await flushPromises()
+    await selectButtonByText(wrapper, 'admin.accounts.types.antigravityApikey')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Antigravity preset fixture')
+    await wrapper.get('input[placeholder="https://cloudcode-pa.googleapis.com"]').setValue('https://relay.example')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await openReview(wrapper)
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('modelValue')).toEqual(['Preset/Exact'])
+    expect(selector.props('modelMappings')).toEqual([])
+    selector.vm.$emit('update:modelMappings', [{ from: 'Alias', to: 'PrivateTarget' }, { from: 'family-*', to: 'FamilyTarget' }])
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(selector.props('modelValue')).toEqual(['Preset/Exact'])
+    expect(wrapper.get('[data-testid="selected-models"]').text()).not.toContain('public-glm')
+    await confirmReview(wrapper)
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'Preset/Exact': 'Preset/Exact', Alias: 'PrivateTarget', 'family-*': 'FamilyTarget' })
+    wrapper.unmount()
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([])
   })
 
   it('leaves Codex session import billing ownership to the backend', async () => {

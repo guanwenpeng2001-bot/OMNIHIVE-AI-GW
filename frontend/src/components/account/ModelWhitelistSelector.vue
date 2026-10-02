@@ -5,8 +5,7 @@
     </p>
     <div v-if="!catalogOnly" class="mb-4 space-y-1">
       <p data-testid="configured-model-summary" class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.modelSync.configuredSelection', { direct: selectedModels.length, mappings: modelMappings?.length ?? 0, wildcards: wildcardCount }) }}</p>
-      <p v-if="!modelValue.length && modelMappings?.length" class="input-hint">{{ t('admin.accounts.supportsAllModels') }}</p>
-      <p v-if="!modelValue.length && !modelMappings?.length" class="input-hint">{{ t('admin.accounts.modelSync.emptySelection') }}</p>
+      <p v-if="!configuredModels.length" class="input-hint">{{ t('admin.accounts.modelSync.emptySelection') }}</p>
     </div>
     <!-- Candidate sources never replace the current configuration. -->
     <div class="mb-4 flex flex-wrap gap-2">
@@ -56,7 +55,7 @@
       <div
         class="cursor-pointer rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
       >
-        <div v-if="modelValue.length" data-testid="selected-models" class="flex max-h-[min(12rem,30vh)] flex-wrap gap-1.5 overflow-y-auto">
+        <div v-if="configuredModels.length" data-testid="selected-models" class="flex max-h-[min(12rem,30vh)] flex-wrap gap-1.5 overflow-y-auto">
           <section v-for="group in selectedGroups" :key="group.category" :data-model-category="group.category" class="w-full space-y-1">
             <h3 class="text-xs font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
           <span
@@ -66,7 +65,7 @@
           >
             <span class="flex min-w-0 items-center gap-1">
               <ModelIcon :model="model" size="14px" />
-              <span class="min-w-0 break-all">{{ modelDisplayName(model) }}<small v-if="modelDisplayName(model) !== model" class="block text-secondary">{{ model }}</small><small class="block">{{ modelSource(model) }}</small></span>
+              <span class="min-w-0 break-all">{{ mappingTargets.has(model) ? model : modelDisplayName(model) }}<small v-if="!mappingTargets.has(model) && modelDisplayName(model) !== model" class="block text-secondary">{{ model }}</small><small v-for="target in mappingTargets.get(model)" :key="target" class="block text-secondary">→ {{ target }}</small><small class="block">{{ modelSource(model) }}</small></span>
             </span>
             <button
               type="button"
@@ -79,7 +78,7 @@
           </span>
           </section>
         </div>
-        <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="flex w-full items-center justify-between py-2" :class="{ 'mt-2 border-t border-gray-200 dark:border-dark-600': modelValue.length }">
+        <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="flex w-full items-center justify-between py-2" :class="{ 'mt-2 border-t border-gray-200 dark:border-dark-600': configuredModels.length }">
           <span class="text-xs text-secondary">{{ t('admin.accounts.modelSync.expandModels') }}</span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -119,19 +118,19 @@
               <button
                 type="button"
                 data-testid="select-model"
-                :aria-pressed="modelValue.includes(model.value)"
+                :aria-pressed="configuredModelKeys.has(model.value)"
                 class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm"
                 @click="toggleModel(model.value)"
               >
                 <span
                   :class="[
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                    modelValue.includes(model.value)
+                    configuredModelKeys.has(model.value)
                       ? 'border-primary-500 bg-primary-500 text-white'
                       : 'border-gray-300 dark:border-dark-500'
                   ]"
                 >
-                  <svg v-if="modelValue.includes(model.value)" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg v-if="configuredModelKeys.has(model.value)" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                   </svg>
                 </span>
@@ -364,7 +363,7 @@ watch(() => [props.accountId, props.active], async () => {
 }, { immediate: true })
 watch(selectionFingerprint, () => { selectionSaveFailed.value = false })
 const previewModels = computed(() => [...new Set((syncResult.value?.candidate_models ?? syncResult.value?.discovered_models ?? []).map(model => model.trim()).filter(Boolean))])
-const previewAdditions = computed(() => previewModels.value.filter(model => !props.modelValue.includes(model)))
+const previewAdditions = computed(() => previewModels.value.filter(model => !configuredModelKeys.value.has(model)))
 const canAddPreview = computed(() => props.active && (!props.catalogOnly || props.catalogSelectionEnabled) && !!syncResult.value &&
   catalogState.value === 'ready' && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
 watch(selectionContext, () => {
@@ -531,7 +530,7 @@ const presetCount = computed(() => presetsLoaded.value && selectedPresets.value.
   && normalizedPlatforms.value.every(platform => selectedPresets.value.some(preset => preset.platform === platform))
   ? presetModels.value.length : null)
 const availableOptions = computed(() => {
-  return [...new Set([...props.modelValue, ...presetModels.value, ...catalog.value])].map(value => ({ value, label: value }))
+  return [...new Set([...configuredModels.value, ...presetModels.value, ...catalog.value])].map(value => ({ value, label: value }))
 })
 
 const displayMetadata = computed(() => {
@@ -546,8 +545,25 @@ const displayMetadata = computed(() => {
 })
 const modelDisplayName = (id: string) => displayMetadata.value[id]?.display_name?.trim() || id
 const selectedModels = computed(() => [...new Set(props.modelValue)])
+// Request keys are selected independently of their targets. Keep mapping rows in
+// the draft so showing a chip never converts an alias into an identity mapping.
+const configuredModelKeys = computed(() => new Set([
+  ...props.modelValue.map(model => model.trim()),
+  ...(props.modelMappings ?? []).map(mapping => mapping.from.trim())
+].filter(Boolean)))
+const configuredModels = computed(() => [...configuredModelKeys.value])
+const mappingTargets = computed(() => {
+  const targets = new Map<string, string[]>()
+  for (const mapping of props.modelMappings ?? []) {
+    const from = mapping.from.trim()
+    const to = mapping.to.trim()
+    if (!from || from === to) continue
+    targets.set(from, [...new Set([...(targets.get(from) ?? []), to])])
+  }
+  return targets
+})
 const selectedGroups = computed(() => groupModelsByCategory(
-  filterModelDisplay(selectedModels.value, '', model => model, model => displayMetadata.value[model]), model => displayMetadata.value[model]))
+  filterModelDisplay(configuredModels.value, '', model => model, model => displayMetadata.value[model]), model => displayMetadata.value[model]))
 const filteredModels = computed(() => filterModelDisplay(availableOptions.value, searchQuery.value, model => model.value, model => displayMetadata.value[model.value]))
 const groupedModels = computed(() => limitModelGroups(groupModelsByCategory(filteredModels.value, model => displayMetadata.value[model.value]), optionLimit.value))
 const modelSource = (id: string) => {
@@ -558,7 +574,7 @@ const modelSource = (id: string) => {
   if (!sources.length) sources.push(t('admin.accounts.modelSync.manualSelection'))
   return sources.join(' · ')
 }
-const selectFilteredModels = () => emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value)])])
+const selectFilteredModels = () => emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value).filter(model => !configuredModelKeys.value.has(model))])])
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value
@@ -566,12 +582,17 @@ const toggleDropdown = () => {
 }
 
 const removeModel = (model: string) => {
-  if (props.modelValue.length === 1 && !props.modelMappings?.length) { confirmClear.value = true; return }
-  emit('update:modelValue', props.modelValue.filter(m => m !== model))
+  if (configuredModelKeys.value.size === 1) { confirmClear.value = true; return }
+  if (props.modelValue.some(value => value.trim() === model)) {
+    emit('update:modelValue', props.modelValue.filter(value => value.trim() !== model))
+  }
+  if (props.modelMappings?.some(mapping => mapping.from.trim() === model)) {
+    emit('update:modelMappings', props.modelMappings.filter(mapping => mapping.from.trim() !== model))
+  }
 }
 
 const toggleModel = (model: string) => {
-  if (props.modelValue.includes(model)) {
+  if (configuredModelKeys.value.has(model)) {
     removeModel(model)
   } else {
     emit('update:modelValue', [...props.modelValue, model])
@@ -585,7 +606,7 @@ const copyModelId = async (model: string) => {
 const addCustom = () => {
   const model = customModel.value.trim()
   if (!model) return
-  if (props.modelValue.includes(model)) {
+  if (configuredModelKeys.value.has(model)) {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
@@ -600,7 +621,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const model of presetModels.value) {
-    if (!newModels.includes(model)) newModels.push(model)
+    if (!configuredModelKeys.value.has(model) && !newModels.includes(model)) newModels.push(model)
   }
   emit('update:modelValue', newModels)
 }
