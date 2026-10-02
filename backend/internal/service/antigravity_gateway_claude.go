@@ -27,7 +27,7 @@ import (
 //	      └─ retryDelay <  7s → 等待后重试 1 次
 //	          ├─ 成功 → 正常返回
 //	          └─ 失败 → 设置模型限流 + 清除粘性绑定 → 切换账号
-func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte, isStickySession bool) (*ForwardResult, error) {
+func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte, isStickySession bool, options ...ForwardGeminiOption) (*ForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
 	// 上游透传账号直接转发，不走 OAuth token 刷新
 	if account.Type == AccountTypeUpstream {
@@ -35,6 +35,12 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	}
 
 	startTime := time.Now()
+	forwardOpts := forwardGeminiOptions{}
+	for _, apply := range options {
+		if apply != nil {
+			apply(&forwardOpts)
+		}
+	}
 
 	sessionID := getSessionID(c)
 	prefix := logPrefix(sessionID, account.Name)
@@ -57,6 +63,22 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeClaudeError(c, http.StatusForbidden, "permission_error", fmt.Sprintf("model %s not in whitelist", claudeReq.Model))
+	}
+	explicitThinkingLevel, err := geminiThinkingLevelFromMessagesEffort(body, mappedModel)
+	if err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+	}
+	if explicitThinkingLevel != "" {
+		effortModel := s.getMappedModelForThinkingLevel(account, originalModel, explicitThinkingLevel)
+		effortModel = geminiModelWithExplicitThinkingLevel(effortModel, explicitThinkingLevel)
+		// The legacy bare-model resolver may fall back to another level. Explicit
+		// effort cannot do that: require the exact variant without inventing
+		// availability from a suffix or from capability metadata. The normal send
+		// boundary still rechecks current authorization on every attempt.
+		if effortModel != mappedModel && !AccountSupportsResolvedModel(ctx, account, originalModel, AccountModelBindingOptions{FinalModel: effortModel, Endpoint: "generate_content"}) {
+			return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("output_config.effort %s cannot be represented by an available Antigravity model", explicitThinkingLevel))
+		}
+		mappedModel = effortModel
 	}
 	// 应用 thinking 模式自动后缀：如果 thinking 开启且目标是 claude-sonnet-4-5，自动改为 thinking 版本
 	thinkingEnabled := claudeReq.Thinking != nil && (claudeReq.Thinking.Type == "enabled" || claudeReq.Thinking.Type == "adaptive")
@@ -93,8 +115,11 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 	transformOpts.EnableIdentityPatch = true // 强制启用，Antigravity 上游必需
 
 	// 转换 Claude 请求为 Gemini 格式
-	geminiBody, err := antigravity.TransformClaudeToGeminiWithOptions(&claudeReq, projectID, mappedModel, transformOpts)
+	geminiBody, err := transformClaudeToGeminiWithThinkingLevel(&claudeReq, projectID, mappedModel, explicitThinkingLevel, transformOpts)
 	if err != nil {
+		if err == errAntigravityEffortModelChanged {
+			return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		}
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request")
 	}
 
@@ -118,8 +143,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		handleError:     s.handleUpstreamError,
 		requestedModel:  originalModel,
 		isStickySession: isStickySession, // Forward 由上层判断粘性会话
-		groupID:         0,               // Forward 方法没有 groupID，由上层处理粘性会话清除
-		sessionHash:     "",              // Forward 方法没有 sessionHash，由上层处理粘性会话清除
+		groupID:         forwardOpts.groupID,
+		sessionHash:     forwardOpts.sessionHash,
 	})
 	if err != nil {
 		// 检查是否是账号切换信号，转换为 UpstreamFailoverError 让 Handler 切换账号
@@ -185,7 +210,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 
 				logger.LegacyPrintf("service.antigravity_gateway", "Antigravity account %d: detected signature-related 400, retrying once (%s)", account.ID, stage.name)
 
-				retryGeminiBody, txErr := antigravity.TransformClaudeToGeminiWithOptions(&retryClaudeReq, projectID, mappedModel, s.getClaudeTransformOptions(ctx))
+				retryGeminiBody, txErr := transformClaudeToGeminiWithThinkingLevel(&retryClaudeReq, projectID, mappedModel, explicitThinkingLevel, s.getClaudeTransformOptions(ctx))
 				if txErr != nil {
 					continue
 				}
@@ -204,8 +229,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					handleError:     s.handleUpstreamError,
 					requestedModel:  originalModel,
 					isStickySession: isStickySession,
-					groupID:         0,  // Forward 方法没有 groupID，由上层处理粘性会话清除
-					sessionHash:     "", // Forward 方法没有 sessionHash，由上层处理粘性会话清除
+					groupID:         forwardOpts.groupID,
+					sessionHash:     forwardOpts.sessionHash,
 				})
 				if retryErr != nil {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -284,7 +309,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 		}
 
 		// Budget 整流：检测 budget_tokens 约束错误并自动修正重试
-		if resp.StatusCode == http.StatusBadRequest && respBody != nil && !isSignatureRelatedError(respBody) {
+		if resp.StatusCode == http.StatusBadRequest && respBody != nil && explicitThinkingLevel == "" && !isSignatureRelatedError(respBody) {
 			errMsg := strings.TrimSpace(extractAntigravityErrorMessage(respBody))
 			if isThinkingBudgetConstraintError(errMsg) && s.settingService.IsBudgetRectifierEnabled(ctx) {
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -332,8 +357,8 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 							handleError:     s.handleUpstreamError,
 							requestedModel:  originalModel,
 							isStickySession: isStickySession,
-							groupID:         0,
-							sessionHash:     "",
+							groupID:         forwardOpts.groupID,
+							sessionHash:     forwardOpts.sessionHash,
 						})
 						if retryErr == nil {
 							retryResp := retryResult.resp
