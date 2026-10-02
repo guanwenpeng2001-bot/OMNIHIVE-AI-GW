@@ -12,6 +12,25 @@ opened by this tool. Together they reproduce the published catalog byte for byte
 An unrelated new observation does not refresh the observation date of older records.
 Source-union completeness is not account coverage or authorization.
 
+Reviewed `overlays` address one existing exact `(profile, model_id)` identity and
+replace only their named `fields`; they do not append another catalog record.
+Each asserted field carries its own source, capture hash, observation date,
+confidence and proof scope. Untouched sibling fields retain their prior evidence.
+An overlay's `suppress_fields` becomes the catalog's signed `suppressed_fields`:
+only `context_window`, `context_limit_kind`, `max_input_tokens` and
+`max_output_tokens` are permitted. Suppressed fields stay absent through both
+price-baseline and preset fallback; their historical values remain in inputs and
+coverage evidence. Ordinary omission still allows baseline fill, including the
+existing `gpt-5-pro` behavior. Suppression is exact-profile/exact-model data.
+
+Runtime field evidence preserves `observed_at`, `confidence` and `proof_scope`;
+lookup time is not observation time. Preset fields use a confirmed official-review
+capture only when platform, preset profile, model, field and source URL all match.
+Historical model-source fields retain their original hash/date as `observed`;
+unmatched source URLs keep unknown hash/date, and bare preset fields identify the
+bundle without claiming an observation date. An unknown or suppressed numeric
+field and its public field evidence are omitted, never rendered as zero.
+
 ## Candidate preset source projections
 
 `preset-sources.json` stores price-free, reviewed projections of public model
@@ -71,7 +90,7 @@ keep the reviewed inputs byte-stable in Windows checkouts.
 The independent release manifest binds the reviewed input hash, exact profile/model
 applicability, catalog bytes, aliases, review, and actual parser/rule dependencies.
 Price bytes are not an applicability condition. Changing prices cannot remove
-reviewed specifications; registry values only fill fields absent in that release.
+reviewed specifications; registry values only fill absent, unsuppressed fields.
 Publishing remains an explicit source review: review the input diff and deployment
 identities, advance `reviewed.json`'s generation, reproduce the catalog, review
 `release.manifest_for(...)`, and commit the manifest plus independently checked pin.
@@ -136,7 +155,7 @@ without inferring native deployment facts. Capture does not approve its output.
 ### Exact hosted method evidence
 
 The OpenCode Go (`opencode_go`, `opencode-go`) and Command Code
-(`commandcode`, `native`) method review freezes the existing 36 and 72 exact
+(`commandcode`, `native`) method review covers the reviewed 44 and 86 exact
 identities. `coverage_scope.methods_review` retains a price-free record for each
 identity: disposition, endpoint paths, field, scoped source URL, capture SHA256,
 observation time and remaining gap. The corresponding `sources` entry binds the
@@ -149,7 +168,8 @@ Command Code evidence uses each exact provider ID's `supported_endpoints`, not
 CLI names or inferred provider aliases. `/chat/completions`, `/messages` and
 `/responses` map to `chat_completions`, `messages` and `responses` respectively;
 unknown paths and unresolved conflicts cannot populate methods. Model absence
-does not establish retirement. New upstream IDs do not enter this fixed review.
+does not establish retirement. New upstream IDs need their own reviewed row;
+inventory presence without an endpoint observation leaves methods unknown.
 
 Only confirmed methods receive a new `field_sources.methods`; model primary
 sources, `verified_at`, and unrelated facts retain their original observation
