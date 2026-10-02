@@ -92,10 +92,12 @@ func decodeUpstreamModelCapabilities(body []byte, entry *upstreamModelCapability
 		"limit.output":               &entry.Limit.Output,
 	})
 	var reasoning struct {
-		Supported *bool
-		Type      string
-		Valid     []json.RawMessage
-		Default   string
+		Supported        *bool
+		Type             string
+		Valid            []json.RawMessage
+		Default          string
+		SupportedEfforts []json.RawMessage
+		DefaultEffort    string
 	}
 	var rawReasoning json.RawMessage
 	decodeUpstreamOptionalFields(body, map[string]any{"reasoning": &rawReasoning})
@@ -104,7 +106,14 @@ func decodeUpstreamModelCapabilities(body []byte, entry *upstreamModelCapability
 		invalid = decodeUpstreamOptionalFields([]byte(raw.Raw), map[string]any{
 			"supported": &reasoning.Supported, "type": &reasoning.Type,
 			"effort.valid": &reasoning.Valid, "effort.default": &reasoning.Default,
+			"supported_efforts": &reasoning.SupportedEfforts, "default_effort": &reasoning.DefaultEffort,
 		}) || invalid
+		if reasoning.Valid == nil {
+			reasoning.Valid = reasoning.SupportedEfforts
+		}
+		if reasoning.Default == "" {
+			reasoning.Default = reasoning.DefaultEffort
+		}
 		entry.Reasoning = reasoning.Supported
 		// The native "only" declaration explicitly identifies reasoning support.
 		// Unknown type values (including an empty object) do not imply false.

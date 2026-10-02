@@ -20,6 +20,6 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"opencode_go",
 		"cursor",
 		"qianwen",
-		"commandcode", "volcengine", "qianfan", "hunyuan", "mistral", "bedrock",
+		"commandcode", "volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock",
 	}, AllPlatforms())
 }

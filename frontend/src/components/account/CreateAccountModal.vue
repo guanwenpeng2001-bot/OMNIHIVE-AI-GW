@@ -3633,6 +3633,7 @@ const apiKeyValuePlaceholder = computed(() => {
       return 'bce-v3/ALTAK-...'
     case 'hunyuan':
     case 'mistral':
+    case 'openrouter':
     case 'volcengine':
       return '<api-key>'
     default:
@@ -3755,7 +3756,8 @@ const LATE_PLATFORM_ACCOUNT_MODE_COPY: Record<DeclaredProtocolPlatform, { coding
   hunyuan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
   volcengine: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
   qianfan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
-  mistral: { paygOnlyNoteKey: 'admin.accounts.cnProviders.accountMode.paygOnlyNote' }
+  mistral: { paygOnlyNoteKey: 'admin.accounts.cnProviders.accountMode.paygOnlyNote' },
+  openrouter: {}
 }
 const latePlatformAccountModeCopy = computed(() =>
   isDeclaredProtocolPlatform(form.platform) ? LATE_PLATFORM_ACCOUNT_MODE_COPY[form.platform] : undefined
@@ -3831,7 +3833,7 @@ const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
   }
   // 后加平台：选项集合逐条来自后端声明（含 mistral 的单一 chat_completions），不自行加档。
   if (declaredProtocolPlatform.value) {
-    return declaredPlatformApiProtocols(declaredProtocolPlatform.value)
+    return declaredPlatformApiProtocols(declaredProtocolPlatform.value, accountMode.value)
       .map(value => ({ value, ...API_PROTOCOL_TEXT[value] }))
   }
   const opts: AccountProtocolOption[] = [
@@ -5522,7 +5524,7 @@ const handleSubmit = async () => {
     credentials.base_url = site
     if (apiProtocol.value === 'adaptive') {
       const protocolBaseUrls: Record<string, string> = {}
-      for (const protocol of declaredPlatformNativeProtocols(declaredProtocolPlatform.value)) {
+      for (const protocol of declaredPlatformNativeProtocols(declaredProtocolPlatform.value, accountMode.value)) {
         // 用户填了地址就对每个协议生效；没填时逐协议取默认站点——套餐档下混元的 OpenAI 根
         // 与 Anthropic 根不同（/coding/v3 与 /coding/anthropic），把一个根写进所有协议会打到错的路径。
         protocolBaseUrls[protocol] = typedSite || defaultCNBaseUrl(form.platform, mode, protocol) || site

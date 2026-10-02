@@ -167,7 +167,8 @@ export default {
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
-      platforms: {
+      openrouterUsage: {'spending': 'Key spending (USD)', 'cap': 'Key cap', 'remaining': 'Key remaining', 'windows': 'Day / week / month', 'reset': 'Cap reset interval', 'unlimited': 'Unlimited'},
+    platforms: {
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',
@@ -183,6 +184,7 @@ export default {
         bedrock: 'Amazon Bedrock',
         vertex: 'Vertex AI',
         mistral: 'Mistral',
+        openrouter: 'OpenRouter',
         hunyuan: 'Tencent Hunyuan',
         qianfan: 'Baidu Qianfan',
         volcengine: 'Volcengine Ark',

@@ -256,6 +256,7 @@ func ProvideAccountUsageService(
 	)
 	service.agentIdentityWS = openAIGatewayService
 	service.cursorSessions = cursorSessions
+	service.openRouterGateway = openAIGatewayService
 	return service
 }
 

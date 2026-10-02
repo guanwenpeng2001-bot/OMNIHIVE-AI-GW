@@ -611,6 +611,7 @@ export interface UpstreamModelSyncWarning {
 }
 
 export interface UpstreamModelMetadata extends ModelCategoryMetadata {
+  supported_parameters?: string[]
   evidence_kind?: string
   evidence_observed_at?: string
   id: string

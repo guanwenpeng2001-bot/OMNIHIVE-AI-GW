@@ -21391,6 +21391,23 @@
         "https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html",
         "https://models.dev/api.json#amazon-bedrock"
       ]
+    },
+    {
+      "checked_at": "2026-10-02T00:00:00Z",
+      "coverage_scope": {
+        "description": "Account-specific discovery uses the authenticated paginated models/user endpoint.",
+        "official_full_inventory": false
+      },
+      "coverage_status": "unconfigured",
+      "gaps": [
+        "No hardcoded inventory; discover with the account API key."
+      ],
+      "models": [],
+      "platform": "openrouter",
+      "provider_profile": "openrouter",
+      "source_refs": [
+        "https://openrouter.ai/docs/api/api-reference/models/list-models-filtered-by-user-provider-preferences-privacy-settings-and-guardrails"
+      ]
     }
   ],
   "schema_version": 1,

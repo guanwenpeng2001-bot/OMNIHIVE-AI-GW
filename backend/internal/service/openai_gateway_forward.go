@@ -1443,7 +1443,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if account.Platform == PlatformMistral {
+	if account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter {
 		// Public Responses/Messages are converted; Mistral has no Responses URL.
 		return true
 	}

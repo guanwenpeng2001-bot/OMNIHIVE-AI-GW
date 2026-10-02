@@ -377,7 +377,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
-	mistralUsageKnown := false
+	chatUsageKnown := false
 	hunyuanUsageKnown := false
 	clientDisconnected := false
 	clientOutputStarted := false
@@ -428,6 +428,10 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			break
 		}
 		if payload != "[DONE]" {
+			if account.Platform == PlatformOpenRouter && openRouterStreamError(payload) {
+				frameErr = fmt.Errorf("OpenRouter stream failed")
+				break
+			}
 			if !gjson.Valid(payload) || gjson.Get(payload, "error").Exists() {
 				frameErr = fmt.Errorf("invalid or error Chat Completions frame")
 				break
@@ -469,9 +473,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					}
 				}
 				if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
-					if account.Platform != PlatformMistral || mistralChatUsageKnown([]byte(payload)) {
+					if (account.Platform != PlatformMistral && account.Platform != PlatformOpenRouter) || mistralChatUsageKnown([]byte(payload)) {
 						usage = *reported
-						mistralUsageKnown = true
+						chatUsageKnown = true
 					}
 				}
 				if firstTokenMs == nil && !usageOnlyChunk && (gjson.Get(payload, "choices.0.delta.content").String() != "" || gjson.Get(payload, "choices.0.delta.reasoning_content").String() != "" || gjson.Get(payload, "choices.0.delta.tool_calls").Exists() || gjson.Get(payload, "choices.0.finish_reason").String() != "") {
@@ -518,7 +522,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
-		if (account.Platform == PlatformMistral && !mistralUsageKnown) || (account.Platform == PlatformHunyuan && !hunyuanUsageKnown) {
+		if ((account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !chatUsageKnown) || (account.Platform == PlatformHunyuan && !hunyuanUsageKnown) {
 			return nil
 		}
 		return &OpenAIForwardResult{
@@ -553,8 +557,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	// 客户端取消/断开后上游读失败与上游截断不可区分（取消会连带取消上游请求），
 	// 沿用既有语义：按已收到的用量正常收尾计费，不判为上游故障。
-	if account.Platform == PlatformMistral && !mistralUsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !chatUsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
 	}
 	if account.Platform == PlatformHunyuan && !hunyuanUsageKnown {
 		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("hunyuan usage is unknown"))
@@ -677,9 +681,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
 	}
-	if account.Platform == PlatformMistral && !mistralChatUsageKnown(respBody) {
-		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Mistral usage is unknown")
-		return nil, fmt.Errorf("mistral usage is unknown")
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !mistralChatUsageKnown(respBody) {
+		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream chat usage is unknown")
+		return nil, fmt.Errorf("upstream chat usage is unknown")
 	}
 	if account.Platform == PlatformHunyuan {
 		reported, usageErr := parseHunyuanChatUsage(respBody)

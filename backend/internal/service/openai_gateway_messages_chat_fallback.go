@@ -48,7 +48,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	if account.Platform != PlatformOpenRouter {
+		applyOpenAICompatModelNormalization(&anthropicReq)
+	}
 	clientStream := anthropicReq.Stream
 
 	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
@@ -265,8 +267,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	scan := s.scanCCStream(c, resp, account, "openai messages chat fallback", requestID, startTime, emitChunk)
 	usage := scan.Usage
 
-	if account.Platform == PlatformMistral && !scan.UsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !scan.UsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
 	}
 	if scan.Err != nil {
 		// Broken upstream read: skip finalization so no synthetic message_stop

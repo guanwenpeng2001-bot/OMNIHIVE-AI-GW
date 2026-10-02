@@ -89,7 +89,9 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
 	originalModel := anthropicReq.Model
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	if account.Platform != PlatformOpenRouter {
+		applyOpenAICompatModelNormalization(&anthropicReq)
+	}
 	normalizedModel := anthropicReq.Model
 	clientStream := anthropicReq.Stream // client's original stream preference
 

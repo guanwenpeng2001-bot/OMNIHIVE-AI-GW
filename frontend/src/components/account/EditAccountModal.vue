@@ -2823,7 +2823,7 @@ function defaultMultiProtocolApiProtocol(platform: string): CnApiProtocol {
 function resolveStoredMultiProtocolApiProtocol(platform: string, stored: unknown): CnApiProtocol {
   const normalized = typeof stored === 'string' ? stored.trim() : stored
   if (isDeclaredProtocolPlatform(platform)) {
-    return declaredPlatformApiProtocols(platform).find(protocol => protocol === normalized) ?? 'chat_completions'
+    return declaredPlatformApiProtocols(platform, editAccountMode.value).find(protocol => protocol === normalized) ?? 'chat_completions'
   }
   switch (normalized) {
     case 'adaptive':
@@ -2884,7 +2884,7 @@ const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'p
 const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
   const platform = props.account?.platform
   if (platform && isDeclaredProtocolPlatform(platform)) {
-    return declaredPlatformApiProtocols(platform).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
+    return declaredPlatformApiProtocols(platform, editAccountMode.value).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
   }
   const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
     { value: 'adaptive', labelKey: 'adaptive' },
@@ -2899,7 +2899,7 @@ const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: strin
 const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() => {
   const platform = props.account?.platform
   if (platform && isDeclaredProtocolPlatform(platform)) {
-    return declaredPlatformNativeProtocols(platform).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
+    return declaredPlatformNativeProtocols(platform, editAccountMode.value).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
   }
   const opts: Array<{ value: CnNativeApiProtocol; labelKey: string }> = [
     { value: 'chat_completions', labelKey: 'chatCompletions' },

@@ -345,9 +345,10 @@ describe('late platform protocol declarations', () => {
   it('matches the MessagesPOST / ResponsesPOST facts the backend exports', () => {
     const expected = {
       hunyuan: { messagesPost: 'native', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'anthropic', 'responses'] },
-      volcengine: { messagesPost: '', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
-      qianfan: { messagesPost: '', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
-      mistral: { messagesPost: '', responsesPost: '', protocols: ['chat_completions'] }
+      volcengine: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
+      qianfan: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
+      mistral: { messagesPost: 'bridge', responsesPost: 'bridge', protocols: ['chat_completions'] },
+      openrouter: { messagesPost: 'bridge', responsesPost: 'bridge', protocols: ['chat_completions'] }
     } as const
 
     for (const [platform, facts] of Object.entries(expected)) {
@@ -361,7 +362,7 @@ describe('late platform protocol declarations', () => {
 
   it('keeps every other chat-only entry free of native text protocols', () => {
     const chatOnlyIds = backendDescriptors.filter(descriptor => descriptor.chatOnly).map(descriptor => descriptor.id)
-    expect(chatOnlyIds.sort()).toEqual(['hunyuan', 'mistral', 'qianfan', 'volcengine'])
+    expect(chatOnlyIds.sort()).toEqual(['hunyuan', 'mistral', 'openrouter', 'qianfan', 'volcengine'])
     expect(backendDescriptors.find(descriptor => descriptor.id === 'mistral')).toMatchObject({ multiProtocol: false })
     expect(backendDescriptors.find(descriptor => descriptor.id === 'hunyuan')).toMatchObject({ multiProtocol: true })
   })
@@ -925,9 +926,11 @@ describe('cross-language plan URL runtime contract', () => {
 
   it('accounts for parked and backend-only plan endpoints without enabling them', () => {
     const parked = backend.filter(entry => entry.role === 'parked')
-    expect(parked.map(planURLKey).sort()).toEqual([
-      'qianfan/coding/anthropic/personal', 'qianfan/coding/anthropic/team', 'volcengine/coding/anthropic/primary'
-    ])
+    expect(parked).toEqual([])
+    for (const key of ['qianfan/coding/anthropic/personal', 'qianfan/coding/anthropic/team', 'volcengine/coding/anthropic/primary']) {
+      expect(backend.find(entry => planURLKey(entry) === key)).toMatchObject({ role: 'accepted', validator_accepted: true, native_action: 'implemented' })
+      expect(frontend.get(key)).toMatchObject({ role: 'accepted' })
+    }
     for (const entry of parked) {
       const key = planURLKey(entry)
       expect(frontend.get(key), key).toMatchObject({ role: 'parked', url: entry.canonical_url })
@@ -961,5 +964,18 @@ describe('cross-language plan URL runtime contract', () => {
     for (const output of ['', `${marker}\n${marker}`, 'PLAN_BASE_URL_CONTRACT={', 'PLAN_BASE_URL_CONTRACT={}', 'PLAN_BASE_URL_CONTRACT=[]', 'PLAN_BASE_URL_CONTRACT=[{}]', `PLAN_BASE_URL_CONTRACT=${JSON.stringify([...backend, backend[0]])}`]) {
       expect(() => parsePlanURLContract(output)).toThrow()
     }
+  })
+})
+
+describe('OpenRouter core account wiring', () => {
+  it('creates an API-key chat account with the official portable base', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 79, platform: 'openrouter', type: 'apikey' })
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'openrouter')
+    expect(protocolCardValues(wrapper)).toEqual(['chat_completions'])
+    expect(showsCodingPlanMode('openrouter')).toBe(false)
+    await submitApiKey(wrapper, 'OpenRouter fixture')
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({ platform: 'openrouter', type: 'apikey', credentials: expect.objectContaining({ base_url: 'https://openrouter.ai/api/v1' }) }))
+    wrapper.unmount()
   })
 })

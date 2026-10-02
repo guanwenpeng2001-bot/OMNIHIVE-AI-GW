@@ -1475,6 +1475,8 @@ func (a *Account) GetOpenAIBaseURL() string {
 			return DefaultHunyuanCodingBaseURL
 		}
 		return hunyuanCompatibilityBaseURL
+	case PlatformOpenRouter:
+		return openRouterDefaultBaseURL
 	case PlatformMistral:
 		return mistralDefaultBaseURL
 	case PlatformVolcengine:

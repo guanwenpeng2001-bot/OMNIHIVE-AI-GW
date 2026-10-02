@@ -116,6 +116,19 @@
       </div>
     </template>
 
+    <template v-else-if="account.platform === 'openrouter' && account.type === 'apikey'">
+      <div v-if="loading" class="text-xs text-gray-400">…</div>
+      <div v-else-if="error || usageInfo?.error" class="text-xs text-amber-600 dark:text-amber-400">{{ error || usageInfo?.error }}</div>
+      <div v-else-if="usageInfo?.openrouter_key" class="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+        <div>{{ t('admin.accounts.openrouterUsage.spending') }}: {{ keyUsageMoney(usageInfo.openrouter_key.usage) }}</div>
+        <div>{{ t('admin.accounts.openrouterUsage.cap') }}: {{ usageInfo.openrouter_key.unlimited ? t('admin.accounts.openrouterUsage.unlimited') : keyUsageMoney(usageInfo.openrouter_key.limit) }}</div>
+        <div>{{ t('admin.accounts.openrouterUsage.remaining') }}: {{ usageInfo.openrouter_key.remaining_unlimited ? t('admin.accounts.openrouterUsage.unlimited') : keyUsageMoney(usageInfo.openrouter_key.remaining) }}</div>
+        <div>{{ t('admin.accounts.openrouterUsage.windows') }}: {{ keyUsageMoney(usageInfo.openrouter_key.daily) }} / {{ keyUsageMoney(usageInfo.openrouter_key.weekly) }} / {{ keyUsageMoney(usageInfo.openrouter_key.monthly) }}</div>
+        <div v-if="usageInfo.openrouter_key.limit_reset">{{ t('admin.accounts.openrouterUsage.reset') }}: {{ usageInfo.openrouter_key.limit_reset }}</div>
+      </div>
+      <div v-else class="text-xs text-gray-400">—</div>
+    </template>
+
     <!-- OpenAI OAuth accounts: single source from /usage API -->
     <template v-else-if="account.platform === 'openai' && account.type === 'oauth'">
       <div v-if="hasOpenAIUsageFallback" class="space-y-1">
@@ -748,7 +761,10 @@ const hasNoUpstreamUsageApi = computed(() => {
 })
 
 // Show usage windows for OAuth and Setup Token accounts
+const keyUsageMoney = (value: number | null | undefined) => value == null ? '—' : `$${value.toFixed(4)}`
+
 const showUsageWindows = computed(() => {
+  if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
@@ -769,6 +785,7 @@ const showUsageWindows = computed(() => {
 })
 
 const shouldFetchUsage = computed(() => {
+  if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'

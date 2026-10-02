@@ -52,6 +52,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'qianfan', label: 'Qianfan' },
   { value: 'hunyuan', label: 'Hunyuan' },
   { value: 'mistral', label: 'Mistral' },
+  { value: 'openrouter', label: 'OpenRouter' },
   { value: 'bedrock', label: 'Amazon Bedrock' },
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
@@ -86,7 +87,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
-    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'bedrock', 'volcengine'].includes(platform)
+    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'openrouter', 'bedrock', 'volcengine'].includes(platform)
 }
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
@@ -147,6 +148,7 @@ export function platformFamily(platform: string): PlatformFamily {
 /** Explicit defaults for providers with a verified chat-only runtime contract. */
 export const CHAT_PLATFORM_BASE_URLS: Record<string, string> = {
   mistral: 'https://api.mistral.ai/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
   hunyuan: 'https://tokenhub.tencentmaas.com/v1',
   qianfan: 'https://qianfan.baidubce.com/v2',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3'

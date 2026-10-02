@@ -358,7 +358,7 @@ func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, m
 	return compositeTargetPlatformAllowed(c, apiKey, model,
 		service.PlatformOpenAI, service.PlatformGrok,
 		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
-		service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformQianwen, service.PlatformCommandCode, service.PlatformVolcengine, service.PlatformMistral, service.PlatformHunyuan, service.PlatformQianfan)
+		service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformQianwen, service.PlatformCommandCode, service.PlatformVolcengine, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformQianfan)
 }
 
 // isResponsesWebSocketCompositePlatform 限定 composite 分组在 Responses WebSocket
@@ -1286,7 +1286,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
-	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
+	routingModel := strings.TrimSpace(reqModel)
+	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenRouter {
+		routingModel = service.NormalizeOpenAICompatRequestedModel(reqModel)
+	}
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 

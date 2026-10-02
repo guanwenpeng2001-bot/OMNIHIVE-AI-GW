@@ -149,7 +149,7 @@ func prepareNativeOpenAIInputTokensCountRequest(body []byte, account *Account) (
 }
 
 func shouldEstimateOpenAIInputTokensLocally(account *Account) bool {
-	if account == nil || account.IsGrok() || account.IsCNProvider() || account.Type == AccountTypeUpstream {
+	if account == nil || account.Platform == PlatformOpenRouter || account.IsGrok() || account.IsCNProvider() || account.Type == AccountTypeUpstream {
 		return true
 	}
 	if account.Type != AccountTypeAPIKey {
@@ -409,7 +409,9 @@ func prepareOpenAIInputTokensCountRequest(
 	}
 
 	originalModel := anthropicReq.Model
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	if account.Platform != PlatformOpenRouter {
+		applyOpenAICompatModelNormalization(&anthropicReq)
+	}
 	normalizedModel := anthropicReq.Model
 	billingModel := resolveOpenAIForwardModel(account, normalizedModel, strings.TrimSpace(defaultMappedModel))
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
