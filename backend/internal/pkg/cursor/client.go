@@ -182,7 +182,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		}
 		if metadataHandled {
 			if err := write(metadataReply); err != nil {
-				return usage, fmt.Errorf("cursor: MCP metadata reply failed: %w", err)
+				return usage, fmt.Errorf("%w: %w", errMCPMetadataReply, err)
 			}
 			continue
 		}
