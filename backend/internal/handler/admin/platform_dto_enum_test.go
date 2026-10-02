@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -19,6 +20,28 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpenRouterAdminPlatformBinding(t *testing.T) {
+	for _, fixture := range []struct {
+		name    string
+		request func() any
+		body    string
+	}{
+		{"create-account", func() any { return &CreateAccountRequest{} }, `{"name":"test","platform":%q,"type":"apikey","credentials":{"api_key":"fixture"}}`},
+		{"create-group", func() any { return &CreateGroupRequest{} }, `{"name":"test","platform":%q}`},
+		{"update-group", func() any { return &UpdateGroupRequest{} }, `{"platform":%q}`},
+		{"composite-route", func() any { return &CompositeRouteRequest{} }, `{"public_model":"vendor/model","target_platform":%q}`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			require.NoError(t, bindGroupPlatformJSON(t, fixture.request(), fmt.Sprintf(fixture.body, "openrouter")))
+			require.Error(t, bindGroupPlatformJSON(t, fixture.request(), fmt.Sprintf(fixture.body, "unknown")))
+		})
+	}
+	// Storage support does not authorize active monitor creation or updates.
+	require.Error(t, bindGroupPlatformJSON(t, &channelMonitorCreateRequest{}, `{"name":"test","provider":"openrouter","interval_seconds":60}`))
+	require.Error(t, bindGroupPlatformJSON(t, &channelMonitorUpdateRequest{}, `{"provider":"openrouter"}`))
+	require.Error(t, bindGroupPlatformJSON(t, &channelMonitorTemplateCreateRequest{}, `{"name":"test","provider":"openrouter"}`))
+}
 
 // Discover every platform enum tag, including nested and newly added DTOs.
 // Domain constants and the monitor migration are independent authorities;
@@ -43,18 +66,28 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 		}
 		return true
 	})
-	migration, err := os.ReadFile("../../../migrations/264_platform_monitor_storage.sql")
+	// Migration 282 replaces both historical 264 provider CHECKs. Validate the
+	// current storage authority without rewriting the historical migration.
+	migration, err := os.ReadFile("../../../migrations/282_openrouter_platform.sql")
 	require.NoError(t, err)
-	match := regexp.MustCompile(`provider IN \(([^)]+)\)`).FindStringSubmatch(string(migration))
-	require.Len(t, match, 2)
 	var monitors []string
-	for _, value := range strings.Split(match[1], ",") {
-		monitors = append(monitors, strings.Trim(strings.TrimSpace(value), "'"))
+	for _, constraint := range []string{"channel_monitors_provider_check", "channel_monitor_request_templates_provider_check"} {
+		match := regexp.MustCompile(`ADD CONSTRAINT ` + constraint + `\s+CHECK \(provider IN \(([^)]+)\)\)`).FindStringSubmatch(string(migration))
+		require.Len(t, match, 2, "%s must define the current storage enum", constraint)
+		monitors = nil
+		for _, value := range strings.Split(match[1], ",") {
+			monitors = append(monitors, strings.Trim(strings.TrimSpace(value), "'"))
+		}
+		require.ElementsMatch(t, concrete, monitors, "%s must retain every concrete platform", constraint)
 	}
 	require.ElementsMatch(t, domain.ConcretePlatforms(), concrete)
-	// Storage preserves historical Cursor rows, but V1 monitor DTOs must not
-	// grant permission to create/edit them or enable unsupported active probes.
-	require.ElementsMatch(t, concrete, monitors, "monitor storage must retain every concrete platform")
+	// Storage preserves passive-only platforms such as Cursor and OpenRouter,
+	// but V1 monitor DTOs must not grant writes or unsupported active probes.
+	openRouter, ok := domain.LookupPlatform(domain.PlatformOpenRouter)
+	require.True(t, ok)
+	require.True(t, openRouter.PassiveMonitor)
+	require.False(t, openRouter.ActiveProbe)
+	require.False(t, openRouter.QuotaMonitor)
 	var writableMonitors []string
 	for _, provider := range monitors {
 		if descriptor, ok := domain.LookupPlatform(provider); ok && (descriptor.ActiveProbe || descriptor.QuotaMonitor) {
@@ -63,6 +96,7 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 	}
 	monitors = writableMonitors
 	require.Len(t, monitors, 12)
+	require.NotContains(t, monitors, domain.PlatformOpenRouter)
 	checked := 0
 	require.NoError(t, filepath.WalkDir("..", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

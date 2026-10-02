@@ -8,7 +8,7 @@ upper bound; no row grants an account permission or changes a selling price.
 
 ## Current concrete platforms
 
-The current descriptor set has 18 concrete platforms. Composite is a group routing
+The current descriptor set has 19 concrete platforms. Composite is a group routing
 mode, not an account platform. N = native path; B = protocol bridge; conditional
 means the account mode, model, measured endpoint evidence and request gates must
 also allow it. Stream/tool entries describe implemented paths, not every model.
@@ -32,10 +32,12 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | qianfan | Domestic API key, v2 base | Chat and native Responses; tools conditional | N / rejected / rejected | Nonstream/SSE adapter; /v2/responses is live while /v2/messages answers 404, so Messages is a hard conflict |
 | hunyuan | Compatibility API key | Nonstream chat/tools; native Responses and Anthropic Messages on the same TokenHub site | N / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance; the Anthropic path authenticates with x-api-key |
 | mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero; no /v1/responses and no /v1/messages exist, so both cells are hard conflicts |
+| openrouter | API key only; Bearer at account base URL, default https://openrouter.ai/api/v1 | Raw Chat N; Messages N; Google generateContent B through Chat; tools conditional | N / rejected / rejected | Nonstream/SSE text; adaptive or matching fixed protocol, exact provider/variant IDs; passive monitoring only; media limits below |
 | bedrock | Regional runtime API key or IAM SigV4 | Claude Invoke or non-Claude Converse; tools conditional | B / rejected / rejected | Messages/Responses/Chat POST admitted; ConverseStream/Claude streams; region/profile/ARN and catalog evidence still required |
 
 The new chat-only ingress guard admits Chat Completions POST plus model/usage
-reads; Bedrock additionally admits Messages and Responses POST. It preserves the
+reads; Bedrock and OpenRouter additionally admit Messages and Responses POST.
+OpenRouter also has the Google compatibility and media action bindings below. It preserves the
 existing 404 OpenAI-style not_found_error on other guarded paths, including the
 existing wording. Gemini-native failures retain their Google shape and older
 platforms retain their own dispatch behavior. This document does not normalize
@@ -45,16 +47,16 @@ those errors or expand old protocols to make the table uniform.
 
 | Method | Path / aliases | Effective qualification | Nonstream, stream and tools |
 | --- | --- | --- | --- |
-| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; Hunyuan binds the native Anthropic path on the published MessagesPOST fact, every other chat-only platform rejects | Anthropic envelope; stream/tools adapter-specific |
+| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; Hunyuan binds the native Anthropic path on the published MessagesPOST fact; OpenRouter binds native Messages with adaptive or matching protocol | Anthropic envelope; stream/tools adapter-specific |
 | POST | /v1/messages/count_tokens; /messages/count_tokens | OpenAI bridge, Grok/Cursor estimates, existing Anthropic-compatible path; new restricted platforms reject | Token count, no generation bill; not a generic Messages grant |
 | POST | /v1/chat/completions; /chat/completions | Concrete or resolved Composite target, exact catalog endpoint evidence | Native/bridge; Hunyuan stream explicitly unsupported |
 | POST | /v1/responses; /responses; /backend-api/codex/responses | Descriptor plus actual account mode/adapter; a chat-only platform whose row publishes ResponsesPOST binds the shared responses trunk, the rest reject | Native/bridge with protocol-specific tools and SSE |
 | GET | Same Responses paths | WebSocket dispatcher, account WS qualification | OpenAI native, Grok bridge; no universal WS support |
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
-| POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch | Input-token result, no normal generation claim |
+| POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch; OpenRouter uses a local estimate without an upstream count request | Input-token result, no normal generation claim |
 | POST | Responses other subpaths | IsForwardableOpenAIResponsesRequestPath | Unknown/action-unsafe paths reject before scheduling |
-| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan and Volcengine bind an embeddings adapter; every other platform rejects before scheduling | No streaming/tools promise |
-| POST | /v1/rerank; /rerank | Platform action matrix: Qianwen, Qianfan and Bedrock bind a rerank adapter; OpenAI and every other platform reject | Ranked results, no generation claim |
+| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan, Volcengine and OpenRouter bind an embeddings adapter; other platforms retain their action gates | No streaming/tools promise |
+| POST | /v1/rerank; /rerank | Platform action matrix: Qianwen, Qianfan, Bedrock and OpenRouter bind a rerank adapter; OpenAI and other platforms retain their action gates | Ranked results, no generation claim |
 | POST | /v1/images/variations; /images/variations | Platform action matrix: OpenAI and Bedrock bind a variation adapter; chat-only platforms reject | OpenAI variation shape only |
 | GET | /v1/models; /models | Existing membership and allowlist first | Optional capabilities below; no generation |
 | GET | /v1/models/:model; /models/:model | Exact visible entry or model_not_found | Same fields as listing |
@@ -67,8 +69,8 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 
 | Method | Action path | Existing behavior and limits |
 | --- | --- | --- |
-| POST | /v1beta/models/{model}:generateContent | Gemini/Antigravity account and native action gate; nonstream |
-| POST | /v1beta/models/{model}:streamGenerateContent | Same qualified native model; SSE |
+| POST | /v1beta/models/{model}:generateContent | Gemini/Antigravity account and native action gate; OpenRouter compatibility through Chat Completions; nonstream |
+| POST | /v1beta/models/{model}:streamGenerateContent | Same qualified model and adapter; OpenRouter compatibility through Chat Completions; SSE |
 | POST | /v1beta/models/{model}:countTokens | Gemini scope/fallback-specific count; no inference support implied |
 | POST | /v1beta/models/{model}:embedContent | No advertised native action support |
 | POST | /v1beta/models/{model}:batchEmbedContents | No advertised native action support |
@@ -76,7 +78,7 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | POST | /v1/alpha/search; /alpha/search; /backend-api/codex/alpha/search | OpenAI/Codex-specific qualification |
 | POST | /v1/live; /backend-api/codex/realtime/calls | OpenAI Live account capability and session model; multipart supported by existing path |
 | GET | /v1/live/:call_id; /backend-api/codex/:call_id | Live sideband ownership/capability checks |
-| POST | /v1/images/generations | OpenAI or Grok only after Composite target resolution |
+| POST | /v1/images/generations | OpenAI or Grok after Composite target resolution; OpenRouter synchronous raster generation through its image action |
 | POST | /v1/images/edits | OpenAI or Grok image edit qualification |
 | POST | /v1/images/generations/async | Existing persistent asynchronous image service |
 | POST | /v1/images/edits/async | Existing persistent asynchronous edit service |
@@ -91,11 +93,11 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | POST | /v1/images/batches/:id/cancel | Existing cancellation lifecycle, no refund inference |
 | DELETE | /v1/images/batches/:id | Owned record deletion |
 | DELETE | /v1/images/batches/:id/outputs | Owned output deletion |
-| POST | /v1/videos; /v1/videos/generations | Grok creation; OpenAI sora-2 job submission through the shared upstream job trunk |
+| POST | /v1/videos; /v1/videos/generations | Grok creation; OpenAI sora-2 and OpenRouter owner-bound job submission through the shared upstream job trunk |
 | POST | /v1/videos/edits | Grok video edit; OpenAI edit inherits the owner-checked source video |
 | POST | /v1/videos/extensions | Grok video extension; OpenAI extension bills the documented segment |
-| GET | /v1/videos/:request_id | Grok status lookup; owner-bound OpenAI durable job state |
-| GET | /v1/videos/:request_id/content | Grok content lookup; owner-bound OpenAI content stream |
+| GET | /v1/videos/:request_id | Grok status lookup; owner-bound OpenAI or OpenRouter durable job state |
+| GET | /v1/videos/:request_id/content | Grok content lookup; owner-bound OpenAI or OpenRouter content stream |
 | GET | /v1/videos/generations/:request_id | Generation status |
 | GET | /v1/videos/generations/:request_id/content | Generation content |
 | GET | /v1/videos/edits/:request_id | Edit status |
@@ -104,8 +106,8 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | GET | /v1/videos/extensions/:request_id/content | Extension content |
 | POST | /v1/tts; /tts | Grok TTS, account-specific native transport |
 | POST | /v1/stt; /stt | Grok STT, account-specific native transport |
-| POST | /v1/audio/speech; /audio/speech | Platform action matrix: Hunyuan and Qianfan bind an OpenAI-shaped speech adapter; Qianwen keeps its DashScope native path, Grok keeps the native /v1/tts entry and OpenAI speech stays unverified |
-| POST | /v1/audio/transcriptions; /audio/transcriptions | Platform action matrix: Hunyuan speech recognition binds an adapter; OpenAI transcription stays unverified |
+| POST | /v1/audio/speech; /audio/speech | Platform action matrix: Hunyuan, Qianfan and OpenRouter bind an OpenAI-shaped speech adapter; Qianwen keeps its DashScope native path, Grok keeps the native /v1/tts entry and OpenAI speech stays unverified |
+| POST | /v1/audio/transcriptions; /audio/transcriptions | Platform action matrix: Hunyuan and OpenRouter speech recognition bind an adapter; OpenAI transcription stays unverified |
 | POST | /v1/audio/translations; /audio/translations | OpenAI audio translation adapter; every other platform rejects before scheduling |
 | POST | /v1/custom-voices; /custom-voices | Grok custom voice creation |
 | GET | /v1/custom-voices; /custom-voices | Grok custom voice list |
@@ -137,6 +139,51 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | POST | /compatible-mode/v1/batches/{id}/cancel | Existing durable cancellation path |
 | POST | /api/v1/files | Native alias remains unsupported; not the compatible file upload |
 | POST | /api/v1/batches | Native alias remains unsupported; not the compatible batch submission |
+
+## OpenRouter protocol and media limits
+
+OpenRouter is an API-key account, with Bearer authentication through the configured
+base URL and account egress. OAuth, setup-token, IAM/Bedrock and service-account
+credentials do not acquire OpenRouter adapters. Exact model IDs, including provider
+prefixes and colon variants, survive account mapping; group/key/model admission
+still applies. Missing discovery metadata does not by itself reject a manually
+configured exact model. Static support is not a guarantee of model entitlement or
+paid provider verification.
+
+Adaptive text accounts select native Messages, native Responses or raw Chat for
+the caller's protocol; a conflicting fixed protocol is rejected locally. Native
+Messages and Responses preserve opaque reasoning/signature content in client-sent
+history. Google generateContent and streamGenerateContent use Chat compatibility,
+including the source-bound opaque thoughtSignature continuation carrier; they do
+not call native Google endpoints. The relay does not invent `store` or
+`previous_response_id`: `store` alone is relayed, while public Responses continuation
+still passes the existing ownership/account gate and does not grant OpenRouter
+server-side state support. Responses WebSocket, compact, Messages count_tokens,
+Google countTokens and Live are unsupported; Responses input_tokens is only a local
+estimate. OpenRouter remains passive-only for channel monitoring, with no active
+probe or quota-monitor write grant. Account key-usage observation does not change
+those monitor permissions.
+
+Eight media action cells are implemented, using the registered routes above:
+
+| Action | OpenRouter contract |
+| --- | --- |
+| image.generate | Synchronous raster generation; public images/generations maps to upstream images. Output is b64_json with png, jpeg or webp; optional n is an integer from 1 to 10. Image URL output, SVG and SSE are rejected. |
+| audio.tts | Speech accepts mp3 or pcm and returns nonempty audio. Other output formats and SSE are rejected; quantity is submitted text characters. |
+| audio.stt | One multipart file up to 25 MB; json or verbose_json output. JSON/base64/remote-URL input and text/srt/vtt output are unsupported; a successful result requires measured positive usage.seconds. |
+| embeddings | Float or base64 vectors, with finite values, consistent dimensions and valid result indices; observed prompt tokens are required for settlement. |
+| rerank | Query/documents/top_n contract with finite scores and valid unique indices; observed total tokens, not search_units, supply the token quantity. |
+| video.generate | Durable owner-bound submission with exact model and frozen pricing; a submission acknowledgement never settles, and an idempotent repeat reuses the job. previous_job_id and video continuation inputs are rejected. |
+| video.status | Pending/in-progress stay uncharged; completed can settle once. Failed/cancelled/expired jobs do not debit. Automatic settlement requires the frozen explicit group/channel per-request tariff, finite nonnegative upstream cost and one validated artifact; otherwise completion remains unpriced/needs_review with no debit. An explicit zero tariff is valid. |
+| video.content | Owner-bound succeeded job only; reloads the active API-key account and checks unchanged egress. Downloads use the validated account base and escaped job ID, never stored polling/result URLs; redirects and nonzero content index are rejected. Content must be video, bounded at 512 MiB. |
+
+Image edits/variations, audio translation, video edits/extensions/cancellation and
+other unbound actions remain unsupported. Synchronous media validates actual output
+and measured quantity before recording usage; provider `usage.cost` is not the
+customer tariff. Video requested seconds are translated to duration and do not
+establish per-second billing. Completed video needing settlement review can still
+serve owned content. These are local implementation contracts, not live model or
+credential certification.
 
 ## Public Models projection
 
