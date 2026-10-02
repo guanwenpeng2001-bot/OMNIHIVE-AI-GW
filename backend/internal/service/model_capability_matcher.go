@@ -167,37 +167,7 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 	}
 	m.ReasoningControl = normalizeReasoningControl(m)
 	projectReasoningEffort(&m)
-	stampCapabilityEvidence(&m, r.Source, snapshot.Version(), profile, r.ModelID, rule, "verified")
-	for target, field := range map[string]string{"created_at": "created_at", "model_version": "model_version", "task_type": "mode", "supported_methods": "supported_methods", "embedding_dimensions": "embedding_dimensions", "reasoning_control": "control", "context_limit_kind": "context_limit_kind"} {
-		if source, ok := r.FieldSources[field]; ok && source.Source != "" {
-			evidence := m.FieldEvidence[target]
-			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
-			m.FieldEvidence[target] = evidence
-		}
-	}
-	for name := range r.TaskLimits {
-		if source, ok := r.FieldSources["task_limits."+name]; ok {
-			evidence := m.FieldEvidence["task_limits."+name]
-			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
-			m.FieldEvidence["task_limits."+name] = evidence
-		}
-	}
-	if r.MaxInputTokens == nil && r.ContextWindow > 0 {
-		evidence := m.FieldEvidence["context_window"]
-		source := r.FieldSources["context_window"]
-		if source.Source != "" {
-			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
-			m.FieldEvidence["context_window"] = evidence
-		}
-	}
-	for target, field := range map[string]string{"context_window": "max_input_tokens", "max_output_tokens": "max_output_tokens", "reasoning": "supports_reasoning", "supports_function_calling": "supports_function_calling", "supports_prompt_caching": "supports_prompt_caching", "input_modalities": "input_modalities", "output_modalities": "output_modalities"} {
-		if source, ok := r.FieldSources[field]; ok {
-			e := m.FieldEvidence[target]
-			e.Source = source.Source
-			e.ContentHash = source.ContentHash
-			m.FieldEvidence[target] = e
-		}
-	}
+	stampCapabilityRecordEvidence(&m, r, snapshot.Version(), rule)
 	return CapabilityMatch{Metadata: cloneUpstreamModelMetadata(m), CanonicalID: r.ModelID, Rule: rule, Status: "matched"}
 }
 

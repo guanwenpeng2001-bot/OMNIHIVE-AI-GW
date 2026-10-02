@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -38,8 +40,9 @@ type LiteLLMCapabilityFields struct {
 // CapabilityRecord contains specifications only; it cannot authorize a model
 // or provide any billing or Codex-specific tool defaults.
 type CapabilityRecord struct {
-	CreatedAt    string `json:"created_at,omitempty"`
-	ModelVersion string `json:"model_version,omitempty"`
+	SuppressedFields []string `json:"suppressed_fields,omitempty"`
+	CreatedAt        string   `json:"created_at,omitempty"`
+	ModelVersion     string   `json:"model_version,omitempty"`
 
 	ContextWindow         int64                      `json:"context_window,omitempty"`
 	ContextLimitKind      string                     `json:"context_limit_kind,omitempty"`
@@ -67,6 +70,9 @@ type CapabilityRecord struct {
 type CapabilityFieldSource struct {
 	Source      string `json:"source"`
 	ContentHash string `json:"content_hash"`
+	ObservedAt  string `json:"observed_at,omitempty"`
+	Confidence  string `json:"confidence,omitempty"`
+	ProofScope  string `json:"proof_scope,omitempty"`
 }
 
 type ModelCapabilityProvider interface {
@@ -130,6 +136,7 @@ func capabilityHash(body []byte) string            { h := sha256.Sum256(body); r
 func cloneCapabilityRecord(r CapabilityRecord) CapabilityRecord {
 	// Clone pointer/slice fields directly; JSON omitempty would lose explicit empty lists.
 	c := r
+	c.SuppressedFields = slices.Clone(r.SuppressedFields)
 	c.Aliases = append([]string(nil), r.Aliases...)
 	if r.SupportedMethods != nil {
 		c.SupportedMethods = append([]string{}, r.SupportedMethods...)
@@ -169,6 +176,32 @@ func cloneCapabilityRecord(r CapabilityRecord) CapabilityRecord {
 }
 
 func validateCapabilityRecord(r CapabilityRecord) error {
+	seenSuppression := make(map[string]bool)
+	for _, field := range r.SuppressedFields {
+		present := map[string]bool{"max_input_tokens": r.MaxInputTokens != nil, "max_output_tokens": r.MaxOutputTokens != nil, "context_window": r.ContextWindow != 0, "context_limit_kind": r.ContextLimitKind != ""}
+		if hasValue, known := present[field]; !known || hasValue || seenSuppression[field] {
+			return fmt.Errorf("invalid reviewed suppression: %s/%s/%s", r.Profile, r.ModelID, field)
+		}
+		seenSuppression[field] = true
+	}
+	for field, source := range r.FieldSources {
+		if !capabilityEvidenceField(field) || source.Source == "" || source.ContentHash != "" && len(source.ContentHash) != 64 {
+			return fmt.Errorf("invalid field provenance: %s", field)
+		}
+		if _, err := hex.DecodeString(source.ContentHash); err != nil {
+			return fmt.Errorf("invalid field hash: %s", field)
+		}
+		if source.ObservedAt != "" {
+			if _, err := time.Parse("2006-01-02", source.ObservedAt); err != nil {
+				if _, timestampErr := time.Parse(time.RFC3339Nano, source.ObservedAt); timestampErr != nil {
+					return timestampErr
+				}
+			}
+		}
+		if source.Confidence != "" && source.Confidence != "verified" && source.Confidence != "observed" {
+			return fmt.Errorf("invalid evidence confidence")
+		}
+	}
 	if r.CreatedAt != "" {
 		if _, err := time.Parse(time.RFC3339Nano, r.CreatedAt); err != nil {
 			return fmt.Errorf("invalid model creation time: %w", err)
@@ -220,6 +253,28 @@ func validateCapabilityRecord(r CapabilityRecord) error {
 	return nil
 }
 
+func capabilityEvidenceField(field string) bool {
+	return slices.Contains([]string{"max_input_tokens", "max_output_tokens", "max_tokens", "supports_reasoning", "supports_vision", "supports_function_calling", "supports_prompt_caching", "input_modalities", "output_modalities", "mode", "created_at", "model_version", "context_window", "context_limit_kind", "control", "reasoning_control", "supported_methods", "embedding_dimensions"}, field) || slices.Contains([]string{"task_limits.input_formats", "task_limits.output_formats", "task_limits.resolutions", "task_limits.max_duration_seconds"}, field)
+}
+
+func capabilitySourceConfidence(source string) string {
+	if strings.HasPrefix(source, "https://") {
+		return "verified"
+	}
+	return "observed"
+}
+
+func capabilitySourceForField(r CapabilityRecord, field string) CapabilityFieldSource {
+	source, ok := r.FieldSources[field]
+	if !ok {
+		source = CapabilityFieldSource{Source: r.Source, ContentHash: r.SourceContentHash, ObservedAt: r.VerifiedAt}
+	}
+	if source.Confidence == "" {
+		source.Confidence = capabilitySourceConfidence(source.Source)
+	}
+	return source
+}
+
 func hasCapabilityFields(r CapabilityRecord) bool {
 	v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 	for i := 0; i < v.NumField(); i++ {
@@ -236,40 +291,43 @@ func fillCapabilityFields(primary, fallback CapabilityRecord) CapabilityRecord {
 	}
 	a, b := reflect.ValueOf(&primary.LiteLLMCapabilityFields).Elem(), reflect.ValueOf(fallback.LiteLLMCapabilityFields)
 	for i := 0; i < a.NumField(); i++ {
+		name := strings.Split(a.Type().Field(i).Tag.Get("json"), ",")[0]
+		if slices.Contains(primary.SuppressedFields, name) {
+			continue
+		}
 		if a.Field(i).IsNil() && !b.Field(i).IsNil() {
 			a.Field(i).Set(b.Field(i))
-			name := strings.Split(a.Type().Field(i).Tag.Get("json"), ",")[0]
-			primary.FieldSources[name] = fallback.FieldSources[name]
+			primary.FieldSources[name] = capabilitySourceForField(fallback, name)
 		}
 	}
 	if primary.CreatedAt == "" && fallback.CreatedAt != "" {
 		primary.CreatedAt = fallback.CreatedAt
-		primary.FieldSources["created_at"] = fallback.FieldSources["created_at"]
+		primary.FieldSources["created_at"] = capabilitySourceForField(fallback, "created_at")
 	}
 	if primary.ModelVersion == "" && fallback.ModelVersion != "" {
 		primary.ModelVersion = fallback.ModelVersion
-		primary.FieldSources["model_version"] = fallback.FieldSources["model_version"]
+		primary.FieldSources["model_version"] = capabilitySourceForField(fallback, "model_version")
 	}
 	if primary.Mode == "" && fallback.Mode != "" {
 		primary.Mode = fallback.Mode
-		primary.FieldSources["mode"] = fallback.FieldSources["mode"]
+		primary.FieldSources["mode"] = capabilitySourceForField(fallback, "mode")
 	}
-	if primary.ContextWindow == 0 && primary.MaxInputTokens == nil && fallback.ContextWindow > 0 {
+	if !slices.Contains(primary.SuppressedFields, "context_window") && !slices.Contains(primary.SuppressedFields, "context_limit_kind") && primary.ContextWindow == 0 && primary.MaxInputTokens == nil && fallback.ContextWindow > 0 {
 		primary.ContextWindow, primary.ContextLimitKind = fallback.ContextWindow, fallback.ContextLimitKind
-		primary.FieldSources["context_window"] = fallback.FieldSources["context_window"]
-		primary.FieldSources["context_limit_kind"] = fallback.FieldSources["context_limit_kind"]
+		primary.FieldSources["context_window"] = capabilitySourceForField(fallback, "context_window")
+		primary.FieldSources["context_limit_kind"] = capabilitySourceForField(fallback, "context_limit_kind")
 	}
 	if primary.Control == nil && fallback.Control != nil {
 		primary.Control = cloneReasoningControl(fallback.Control)
-		primary.FieldSources["control"] = fallback.FieldSources["control"]
+		primary.FieldSources["control"] = capabilitySourceForField(fallback, "control")
 	}
 	if primary.SupportedMethods == nil && fallback.SupportedMethods != nil {
 		primary.SupportedMethods = append([]string(nil), fallback.SupportedMethods...)
-		primary.FieldSources["supported_methods"] = fallback.FieldSources["supported_methods"]
+		primary.FieldSources["supported_methods"] = capabilitySourceForField(fallback, "supported_methods")
 	}
 	if primary.EmbeddingDimensions == nil && fallback.EmbeddingDimensions != nil {
 		primary.EmbeddingDimensions = fallback.EmbeddingDimensions
-		primary.FieldSources["embedding_dimensions"] = fallback.FieldSources["embedding_dimensions"]
+		primary.FieldSources["embedding_dimensions"] = capabilitySourceForField(fallback, "embedding_dimensions")
 	}
 	if primary.InputModalitiesStatus == "" {
 		primary.InputModalitiesStatus = fallback.InputModalitiesStatus
@@ -280,7 +338,7 @@ func fillCapabilityFields(primary, fallback CapabilityRecord) CapabilityRecord {
 	for name, value := range fallback.TaskLimits {
 		if _, exists := primary.TaskLimits[name]; !exists {
 			primary.TaskLimits[name] = append(json.RawMessage(nil), value...)
-			primary.FieldSources["task_limits."+name] = fallback.FieldSources["task_limits."+name]
+			primary.FieldSources["task_limits."+name] = capabilitySourceForField(fallback, "task_limits."+name)
 		}
 	}
 	return primary
@@ -324,7 +382,7 @@ func parseCapabilityRecords(body []byte, source string) (map[string]CapabilityRe
 		for i := 0; i < v.NumField(); i++ {
 			if !v.Field(i).IsNil() {
 				name := strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0]
-				r.FieldSources[name] = CapabilityFieldSource{source, hash}
+				r.FieldSources[name] = CapabilityFieldSource{Source: source, ContentHash: hash, Confidence: "observed"}
 			}
 		}
 		records[capabilityKey(r.Profile, id)] = r
@@ -393,17 +451,35 @@ func buildModelCapabilitySnapshotFromCatalog(runtime, supplement []byte) (*Model
 		}
 		// The independently pinned release approves exact profile/model identities.
 		// Historical input hashes are provenance, never a live pricing predicate.
-		r.FieldSources = make(map[string]CapabilityFieldSource)
+		if r.FieldSources == nil {
+			r.FieldSources = make(map[string]CapabilityFieldSource)
+		}
+		for name, source := range r.FieldSources {
+			if source.ObservedAt == "" {
+				source.ObservedAt = r.VerifiedAt
+			}
+			if source.Confidence == "" {
+				source.Confidence = capabilitySourceConfidence(source.Source)
+			}
+			r.FieldSources[name] = source
+		}
+		if source, ok := r.FieldSources["reasoning_control"]; ok {
+			r.FieldSources["control"] = source
+		}
 		for name, value := range map[string]string{"created_at": r.CreatedAt, "model_version": r.ModelVersion} {
 			if value != "" {
-				r.FieldSources[name] = CapabilityFieldSource{r.Source, r.SourceContentHash}
+				if _, ok := r.FieldSources[name]; !ok {
+					r.FieldSources[name] = capabilitySourceForField(r, name)
+				}
 			}
 		}
 		v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 		for i := 0; i < v.NumField(); i++ {
 			if !v.Field(i).IsNil() {
 				name := strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0]
-				r.FieldSources[name] = CapabilityFieldSource{r.Source, r.SourceContentHash}
+				if _, ok := r.FieldSources[name]; !ok {
+					r.FieldSources[name] = capabilitySourceForField(r, name)
+				}
 			}
 		}
 		if old, ok := records[key]; ok {
@@ -597,13 +673,17 @@ func (r *CapabilityRecord) UnmarshalJSON(body []byte) error {
 		return err
 	}
 	var value plain
-	if err = json.Unmarshal(encoded, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&value); err != nil {
 		return err
 	}
 	*r = CapabilityRecord(value)
 	if len(control) > 0 && control[0] == '{' {
 		var structured ReasoningControl
-		if err = json.Unmarshal(control, &structured); err != nil {
+		decoder = json.NewDecoder(bytes.NewReader(control))
+		decoder.DisallowUnknownFields()
+		if err = decoder.Decode(&structured); err != nil {
 			return err
 		}
 		r.Control = &structured

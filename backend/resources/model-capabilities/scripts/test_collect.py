@@ -21,6 +21,7 @@ class CollectionTests(unittest.TestCase):
                 self.assertNotIn('pricing', record)
                 review = catalog.read(catalog.REVIEWED)
                 review['records'] = []
+                review['overlays'] = []
                 value, _, _ = catalog.generate(inputs, review)
                 self.assertTrue(value['records'])
                 with self.assertRaises(ValueError):
