@@ -41,10 +41,39 @@ describe('copyable quickstart examples against a local mock', () => {
     }
     expect(publicRoot('', `${root}/`)).toBe(root)
   })
+  it.each(['', '/', '///', '/v1', '/v1///', '///v1///', '/v1beta', '/v1beta///', '///v1beta///'])(
+    'normalizes public HTTPS bases ending in "%s" without losing the deployment prefix', (suffix) => {
+      const gatewayRoot = 'https://gateway.example:8443/proxy/sub2api'
+      expect(publicRoot(`  ${gatewayRoot}${suffix}  `, '')).toBe(gatewayRoot)
+      expect(publicRoot('', `${gatewayRoot}${suffix}`)).toBe(gatewayRoot)
+      expect(requestExample(publicRoot(`${gatewayRoot}${suffix}`, ''), 'gemini-test', 'gemini').url)
+        .toBe(`${gatewayRoot}/v1beta/models/gemini-test:generateContent`)
+    }
+  )
+  it('only strips a terminal API version, preserving version-like deployment names', () => {
+    expect(publicRoot('https://gateway.example/v1beta/proxy/v1beta/', '')).toBe('https://gateway.example/v1beta/proxy')
+    expect(publicRoot('https://gateway.example/proxy/v1beta-custom/', '')).toBe('https://gateway.example/proxy/v1beta-custom')
+    expect(publicRoot('https://gateway.example/v1beta/', '')).toBe('https://gateway.example')
+  })
   it('keeps unknown capability distinct from an explicitly empty endpoint list', () => {
     expect(parseModels({ data: [{ id: 'unknown' }, { id: 'empty', endpoints: [] }, { id: 'known', endpoints: ['/v1/responses'] }] }))
       .toEqual([{ id: 'unknown', endpoints: null }, { id: 'empty', endpoints: [] }, { id: 'known', endpoints: ['responses'] }])
     expect(() => parseModels({ error: 'unauthorized' })).toThrow()
+  })
+  it.each(['endpoints', 'supported_endpoints'])('recognizes backend and existing aliases in %s without hiding unknown models', (field) => {
+    expect(parseModels({ data: [
+      { id: 'google-backend', [field]: ['generate_content'] },
+      { id: 'google-existing', [field]: ['generateContent', 'gemini'] },
+      { id: 'existing-aliases', [field]: ['chat_completions', 'images', '/v1/responses', 'messages'] },
+      { id: 'unknown-protocol', [field]: ['future_protocol'] },
+      { id: 'unknown-capability' }
+    ] })).toEqual([
+      { id: 'google-backend', endpoints: ['gemini'] },
+      { id: 'google-existing', endpoints: ['gemini', 'gemini'] },
+      { id: 'existing-aliases', endpoints: ['chat/completions', 'images/generations', 'responses', 'messages'] },
+      { id: 'unknown-protocol', endpoints: [] },
+      { id: 'unknown-capability', endpoints: null }
+    ])
   })
   for (const protocol of protocols) {
     it(`runs curl, Python and Node ${protocol} examples with environment-only auth`, async () => {

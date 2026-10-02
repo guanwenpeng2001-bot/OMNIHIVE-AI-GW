@@ -73,9 +73,10 @@ export default {
       description: '展示按量付费模式的访问凭证，用于模型调用身份鉴权。请使用下方 API 密钥及对应协议地址发起调用。',
       openai: 'OpenAI 兼容 · Base URL',
       anthropic: 'Anthropic 兼容 · Messages 端点',
+      gemini: 'Gemini 兼容 · Base URL',
       copyAddress: '复制{protocol}地址',
       copied: '接入地址已复制',
-      addressHint: '请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。',
+      addressHint: 'Base URL 与完整请求端点不同，请按客户端要求填写地址格式。请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。',
       generationTitle: '生成类入口（与 Messages 端点不同）',
       generationHint:
         'Anthropic 兼容的 Messages 端点只处理文本与视觉输入，不会生成图片、视频或语音；生成类请求请使用以下入口，实际可用性取决于分组平台与分组开关。',

@@ -73,10 +73,11 @@ export default {
       description: 'Access credentials for authenticating model requests in pay-as-you-go mode. Use an API key below with the corresponding protocol address.',
       openai: 'OpenAI compatible · Base URL',
       anthropic: 'Anthropic compatible · Messages endpoint',
+      gemini: 'Gemini compatible · Base URL',
       copyAddress: 'Copy {protocol} address',
       copied: 'Endpoint address copied',
       addressHint:
-        'Use the address provided in the admin console or integration guide as the source of truth; available protocols and models depend on the API key’s group.',
+        'Base URLs and full request endpoints differ; use the URL format required by your client. Follow the address provided in the admin console or integration guide; available protocols and models depend on the API key’s group.',
       generationTitle: 'Generation endpoints (different from the Messages endpoint)',
       generationHint:
         'The Anthropic-compatible Messages endpoint accepts text and vision input only; it never generates images, videos or speech. Use the entries below for generation requests — actual availability depends on the group platform and its switches.',
