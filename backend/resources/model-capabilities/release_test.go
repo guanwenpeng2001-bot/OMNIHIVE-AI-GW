@@ -21,8 +21,17 @@ func TestRealReleaseOfflineAndImmutable(t *testing.T) {
 	if err := json.Unmarshal(body, &c); err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Records) != 296 {
+	if len(c.Records) != 912 {
 		t.Fatalf("actual released records: %d", len(c.Records))
+	}
+	var manifest struct {
+		RecordCount int `json:"record_count"`
+	}
+	if err := json.Unmarshal(capabilities.ManifestJSON(), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.RecordCount != 912 || manifest.RecordCount != len(c.Records) {
+		t.Fatalf("manifest/catalog count mismatch: manifest=%d catalog=%d", manifest.RecordCount, len(c.Records))
 	}
 	for _, record := range c.Records {
 		if record.ModelID == "" || record.Profile == "" {

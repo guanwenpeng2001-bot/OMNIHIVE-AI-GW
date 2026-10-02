@@ -26,7 +26,7 @@ func TestModelCapabilityEmbeddedBaseline(t *testing.T) {
 	require.True(t, *gpt.SupportsVision)
 	require.True(t, *gpt.SupportsFunctionCalling)
 	require.Nil(t, gpt.SupportsReasoning)
-	require.Nil(t, gpt.InputModalities, "vision is not a complete modality declaration")
+	assertReviewedGPT4oInputModalities(t, gpt)
 	for _, id := range []string{"deepseek-chat", "deepseek-reasoner"} {
 		r, ok := snapshot.LookupExact("deepseek", id)
 		require.True(t, ok, id)
@@ -64,8 +64,7 @@ func TestModelCapabilityPriceIsolationAndMissingOnlyMerge(t *testing.T) {
 	require.EqualValues(t, 16384, *r.MaxOutputTokens)
 	require.True(t, *r.SupportsVision)
 	require.True(t, *r.SupportsPromptCaching)
-	require.NotNil(t, r.InputModalities)
-	require.Empty(t, r.InputModalities)
+	assertReviewedGPT4oInputModalities(t, r)
 	require.NotEqual(t, "litellm:runtime", r.FieldSources["supports_vision"].Source)
 	require.NotEqual(t, "litellm:runtime", r.FieldSources["max_output_tokens"].Source)
 	spec, ok := snapshot.LookupExact("test", "spec-only")
@@ -84,6 +83,35 @@ func TestModelCapabilityPriceIsolationAndMissingOnlyMerge(t *testing.T) {
 	// Reviewed specifications remain applicable across runtime price versions.
 	_, ok = snapshot.LookupExact("deepseek", "deepseek-chat")
 	require.True(t, ok)
+}
+
+func assertReviewedGPT4oInputModalities(t *testing.T, record CapabilityRecord) {
+	t.Helper()
+	require.Equal(t, []string{"text", "image"}, record.InputModalities)
+	require.Equal(t, CapabilityFieldSource{
+		Source:      "https://developers.openai.com/api/docs/models/gpt-4o",
+		ContentHash: "0735c53beab34ba03ef7536e95da39eaa401006bf219a6111b896a70fede28c8",
+		ObservedAt:  "2026-10-02",
+		Confidence:  "verified",
+		ProofScope:  "A: exact openai/gpt-4o; field input_modalities; public documentation only, no account entitlement or protocol activation",
+	}, record.FieldSources["input_modalities"])
+}
+
+func TestModelCapabilityVisionOnlyDoesNotInventModalities(t *testing.T) {
+	body := []byte(`{"vision-only":{"litellm_provider":"test","supports_vision":true},"vision-empty":{"litellm_provider":"test","supports_vision":true,"input_modalities":[]}}`)
+	snapshot, err := buildModelCapabilitySnapshot(body)
+	require.NoError(t, err)
+	vision, ok := snapshot.LookupExact("test", "vision-only")
+	require.True(t, ok)
+	require.True(t, *vision.SupportsVision)
+	require.Nil(t, vision.InputModalities, "a vision boolean is not a modality declaration")
+	require.NotContains(t, vision.FieldSources, "input_modalities")
+	empty, ok := snapshot.LookupExact("test", "vision-empty")
+	require.True(t, ok)
+	require.True(t, *empty.SupportsVision)
+	require.NotNil(t, empty.InputModalities, "an explicit empty runtime declaration stays distinct from omission")
+	require.Empty(t, empty.InputModalities)
+	require.Equal(t, "litellm:runtime", empty.FieldSources["input_modalities"].Source)
 }
 
 func TestModelCapabilitySnapshotDefensiveCopies(t *testing.T) {
