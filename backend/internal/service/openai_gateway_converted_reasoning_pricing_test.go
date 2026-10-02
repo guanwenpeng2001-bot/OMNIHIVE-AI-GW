@@ -25,7 +25,7 @@ func TestOpenAINativeAnthropicReasoningPricingUsesForwardedEffort(t *testing.T) 
 				wantEffort string
 				wantCost   float64
 			}{
-				{"xhigh", "", 1},
+				{"xhigh", "xhigh", 1},
 				{"high", "high", 1},
 				{"", "", 1},
 			} {
@@ -58,12 +58,6 @@ func TestOpenAINativeAnthropicReasoningPricingUsesForwardedEffort(t *testing.T) 
 						result, err = svc.Forward(context.Background(), ginContext, account, body)
 					} else {
 						result, err = svc.ForwardAsChatCompletions(context.Background(), ginContext, account, body, "", "")
-					}
-					if testCase.effort != "" {
-						require.ErrorContains(t, err, "unsupported reasoning.effort")
-						require.Nil(t, upstream.lastReq)
-						require.Equal(t, http.StatusBadRequest, ginContext.Writer.Status())
-						return
 					}
 					require.NoError(t, err)
 					require.Equal(t, "/v1/messages", upstream.lastReq.URL.Path)

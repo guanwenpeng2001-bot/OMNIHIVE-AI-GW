@@ -59,7 +59,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(ctx context.Context, c 
 		writeResponsesError(c, 400, "invalid_request_error", err.Error())
 		return nil, err
 	}
-	anthropic, err := apicompat.ResponsesToAnthropicRequest(&request)
+	anthropic, err := responsesToGeminiMessages(&request)
 	if err != nil {
 		writeResponsesError(c, 400, "invalid_request_error", err.Error())
 		return nil, err
@@ -79,7 +79,12 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(ctx context.Context, c 
 		case "json_schema", "json_object":
 			var mapped map[string]any
 			_ = json.Unmarshal(anthropicBody, &mapped)
-			mapped["output_config"] = map[string]any{"format": format}
+			output, _ := mapped["output_config"].(map[string]any)
+			if output == nil {
+				output = make(map[string]any)
+			}
+			output["format"] = format
+			mapped["output_config"] = output
 			anthropicBody, _ = json.Marshal(mapped)
 		default:
 			err = fmt.Errorf("unsupported Responses text format")

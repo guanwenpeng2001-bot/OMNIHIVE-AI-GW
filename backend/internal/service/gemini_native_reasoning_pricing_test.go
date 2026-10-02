@@ -136,39 +136,49 @@ func TestGeminiNativeReasoningPricingUsesExplicitForwardedLevel(t *testing.T) {
 	}
 }
 
-func TestGeminiChatCompatRejectsUnrepresentableReasoningEffort(t *testing.T) {
+func TestGeminiChatCompatReasoningUsesGeminiContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, stream := range []bool{false, true} {
-		mode := "buffered"
-		if stream {
-			mode = "streaming"
-		}
-		t.Run(mode, func(t *testing.T) {
-			const model = "gemini-3.1-pro"
-			body, err := json.Marshal(map[string]any{
-				"model": model, "stream": stream, "reasoning_effort": "high",
-				"messages": []map[string]string{{"role": "user", "content": "hello"}},
-			})
-			require.NoError(t, err)
-			responseBody := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}`
-			contentType := "application/json"
+	for _, effort := range []string{"high", "xhigh"} {
+		for _, stream := range []bool{false, true} {
+			mode := "buffered"
 			if stream {
-				contentType = "text/event-stream"
-				responseBody = "data: " + responseBody + "\n\n"
+				mode = "streaming"
 			}
-			upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
-				StatusCode: http.StatusOK,
-				Header:     http.Header{"Content-Type": []string{contentType}},
-				Body:       io.NopCloser(strings.NewReader(responseBody)),
-			}}}
-			svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
-			ginContext, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
-			result, err := svc.ForwardAsChatCompletions(context.Background(), ginContext, geminiSignalTestAccount(), body)
-			require.ErrorContains(t, err, "unsupported reasoning.effort")
-			require.Nil(t, result)
-			require.Equal(t, http.StatusBadRequest, recorder.Code)
-			require.Empty(t, upstream.requestBodies)
-			require.Contains(t, recorder.Body.String(), "unsupported reasoning.effort")
-		})
+			t.Run(effort+"/"+mode, func(t *testing.T) {
+				const model = "gemini-3.1-pro"
+				body, err := json.Marshal(map[string]any{
+					"model": model, "stream": stream, "reasoning_effort": effort,
+					"messages": []map[string]string{{"role": "user", "content": "hello"}},
+				})
+				require.NoError(t, err)
+				responseBody := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5}}`
+				contentType := "application/json"
+				if stream {
+					contentType = "text/event-stream"
+					responseBody = "data: " + responseBody + "\n\n"
+				}
+				upstream := &queuedHTTPUpstreamStub{responses: []*http.Response{{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{contentType}},
+					Body:       io.NopCloser(strings.NewReader(responseBody)),
+				}}}
+				svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+				ginContext, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", body)
+				result, err := svc.ForwardAsChatCompletions(context.Background(), ginContext, geminiSignalTestAccount(), body)
+				if effort == "high" {
+					require.NoError(t, err)
+					require.NotNil(t, result)
+					require.Equal(t, http.StatusOK, recorder.Code)
+					require.Len(t, upstream.requestBodies, 1)
+					require.Equal(t, "HIGH", gjson.GetBytes(upstream.requestBodies[0], "generationConfig.thinkingConfig.thinkingLevel").String())
+					return
+				}
+				require.ErrorContains(t, err, "cannot be represented by Gemini")
+				require.Nil(t, result)
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+				require.Empty(t, upstream.requestBodies)
+				require.Contains(t, recorder.Body.String(), "cannot be represented by Gemini")
+			})
+		}
 	}
 }

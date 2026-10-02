@@ -26,7 +26,7 @@ func TestReasoningTransparencyResponsesReplay(testingT *testing.T) {
 		{name: "supported xhigh", model: "claude-opus-4-7", effort: "xhigh", thinking: "adaptive"},
 		{name: "minimal", model: "claude-opus-4-6", effort: "minimal", unsupported: true},
 		{name: "unknown effort", model: "claude-opus-4-6", effort: "turbo", unsupported: true},
-		{name: "unknown capability", model: "unknown-model", effort: "high", unsupported: true},
+		{name: "unknown capability", model: "unknown-model", effort: "high", thinking: "adaptive"},
 	} {
 		testingT.Run(scenario.name, func(testingT *testing.T) {
 			request := &ResponsesRequest{Model: scenario.model, Input: json.RawMessage(`"Hello"`), Reasoning: &ResponsesReasoning{Effort: scenario.effort}}

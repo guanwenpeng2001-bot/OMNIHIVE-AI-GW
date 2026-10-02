@@ -61,7 +61,12 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		if effort == "none" {
 			out.Thinking = &AnthropicThinking{Type: "disabled"}
 		} else {
-			if !claude.SupportsAdaptiveThinking(req.Model) || !slices.Contains(claude.EffortLevelsForModel(req.Model), effort) {
+			levels := claude.EffortLevelsForModel(req.Model)
+			_, knownLegacyModel := claude.ModelIDOverrides[claude.DenormalizeModelID(strings.TrimSuffix(req.Model, "-thinking"))]
+			validEffort := slices.Contains([]string{"low", "medium", "high", "xhigh", "max"}, effort)
+			// A missing catalog entry is unknown capability. Preserve native
+			// syntax and known family restrictions without denying custom IDs.
+			if !validEffort || (knownLegacyModel && !claude.SupportsAdaptiveThinking(req.Model)) || (len(levels) > 0 && (!claude.SupportsAdaptiveThinking(req.Model) || !slices.Contains(levels, effort))) {
 				return nil, fmt.Errorf("unsupported reasoning.effort %q for the target model; use the target model native API for thinking controls", effort)
 			}
 			out.OutputConfig = &AnthropicOutputConfig{Effort: effort}

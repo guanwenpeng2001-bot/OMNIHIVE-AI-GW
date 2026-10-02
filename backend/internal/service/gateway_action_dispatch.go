@@ -393,9 +393,6 @@ func CompositeGeminiTargetPlatformMiddleware(resolver *CompositeRouteResolver) g
 					c.Request = c.Request.WithContext(WithCompositeRouteDecision(c.Request.Context(), decision))
 				}
 			}
-			if _, resolved := ResolvedTargetPlatformFromContext(c.Request.Context()); !resolved {
-				c.Request = c.Request.WithContext(WithResolvedTargetPlatform(c.Request.Context(), PlatformGemini))
-			}
 		}
 		c.Next()
 	}

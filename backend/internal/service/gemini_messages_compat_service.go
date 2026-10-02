@@ -3502,7 +3502,10 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte, profiles ...gemin
 		out["toolConfig"] = map[string]any{"functionCallingConfig": config}
 	}
 
-	generationConfig := convertClaudeGenerationConfig(req)
+	generationConfig, err := convertClaudeGenerationConfig(req)
+	if err != nil {
+		return nil, err
+	}
 	if generationConfig != nil {
 		out["generationConfig"] = generationConfig
 	}
@@ -3942,7 +3945,7 @@ func schemaNumberFloat64(value any) (float64, bool) {
 	}
 }
 
-func convertClaudeGenerationConfig(req map[string]any) map[string]any {
+func convertClaudeGenerationConfig(req map[string]any) (map[string]any, error) {
 	out := make(map[string]any)
 	if mt, ok := asInt(req["max_tokens"]); ok && mt > 0 {
 		out["maxOutputTokens"] = mt
@@ -3957,6 +3960,14 @@ func convertClaudeGenerationConfig(req map[string]any) map[string]any {
 		out["topK"] = topK
 	}
 	if config, ok := req["output_config"].(map[string]any); ok {
+		if effort, exists := config["effort"]; exists {
+			switch effort {
+			case "minimal", "low", "medium", "high":
+				out["thinkingConfig"] = map[string]any{"thinkingLevel": strings.ToUpper(effort.(string))}
+			default:
+				return nil, fmt.Errorf("output_config.effort %v cannot be represented by Gemini", effort)
+			}
+		}
 		if format, ok := config["format"].(map[string]any); ok {
 			if format["type"] == "json_schema" || format["type"] == "json_object" {
 				out["responseMimeType"] = "application/json"
@@ -3966,13 +3977,41 @@ func convertClaudeGenerationConfig(req map[string]any) map[string]any {
 			}
 		}
 	}
+	if raw, exists := req["thinking"]; exists {
+		thinking, ok := raw.(map[string]any)
+		if !ok {
+			return nil, errors.New("thinking must be an object")
+		}
+		switch thinking["type"] {
+		case "disabled":
+			if out["thinkingConfig"] != nil {
+				return nil, errors.New("disabled thinking and output_config.effort cannot both be set for Gemini")
+			}
+			out["thinkingConfig"] = map[string]any{"thinkingBudget": 0}
+		case "adaptive":
+			if out["thinkingConfig"] == nil {
+				out["thinkingConfig"] = map[string]any{"thinkingBudget": -1}
+			}
+		case "enabled":
+			budget, ok := thinking["budget_tokens"].(float64)
+			if !ok || budget < 0 || budget > math.MaxInt32 || math.Trunc(budget) != budget {
+				return nil, errors.New("thinking.budget_tokens must be a non-negative integer for Gemini")
+			}
+			if out["thinkingConfig"] != nil {
+				return nil, errors.New("thinking.budget_tokens and output_config.effort cannot both be set for Gemini")
+			}
+			out["thinkingConfig"] = map[string]any{"thinkingBudget": int(budget)}
+		default:
+			return nil, errors.New("thinking.type must be disabled, adaptive, or enabled for Gemini")
+		}
+	}
 	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
 		out["stopSequences"] = stopSeq
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
-	return out
+	return out, nil
 }
 
 func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string {

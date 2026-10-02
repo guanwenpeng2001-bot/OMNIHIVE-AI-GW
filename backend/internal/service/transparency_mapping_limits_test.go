@@ -76,6 +76,9 @@ func TestTransparencyAntigravityFinalModelReplay(testingT *testing.T) {
 			}
 			for _, target := range []string{"claude-sonnet-4-5", "unknown-model"} {
 				upstream := &queuedHTTPUpstreamStub{}
+				if target == "unknown-model" {
+					upstream.responses = []*http.Response{antigravityCompatSuccessResponse()}
+				}
 				gateway := newAntigravityCompatService(config.GatewayConfig{}, upstream)
 				account := newAntigravityCompatAccount(AccountTypeOAuth)
 				account.Credentials["model_mapping"] = map[string]any{"claude-sonnet-4-6": target}
@@ -86,6 +89,13 @@ func TestTransparencyAntigravityFinalModelReplay(testingT *testing.T) {
 					_, err = gateway.ForwardAsResponses(context.Background(), requestContext, account, body, nil)
 				} else {
 					_, err = gateway.ForwardAsChatCompletions(context.Background(), requestContext, account, body, nil)
+				}
+				if target == "unknown-model" {
+					require.NoError(testingT, err)
+					require.Equal(testingT, http.StatusOK, recorder.Code)
+					require.Len(testingT, upstream.requestBodies, 1)
+					require.Equal(testingT, target, gjson.GetBytes(upstream.requestBodies[0], "model").String())
+					continue
 				}
 				require.ErrorContains(testingT, err, "unsupported reasoning.effort")
 				require.Equal(testingT, http.StatusBadRequest, recorder.Code)
@@ -106,7 +116,7 @@ func TestTransparencyCursorFinalModelReplay(testingT *testing.T) {
 				{model: "claude-sonnet-4-6", target: "claude-sonnet-4-6"},
 				{model: "public-alias", target: "claude-sonnet-4-6"},
 				{model: "claude-sonnet-4-6", target: "claude-sonnet-4-5", rejected: true},
-				{model: "claude-sonnet-4-6", target: "unknown-model", rejected: true},
+				{model: "claude-sonnet-4-6", target: "unknown-model"},
 			} {
 				var captured []byte
 				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -137,6 +147,9 @@ func TestTransparencyCursorFinalModelReplay(testingT *testing.T) {
 				require.Equal(testingT, "high", gjson.GetBytes(captured, "output_config.effort").String())
 				require.False(testingT, gjson.GetBytes(captured, "thinking.budget_tokens").Exists())
 				require.EqualValues(testingT, 2048, gjson.GetBytes(captured, "max_tokens").Int())
+				if scenario.target == "unknown-model" {
+					continue
+				}
 				if directBody == "" {
 					directBody = string(captured)
 				} else {
