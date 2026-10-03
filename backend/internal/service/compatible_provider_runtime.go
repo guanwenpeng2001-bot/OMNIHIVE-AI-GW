@@ -47,6 +47,14 @@ func (a *Account) compatibleMode() (domain.CompatibleProvider, domain.Compatible
 // Protocol overrides are complete prefixes. For account-source rows only base_url
 // is a resource root; append the declared Path exactly once (also accept that full prefix).
 func (a *Account) compatibleBase(endpoint domain.CompatibleEndpoint) (string, error) {
+	if isCopilotNous(a) {
+		config, err := compatibleSpecialAuthConfig(a)
+		if err != nil {
+			return "", err
+		}
+		endpoints, err := ResolveCopilotNousEndpoints(config)
+		return endpoints.ChatBaseURL, err
+	}
 	p, _, err := a.compatibleMode()
 	if err != nil {
 		return "", err
@@ -127,7 +135,11 @@ func bindCompatibleRequest(ctx context.Context, account *Account, action, model 
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(account.GetCredential("api_key")) == "" {
+	if isCopilotNous(account) {
+		if err := validateCompatibleSpecialSecret(account); err != nil {
+			return nil, err
+		}
+	} else if strings.TrimSpace(account.GetCredential("api_key")) == "" {
 		return nil, fmt.Errorf("compatible provider requires api_key")
 	}
 	bound := *account
@@ -152,6 +164,9 @@ func setCompatibleAuth(header http.Header, auth, key string) {
 // At the common send boundary, reject accidental cross-protocol sends. URL was
 // already resolved and validated by the builder; this function never redirects it.
 func applyCompatibleRequestAuth(account *Account, request *http.Request) error {
+	if isCopilotNous(account) {
+		return applyCompatibleSpecialAuth(account, request)
+	}
 	if !IsCompatibleProvider(account.Platform) {
 		return nil
 	}
@@ -185,6 +200,34 @@ func applyCompatibleRequestAuth(account *Account, request *http.Request) error {
 	return nil
 }
 func buildCompatibleModelsRequest(ctx context.Context, account *Account, validate func(string) (string, error)) (*http.Request, error) {
+	if isCopilotNous(account) {
+		if _, _, err := account.compatibleMode(); err != nil {
+			return nil, err
+		}
+		config, err := compatibleSpecialAuthConfig(account)
+		if err != nil {
+			return nil, err
+		}
+		endpoints, err := ResolveCopilotNousEndpoints(config)
+		if err != nil {
+			return nil, err
+		}
+		for _, destination := range []string{endpoints.ChatBaseURL, endpoints.ModelsURL} {
+			if _, err := validate(destination); err != nil {
+				return nil, err
+			}
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoints.ModelsURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		request.Header.Set("Accept", "application/json")
+		account.ApplyHeaderOverrides(request.Header)
+		if err := applyCompatibleSpecialAuth(account, request); err != nil {
+			return nil, err
+		}
+		return request, nil
+	}
 	_, mode, err := account.compatibleMode()
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError(err.Error(), err)
@@ -231,7 +274,20 @@ func validateCompatibleAccount(account *Account) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(account.GetCredential("api_key")) == "" {
+	if isCopilotNous(account) {
+		config, err := compatibleSpecialAuthConfig(account)
+		if err != nil {
+			return err
+		}
+		if _, err := ResolveCopilotNousEndpoints(config); err != nil {
+			return err
+		}
+		_, referenced := CredentialReference(account.Credentials)
+		_, supplied := account.Credentials["api_key"]
+		if (!referenced || supplied) && !compatibleSpecialKeyOptional(account) && strings.TrimSpace(account.GetCredential("api_key")) == "" {
+			return fmt.Errorf("api_key is required")
+		}
+	} else if strings.TrimSpace(account.GetCredential("api_key")) == "" {
 		return fmt.Errorf("api_key is required")
 	}
 	protocol := strings.TrimSpace(account.GetCredential("api_protocol"))
@@ -274,6 +330,13 @@ func (s *AccountTestService) testCompatibleAccountConnection(c *accountProbeCont
 	bound, err := bindCompatibleRequest(c.ctx, account, action, account.GetMappedModel(model))
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
+	}
+	if isCopilotNous(bound) {
+		base, err := s.validateUpstreamBaseURL(bound.GetOpenAIBaseURL())
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+		return s.testOpenAIChatCompletionsConnection(c, bound, account.GetMappedModel(model), prompt, base, bound.GetCredential("api_key"))
 	}
 	switch bound.GetAPIProtocol() {
 	case APIProtocolAnthropic:

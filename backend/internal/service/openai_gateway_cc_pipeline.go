@@ -183,7 +183,7 @@ func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey
 	if account.Platform == PlatformGrok && account.Type == AccountTypeAPIKey {
 		apiKey = strings.TrimSpace(account.GetCredential("api_key"))
 	}
-	if apiKey == "" {
+	if apiKey == "" && !compatibleSpecialKeyOptional(account) {
 		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 	}
 	targetURL, err = s.rawChatCompletionsURL(account)

@@ -628,6 +628,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	defer s.captureRuntimeInvalidation(ctx, account)()
 	previousCredentials := account.Credentials
+	if err := validateCompatibleSpecialAuthTransition(account, input.Credentials); err != nil {
+		return nil, err
+	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -1120,6 +1123,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	for _, target := range cachedTargets {
 		if IsCompatibleProvider(target.Platform) && len(input.Credentials) > 0 {
+			if err := validateCompatibleSpecialAuthTransition(target, input.Credentials); err != nil {
+				return nil, err
+			}
 			candidate := *target
 			candidate.Credentials = maps.Clone(target.Credentials)
 			if candidate.Credentials == nil {

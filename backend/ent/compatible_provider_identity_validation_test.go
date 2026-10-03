@@ -41,16 +41,16 @@ func (driver *identityRecordingDriver) Tx(context.Context) (dialect.Tx, error) {
 }
 
 func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
-	body, err := migrations.FS.ReadFile("283_compatible_provider_identities.sql")
+	body, err := migrations.FS.ReadFile("284_copilot_nous_identities.sql")
 	require.NoError(test, err)
 	native := strings.Fields("anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral openrouter bedrock volcengine")
 	for _, entity := range []struct {
 		name, constraint, field string
 		count                   int
 	}{
-		{"quota", "user_platform_quotas_platform_check", "platform", 90},
-		{"monitor", "channel_monitors_provider_check", "provider", 89},
-		{"template", "channel_monitor_request_templates_provider_check", "provider", 89},
+		{"quota", "user_platform_quotas_platform_check", "platform", 92},
+		{"monitor", "channel_monitors_provider_check", "provider", 91},
+		{"template", "channel_monitor_request_templates_provider_check", "provider", 91},
 	} {
 		match := regexp.MustCompile(`(?s)ADD CONSTRAINT ` + entity.constraint + `\s+CHECK\s*\(\w+ IN \(([^;]+)\)\);`).FindStringSubmatch(string(body))
 		require.Len(test, match, 2)
@@ -67,9 +67,9 @@ func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
 			}
 		}
 		require.Len(test, allowed, entity.count)
-		require.Len(test, compatible, 70)
+		require.Len(test, compatible, 72)
 		sort.Strings(compatible)
-		require.Equal(test, "08d898819f0f5deb675aa726a5eda853187229041fc33a5f0a1f7d1d5a81f7ad", fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(compatible, "\n")+"\n"))))
+		require.Equal(test, "5f4ee54c46f62235239a4d9196dc840a3075b48133bee60afefd89e4f2b502bf", fmt.Sprintf("%x", sha256.Sum256([]byte(strings.Join(compatible, "\n")+"\n"))))
 		for _, old := range native {
 			require.Contains(test, allowed, old)
 		}

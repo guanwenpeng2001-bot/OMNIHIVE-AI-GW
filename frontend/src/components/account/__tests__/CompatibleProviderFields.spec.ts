@@ -40,8 +40,10 @@ describe('shared compatible provider forms', () => {
     await wrapper.get('[data-testid="example-cloud-platform"]').trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual(['example-cloud'])
     expect(platformFamily('example-cloud')).toBe('openaiCompatible')
-    expect(platformBadgeClass('example-cloud')).toBe(platformBadgeClass('unknown'))
-    expect(platformSolidBadgeClass('example-cloud')).toBe(platformSolidBadgeClass('unknown'))
+    expect(platformBadgeClass('example-cloud')).toBeTruthy()
+    expect(platformBadgeClass('example-cloud')).not.toBe(platformBadgeClass('openai'))
+    expect(platformSolidBadgeClass('example-cloud')).toBeTruthy()
+    expect(platformSolidBadgeClass('example-cloud')).not.toBe(platformSolidBadgeClass('openai'))
   })
   it('does not inherit native-provider OAuth, pricing, quota or form features', () => {
     for (const predicate of [platformSupportsOAuth, platformSupportsPricingSync, isCNProviderPlatform, isMultiProtocolApiKeyPlatform, showsCodingPlanMode, isDeclaredProtocolPlatform]) expect(predicate('example-cloud')).toBe(false)

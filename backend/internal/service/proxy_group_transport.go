@@ -14,6 +14,9 @@ type groupAccountUpstream struct {
 
 // Keep the legacy transport exactly as supplied for unbound/single-node accounts.
 func accountHTTPUpstream(base HTTPUpstream, account *Account) HTTPUpstream {
+	if isCopilotNous(account) {
+		base = &compatibleSpecialUpstream{base: base, account: account}
+	}
 	if account == nil || account.ProxyGroupID == nil {
 		return base
 	}

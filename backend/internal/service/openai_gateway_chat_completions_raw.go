@@ -127,7 +127,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" && !compatibleSpecialKeyOptional(account) {
 		return nil, fmt.Errorf("account %d missing %s credential", account.ID, tokenKind)
 	}
 
