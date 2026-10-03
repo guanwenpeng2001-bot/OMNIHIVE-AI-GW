@@ -204,7 +204,7 @@ func TestCompatibleFailureUsageAndCancellation(t *testing.T) {
 		response string
 		stream   bool
 	}{
-		{"unknown usage", 200, `{"id":"c","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"unbillable"},"finish_reason":"stop"}]}`, false},
+		{"malformed JSON", 200, `{"id":`, false},
 		{"upstream error", 400, `{"error":{"message":"fixture invalid request","type":"invalid_request_error"}}`, false},
 		{"broken stream", 200, "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n", true},
 	} {
@@ -486,16 +486,20 @@ func TestCompatibleUsagePresenceAcrossNativeProtocols(t *testing.T) {
 					c, _ := gin.CreateTestContext(rec)
 					c.Request = httptest.NewRequest("POST", "/v1/responses", bytes.NewReader(body))
 					var err error
+					var result *OpenAIForwardResult
 					switch protocol {
 					case APIProtocolChatCompletions:
-						_, err = svc.ForwardAsChatCompletions(context.Background(), c, a, body, "", "")
+						result, err = svc.ForwardAsChatCompletions(context.Background(), c, a, body, "", "")
 					case APIProtocolAnthropic:
-						_, err = svc.ForwardAsAnthropic(context.Background(), c, a, body, "", "")
+						result, err = svc.ForwardAsAnthropic(context.Background(), c, a, body, "", "")
 					case APIProtocolResponses:
-						_, err = svc.Forward(context.Background(), c, a, body)
+						result, err = svc.Forward(context.Background(), c, a, body)
 					}
-					require.Error(t, err)
-					require.NotContains(t, rec.Body.String(), "[DONE]")
+					require.NoError(t, err)
+					require.NotNil(t, result.TokenUsageObservation)
+					require.False(t, result.TokenUsageObservation.InputTokensKnown)
+					require.False(t, result.TokenUsageObservation.OutputTokensKnown)
+					require.Contains(t, rec.Body.String(), "hello")
 				})
 			}
 		})

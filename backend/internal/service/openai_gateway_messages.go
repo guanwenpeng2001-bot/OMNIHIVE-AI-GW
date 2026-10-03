@@ -32,12 +32,13 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (forwarded *OpenAIForwardResult, forwardErr error) {
 	bound, bindErr := bindCompatibleRequest(ctx, account, "messages", resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel))
 	if bindErr != nil {
 		return nil, bindErr
 	}
 	account = bound
+	defer func() { attachCompatibleUsage(account, forwarded, forwardErr) }()
 	if account.Platform == PlatformOpenRouter {
 		if openRouterGoogleIngress(ctx) {
 			if err := openRouterProtocolAllowed(account, APIProtocolChatCompletions); err != nil {

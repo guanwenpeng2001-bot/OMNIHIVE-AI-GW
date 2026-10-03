@@ -25,6 +25,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, bindErr
 	}
 	account = bound
+	defer func() { attachCompatibleUsage(account, forwarded, forwardErr) }()
 	requestedEffort := CanonicalRequestedReasoningEffort(body, gjson.GetBytes(body, "model").String())
 	if c != nil && c.Request != nil {
 		if original := RequestedReasoningEffortFromContext(c.Request.Context()); original != nil {

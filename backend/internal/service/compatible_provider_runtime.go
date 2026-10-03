@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/tidwall/gjson"
@@ -16,9 +17,10 @@ import (
 
 // A request binding never changes persisted identity, budgets, proxy or credentials.
 type compatibleRequestBinding struct {
-	Endpoint domain.CompatibleEndpoint
-	Base     string
-	Action   string
+	Endpoint    domain.CompatibleEndpoint
+	Base        string
+	Action      string
+	observation compatibleUsageObservation
 }
 
 // IsCompatibleProvider identifies table-owned providers without changing their platform identity.
@@ -283,16 +285,36 @@ func (s *AccountTestService) testCompatibleAccountConnection(c *accountProbeCont
 	}
 }
 
-// Require observed counters, including legitimate zero values, before reporting
-// a successful compatible generation. The wrapper preserves incremental SSE and
-// prevents existing converters from treating absent counters as a billed zero.
+// Observe optional counters without changing successful output or terminal events.
+// Presence is separate from scalar zero and follows the result into settlement.
+type TokenUsageObservation struct {
+	InputTokensKnown  bool `json:"input_tokens_known"`
+	OutputTokensKnown bool `json:"output_tokens_known"`
+}
+
+func (o *TokenUsageObservation) known() bool {
+	return o == nil || (o.InputTokensKnown && o.OutputTokensKnown)
+}
+
+type compatibleUsageObservation struct{ inputKnown, outputKnown atomic.Bool }
+
+func attachCompatibleUsage(account *Account, result *OpenAIForwardResult, forwardErr error) {
+	if result == nil || account.compatibleBinding == nil {
+		return
+	}
+	result.compatibleIncomplete = forwardErr != nil
+	evidence := &account.compatibleBinding.observation
+	result.TokenUsageObservation = &TokenUsageObservation{InputTokensKnown: evidence.inputKnown.Load(), OutputTokensKnown: evidence.outputKnown.Load()}
+}
+
 type compatibleUsageBody struct {
-	source                               io.ReadCloser
-	scanner                              *bufio.Scanner
-	pending                              []byte
-	protocol                             string
-	limit                                int64
-	initialized, inputKnown, outputKnown bool
+	source                io.ReadCloser
+	scanner               *bufio.Scanner
+	pending               []byte
+	protocol              string
+	limit                 int64
+	initialized, terminal bool
+	observation           *compatibleUsageObservation
 }
 
 func (b *compatibleUsageBody) Close() error { return b.source.Close() }
@@ -309,10 +331,10 @@ func (b *compatibleUsageBody) observe(raw []byte) {
 		input, output = "prompt_tokens", "completion_tokens"
 	}
 	if _, ok := openRouterCounter(raw, prefix+input); ok {
-		b.inputKnown = true
+		b.observation.inputKnown.Store(true)
 	}
 	if _, ok := openRouterCounter(raw, prefix+output); ok && gjson.GetBytes(raw, "type").String() != "message_start" {
-		b.outputKnown = true
+		b.observation.outputKnown.Store(true)
 	}
 }
 func (b *compatibleUsageBody) Read(p []byte) (int, error) {
@@ -330,34 +352,41 @@ func (b *compatibleUsageBody) Read(p []byte) (int, error) {
 				return 0, err
 			}
 			b.observe(raw)
-			if !b.inputKnown || !b.outputKnown {
-				return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream usage is unknown"))
+
+			if !gjson.ValidBytes(raw) || !gjson.ParseBytes(raw).IsObject() {
+				return 0, fmt.Errorf("invalid compatible upstream JSON")
 			}
+
 			b.pending = raw
 		} else {
 			if !b.scanner.Scan() {
 				if err := b.scanner.Err(); err != nil {
 					return 0, err
 				}
-				if !b.inputKnown || !b.outputKnown {
-					return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream usage is unknown"))
+				if !b.terminal {
+					return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream missing terminal event"))
 				}
 				return 0, io.EOF
 			}
 			line := b.scanner.Bytes()
-			// Native Messages considers the event header itself terminal. Withhold it
-			// until both counters have been seen, not merely the following data line.
-			if bytes.HasPrefix(line, []byte("event:")) && strings.TrimSpace(string(bytes.TrimPrefix(line, []byte("event:")))) == "message_stop" && (!b.inputKnown || !b.outputKnown) {
-				return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream usage is unknown"))
-			}
 
 			if bytes.HasPrefix(line, []byte("data:")) {
 				raw := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
 				b.observe(raw)
 				kind := gjson.GetBytes(raw, "type").String()
-				terminal := bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || kind == "response.completed"
-				if terminal && (!b.inputKnown || !b.outputKnown) {
-					return 0, newOpenAIUpstreamStreamReadError(fmt.Errorf("compatible upstream usage is unknown"))
+				terminal := bytes.Equal(raw, []byte("[DONE]")) || kind == "message_stop" || openAIStreamEventTypeIsTerminal(kind)
+				if b.protocol == APIProtocolChatCompletions {
+					for _, choice := range gjson.GetBytes(raw, "choices").Array() {
+						if choice.Get("finish_reason").Type == gjson.String && choice.Get("finish_reason").String() != "" {
+							terminal = true
+						}
+					}
+				}
+				if !bytes.Equal(raw, []byte("[DONE]")) && !gjson.ValidBytes(raw) {
+					return 0, fmt.Errorf("invalid compatible upstream SSE data")
+				}
+				if terminal || kind == "error" || kind == "response.failed" || kind == "response.incomplete" {
+					b.terminal = true
 				}
 			}
 			b.pending = append(append([]byte(nil), line...), '\n')
@@ -372,7 +401,11 @@ func compatibleCheckedResponse(account *Account, response *http.Response, limit 
 		return response
 	}
 	protocol := account.GetAPIProtocol()
-	body := &compatibleUsageBody{source: response.Body, protocol: protocol, limit: limit}
+	observation := &compatibleUsageObservation{}
+	if account.compatibleBinding != nil {
+		observation = &account.compatibleBinding.observation
+	}
+	body := &compatibleUsageBody{source: response.Body, protocol: protocol, limit: limit, observation: observation}
 	if strings.Contains(response.Header.Get("Content-Type"), "text/event-stream") {
 		body.scanner = bufio.NewScanner(response.Body)
 		body.scanner.Buffer(make([]byte, 64*1024), int(limit))

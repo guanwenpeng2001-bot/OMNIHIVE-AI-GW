@@ -173,6 +173,9 @@ func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, acco
 	if err := applyCompatibleRequestAuth(account, req); err != nil {
 		return nil, err
 	}
+	if IsCompatibleProvider(account.Platform) {
+		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+	}
 	proxyURL, egressErr := account.EgressProxyURL(req.Context())
 	if egressErr != nil {
 		return nil, egressErr

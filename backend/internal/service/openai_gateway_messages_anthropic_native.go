@@ -441,7 +441,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
-				if sawTerminalEvent {
+				if sawTerminalEvent && !IsCompatibleProvider(account.Platform) {
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 				}
 				if clientDisconnected {
