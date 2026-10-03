@@ -87,6 +87,14 @@ afterEach(() => {
 })
 
 describe('configuration manual', () => {
+  it('translates the resource, conflict and upload error guidance in Chinese', () => {
+    const errors = zh.helpGuide.faq.tables.errors.rows
+    for (const row of [errors.missing, errors.conflict, errors.large]) {
+      expect(row.code).toBe(errors.model.code)
+      expect(row.code).not.toBe('Read the response body')
+    }
+  })
+
   it.each([
     { locale: 'en', guide: en.helpGuide, contractNote: 'separate platform contracts' },
     { locale: 'zh', guide: zh.helpGuide, contractNote: '独立平台契约' }
