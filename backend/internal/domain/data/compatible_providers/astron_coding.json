@@ -1,0 +1,41 @@
+[
+  {
+    "id": "astron_coding",
+    "label": "Astron Coding",
+    "label_zh": "讯飞 Astron Coding",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/anthropic/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://maas-coding-api.cn-huabei-1.xf-yun.com/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "astron_coding_coding"
+      }
+    ],
+    "evidence_url": "https://www.xfyun.cn/doc/spark/CodingPlan.html",
+    "evidence_observed": "2026-10-03"
+  }
+]

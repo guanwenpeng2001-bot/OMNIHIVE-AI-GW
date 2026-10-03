@@ -1,0 +1,36 @@
+[
+  {
+    "id": "azure_openai",
+    "label": "Azure OpenAI",
+    "label_zh": "Azure OpenAI",
+    "base_source": "account",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "path": "/openai/v1",
+            "auth": "api_key_header"
+          },
+          {
+            "protocol": "responses",
+            "path": "/openai/v1",
+            "auth": "api_key_header"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "azure_openai_payg"
+      }
+    ],
+    "evidence_url": "https://learn.microsoft.com/en-us/azure/foundry/openai/latest",
+    "evidence_observed": "2026-10-03"
+  }
+]
