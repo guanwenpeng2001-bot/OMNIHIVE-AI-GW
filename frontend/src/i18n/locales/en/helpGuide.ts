@@ -1,13 +1,13 @@
 export default {
   "title": "Configuration and usage manual",
-  "subtitle": "Account setup, key fields, model catalogs, client configuration, and quota troubleshooting. Browse the contents for settings, procedures, and error handling.",
+  "subtitle": "Start with a key and group, choose a protocol, copy a request, configure your client, and verify results, usage and billing.",
   "eyebrow": "USER MANUAL · CONFIGURATION & GETTING STARTED",
   "contents": "On this page",
   "copy": "Copy",
   "copied": "Copied to clipboard",
   "copyFailed": "Copy failed. Select the code and copy it manually.",
   "next": "Related pages",
-  "placeholder": "Example API addresses come from this deployment's configured api_base_url; replace the key with your own and use a model ID returned by the catalogue. The curl examples use Bash / zsh syntax; on Windows, use WSL or Git Bash.",
+  "placeholder": "Examples use this site’s published API address. Replace sk-your-api-key with your complete key and MODEL_ID_FROM_LIST with an ID from that key’s catalog. Copy the Bash or PowerShell variant for your shell; Python and Node examples read the key from the environment.",
   "apiBaseMissing": "This deployment has no public API base URL configured (api_base_url), so this page cannot generate integration examples. Ask an administrator to configure it.",
   "quick": {
     "title": "Quick start",
@@ -113,8 +113,8 @@ export default {
           },
           "protocol": {
             "layer": "Client protocol",
-            "content": "OpenAI-compatible / Codex catalog",
-            "purpose": "Select a protocol-specific model ID; chat uses chat/completions and Codex uses responses.",
+            "content": "OpenAI-compatible / Messages / Google / Codex catalogs",
+            "purpose": "Choose the catalog and model for the client’s protocol: Chat, Messages, Responses or Google; Codex uses Responses.",
             "view": "Query the endpoints below with the same request key; refresh the client / Agent model selector."
           }
         }
@@ -130,22 +130,38 @@ export default {
           "openai": {
             "endpoint": "GET /v1/models",
             "purpose": "Standard OpenAI-compatible tools",
-            "notes": "/models is the root-path alias; adding the client_version query parameter selects the Codex catalog."
+            "notes": "Use data[].id. client_version is a migration-only compatibility parameter until 2027-03-21 UTC; use the dedicated Codex catalog instead."
           },
           "codex": {
             "endpoint": "GET /backend-api/codex/models",
             "purpose": "Codex-compatible clients",
             "notes": "Authenticate with the same key and select a Codex model ID from the response."
+          },
+          "catalog": {
+            "endpoint": "GET /v1/models/catalog",
+            "purpose": "Rich capability catalog",
+            "notes": "Pass next_cursor as cursor for the next page; preserve the distinction between guaranteed, available and unknown."
+          },
+          "google": {
+            "endpoint": "GET /v1beta/models",
+            "purpose": "Google model catalog",
+            "notes": "Continue using nextPageToken; the request model ID omits the leading models/."
+          },
+          "single": {
+            "endpoint": "GET /v1/models/{'{'}encoded_id{'}'}",
+            "purpose": "Inspect one model",
+            "notes": "Encode the ID as one path segment; do not strip its provider prefix."
           }
         }
       }
     },
     "notes": {
-      "availability": "The catalogue lists models visible to this group; it does not guarantee current quota, account availability or support for every endpoint. Refresh after changing keys or groups."
+      "availability": "The catalogue lists models visible to this group; it does not guarantee current quota, account availability or support for every endpoint. Refresh after changing keys or groups.",
+      "metadata": "The ordinary catalog may include top-level guarantees such as context_window, max_output_tokens, supports_reasoning and supports_function_calling; unknown values are omitted. Rich catalog endpoints and capabilities do not guarantee live capacity; available does not mean guaranteed on every route. Messages catalogs use anthropic-version and after_id/before_id pagination (not both); Google uses pageToken."
     }
   },
   "clients": {
-    "title": "Configure clients and streaming",
+    "title": "Clients & workflows",
     "steps": {},
     "tables": {
       "matrix": {
@@ -177,7 +193,7 @@ export default {
             "base": "Custom OpenAI API URL",
             "key": "Complete key created on this site",
             "model": "MODEL_ID_FROM_LIST",
-            "notes": "Set the custom URL, key, and model; only features using that custom API pass through this gateway."
+            "notes": "The URL override depends on the client version; official BYOK documentation does not establish arbitrary custom URLs. Use a build exposing this setting and an address reachable from Cursor’s servers; features such as Tab may not use this key."
           },
           "codex": {
             "client": "Codex",
@@ -220,6 +236,34 @@ export default {
             "key": "-",
             "model": "-",
             "notes": "Windsurf's official documentation does not describe a custom third-party OpenAI-compatible endpoint or bring-your-own-key setup. Use the Cline, Roo Code or Continue extension inside Windsurf to reach this gateway."
+          },
+          "claude": {
+            "client": "Claude Code CLI",
+            "base": "ANTHROPIC_BASE_URL = gateway root",
+            "key": "ANTHROPIC_API_KEY",
+            "model": "--model MODEL_ID_FROM_LIST",
+            "notes": "The CLI appends /v1/messages; desktop configuration is separate. Requires a group and model that accept Messages."
+          },
+          "opencode": {
+            "client": "OpenCode (v1 config)",
+            "base": "provider.<id>.options.baseURL = root + /v1",
+            "key": "options.apiKey: {'{'}env:SUB2API_API_KEY{'}'}",
+            "model": "<provider>/MODEL_ID_FROM_LIST",
+            "notes": "The example uses the {'@'}ai-sdk/openai-compatible package for Chat. OpenCode 2 has a different schema; do not mix them."
+          },
+          "dsh": {
+            "client": "DeepSeek Harness (DSH)",
+            "base": "baseURL = root + /v1",
+            "key": "apiKeyEnv: SUB2API_API_KEY",
+            "model": "MODEL_ID_FROM_LIST",
+            "notes": "Select openai-completions in provider settings; openai-responses and anthropic-messages are separate protocol choices. Save through your installed version’s setup flow."
+          },
+          "pi": {
+            "client": "Pi",
+            "base": "baseUrl = root + /v1",
+            "key": "apiKey: $SUB2API_API_KEY",
+            "model": "models[].id: MODEL_ID_FROM_LIST",
+            "notes": "Configure openai-completions in ~/.pi/agent/models.json; open /model to reload and select it."
           }
         }
       },
@@ -234,7 +278,7 @@ export default {
           "base": {
             "field": "base_url",
             "meaning": "Usually the site API root plus /v1; do not duplicate /v1. Prefer the client configuration generated by Use on API Keys, especially for groups requiring a dedicated endpoint.",
-            "example": "This site's api_base_url + /v1 (e.g. https://api.your-domain.com/v1)"
+            "example": "Published gateway root + /v1"
           },
           "key": {
             "field": "api_key",
@@ -248,17 +292,18 @@ export default {
           },
           "stream": {
             "field": "stream",
-            "meaning": "true: HTTP streaming (SSE); omitted or false: a complete response. Add -N to curl and iterate over SDK chunks.",
+            "meaning": "For supported Chat, Messages and Responses calls, true requests SSE; omitted or false requests a complete response. Gemini uses streamGenerateContent. Use curl -N.",
             "example": "\"stream\": true"
           }
         }
       }
     },
     "notes": {
-      "streaming": "Provider streams have no universal resume: once a stream has started (the status is committed as 200), an interruption is reported in place with a standard terminal frame (/v1/responses sends response.failed; Messages and Chat Completions send an error frame). The gateway never silently switches upstream to continue, and never replays partial output as a complete answer. Check usage after an interruption, then retry with a new request; a retry carrying Idempotency-Key never starts a second generation (it returns 409 with X-Idempotency-State). GET /v1/responses supports WebSocket ingress, depending on the group, account, and administrator WS mode. Chat SSE and WebSocket differ; use HTTP/SSE unless WS support is confirmed.",
+      "streaming": "See the streaming, tools and reasoning sections for request behavior. The Codex example uses HTTP Responses; WebSocket requires compatible group, account and site settings, so leave it disabled until confirmed.",
       "mediaEndpoints": "Every client configuration above speaks a text/vision protocol (Messages, Responses, Chat Completions). Send image, video and speech generation to the media endpoints instead: /v1/images/generations, /v1/images/edits, /v1/videos/generations, /v1/tts and /v1/stt. Availability depends on the group platform and its switches.",
       "clientSources": "Field names for the added clients come from each vendor's first-party documentation (Cline docs: OpenAI Compatible; Roo Code repository docs: Using OpenAI Compatible Providers; Continue docs: How to Configure OpenAI Models; JetBrains help: Use third-party and local models). Windsurf is listed as unsupported because its official documentation does not describe a custom OpenAI-compatible endpoint.",
-      "antigravity": "Antigravity protocol and tool support depend on the model and group. Some upstream built-in tools may be omitted when mixed with client tools; do not assume built-in search or code execution is available."
+      "antigravity": "Antigravity protocol and tool support depend on the model and group. Some upstream built-in tools may be omitted when mixed with client tools; do not assume built-in search or code execution is available.",
+      "workflow": "For a workflow tool, configure the HTTP method, full URL, authentication header and JSON body. Send a simple request, inspect the result and usage, then add loops or concurrency. A client’s protocol setting does not grant every model that capability."
     }
   },
   "usage": {
@@ -415,8 +460,8 @@ export default {
             "action": "Check validity, then edit or replace the key."
           },
           "balance": {
-            "status": "403",
-            "code": "INSUFFICIENT_BALANCE",
+            "status": "403 / 429",
+            "code": "INSUFFICIENT_BALANCE / insufficient_quota",
             "meaning": "Insufficient account balance.",
             "action": "Check available balance and top up or redeem."
           },
@@ -436,7 +481,7 @@ export default {
             "status": "429",
             "code": "API_KEY_QUOTA_EXHAUSTED / insufficient_quota",
             "meaning": "The key spending cap is exhausted; some Responses endpoints return insufficient_quota.",
-            "action": "Check the key quota; waiting a few seconds or rapid retries will not restore the spending cap."
+            "action": "Check quota and balance; exhaustion is not transient congestion and may have no Retry-After. Do not retry indefinitely."
           },
           "window": {
             "status": "429",
@@ -455,10 +500,892 @@ export default {
             "code": "Read the response body",
             "meaning": "Upstream error, no available account, or temporary service unavailability.",
             "action": "Retry a limited number of times later; contact the administrator with request details if it persists."
+          },
+          "missing": {
+            "status": "404",
+            "code": "Read the response body",
+            "meaning": "Invisible model, unavailable action or a resource not owned by this key.",
+            "action": "Check the catalog, feature access and original task key, not just the URL."
+          },
+          "conflict": {
+            "status": "409",
+            "code": "Read the response body",
+            "meaning": "Resource not ready or a content conflict.",
+            "action": "Inspect task state and error code before generating again."
+          },
+          "large": {
+            "status": "413",
+            "code": "Read the response body",
+            "meaning": "Request or upload too large.",
+            "action": "Reduce the request according to that text, image or audio route’s limits."
           }
         }
       }
     },
-    "notes": {}
+    "notes": {
+      "shape": "Error envelopes differ by protocol: Chat/Responses commonly expose error; Messages also uses type: error; Gemini uses error.code, error.status and error.message. Preserve the original HTTP status and body instead of matching one string."
+    }
+  },
+  "groups": {
+    "start": "Getting started",
+    "api": "Calling the API",
+    "calls": "During a request",
+    "media": "Images, video & audio",
+    "apps": "Apps & workflows",
+    "account": "Account & troubleshooting"
+  },
+  "capability": "First confirm that the key’s group permits the protocol and model. Catalog visibility, capability hints, and a successful request are different facts; tools, reasoning, cache and media also depend on the selected model. The tables describe a minimal common subset, not support for every upstream parameter.",
+  "addresses": {
+    "title": "API addresses & authentication",
+    "steps": {},
+    "tables": {
+      "formats": {
+        "title": "Choose the correct address",
+        "columns": {
+          "field": "Use",
+          "value": "Address shape",
+          "notes": "Notes"
+        },
+        "rows": {
+          "root": {
+            "field": "Gateway root",
+            "value": "api_base_url",
+            "notes": "Remove a trailing /v1 or /v1beta; keep the deployment prefix. Claude Code uses this root."
+          },
+          "base": {
+            "field": "OpenAI-compatible base",
+            "value": "root + /v1",
+            "notes": "The client appends the endpoint path; do not duplicate /v1 or include /chat/completions."
+          },
+          "full": {
+            "field": "HTTP request URL",
+            "value": "root + /v1/chat/completions",
+            "notes": "curl, PowerShell and fetch use the full URL. Gemini uses /v1beta/models/…:generateContent."
+          }
+        }
+      }
+    },
+    "notes": {
+      "auth": "Chat, Responses and media use Authorization: Bearer; Messages uses x-api-key and anthropic-version: 2023-06-01; Gemini uses x-goog-api-key. Do not put keys in query strings. Your panel password is not an API key."
+    }
+  },
+  "cc-switch": {
+    "title": "CC Switch (optional)",
+    "steps": {
+      "import": {
+        "title": "Import from API Keys",
+        "body": "Use the import action when the newly created key is shown, or the available key action. Choose Claude or Gemini and review the target app and address before importing."
+      }
+    },
+    "tables": {},
+    "notes": {
+      "optional": "Direct URL, key and model configuration is sufficient; CC Switch is optional. Imports contain a key, so do not share import links. No import link should be generated without a configured public API address.",
+      "address": "The group can change the imported app and address shape: root, /v1 or /antigravity. Confirm the final address in CC Switch; one group’s settings do not apply to every group."
+    }
+  },
+  "chat": {
+    "title": "Chat Completions",
+    "endpoint": "POST /v1/chat/completions",
+    "intro": "Use for clients that send an OpenAI-compatible message history. Choose a chat-capable model in the key’s group.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "Exact catalog ID, including any provider prefix."
+          },
+          "messages": {
+            "field": "messages",
+            "type": "array · required",
+            "meaning": "Ordered role/content messages; resend conversation context."
+          },
+          "stream": {
+            "field": "stream",
+            "type": "boolean · optional",
+            "meaning": "Set true for SSE; default examples request one JSON response."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "choices_message": {
+            "field": "choices[].message",
+            "type": "object",
+            "meaning": "Text is in content; tool_calls may replace text."
+          },
+          "choices_finish_reason_usage": {
+            "field": "choices[].finish_reason / usage",
+            "type": "string / object",
+            "meaning": "Inspect completion reason and reported usage."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Do not send Messages system blocks or Responses input items as Chat messages without conversion."
+    }
+  },
+  "messages": {
+    "title": "Messages",
+    "endpoint": "POST /v1/messages",
+    "intro": "Select a model and group accepting the Messages protocol. Use x-api-key and the anthropic-version header.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "Catalog request ID."
+          },
+          "max_tokens": {
+            "field": "max_tokens",
+            "type": "integer · required",
+            "meaning": "Output budget within the selected model’s limits."
+          },
+          "messages": {
+            "field": "messages",
+            "type": "array · required",
+            "meaning": "User/assistant messages; content may be text or content blocks."
+          },
+          "system": {
+            "field": "system",
+            "type": "string / array · optional",
+            "meaning": "Top-level instructions, separate from messages."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "content": {
+            "field": "content[]",
+            "type": "array",
+            "meaning": "Read text, thinking or tool_use blocks by type."
+          },
+          "stop_reason_usage": {
+            "field": "stop_reason / usage",
+            "type": "string / object",
+            "meaning": "Check the stop reason and input/output usage."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "POST /v1/messages/count_tokens is a separate model-dependent count or estimate; it does not prove generation access."
+    }
+  },
+  "responses": {
+    "title": "Responses",
+    "endpoint": "POST /v1/responses",
+    "intro": "For Responses clients such as Codex, use a model and group that permit Responses. HTTP is the default integration path.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "Exact model ID."
+          },
+          "input": {
+            "field": "input",
+            "type": "string / array · required",
+            "meaning": "Text or ordered input items."
+          },
+          "instructions": {
+            "field": "instructions",
+            "type": "string · optional",
+            "meaning": "Instructions for this request."
+          },
+          "max_output_tokens": {
+            "field": "max_output_tokens",
+            "type": "integer · optional",
+            "meaning": "Model-specific output budget."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "output": {
+            "field": "output[]",
+            "type": "array",
+            "meaning": "Inspect item types: message, reasoning, function_call and others."
+          },
+          "status_incomplete_details_error": {
+            "field": "status / incomplete_details / error",
+            "type": "object fields",
+            "meaning": "Only a completed response is fully complete; inspect incomplete or failed outcomes."
+          },
+          "usage": {
+            "field": "usage",
+            "type": "object",
+            "meaning": "Reported usage is separate from final billing status."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Resend full history unless your route explicitly supports state continuation. previous_response_id is owner/account-bound; store:true alone does not promise retained state.",
+      "compatibility": "GET /v1/responses is conditional WebSocket ingress, not retrieval of a saved response."
+    }
+  },
+  "gemini": {
+    "title": "Gemini / Google protocol",
+    "endpoint": "POST /v1beta/models/{'{'}model{'}'}:generateContent",
+    "intro": "Put the model ID in the URL and authenticate with x-goog-api-key. The group and model must allow the requested Google action.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model_URL": {
+            "field": "model (URL)",
+            "type": "encoded path segment · required",
+            "meaning": "Use the request ID; remove a catalog name’s leading models/ and encode the remaining ID once."
+          },
+          "contents": {
+            "field": "contents",
+            "type": "array · required",
+            "meaning": "Content with parts, such as {'{'}text:\"Hello\"{'}'}; role may be user."
+          },
+          "generationConfig": {
+            "field": "generationConfig",
+            "type": "object · optional",
+            "meaning": "Only controls supported by the selected model."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "candidates_content_parts": {
+            "field": "candidates[].content.parts",
+            "type": "array",
+            "meaning": "Read each part; safety blocking may produce no text."
+          },
+          "finishReason_usageMetadata": {
+            "field": "finishReason / usageMetadata",
+            "type": "fields",
+            "meaning": "Inspect finish reason and reported usage."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Streaming uses :streamGenerateContent?alt=sse, not a Chat stream flag. :countTokens is model-dependent; :embedContent and :batchEmbedContents require an eligible embeddings route."
+    }
+  },
+  "retrieval": {
+    "title": "Embeddings & rerank",
+    "endpoint": "POST /v1/embeddings · POST /v1/rerank",
+    "intro": "Select a dedicated embedding or reranking model from an eligible group. A chat model is not an interchangeable substitute.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "Model for the specific retrieval endpoint."
+          },
+          "input_embeddings": {
+            "field": "input (embeddings)",
+            "type": "string · required in example",
+            "meaning": "Text to encode; dimensions and encoding support vary by model."
+          },
+          "query_documents_rerank": {
+            "field": "query / documents (rerank)",
+            "type": "string / string[] · required",
+            "meaning": "Search query and candidate documents."
+          },
+          "top_n_rerank": {
+            "field": "top_n (rerank)",
+            "type": "positive integer · optional",
+            "meaning": "Number of ranked results requested."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "data_embedding_index": {
+            "field": "data[].embedding / index",
+            "type": "vector / integer",
+            "meaning": "Embedding and input position; verify consistent vector dimensions."
+          },
+          "index_relevance_score": {
+            "field": "index / relevance_score",
+            "type": "ranked entries",
+            "meaning": "Rerank result entries; the outer envelope varies by route."
+          },
+          "usage": {
+            "field": "usage",
+            "type": "object · when reported",
+            "meaning": "Missing counts are unknown; rerank may be priced per query rather than tokens."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "These endpoints do not imply streaming or tool support. OpenAI’s adapter does not supply rerank; ask for a group with a rerank route."
+    }
+  },
+  "streaming": {
+    "title": "Streaming & interrupted calls",
+    "endpoint": "POST · protocol-specific SSE",
+    "intro": "The group and model must support streaming on the chosen protocol. Use curl -N or an SDK that reads SSE incrementally.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "stream": {
+            "field": "stream",
+            "type": "boolean · Chat / Messages / Responses",
+            "meaning": "Set true in the JSON request."
+          },
+          "alt_sse": {
+            "field": "alt=sse",
+            "type": "query · Gemini",
+            "meaning": "Use with :streamGenerateContent."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "Chat": {
+            "field": "Chat",
+            "type": "choices[].delta",
+            "meaning": "Assemble deltas; normally ends with [DONE]. An error or premature EOF is not completion."
+          },
+          "Messages": {
+            "field": "Messages",
+            "type": "event + data",
+            "meaning": "Read content_block deltas through message_stop; event:error means failure."
+          },
+          "Responses": {
+            "field": "Responses",
+            "type": "typed events",
+            "meaning": "response.completed succeeds; response.incomplete and response.failed require inspection."
+          },
+          "Gemini": {
+            "field": "Gemini",
+            "type": "Google JSON events",
+            "meaning": "Read candidates and final finishReason/usage; do not wait for Chat [DONE]."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Split SSE events on blank lines and ignore keepalive comments. HTTP 200 can precede a later failure. Preserve partial tool arguments until the tool call is complete.",
+      "compatibility": "Interrupted output is not resumed as a finished answer. Check usage or existing tasks before sending a new request; retries are not universally idempotent. The PowerShell quickstart demonstrates non-streaming JSON only."
+    }
+  },
+  "tools": {
+    "title": "Function tools & results",
+    "endpoint": "POST · Chat / Messages / Responses / Gemini",
+    "intro": "Choose a tool-capable model in the allowed group. Your application executes client functions and sends the result back; the model may choose not to call a tool.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "Chat_tools": {
+            "field": "Chat tools[]",
+            "type": "type:function + function",
+            "meaning": "function contains name, description and parameters (JSON Schema)."
+          },
+          "Messages_tools": {
+            "field": "Messages tools[]",
+            "type": "name + input_schema",
+            "meaning": "Use the Messages tool definition shape."
+          },
+          "Responses_tools": {
+            "field": "Responses tools[]",
+            "type": "type:function + name + parameters",
+            "meaning": "Function fields live directly on the tool object."
+          },
+          "Gemini_tools": {
+            "field": "Gemini tools",
+            "type": "functionDeclarations",
+            "meaning": "Use Google function declarations."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "Chat_result": {
+            "field": "Chat result",
+            "type": "role:tool / tool_call_id / content",
+            "meaning": "Match the actual tool call ID and retain the assistant tool_calls message."
+          },
+          "Messages_result": {
+            "field": "Messages result",
+            "type": "tool_result / tool_use_id",
+            "meaning": "Place the result in a user content block."
+          },
+          "Responses_result": {
+            "field": "Responses result",
+            "type": "function_call_output / call_id / output",
+            "meaning": "Match call_id and retain preceding input/output items."
+          },
+          "Gemini_result": {
+            "field": "Gemini result",
+            "type": "functionResponse",
+            "meaning": "Return the function response in the conversation context."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Keep real call IDs, arguments and opaque reasoning/signatures. Do not invent IDs or discard previous assistant items. Tool support does not grant built-in search, code execution or every server tool."
+    }
+  },
+  "reasoning": {
+    "title": "Reasoning controls",
+    "endpoint": "POST · model-specific controls",
+    "intro": "Use only levels declared for the model and supported by its group’s route. If the catalog is silent, omit the control instead of assuming high or max.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "reasoning_effort": {
+            "field": "reasoning_effort",
+            "type": "Chat · optional",
+            "meaning": "Effort value from the selected model’s supported levels."
+          },
+          "reasoning_effort_reasoning_summary": {
+            "field": "reasoning.effort / reasoning.summary",
+            "type": "Responses · optional",
+            "meaning": "Effort and summary behavior are model-specific."
+          },
+          "thinking_output_config_effort": {
+            "field": "thinking / output_config.effort",
+            "type": "Messages · optional",
+            "meaning": "thinking uses type and budget_tokens where supported."
+          },
+          "generationConfig_thinkingConfig": {
+            "field": "generationConfig.thinkingConfig",
+            "type": "Gemini · optional",
+            "meaning": "Google control shape; not interchangeable with other protocols."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "reasoning_thinking": {
+            "field": "reasoning / thinking",
+            "type": "protocol-specific output",
+            "meaning": "May contain summaries or opaque continuation data; retain it when continuing a tool exchange."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Effort is not a guaranteed token budget, latency or answer quality. Temperature and parallel tools may conflict with a model’s reasoning mode."
+    }
+  },
+  "cache": {
+    "title": "Prompt caching & usage",
+    "endpoint": "POST · model-specific caching",
+    "intro": "Caching depends on the model, group route and upstream policy. Keep stable context prefixes; a catalog cache hint does not guarantee a cache hit or discount.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "cache_control": {
+            "field": "cache_control",
+            "type": "Messages content block · optional",
+            "meaning": "Supported Messages routes may accept an ephemeral cache hint; routing can adjust it."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "cache_creation_input_tokens": {
+            "field": "cache_creation_input_tokens",
+            "type": "number · when reported",
+            "meaning": "Tokens used to create cache; separate from cache reads."
+          },
+          "cache_read_input_tokens": {
+            "field": "cache_read_input_tokens",
+            "type": "number · when reported",
+            "meaning": "Tokens read from cache; inspect actual usage and the final bill."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Missing cache fields mean unknown, not zero. There is no universal TTL, cache key or pricing multiplier across protocols."
+    }
+  },
+  "images": {
+    "title": "Image generation & editing",
+    "endpoint": "POST /v1/images/generations · /v1/images/edits · /v1/images/variations",
+    "intro": "Use a model and group authorized for the specific image action. Generation, editing and variations are separate capabilities.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model_prompt": {
+            "field": "model / prompt",
+            "type": "JSON strings · generation",
+            "meaning": "Select an image model and describe the image."
+          },
+          "image_model_prompt": {
+            "field": "image / model / prompt",
+            "type": "multipart · OpenAI or Qianwen edit example",
+            "meaning": "Upload reference.png with curl -F; let curl set the multipart boundary."
+          },
+          "mask": {
+            "field": "mask",
+            "type": "multipart · OpenAI subset only",
+            "meaning": "Optional where the selected model accepts it; Qianwen edits reject masks."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "data_url_data_b64_json": {
+            "field": "data[].url / data[].b64_json",
+            "type": "string",
+            "meaning": "URL or base64 image data, depending on route and format."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "OpenRouter supports synchronous raster generation only: b64_json, png/jpeg/webp; no URL output, SSE, edits or variations. Qianwen edit accepts 1–3 uploads up to 10 MiB each and only b64_json output.",
+      "compatibility": "Other routes may require different JSON or multipart fields. Do not copy one platform’s advanced options to another."
+    }
+  },
+  "async-images": {
+    "title": "Asynchronous image tasks",
+    "endpoint": "POST /v1/images/generations/async · /v1/images/edits/async",
+    "intro": "Available only when enabled and the group resolves to an eligible OpenAI/Grok image model. Disabled submission creates no task; accepted tasks may remain readable.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "request_body": {
+            "field": "request body",
+            "type": "same as synchronous action",
+            "meaning": "Use generation JSON or the applicable edit upload; stream is rejected."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "HTTP_202_task_id_poll_url": {
+            "field": "HTTP 202 / task_id / poll_url",
+            "type": "accepted task",
+            "meaning": "Save the task ID. Follow Retry-After (currently 3 seconds) rather than submitting again."
+          },
+          "status": {
+            "field": "status",
+            "type": "processing / completed / failed",
+            "meaning": "GET /v1/images/tasks/{'{'}task_id{'}'} with the original key. Stop on completed or failed."
+          },
+          "result_http_status_error": {
+            "field": "result / http_status / error",
+            "type": "terminal details",
+            "meaning": "On completion read image URLs in result; on failure inspect status/error."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Tasks belong to both the user and the key; another key from the same user cannot poll them. No public cancel/delete or separate binary-download endpoint exists for these single-image tasks.",
+      "compatibility": "Batch images are a separate Gemini-group feature with their own catalog, permissions and lifecycle; use the Batch Images guide."
+    }
+  },
+  "media-jobs": {
+    "title": "Video jobs",
+    "endpoint": "POST /v1/videos/generations · GET /v1/videos/{'{'}id{'}'} · GET /v1/videos/{'{'}id{'}'}/content",
+    "intro": "Video is a job workflow, not a chat response. The example is for an eligible OpenRouter video model and group; choose a duration allowed by that model.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model_prompt": {
+            "field": "model / prompt",
+            "type": "JSON strings · OpenRouter example",
+            "meaning": "Video model and description; additional model requirements may apply."
+          },
+          "duration": {
+            "field": "duration",
+            "type": "positive integer · OpenRouter",
+            "meaning": "Example uses 4 seconds, not a universal allowed duration or delivered duration."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "id_status": {
+            "field": "id / status",
+            "type": "OpenAI / OpenRouter job",
+            "meaning": "Keep the returned public ID; queued → in_progress → completed, or a terminal failure."
+          },
+          "content": {
+            "field": "/content",
+            "type": "download after completion",
+            "meaning": "Use the original key; verify HTTP status and Content-Type before opening the file."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "OpenAI edits/extensions use video:{'{'}id:...{'}'} for an owned completed OpenAI video. OpenRouter has no edit/extend/cancel support. Cancellation on supported Qianwen/Qianfan routes is a separate action; acknowledgement is not final cancellation or a refund.",
+      "compatibility": "Do not substitute an upstream task ID or remote URL for the returned site ID. Other platforms may expose different status envelopes."
+    }
+  },
+  "audio": {
+    "title": "Speech, transcription & translation",
+    "endpoint": "POST /v1/audio/speech · /v1/audio/transcriptions · /v1/audio/translations",
+    "intro": "Choose an audio-capable model and an authorized group for each action. The examples separate OpenRouter MP3, Qianwen WAV, and OpenAI audio translation.",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "Request fields",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "model_input_voice": {
+            "field": "model / input / voice",
+            "type": "speech JSON",
+            "meaning": "Text and a voice supported by the model. Qianwen requires voice and 1–600 Unicode characters."
+          },
+          "response_format": {
+            "field": "response_format",
+            "type": "speech · route-specific",
+            "meaning": "OpenRouter: mp3/pcm, no stream. Qianwen: wav only."
+          },
+          "file_model": {
+            "field": "file / model",
+            "type": "translation multipart · OpenAI API-key route",
+            "meaning": "Use a translation-capable model; this is a separate action from transcription."
+          }
+        }
+      },
+      "result": {
+        "title": "Read the result",
+        "columns": {
+          "field": "Field",
+          "type": "Type / requirement",
+          "meaning": "Meaning"
+        },
+        "rows": {
+          "speech_response": {
+            "field": "speech response",
+            "type": "binary or model-specific envelope",
+            "meaning": "Check Content-Type. Mistral may return audio_data base64 JSON; do not assume every response is MP3."
+          },
+          "transcription_response": {
+            "field": "transcription response",
+            "type": "JSON in the examples",
+            "meaning": "Read text and available usage; output formats differ by route."
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "Qianwen transcription accepts only file/model/response_format and json output. OpenRouter supports json/verbose_json. /v1/tts and /v1/stt have dedicated contracts, not universal OpenAI bodies."
+    }
+  },
+  "references": "Official client references (configuration varies by version)",
+  "resources": {
+    "title": "Files, batches & specialized APIs",
+    "intro": "Confirm group, model and action eligibility separately for these resources. A registered path does not grant the current key access, and a chat body is not their request schema.",
+    "steps": {},
+    "tables": {
+      "paths": {
+        "title": "Resource directory",
+        "columns": {
+          "endpoint": "Method / path",
+          "purpose": "Purpose & boundary"
+        },
+        "rows": {
+          "files": {
+            "endpoint": "POST /v1/files · GET /v1/files · GET/DELETE /v1/files/{'{'}id{'}'} · GET /v1/files/{'{'}id{'}'}/content",
+            "purpose": "Upload, list, inspect or download owned files; deletion is explicit."
+          },
+          "batches": {
+            "endpoint": "POST/GET /v1/batches · GET /v1/batches/{'{'}id{'}'} · POST /v1/batches/{'{'}id{'}'}/cancel",
+            "purpose": "Text batch jobs; submit once, keep the ID, then query. Distinct from image batches."
+          },
+          "messages": {
+            "endpoint": "POST/GET /v1/messages/batches · GET/DELETE /v1/messages/batches/{'{'}id{'}'} · POST …/{'{'}id{'}'}/cancel · GET …/{'{'}id{'}'}/results",
+            "purpose": "Messages batch lifecycle and results require a supporting route."
+          },
+          "images": {
+            "endpoint": "POST/GET /v1/images/batches · GET …/models · GET …/{'{'}id{'}'} · GET …/{'{'}id{'}'}/items · GET …/{'{'}id{'}'}/download",
+            "purpose": "Gemini-group image batches have a dedicated model list and owner key/group. Use the linked guide for item downloads, cancellation and output/record deletion."
+          },
+          "moderations": {
+            "endpoint": "POST /v1/moderations",
+            "purpose": "Content moderation is a separate action, not a chat result."
+          },
+          "realtime": {
+            "endpoint": "GET /v1/realtime · POST /v1/live · GET /v1/live/{'{'}call_id{'}'}",
+            "purpose": "Real-time/Live sessions require protocol-specific clients. Qianwen realtime retains DashScope events; not every route speaks OpenAI Realtime."
+          },
+          "search": {
+            "endpoint": "POST /v1/alpha/search · /v1/web_search · /v1/x_search · /v1/tools/search · /v1/tools/search_pro",
+            "purpose": "Dedicated search actions; function-tool support does not grant these routes."
+          },
+          "voices": {
+            "endpoint": "POST/GET /v1/custom-voices · GET/PATCH/DELETE /v1/custom-voices/{'{'}voice_id{'}'} · GET …/{'{'}voice_id{'}'}/audio",
+            "purpose": "Voice management has platform, method and ownership restrictions; do not infer access from speech support."
+          }
+        }
+      }
+    },
+    "notes": {
+      "native": "DashScope native paths such as /api/v1/services/* and compatible-mode files/batches have separate contracts; wildcard paths are not arbitrary provider API proxies. Confirm the model-specific request format before using a specialized integration."
+    }
   }
 }

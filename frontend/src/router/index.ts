@@ -1,3 +1,4 @@
+import { helpSectionIds, helpScrollOffset } from '@/components/intro/helpSections'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { normalizeApiError } from '@/utils/apiError'
 /**
@@ -798,8 +799,8 @@ const router = createRouter({
     if (savedPosition) {
       return savedPosition
     }
-    if (_to.path === '/help' && /^#(?:quick|keys|models|clients|usage|billing|faq)$/.test(_to.hash)) {
-      return { el: _to.hash, top: 96 }
+    if (_to.path === '/help' && helpSectionIds.some(id => `#${id}` === _to.hash)) {
+      return { el: _to.hash, top: helpScrollOffset }
     }
     // Scroll to top for new routes
     return { top: 0 }
