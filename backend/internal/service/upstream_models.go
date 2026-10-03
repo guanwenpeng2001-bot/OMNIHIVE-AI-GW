@@ -1246,10 +1246,6 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return models, nil, err
 	}
 
-	if err := nativeProfileDiscoveryError(account); err != nil {
-		return nil, nil, err
-	}
-
 	if account.Platform == PlatformHunyuan || account.Platform == PlatformVolcengine {
 		if account.Type != AccountTypeAPIKey {
 			return nil, nil, newUpstreamModelSyncUnsupportedError("Model discovery requires an API key account", nil)
@@ -1263,7 +1259,10 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 				return nil, nil, newUpstreamModelSyncConfigError("Invalid discovery base URL", err)
 			}
 		}
-		if upstreamBillingProbeTargetIsOfficialAPI(baseURL) {
+		// Only an exact known PAYG profile can supply platform candidates.
+		// This is not model discovery and must precede the discovery-route guard.
+		profile := nativeAccountProfile(account)
+		if profile != nil && profile.Mode == AccountModePayG && (profile.Discovery || profile.Capability != "") {
 			presets, presetErr := PlatformModelPresets()
 			if presetErr != nil {
 				return nil, nil, newUpstreamModelSyncInternalError("Failed to load platform candidates", presetErr)
@@ -1283,6 +1282,10 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_candidates", Message: "Platform candidates are not evidence of account availability"}},
 			}}
 		}
+	}
+
+	if err := nativeProfileDiscoveryError(account); err != nil {
+		return nil, nil, err
 	}
 
 	if s.httpUpstream == nil {

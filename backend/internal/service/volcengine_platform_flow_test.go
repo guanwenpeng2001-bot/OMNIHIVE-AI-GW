@@ -29,7 +29,7 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions))
 	// The platform row publishes ResponsesPOST, so the capability gate admits the
 	// native Ark Responses API at {root}/responses next to the embeddings cell
-	// multimodal-ingress bound. There is no Anthropic Messages cell to admit.
+	// multimodal-ingress bound. The reviewed profile also publishes native Messages.
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
 	declared := catalogEvidenceAccount(42, PlatformVolcengine, "native")
@@ -39,13 +39,12 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "chat_completions"}))
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}), "saved selection can use the installed Responses transport")
 	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "unselected", AccountModelBindingOptions{Endpoint: "responses"}))
-	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}), "public conversion does not declare a native Messages endpoint")
+	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "messages"}), "saved selection can use the installed native Messages transport")
 	discoveryTransport := &httpUpstreamRecorder{}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
-	require.NoError(test, discoveryErr)
-	require.Equal(test, volcengineRuntimeBaseURL+"/models", discoveryRequest.URL.String())
-	require.Equal(test, "Bearer inference-test-key", discoveryRequest.Header.Get("Authorization"))
+	require.ErrorContains(test, discoveryErr, "no documented model discovery endpoint")
+	require.Nil(test, discoveryRequest)
 	// Official accounts expose candidates without treating them as discovered availability.
 	preview, discoveryErr := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
 	require.NoError(test, discoveryErr)

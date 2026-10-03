@@ -20,24 +20,29 @@ import (
 
 func TestZhipuAdaptiveResponsesLegacyBase(t *testing.T) {
 	for _, mode := range []string{AccountModePayG, AccountModeCoding} {
+		chat := DefaultZhipuPayGBaseURL
+		otherPlan := DefaultZhipuCodingBaseURL
+		if mode == AccountModeCoding {
+			chat, otherPlan = otherPlan, chat
+		}
 		for _, scenario := range []struct {
-			name, base, override, protocol, expected string
+			name, base, override, protocol, responses, chat, messages string
 		}{
-			{name: "missing base", expected: DefaultZhipuResponsesBaseURL},
-			{name: "blank base", base: "  ", expected: DefaultZhipuResponsesBaseURL},
-			{name: "payg default", base: DefaultZhipuPayGBaseURL, expected: DefaultZhipuResponsesBaseURL},
-			{name: "coding default", base: DefaultZhipuCodingBaseURL, expected: DefaultZhipuResponsesBaseURL},
-			{name: "payg default trailing slash", base: DefaultZhipuPayGBaseURL + "/", expected: DefaultZhipuResponsesBaseURL},
-			{name: "coding default trailing slash", base: " " + DefaultZhipuCodingBaseURL + "/ ", expected: DefaultZhipuResponsesBaseURL},
-			{name: "custom host", base: "https://relay.example/api/paas/v4/", expected: "https://relay.example/api/paas/v4/"},
-			{name: "custom official host prefix", base: DefaultZhipuPayGBaseURL + "/private/", expected: DefaultZhipuPayGBaseURL + "/private/"},
-			{name: "custom coding prefix", base: DefaultZhipuCodingBaseURL + "/private", expected: DefaultZhipuCodingBaseURL + "/private"},
-			{name: "responses default", base: DefaultZhipuResponsesBaseURL, expected: DefaultZhipuResponsesBaseURL},
-			{name: "explicit responses override", base: DefaultZhipuPayGBaseURL, override: "https://responses.example/custom/", expected: "https://responses.example/custom/"},
-			{name: "explicit default-shaped override", base: DefaultZhipuCodingBaseURL, override: DefaultZhipuPayGBaseURL + "/", expected: DefaultZhipuPayGBaseURL + "/"},
-			{name: "blank responses override", base: DefaultZhipuCodingBaseURL, override: "  ", expected: DefaultZhipuResponsesBaseURL},
-			{name: "fixed responses payg override", base: DefaultZhipuPayGBaseURL + "/", protocol: APIProtocolResponses, expected: DefaultZhipuPayGBaseURL + "/"},
-			{name: "fixed responses coding override", base: DefaultZhipuCodingBaseURL, protocol: APIProtocolResponses, expected: DefaultZhipuCodingBaseURL},
+			{name: "missing base", responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "blank base", base: "  ", responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "matching plan default", base: chat, responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "matching plan trailing slash", base: " " + chat + "/ ", responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "different plan stays explicit", base: otherPlan, responses: otherPlan, chat: otherPlan},
+			{name: "different plan trailing slash", base: otherPlan + "/", responses: otherPlan + "/", chat: otherPlan + "/"},
+			{name: "custom host", base: "https://relay.example/api/paas/v4/", responses: "https://relay.example/api/paas/v4/", chat: "https://relay.example/api/paas/v4/"},
+			{name: "custom official host prefix", base: chat + "/private/", responses: chat + "/private/", chat: chat + "/private/"},
+			{name: "responses default", base: DefaultZhipuResponsesBaseURL, responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "explicit custom override isolates missing protocols", base: chat, override: "https://responses.example/custom/", responses: "https://responses.example/custom/"},
+			{name: "explicit same profile override", base: chat, override: chat + "/", responses: chat + "/", chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "explicit other plan override isolates missing protocols", base: chat, override: otherPlan + "/", responses: otherPlan + "/"},
+			{name: "blank responses override", base: chat, override: "  ", responses: DefaultZhipuResponsesBaseURL, chat: chat, messages: DefaultZhipuAnthropicBaseURL},
+			{name: "fixed responses common wins", base: chat + "/", override: "https://dormant.example/v1", protocol: APIProtocolResponses, responses: chat + "/"},
+			{name: "fixed responses other plan stays explicit", base: otherPlan, protocol: APIProtocolResponses, responses: otherPlan},
 		} {
 			t.Run(mode+"/"+scenario.name, func(t *testing.T) {
 				protocol := scenario.protocol
@@ -53,18 +58,11 @@ func TestZhipuAdaptiveResponsesLegacyBase(t *testing.T) {
 				if scenario.override != "" {
 					account.Credentials["api_base_urls"] = map[string]any{APIProtocolResponses: scenario.override}
 				}
-				require.Equal(t, scenario.expected, account.GetCNProtocolBaseURL(APIProtocolResponses))
+				require.Equal(t, scenario.responses, account.GetCNProtocolBaseURL(APIProtocolResponses))
 				require.Equal(t, protocol, account.GetAPIProtocol())
 				if protocol == APIProtocolAdaptive {
-					expectedChat := strings.TrimSpace(scenario.base)
-					if expectedChat == "" {
-						expectedChat = DefaultZhipuPayGBaseURL
-						if mode == AccountModeCoding {
-							expectedChat = DefaultZhipuCodingBaseURL
-						}
-					}
-					require.Equal(t, expectedChat, account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
-					require.Equal(t, DefaultZhipuAnthropicBaseURL, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
+					require.Equal(t, scenario.chat, account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+					require.Equal(t, scenario.messages, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 				}
 				if scenario.base != "" {
 					require.Equal(t, scenario.base, account.Credentials["base_url"], "resolution must not migrate credentials")
@@ -91,7 +89,11 @@ func TestProviderProtocolDefaultsAndOverrides(t *testing.T) {
 						}
 						wantResponses = wantChat // Existing compatibility behavior; no native Coding Responses claim.
 					}
-					require.Equal(t, protocol, account.GetAPIProtocol())
+					wantProtocol := protocol
+					if platform == PlatformQianwen && mode == AccountModeCoding && protocol == APIProtocolResponses {
+						wantProtocol = APIProtocolAdaptive // This plan has no implicit Responses endpoint.
+					}
+					require.Equal(t, wantProtocol, account.GetAPIProtocol())
 					require.Equal(t, wantChat, account.GetCNProtocolBaseURL(APIProtocolChatCompletions))
 					require.Equal(t, wantMessages, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 					require.Equal(t, wantResponses, account.GetCNProtocolBaseURL(APIProtocolResponses))
@@ -105,7 +107,11 @@ func TestProviderProtocolDefaultsAndOverrides(t *testing.T) {
 					} else {
 						require.Equal(t, custom, account.GetCNProtocolBaseURL(protocol))
 					}
-					require.Equal(t, custom, account.GetOpenAIBaseURL())
+					if protocol == APIProtocolAnthropic {
+						require.Empty(t, account.GetOpenAIBaseURL(), "a custom Messages-only root does not establish Chat")
+					} else {
+						require.Equal(t, custom, account.GetOpenAIBaseURL())
+					}
 				})
 			}
 		}

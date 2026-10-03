@@ -24,13 +24,15 @@ func TestQianwenProtocolBases(t *testing.T) {
 	require.Equal(t, DefaultQianwenBaseURL, a.GetOpenAIBaseURL())
 	require.Equal(t, DefaultQianwenAnthropicBaseURL, a.GetAnthropicProtocolBaseURL())
 	a.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: "https://relay.example/v1"}
-	require.Equal(t, "https://relay.example/v1", a.GetCNProtocolBaseURL(APIProtocolResponses))
+	require.Empty(t, a.GetCNProtocolBaseURL(APIProtocolResponses), "a Chat-only override does not declare a Responses endpoint")
+	a.Credentials["api_base_urls"].(map[string]any)[APIProtocolResponses] = "https://responses.example/v1"
+	require.Equal(t, "https://responses.example/v1", a.GetCNProtocolBaseURL(APIProtocolResponses))
 	a.Credentials["api_protocol"] = APIProtocolAnthropic
 	a.Credentials["base_url"] = "https://relay.example/anthropic"
 	require.Equal(t, "https://relay.example/anthropic", a.GetAnthropicProtocolBaseURL())
 	require.Equal(t, "https://relay.example/v1", a.GetOpenAIFormatBaseURL())
 	delete(a.Credentials, "api_base_urls")
-	require.Equal(t, DefaultQianwenBaseURL, a.GetOpenAIFormatBaseURL())
+	require.Empty(t, a.GetOpenAIFormatBaseURL(), "custom Messages-only accounts never use the official Chat host")
 	require.Equal(t, "sk-sp-test", a.GetCNAPIKey())
 }
 

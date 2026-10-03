@@ -297,3 +297,35 @@ func TestReviewOfficialPlatformCandidatesStayIncomplete(test *testing.T) {
 		require.Nil(test, upstream.lastReq)
 	}
 }
+
+// A known PAYG candidate list cannot escape into an unknown plan or a relay.
+func TestNativeCandidateFallbackScope(t *testing.T) {
+	for _, fixture := range []struct{ name, platform, mode, base string }{
+		{"Ark coding", PlatformVolcengine, AccountModeCoding, DefaultVolcengineCodingBaseURL},
+		{"Ark unknown official prefix", PlatformVolcengine, AccountModePayG, "https://ark.cn-beijing.volces.com/private"},
+		{"TokenHub personal Intl", PlatformHunyuan, AccountModeCoding, "https://tokenhub-intl.tencentcloudmaas.com/plan/v3"},
+		{"Messages-only relay", PlatformVolcengine, AccountModePayG, "https://relay.example/messages"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			account := nativeProfileAccount(fixture.platform, fixture.mode, fixture.base)
+			account.Credentials["api_protocol"] = APIProtocolAnthropic
+			catalog, err := service.PreviewAccountModelCatalog(context.Background(), account)
+			require.Error(t, err)
+			require.Nil(t, catalog)
+			require.Nil(t, upstream.lastReq)
+		})
+	}
+	for _, base := range []string{"https://relay.example/v1", "https://ark.cn-beijing.volces.com/private/v1"} {
+		t.Run("explicit Chat "+base, func(t *testing.T) {
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(`{"data":[{"id":"relay-model"}]}`)}}
+			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			account := nativeProfileAccount(PlatformVolcengine, AccountModePayG, base)
+			models, _, err := service.fetchUpstreamModelList(context.Background(), account)
+			require.NoError(t, err)
+			require.Equal(t, []string{"relay-model"}, models)
+			require.Equal(t, base+"/models", upstream.lastReq.URL.String())
+		})
+	}
+}

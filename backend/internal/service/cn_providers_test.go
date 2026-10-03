@@ -587,12 +587,12 @@ func TestBuildUpstreamModelsRequest_CNProviders(t *testing.T) {
 		wantURL  string
 	}{
 		{"kimi default", PlatformKimi, "", "https://api.moonshot.cn/v1/models"},
-		{"kimi coding", PlatformKimi, AccountModeCoding, "https://api.kimi.com/coding/v1/models"},
-		{"zhipu default", PlatformZhipu, "", "https://open.bigmodel.cn/api/paas/v4/models"},
-		{"zhipu coding", PlatformZhipu, AccountModeCoding, "https://open.bigmodel.cn/api/coding/paas/v4/models"},
+		{"kimi coding", PlatformKimi, AccountModeCoding, ""},
+		{"zhipu default", PlatformZhipu, "", ""},
+		{"zhipu coding", PlatformZhipu, AccountModeCoding, ""},
 		{"deepseek", PlatformDeepseek, "", "https://api.deepseek.com/v1/models"},
 		{"minimax default", PlatformMiniMax, "", "https://api.minimaxi.com/v1/models"},
-		{"minimax coding", PlatformMiniMax, AccountModeCoding, "https://api.minimaxi.com/v1/models"},
+		{"minimax coding", PlatformMiniMax, AccountModeCoding, ""},
 		{"opencode go", PlatformOpenCodeGo, AccountModeGo, "https://opencode.ai/zen/go/v1/models"},
 		{"opencode zen", PlatformOpenCodeGo, AccountModeZen, "https://opencode.ai/zen/v1/models"},
 	}
@@ -605,6 +605,11 @@ func TestBuildUpstreamModelsRequest_CNProviders(t *testing.T) {
 			}
 			account := &Account{ID: 1, Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: creds}
 			req, err := svc.buildUpstreamModelsRequest(context.Background(), account)
+			if tc.wantURL == "" {
+				require.ErrorContains(t, err, "no documented model discovery endpoint")
+				require.Nil(t, req)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, tc.wantURL, req.URL.String())
 			require.Equal(t, "Bearer sk-test", req.Header.Get("Authorization"))
@@ -794,8 +799,8 @@ func TestBuildUpstreamModelsRequest_AnthropicProtocol(t *testing.T) {
 		},
 	}
 	req, err := svc.buildUpstreamModelsRequest(context.Background(), account)
-	require.NoError(t, err)
-	require.Equal(t, "https://open.bigmodel.cn/api/paas/v4/models", req.URL.String())
+	require.ErrorContains(t, err, "no documented model discovery endpoint")
+	require.Nil(t, req)
 }
 
 // TestBuildOpenAIResponsesURLForPlatform deepseek 官方端点为 /responses（无 /v1）。
