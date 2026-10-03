@@ -137,6 +137,16 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 ) (*OpenAIForwardResult, error) {
 	requestedModel := reqModel
 	upstreamPassthroughModel := ""
+	if IsCompatibleProvider(account.Platform) {
+		upstreamPassthroughModel = resolveOpenAIForwardModel(account, reqModel, "")
+		if upstreamPassthroughModel != reqModel {
+			var err error
+			body, err = sjson.SetBytes(body, "model", upstreamPassthroughModel)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	if isOpenAIResponsesCompactPath(c) {
 		compactMappedModel := s.resolveOpenAICompactFallbackModel(account, reqModel)
 		if compactMappedModel != "" && compactMappedModel != reqModel {

@@ -1119,6 +1119,19 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 	}
 	for _, target := range cachedTargets {
+		if IsCompatibleProvider(target.Platform) && len(input.Credentials) > 0 {
+			candidate := *target
+			candidate.Credentials = maps.Clone(target.Credentials)
+			if candidate.Credentials == nil {
+				candidate.Credentials = map[string]any{}
+			}
+			for key, value := range input.Credentials {
+				candidate.Credentials[key] = value
+			}
+			if err := validateExpandedPlatformAccount(&candidate); err != nil {
+				return nil, err
+			}
+		}
 		if !target.IsCursor() {
 			continue
 		}
@@ -2015,6 +2028,11 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 }
 
 func validateExpandedPlatformAccount(account *Account) error {
+	if IsCompatibleProvider(account.Platform) {
+		if err := validateCompatibleAccount(account); err != nil {
+			return infraerrors.BadRequest("INVALID_COMPATIBLE_ACCOUNT", err.Error())
+		}
+	}
 	if account.Platform == PlatformComposite || (IsChatOnlyPlatform(account.Platform) && account.Type != AccountTypeAPIKey) || (account.Platform == PlatformBedrock && account.Type != AccountTypeBedrock) {
 		return infraerrors.BadRequest("INVALID_PLATFORM_ACCOUNT_TYPE", "Account type does not match the platform runtime")
 	}

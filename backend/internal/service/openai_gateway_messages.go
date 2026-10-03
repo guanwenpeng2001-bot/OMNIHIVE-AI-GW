@@ -33,6 +33,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	bound, bindErr := bindCompatibleRequest(ctx, account, "messages", resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel))
+	if bindErr != nil {
+		return nil, bindErr
+	}
+	account = bound
 	if account.Platform == PlatformOpenRouter {
 		if openRouterGoogleIngress(ctx) {
 			if err := openRouterProtocolAllowed(account, APIProtocolChatCompletions); err != nil {
@@ -99,7 +104,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	}
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
 	originalModel := anthropicReq.Model
-	if account.Platform != PlatformOpenRouter {
+	if account.Platform != PlatformOpenRouter && !IsCompatibleProvider(account.Platform) {
 		applyOpenAICompatModelNormalization(&anthropicReq)
 	}
 	normalizedModel := anthropicReq.Model

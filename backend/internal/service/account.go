@@ -19,6 +19,7 @@ import (
 )
 
 type Account struct {
+	compatibleBinding       *compatibleRequestBinding
 	TPMLimit                int64
 	WorkspaceID             int64
 	ID                      int64
@@ -326,7 +327,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode() || IsChatOnlyPlatform(a.Platform))
+	return a != nil && (IsCompatibleProvider(a.Platform) || a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode() || IsChatOnlyPlatform(a.Platform))
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1422,6 +1423,20 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
+	if IsCompatibleProvider(a.Platform) {
+		if a.compatibleBinding != nil {
+			return a.compatibleBinding.Base
+		}
+		_, m, err := a.compatibleMode()
+		if err != nil {
+			return ""
+		}
+		p := a.GetAPIProtocol()
+		if p == "" || p == APIProtocolAdaptive {
+			p = m.DefaultProtocol
+		}
+		return a.compatibleProtocolBase(p)
+	}
 	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() && !IsChatOnlyPlatform(a.Platform) {
 		return ""
 	}
@@ -1515,6 +1530,16 @@ func (a *Account) IsCodingPlan() bool {
 // credentials["api_protocol"]；缺失或与平台不匹配时回退 chat_completions
 // （与既有行为完全一致）。Responses 支持由平台描述符声明。
 func (a *Account) GetAPIProtocol() string {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		if a.compatibleBinding != nil {
+			return a.compatibleBinding.Endpoint.Protocol
+		}
+		p := strings.TrimSpace(a.GetCredential("api_protocol"))
+		if p == "" {
+			return APIProtocolAdaptive
+		}
+		return p
+	}
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
@@ -1548,6 +1573,14 @@ func (a *Account) GetAPIProtocol() string {
 // DeepSeek 官方为 /responses（无 /v1）；Kimi 按量付费与 Coding Plan 均为
 // /v1/responses（moonshot.cn / kimi.com/coding）；MiniMax 为 /v1/responses。
 func (a *Account) SupportsNativeCNResponses() bool {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		_, mode, err := a.compatibleMode()
+		if err != nil {
+			return false
+		}
+		_, ok := mode.LookupEndpoint(APIProtocolResponses)
+		return ok
+	}
 	if a == nil {
 		return false
 	}
@@ -1558,6 +1591,13 @@ func (a *Account) SupportsNativeCNResponses() bool {
 // UsesNativeCNResponses 报告当前账号是否应按原生 Responses 协议转发
 // （显式 responses，或 adaptive 且平台具备原生端点）。
 func (a *Account) UsesNativeCNResponses() bool {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		ep, err := a.compatibleEndpoint("responses", "")
+		if a.compatibleBinding != nil {
+			return a.compatibleBinding.Endpoint.Protocol == APIProtocolResponses
+		}
+		return err == nil && ep.Protocol == APIProtocolResponses
+	}
 	if a == nil || !a.SupportsNativeCNResponses() {
 		return false
 	}
@@ -1587,6 +1627,9 @@ func (a *Account) IsAdaptiveAPIProtocol() bool {
 // adaptive 账号优先使用 api_base_urls 中的分协议地址，缺失时按平台和
 // account_mode 使用官方默认端点。base_url 继续作为 Chat Completions 地址兼容旧字段。
 func (a *Account) GetCNProtocolBaseURL(protocol string) string {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		return a.compatibleProtocolBase(protocol)
+	}
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
@@ -1717,6 +1760,9 @@ func (a *Account) IsAnthropicProtocol() bool {
 // （上游路径为 {base}/v1/messages）。优先取凭证 base_url，缺失时按
 // 供应商 × 接入模式返回默认端点。非 Anthropic 协议账号返回空串。
 func (a *Account) GetAnthropicProtocolBaseURL() string {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		return a.compatibleProtocolBase(APIProtocolAnthropic)
+	}
 	if a == nil || (!a.IsAnthropicProtocol() && !a.IsAdaptiveAPIProtocol()) {
 		return ""
 	}
@@ -1965,6 +2011,9 @@ func (a *Account) GetOpenAIApiKey() string {
 // 注意 IsOpenAIApiKey 语义上仅指 openai 平台账号，调度倍率/WS 能力门控
 // 继续以其为准，不受本方法影响。
 func (a *Account) GetOpenAIProtocolAPIKey() string {
+	if a != nil && IsCompatibleProvider(a.Platform) && a.Type == AccountTypeAPIKey {
+		return a.GetCredential("api_key")
+	}
 	if a == nil {
 		return ""
 	}
@@ -2034,6 +2083,14 @@ func (a *Account) GetOpenAISessionID() string {
 }
 
 func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapability) bool {
+	if a != nil && IsCompatibleProvider(a.Platform) {
+		action := openAIEndpointCapabilityAction(capability)
+		if action == "" {
+			return capability == ""
+		}
+		_, err := a.compatibleEndpoint(action, "")
+		return err == nil
+	}
 	if a == nil {
 		return false
 	}

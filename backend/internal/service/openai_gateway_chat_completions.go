@@ -71,6 +71,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
+	bound, bindErr := bindCompatibleRequest(ctx, account, "chat", resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel))
+	if bindErr != nil {
+		return nil, bindErr
+	}
+	account = bound
 	if account.Platform == PlatformOpenRouter {
 		if err := openRouterProtocolAllowed(account, APIProtocolChatCompletions); err != nil {
 			writeChatCompletionsError(c, 400, "unsupported_protocol_conversion", err.Error())

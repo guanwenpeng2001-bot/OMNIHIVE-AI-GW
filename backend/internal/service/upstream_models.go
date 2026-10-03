@@ -790,6 +790,9 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 	if s == nil || s.httpUpstream == nil || account == nil {
 		return nil, fmt.Errorf("model metadata registry is not configured")
 	}
+	if IsCompatibleProvider(account.Platform) {
+		return nil, fmt.Errorf("compatible provider metadata requires its own reviewed capability profile")
+	}
 	registry, err := s.fetchModelsDevRegistry(ctx, account)
 	if err != nil && len(registry) == 0 {
 		return nil, err
@@ -1299,6 +1302,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if IsCompatibleProvider(account.Platform) {
+		return buildCompatibleModelsRequest(ctx, account, s.validateUpstreamBaseURL)
+	}
 	if descriptor, exists := domain.LookupPlatform(account.Platform); !exists || !descriptor.ModelCatalog {
 		return nil, newUpstreamModelSyncUnsupportedError("Platform has no model catalog", nil)
 	}
@@ -1541,6 +1547,9 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 // buildOpenAIAPIKeyModelsRequest is shared by admin discovery and public model
 // listing. Codex content negotiation is intentionally absent from this request.
 func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, validateBaseURL func(string) (string, error)) (*http.Request, error) {
+	if IsCompatibleProvider(account.Platform) {
+		return buildCompatibleModelsRequest(ctx, account, validateBaseURL)
+	}
 	if account.Type != AccountTypeAPIKey {
 		return nil, newUpstreamModelSyncUnsupportedError(
 			fmt.Sprintf("Unsupported OpenAI account type for upstream model sync: %s", account.Type), nil,

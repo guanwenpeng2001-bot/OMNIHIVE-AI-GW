@@ -616,6 +616,33 @@ func normalizeAccountBindingWireModel(account *Account, model string) string {
 
 func computeAccountBindingEndpoint(account *Account, model string, options AccountModelBindingOptions, memberIndex int, member AccountCatalogModel) bool {
 	endpoint := options.Endpoint
+	if IsCompatibleProvider(account.Platform) && (endpoint != "" || options.Compact) {
+		if options.Compact {
+			return false
+		}
+		if options.FinalModel == "" {
+			action := chatOnlyCatalogEndpointAction(endpoint)
+			if action == "" {
+				switch endpoint {
+				case "messages":
+					action = "messages"
+				case "responses":
+					action = "responses"
+				case "chat_completions":
+					action = "chat"
+				case "gemini", "generate_content":
+					action = "generate_content"
+				}
+			}
+			ep, err := account.compatibleEndpoint(action, model)
+			if err != nil {
+				return false
+			}
+			endpoint = catalogProtocolEndpoint(ep.Protocol)
+		} else if !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {
+			return false
+		}
+	}
 	if options.FinalModel != "" && account.IsMultiProtocolAPIKey() && !account.IsAdaptiveAPIProtocol() && chatOnlyCatalogHasTextMethod([]string{endpoint}) && !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {
 		// At the send boundary this is the actual wire family, not an ingress
 		// that can still be converted by a compatibility adapter.

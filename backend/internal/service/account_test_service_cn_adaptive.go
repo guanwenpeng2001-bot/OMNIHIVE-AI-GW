@@ -58,6 +58,9 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *accoun
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Anthropic base URL: %s", err.Error()))
 	}
 	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	if IsCompatibleProvider(account.Platform) {
+		apiURL = strings.TrimRight(baseURL, "/") + "/messages"
+	}
 
 	payload, err := createTestPayload(testModelID)
 	if err != nil {
@@ -119,6 +122,9 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Responses base URL: %s", err.Error()))
 	}
 	apiURL := buildOpenAIResponsesURLForPlatform(account.Platform, baseURL)
+	if IsCompatibleProvider(account.Platform) {
+		apiURL = account.buildOpenAIResponsesURL(baseURL)
+	}
 
 	payload := createOpenAITestPayload(testModelID, false)
 	// DeepSeek / Kimi native Responses endpoints are stateless and do not need
@@ -164,6 +170,9 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 }
 
 func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, account *Account) (*http.Response, error) {
+	if err := applyCompatibleRequestAuth(account, req); err != nil {
+		return nil, err
+	}
 	proxyURL, egressErr := account.EgressProxyURL(req.Context())
 	if egressErr != nil {
 		return nil, egressErr
@@ -196,10 +205,13 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *accountProbeCo
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Anthropic base URL: %s", err.Error()))
 	}
-	if hint := cnAnthropicBaseURLMisconfigHint(baseURL); hint != "" {
+	if hint := cnAnthropicBaseURLMisconfigHint(baseURL); hint != "" && !IsCompatibleProvider(account.Platform) {
 		return s.sendErrorAndEnd(c, hint)
 	}
 	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	if IsCompatibleProvider(account.Platform) {
+		apiURL = strings.TrimRight(baseURL, "/") + "/messages"
+	}
 
 	payload, err := createTestPayload(testModelID)
 	if err != nil {

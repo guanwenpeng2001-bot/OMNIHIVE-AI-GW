@@ -19,6 +19,16 @@ func resolveCapabilityProfile(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	if IsCompatibleProvider(account.Platform) {
+		_, mode, err := account.compatibleMode()
+		if err != nil {
+			return ""
+		}
+		if strings.TrimSpace(account.GetCredential("base_url")) != "" || account.Credentials["api_base_urls"] != nil {
+			return "custom:" + account.Platform
+		}
+		return mode.CapabilityProfile
+	}
 	if account.IsCursor() {
 		return "cursor"
 	}

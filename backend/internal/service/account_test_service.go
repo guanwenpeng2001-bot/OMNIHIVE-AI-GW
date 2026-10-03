@@ -395,6 +395,9 @@ func (s *AccountTestService) probeTestAccountConnection(c *accountProbeContext, 
 		}
 	}
 
+	if IsCompatibleProvider(account.Platform) {
+		return s.testCompatibleAccountConnection(c, account, modelID, prompt)
+	}
 	if account.IsOpenAI() {
 		return s.probeTestOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
@@ -2114,6 +2117,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 ) error {
 	ctx := c.ctx
 	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+	if IsCompatibleProvider(account.Platform) {
+		apiURL = account.buildOpenAIEndpointURL(normalizedBaseURL, "/v1/chat/completions")
+	}
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
 	payloadBytes, _ := json.Marshal(payload)
@@ -2140,6 +2146,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		return egressErr
 	}
 
+	if err := applyCompatibleRequestAuth(account, req); err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) request failed: %s", err.Error()))
