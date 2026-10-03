@@ -209,7 +209,7 @@
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
-        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" />
+        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="editApiKey = ''" />
         <div v-else-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -2485,6 +2485,7 @@ import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
+import { specialCompatibleKeyOptional, specialCompatibleModeChanged, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
 import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -4713,9 +4714,11 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       // 若后端尚未升级（无 credentials_status），回退读旧结构 currentCredentials.api_key。
       // 两者都无才报错。
       const hasExistingApiKey =
-        props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
+        (props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)) && !specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)
       if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
+      } else if (specialCompatibleKeyOptional(props.account.platform, compatibleDraft.value)) {
+        if (specialCompatibleModeChanged(props.account.platform, currentCredentials, compatibleDraft.value)) newCredentials.api_key = ''
       } else if (!hasExistingApiKey) {
         revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
@@ -4788,6 +4791,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
 
       if (selectedCompatibleProvider.value) {
         try {
+          validateSpecialCompatibleDraft(props.account.platform, compatibleDraft.value)
           Object.assign(newCredentials, buildCompatibleCredentials(selectedCompatibleProvider.value, newCredentials))
         } catch { appStore.showError(t('admin.accounts.compatible.invalid')); return }
         updatePayload.upstream_billing_probe_enabled = false

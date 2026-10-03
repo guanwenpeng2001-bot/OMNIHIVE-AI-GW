@@ -2971,3 +2971,30 @@ it.each([false, true])('edits a compatible account preserving other overrides an
   expect(account.credentials).toEqual(credentials)
   wrapper.unmount()
 })
+
+it.each([false, true])('preserves Nous references for same-mode edits and clears old invocation secrets on proxy switch=%s', async (switchMode) => {
+  const credentials = { auth_mode: 'invocation_token', account_mode: 'payg', credential_secret_reference: 'bound-ref', credential_secret_version: 3, model_mapping: { public: 'private' } }
+  const account = { ...buildAccount(), platform: 'nous_research', credentials_status: { has_api_key: true }, credentials }
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  showErrorMock.mockReset()
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  const wrapper = mountModal(account)
+  await flushPromises()
+  if (switchMode) {
+    await wrapper.get('[data-account-field="editApiKey"]').setValue('discarded-fixture')
+    await wrapper.get('[data-testid="special-auth-mode"]').setValue('official_proxy')
+    expect((wrapper.get('[data-account-field="editApiKey"]').element as HTMLInputElement).value).toBe('')
+    await wrapper.get('[data-testid="special-auth-base"]').setValue('https://operator.example/v1')
+  }
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(showErrorMock.mock.calls).toEqual([])
+  expect(updateAccountMock).toHaveBeenCalledOnce()
+  const submitted = updateAccountMock.mock.calls[0][1].credentials
+  expect(submitted.credential_secret_reference).toBe('bound-ref')
+  expect(submitted.credential_secret_version).toBe(3)
+  expect(submitted.api_key).toBe(switchMode ? '' : undefined)
+  expect(submitted.auth_mode).toBe(switchMode ? 'official_proxy' : 'invocation_token')
+  expect(account.credentials).toEqual(credentials)
+  wrapper.unmount()
+})

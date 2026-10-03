@@ -65,8 +65,8 @@ func TestCompatibleProviderIdentityMigrationFiniteExpansion(test *testing.T) {
 			require.ElementsMatch(test, expectedNative, before)
 			after := compatibleIdentityValues(test, body, constraint.name)
 			require.ElementsMatch(test, append(before, ids...), after)
-			for _, platform := range domain.ConcretePlatforms() {
-				require.Contains(test, after, platform, "current domain platform must be writable")
+			for _, platform := range append(expectedNative, ids...) {
+				require.Contains(test, after, platform, "historical platform must be writable")
 			}
 		})
 		drop := `ALTER TABLE ` + constraint.table + `\s+DROP CONSTRAINT IF EXISTS ` + constraint.name + `;`
@@ -78,15 +78,9 @@ func TestCompatibleProviderIdentityMigrationFiniteExpansion(test *testing.T) {
 		}
 	}
 	require.Empty(test, strings.TrimSpace(remaining))
-	// Partial registry check is meaningful on this F1 branch; once all batches
-	// are integrated, require exact combined-corpus parity as well.
-	var embedded []string
-	for _, provider := range domain.CompatibleProviders() {
-		require.Contains(test, ids, provider.ID)
-		embedded = append(embedded, provider.ID)
+	// Migration 283 is immutable historical scope; future identities belong to later migrations.
+	for _, id := range ids {
+		_, exists := domain.LookupCompatibleProvider(id)
+		require.True(test, exists, id)
 	}
-	if len(embedded) == len(ids) {
-		require.ElementsMatch(test, ids, embedded)
-	}
-	test.Logf("verified 70 frozen IDs; embedded compatible registry currently has %d IDs", len(embedded))
 }

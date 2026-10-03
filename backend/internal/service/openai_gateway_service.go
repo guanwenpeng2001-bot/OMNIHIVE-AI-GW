@@ -1258,7 +1258,7 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 			return apiKey, "apikey", nil
 		}
 		apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
-		if apiKey == "" {
+		if apiKey == "" && !compatibleSpecialKeyOptional(account) {
 			return "", "", errors.New("api_key not found in credentials")
 		}
 		return apiKey, "apikey", nil

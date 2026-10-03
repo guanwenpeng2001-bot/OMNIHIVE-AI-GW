@@ -1317,7 +1317,7 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
-        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" />
+        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="apiKeyValue = ''" />
         <div v-else-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1368,11 +1368,11 @@
           :plan="openCodeAccountMode"
         />
         <div>
-          <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ specialCompatibleKeyOptional(form.platform, compatibleDraft) ? 'Proxy frontdoor key (optional)' : t('admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue" data-account-field="apiKeyValue"
             type="password"
-            required
+            :required="!specialCompatibleKeyOptional(form.platform, compatibleDraft)"
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
           />
@@ -3427,6 +3427,7 @@ import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountW
 import AccountPlatformSelector from './AccountPlatformSelector.vue'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
+import { specialCompatibleKeyOptional, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
 import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
@@ -5502,7 +5503,7 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
+  if (!apiKeyValue.value.trim() && !specialCompatibleKeyOptional(form.platform, compatibleDraft.value)) {
     focusAccountCredentialField('create-account-form', 'apiKeyValue')
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
@@ -5525,6 +5526,7 @@ const handleSubmit = async () => {
   }
   if (selectedCompatibleProvider.value) {
     try {
+      validateSpecialCompatibleDraft(form.platform, compatibleDraft.value)
       credentials = buildCompatibleCredentials(selectedCompatibleProvider.value, { ...compatibleDraft.value, api_key: apiKeyValue.value.trim() })
     } catch { appStore.showError(t('admin.accounts.compatible.invalid')); return }
   }

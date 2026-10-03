@@ -70,9 +70,22 @@ func TestReviewCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	}
 }
 
+type credentialGuardRecordingExecutor struct {
+	recordingSQLExecutor
+	database *sql.DB
+}
+
+func (executor *credentialGuardRecordingExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return executor.database.QueryContext(ctx, query, args...)
+}
+
 func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *testing.T) {
 	t.Run("bulk_credentials", func(t *testing.T) {
-		exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
+		database, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		defer database.Close()
+		mock.ExpectQuery(`SELECT platform, credentials FROM accounts`).WillReturnRows(sqlmock.NewRows([]string{"platform", "credentials"}))
+		exec := &credentialGuardRecordingExecutor{recordingSQLExecutor: recordingSQLExecutor{result: rowsAffectedResult(1)}, database: database}
 		repository := newAccountRepositoryWithSQL(nil, exec, nil)
 		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
 		require.NoError(t, err)
@@ -86,6 +99,7 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 		require.GreaterOrEqual(t, extraIndex, 0)
 		require.GreaterOrEqual(t, credentialsIndex, 0)
 		require.Less(t, extraIndex, credentialsIndex, "extra must be assigned before credentials so identity comparisons still see the old row")
+		require.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("extra_revision", func(t *testing.T) {
 		database, mock, err := sqlmock.New()

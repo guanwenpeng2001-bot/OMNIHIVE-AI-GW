@@ -1939,3 +1939,20 @@ it.each([undefined, 'https://relay.example.com'])('keeps untouched compatible pr
   expect(JSON.stringify(credentials)).not.toContain('api.example.com')
   wrapper.unmount()
 })
+
+it('creates a keyless Nous official proxy through the actual account review flow', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 403, platform: 'nous_research', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { selectPlatform: (platform: string) => void; modelMappings: { from: string; to: string }[] }
+  state.selectPlatform('nous_research')
+  await flushPromises()
+  await wrapper.get('[data-testid="special-auth-mode"]').setValue('official_proxy')
+  await wrapper.get('[data-testid="special-auth-base"]').setValue('https://operator.example/v1')
+  expect(wrapper.get('[data-account-field="apiKeyValue"]').attributes('required')).toBeUndefined()
+  await openReview(wrapper)
+  state.modelMappings = [{ from: 'public-model', to: 'private-model' }]
+  await confirmReview(wrapper)
+  expect(createAccountMock).toHaveBeenCalledOnce()
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform: 'nous_research', type: 'apikey', credentials: { auth_mode: 'official_proxy', account_mode: 'payg', base_url: 'https://operator.example/v1', api_key: '' } })
+  wrapper.unmount()
+})
