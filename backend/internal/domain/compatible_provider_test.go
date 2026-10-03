@@ -21,6 +21,25 @@ func compatibleFixture() CompatibleProvider {
 	}
 }
 
+func TestCompatibleIdentityContractRegistryGrowth(t *testing.T) {
+	provider := compatibleFixture()
+	provider.ID = "fixture-identity-growth"
+	provider.Modes[0].CapabilityProfile = provider.ID
+	for _, row := range identityPlatformContract {
+		if row.platform == provider.ID {
+			t.Fatal("growth fixture must not have a literal identity expectation")
+		}
+	}
+	// Keep the real corpus installed so the extra provider is checked against
+	// every existing identity, including other compatible suppliers.
+	rows := append(CompatibleProviders(), provider)
+	restore := SetCompatibleProvidersForTest(rows)
+	t.Cleanup(restore)
+	t.Run("projections", TestResolveAccountTypeIdentityProjections)
+	t.Run("matching", TestAccountTypeIdentityMatchingContract)
+	t.Run("hosted restrictions", TestAccountTypeIdentityHostedValidationContract)
+}
+
 func TestCompatibleProviderValidation(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -216,8 +235,12 @@ func TestCompatibleCodingOnlyAndBridgeDescriptor(t *testing.T) {
 }
 
 func TestCompatibleEmptyRegistryPreservesLegacy(t *testing.T) {
+	admitted := CompatibleProviders()
+	descriptors := PlatformDescriptors()
+	emptyRestore := SetCompatibleProvidersForTest(nil)
+	t.Cleanup(emptyRestore)
 	if len(CompatibleProviders()) != 0 {
-		t.Fatal("foundation must not admit vendors")
+		t.Fatal("empty registry fixture was not installed")
 	}
 	if !reflect.DeepEqual(PlatformDescriptors(), platformDescriptors) || len(PlatformDescriptors()) != 19 {
 		t.Fatal("legacy descriptor changed")
@@ -226,7 +249,14 @@ func TestCompatibleEmptyRegistryPreservesLegacy(t *testing.T) {
 	for _, descriptor := range platformDescriptors {
 		before[descriptor.ID] = PlatformActionMatrix(ActionIdentity{Platform: descriptor.ID})
 	}
+	emptyRestore() // Fixture installations must not nest.
+	for _, descriptor := range platformDescriptors {
+		if !reflect.DeepEqual(before[descriptor.ID], PlatformActionMatrix(ActionIdentity{Platform: descriptor.ID})) {
+			t.Fatal("admitted providers changed legacy actions:", descriptor.ID)
+		}
+	}
 	restore := SetCompatibleProvidersForTest([]CompatibleProvider{compatibleFixture()})
+	t.Cleanup(restore)
 	for _, descriptor := range platformDescriptors {
 		if !reflect.DeepEqual(before[descriptor.ID], PlatformActionMatrix(ActionIdentity{Platform: descriptor.ID})) {
 			t.Fatal("legacy actions changed:", descriptor.ID)
@@ -234,8 +264,8 @@ func TestCompatibleEmptyRegistryPreservesLegacy(t *testing.T) {
 	}
 	restore()
 	restore() // Restore is idempotent.
-	if len(PlatformDescriptors()) != 19 {
-		t.Fatal("restore leaked fixture")
+	if !reflect.DeepEqual(CompatibleProviders(), admitted) || !reflect.DeepEqual(PlatformDescriptors(), descriptors) {
+		t.Fatal("restore did not recover admitted registry and descriptors")
 	}
 	encoded, err := json.Marshal([]CompatibleProvider{compatibleFixture()})
 	if err != nil {
