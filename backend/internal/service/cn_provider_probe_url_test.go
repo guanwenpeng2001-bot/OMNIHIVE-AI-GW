@@ -72,39 +72,40 @@ func (r *fakeCNProbeAccountRepo) GetByID(ctx context.Context, id int64) (*Accoun
 	return r.account, nil
 }
 
-// kimi coding 账号的 base_url 指向中转（含 api.kimi.com/coding 路径段即可被识别
-// 为 kimi coding plan）→ 衍生额度端点落在中转主机上，白名单未列名必须拒绝。
+// An admitted Kimi profile still must pass the operator host allowlist.
 func TestCNProviderQuotaService_RejectsURLBlockedByPolicy(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{account: &Account{
 		ID: 1, Platform: PlatformKimi, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{
 			"account_mode": "coding",
 			"api_key":      "sk-test",
-			"base_url":     "https://relay.attacker.example/api.kimi.com/coding",
+			"base_url":     "https://api.kimi.com/coding/v1",
 		},
 	}}
 	upstream := &recordingHTTPUpstream{}
-	svc := NewCNProviderQuotaService(repo, nil, upstream, cnProbeAllowlistConfig("api.kimi.com"))
+	svc := NewCNProviderQuotaService(repo, nil, upstream, cnProbeAllowlistConfig("api.deepseek.com"))
 
+	require.Equal(t, "https://api.kimi.com/coding/v1/usages", nativeProfileProbeURL(repo.account, true))
 	_, err := svc.QueryUsage(context.Background(), 1)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CN_QUOTA_URL_REJECTED")
 	require.Zero(t, upstream.calls, "probe must not issue any upstream request when URL policy rejects the target")
 }
 
-// deepseek payg 账号自定义 base_url → 余额端点落在中转主机上，必须先过策略。
+// An admitted DeepSeek profile must reach URL policy and be rejected there.
 func TestCNProviderBalanceService_RejectsURLBlockedByPolicy(t *testing.T) {
 	repo := &fakeCNProbeAccountRepo{account: &Account{
 		ID: 2, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Status: StatusActive,
 		Credentials: map[string]any{
 			"account_mode": "payg",
 			"api_key":      "sk-test",
-			"base_url":     "https://relay.attacker.example",
+			"base_url":     "https://api.deepseek.com",
 		},
 	}}
 	upstream := &recordingHTTPUpstream{}
-	svc := NewCNProviderBalanceService(repo, nil, upstream, cnProbeAllowlistConfig("api.deepseek.com"))
+	svc := NewCNProviderBalanceService(repo, nil, upstream, cnProbeAllowlistConfig("api.kimi.com"))
 
+	require.Equal(t, "https://api.deepseek.com/user/balance", nativeProfileProbeURL(repo.account, false))
 	_, err := svc.QueryBalance(context.Background(), 2)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "CN_BALANCE_URL_REJECTED")
@@ -126,4 +127,34 @@ func TestCNProviderBalanceService_OfficialHostPassesValidation(t *testing.T) {
 
 	_, _ = svc.QueryBalance(context.Background(), 3)
 	require.Equal(t, 1, upstream.calls, "official host must pass URL policy and reach the upstream layer")
+}
+
+// URL policy admission cannot turn an unknown relay into an official probe profile.
+func TestCNProviderProbes_UnsupportedCustomProfilesDoNotSend(t *testing.T) {
+	for _, quota := range []bool{true, false} {
+		name, platform, mode, base, reason := "balance", PlatformDeepseek, AccountModePayG, "https://relay.attacker.example", "CN_BALANCE_UNSUPPORTED_PROFILE"
+		if quota {
+			name, platform, mode, base, reason = "quota", PlatformKimi, AccountModeCoding, "https://relay.attacker.example/api.kimi.com/coding", "CN_QUOTA_UNSUPPORTED_PROFILE"
+		}
+		t.Run(name, func(t *testing.T) {
+			repo := &fakeCNProbeAccountRepo{account: &Account{ID: 5, Platform: platform, Type: AccountTypeAPIKey, Status: StatusActive,
+				Credentials: map[string]any{"account_mode": mode, "api_key": "sk-test", "base_url": base}}}
+			upstream := &recordingHTTPUpstream{}
+			cfg := cnProbeAllowlistConfig("relay.attacker.example")
+			_, err := cnValidateProbeURL(cfg, base)
+			require.NoError(t, err, "this test must isolate profile rejection from URL policy rejection")
+			require.Empty(t, nativeProfileProbeURL(repo.account, quota))
+			if quota {
+				result, probeErr := NewCNProviderQuotaService(repo, nil, upstream, cfg).QueryUsage(context.Background(), 5)
+				require.Nil(t, result)
+				err = probeErr
+			} else {
+				result, probeErr := NewCNProviderBalanceService(repo, nil, upstream, cfg).QueryBalance(context.Background(), 5)
+				require.Nil(t, result)
+				err = probeErr
+			}
+			require.ErrorContains(t, err, reason)
+			require.Zero(t, upstream.calls, "unsupported profiles must not send to the relay or fall back to an official host")
+		})
+	}
 }
