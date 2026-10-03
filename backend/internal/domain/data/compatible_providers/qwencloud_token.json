@@ -1,0 +1,36 @@
+[
+  {
+    "id": "qwencloud_token",
+    "label": "QwenCloud Token Plan",
+    "label_zh": "QwenCloud Token Plan",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "responses",
+        "endpoints": [
+          {
+            "protocol": "anthropic",
+            "base_url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "chat_to_responses",
+          "messages_to_responses",
+          "gemini_to_responses"
+        ],
+        "discovery": "none",
+        "capability_profile": "qwencloud_token"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L1865",
+    "evidence_observed": "2026-10-03"
+  }
+]

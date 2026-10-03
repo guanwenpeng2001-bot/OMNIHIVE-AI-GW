@@ -1,0 +1,41 @@
+[
+  {
+    "id": "stepfun_plan_intl",
+    "label": "StepFun Step Plan (International)",
+    "label_zh": "阶跃星辰 Step Plan（国际）",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.stepfun.ai/step_plan/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.stepfun.ai/step_plan/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://api.stepfun.ai/step_plan/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "stepfun_plan_intl"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L2620",
+    "evidence_observed": "2026-10-03"
+  }
+]

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "qwencloud",
+    "label": "QwenCloud MaaS",
+    "label_zh": "QwenCloud MaaS",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://maas.qwencloudapi.com/compatible-mode/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://maas.qwencloudapi.com/apps/anthropic/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://maas.qwencloudapi.com/compatible-mode/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "qwencloud"
+      }
+    ],
+    "evidence_url": "https://docs.qwencloud.com/api-reference/preparation/api-key",
+    "evidence_observed": "2026-10-03"
+  }
+]

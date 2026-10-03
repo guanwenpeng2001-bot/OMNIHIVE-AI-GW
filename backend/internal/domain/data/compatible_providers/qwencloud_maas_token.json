@@ -1,0 +1,41 @@
+[
+  {
+    "id": "qwencloud_maas_token",
+    "label": "QwenCloud MaaS Token Plan",
+    "label_zh": "QwenCloud MaaS Token Plan",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://token-plan.maas.qwencloudapi.com/apps/anthropic/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://token-plan.maas.qwencloudapi.com/compatible-mode/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "qwencloud_maas_token"
+      }
+    ],
+    "evidence_url": "https://docs.qwencloud.com/token-plan/personal/token-plan-personal-quickstart",
+    "evidence_observed": "2026-10-03"
+  }
+]
