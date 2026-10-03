@@ -215,10 +215,12 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 	for platform := range seen {
 		platforms = append(platforms, platform)
 	}
-	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode, PlatformVolcengine, PlatformQianfan, PlatformHunyuan, PlatformMistral, PlatformOpenRouter, PlatformBedrock},
-		platforms,
-	)
+	require.ElementsMatch(t, expectedServicePlatforms(), platforms)
+	buckets := schedulerCanonicalBuckets(99)
+	for _, platform := range expectedServicePlatforms() {
+		require.Contains(t, buckets, SchedulerBucket{GroupID: 99, Platform: platform, Mode: SchedulerModeSingle})
+		require.Contains(t, buckets, SchedulerBucket{GroupID: 99, Platform: platform, Mode: SchedulerModeForced})
+	}
 }
 
 func TestCompositeConcretePlatformsIncludeCNProviders(t *testing.T) {

@@ -2127,7 +2127,7 @@ func TestMatchingPlatforms(t *testing.T) {
 		{"anthropic returns itself", PlatformAnthropic, []string{PlatformAnthropic}},
 		{"gemini returns itself", PlatformGemini, []string{PlatformGemini}},
 		{"openai returns itself", PlatformOpenAI, []string{PlatformOpenAI}},
-		{"composite returns concrete platforms", PlatformComposite, []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode, PlatformVolcengine, PlatformQianfan, PlatformHunyuan, PlatformMistral, PlatformOpenRouter, PlatformBedrock}},
+		{"composite returns concrete platforms", PlatformComposite, expectedServicePlatforms()},
 	}
 
 	for _, tt := range tests {
@@ -2135,6 +2135,16 @@ func TestMatchingPlatforms(t *testing.T) {
 			result := matchingPlatforms(tt.groupPlatform)
 			require.Equal(t, tt.want, result)
 		})
+	}
+}
+
+func TestCompatibleChannelPricingIdentity(t *testing.T) {
+	for _, platform := range expectedServicePlatforms() {
+		require.Equal(t, []string{platform}, matchingPlatforms(platform))
+		require.True(t, isPlatformPricingMatch(PlatformComposite, platform))
+		for _, other := range expectedServicePlatforms() {
+			require.Equal(t, platform == other, isPlatformPricingMatch(platform, other), "%s / %s", platform, other)
+		}
 	}
 }
 
