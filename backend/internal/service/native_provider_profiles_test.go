@@ -207,3 +207,53 @@ func TestNativeProfileMissingRootsNeverUseOpenAI(t *testing.T) {
 	a.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: "https://api.moonshot.ai/v1", APIProtocolAnthropic: "https://api.moonshot.cn/anthropic"}
 	require.Empty(t, a.GetCNProtocolBaseURL(APIProtocolResponses))
 }
+
+// The international personal and enterprise products share inference roots.
+// Only an explicit Responses selection can distinguish enterprise configuration.
+func TestNativeProfileHunyuanIntlResponsesRequiresExplicitSelection(t *testing.T) {
+	gateway := &OpenAIGatewayService{cfg: upstreamModelSyncTestConfig()}
+	const intlChat = "https://tokenhub-intl.tencentcloudmaas.com/plan/v3"
+	const intlMessages = "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic"
+	body := []byte(`{"model":"fixture","input":"local"}`)
+	for _, base := range []string{intlChat, ""} {
+		t.Run("personal_"+base, func(t *testing.T) {
+			account := nativeProfileAccount(PlatformHunyuan, AccountModeCoding, base)
+			account.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: intlChat, APIProtocolAnthropic: intlMessages}
+			require.Empty(t, account.GetCNProtocolBaseURL(APIProtocolResponses))
+			require.False(t, account.SupportsNativeCNResponses())
+			require.False(t, account.UsesNativeCNResponses())
+			request, err := gateway.buildUpstreamRequestOpenAIPassthrough(context.Background(), nil, account, body, "fixture-key")
+			require.ErrorContains(t, err, "no configured Responses endpoint")
+			require.Nil(t, request)
+			_, err = gateway.buildUpstreamRequest(context.Background(), nil, account, body, "fixture-key", false, "", false)
+			require.ErrorContains(t, err, "no configured Responses endpoint")
+			chat, err := buildHunyuanChatRequest(context.Background(), account, []byte(`{"model":"fixture","messages":[{"role":"user","content":"local"}]}`), "fixture")
+			require.NoError(t, err)
+			require.Equal(t, intlChat+"/chat/completions", chat.URL.String())
+			require.Equal(t, intlMessages, account.GetAnthropicProtocolBaseURL())
+		})
+		t.Run("explicit_enterprise_"+base, func(t *testing.T) {
+			account := nativeProfileAccount(PlatformHunyuan, AccountModeCoding, base)
+			account.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: intlChat, APIProtocolAnthropic: intlMessages, APIProtocolResponses: intlChat}
+			require.True(t, account.SupportsNativeCNResponses())
+			require.True(t, account.UsesNativeCNResponses())
+			request, err := gateway.buildUpstreamRequestOpenAIPassthrough(context.Background(), nil, account, body, "fixture-key")
+			require.NoError(t, err)
+			require.Equal(t, intlChat+"/responses", request.URL.String())
+			require.Equal(t, "Bearer fixture-key", request.Header.Get("Authorization"))
+		})
+	}
+	for _, fixture := range []struct{ name, base, messages, responses string }{
+		{"CN personal", "https://api.lkeap.cloud.tencent.com/plan/v3", "https://api.lkeap.cloud.tencent.com/plan/anthropic", ""},
+		{"CN enterprise", "https://tokenhub.tencentmaas.com/plan/v3", "https://tokenhub.tencentmaas.com/plan/anthropic", "https://tokenhub.tencentmaas.com/plan/v3"},
+		{"mixed", intlChat, "https://tokenhub.tencentmaas.com/plan/anthropic", ""},
+		{"custom messages only", "", "https://relay.example/messages", ""},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			account := nativeProfileAccount(PlatformHunyuan, AccountModeCoding, fixture.base)
+			account.Credentials["api_base_urls"] = map[string]any{APIProtocolAnthropic: fixture.messages}
+			require.Equal(t, fixture.responses, account.GetCNProtocolBaseURL(APIProtocolResponses))
+			require.Equal(t, fixture.responses != "", account.SupportsNativeCNResponses())
+		})
+	}
+}

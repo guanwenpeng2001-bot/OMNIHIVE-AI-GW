@@ -49,7 +49,8 @@ var nativeProviderProfiles = []nativeProviderProfile{
 	{"hunyuan", "coding", "TokenHub Legacy Coding", "https://api.lkeap.cloud.tencent.com/coding/v3", "https://api.lkeap.cloud.tencent.com/coding/anthropic", "", "", false},
 	{"hunyuan", "coding", "Token Personal CN", "https://api.lkeap.cloud.tencent.com/plan/v3", "https://api.lkeap.cloud.tencent.com/plan/anthropic", "", "", false},
 	{"hunyuan", "coding", "Token Enterprise Pro / Lite CN", "https://tokenhub.tencentmaas.com/plan/v3", "https://tokenhub.tencentmaas.com/plan/anthropic", "https://tokenhub.tencentmaas.com/plan/v3", "", false},
-	{"hunyuan", "coding", "Token Personal / Enterprise Pro / Lite Intl", "https://tokenhub-intl.tencentcloudmaas.com/plan/v3", "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic", "https://tokenhub-intl.tencentcloudmaas.com/plan/v3", "", false},
+	// Personal and enterprise Intl share roots; enterprise Responses requires an explicit saved endpoint.
+	{"hunyuan", "coding", "Token Personal / Enterprise Pro / Lite Intl", "https://tokenhub-intl.tencentcloudmaas.com/plan/v3", "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic", "", "", false},
 	{"volcengine", "payg", "Ark PAYG", "https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/compatible", "https://ark.cn-beijing.volces.com/api/v3", "volcengine", false},
 	{"volcengine", "coding", "Ark Coding", "https://ark.cn-beijing.volces.com/api/coding/v3", "https://ark.cn-beijing.volces.com/api/coding", "https://ark.cn-beijing.volces.com/api/coding/v3", "", false},
 	{"volcengine", "coding", "Ark Agent", "https://ark.cn-beijing.volces.com/api/plan/v3", "https://ark.cn-beijing.volces.com/api/plan", "https://ark.cn-beijing.volces.com/api/plan/v3", "", false},
