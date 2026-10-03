@@ -1,3 +1,5 @@
+import { COMPATIBLE_PROVIDERS, compatibleProvider } from './compatibleProviders'
+
 
 export interface PlatformOption<T extends string = string> {
   value: T
@@ -36,7 +38,7 @@ export function hostedQuotaKey(platform: string, accountType?: string): string {
  * Keep platform selectors derived from this catalog so newly added providers
  * do not silently disappear from list filters.
  */
-export const CONCRETE_PLATFORM_OPTIONS = [
+export const NATIVE_PLATFORM_OPTIONS = [
   { value: 'anthropic', label: 'Anthropic', supportsOAuth: true },
   { value: 'openai', label: 'OpenAI', supportsOAuth: true },
   { value: 'gemini', label: 'Gemini', supportsOAuth: true },
@@ -57,6 +59,11 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
 ] as const satisfies readonly PlatformOption[]
+
+export const CONCRETE_PLATFORM_OPTIONS: readonly PlatformOption[] = [
+  ...NATIVE_PLATFORM_OPTIONS,
+  ...COMPATIBLE_PROVIDERS.map(provider => ({ value: provider.id, label: provider.label }))
+]
 
 /** Budget identities remain stable even after the product identity migrates. */
 export const QUOTA_PLATFORM_OPTIONS = [
@@ -86,7 +93,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
-  return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
+  return !compatibleProvider(platform) && NATIVE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
     !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'openrouter', 'bedrock', 'volcengine'].includes(platform)
 }
 
@@ -95,7 +102,9 @@ export type GroupPlatform = typeof GROUP_PLATFORM_OPTIONS[number]['value']
 
 /** Every concrete descriptor supports catalog previews; the Go contract test checks this projection. */
 export function platformSupportsModelCatalog(platform: string): boolean {
-  return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform.toLowerCase())
+  const provider = compatibleProvider(platform.toLowerCase())
+  if (provider) return provider.modes.some(mode => mode.discovery === 'openai_models')
+  return NATIVE_PLATFORM_OPTIONS.some(option => option.value === platform.toLowerCase())
 }
 
 /** Platform ids a display-name lookup must cover: hosting aliases (bedrock,

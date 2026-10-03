@@ -1,4 +1,4 @@
-import { GROUP_PLATFORM_OPTIONS, type GroupPlatform } from '@/constants/platforms'
+import { NATIVE_PLATFORM_OPTIONS, type GroupPlatform } from '@/constants/platforms'
 /**
  * Centralized platform color definitions.
  *
@@ -362,7 +362,7 @@ const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 // ── Public API ──────────────────────────────────────────────────────
 
 function isPlatform(p: string): p is Platform {
-  return GROUP_PLATFORM_OPTIONS.some(option => option.value === p)
+  return p === 'composite' || NATIVE_PLATFORM_OPTIONS.some(option => option.value === p)
 }
 
 export function platformBadgeClass(p: string): string {

@@ -209,7 +209,8 @@
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
-        <div v-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
+        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" />
+        <div v-else-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl" data-account-field="editBaseUrl"
@@ -1222,7 +1223,7 @@
             }}
           </p>
           <div
-            v-if="(account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream')"
+            v-if="!selectedCompatibleProvider && ((account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream'))"
             class="mt-3 flex items-center justify-between gap-3"
           >
             <div class="min-w-0">
@@ -1472,7 +1473,7 @@
       </div>
 
       <div
-        v-if="(account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream')"
+        v-if="!selectedCompatibleProvider && ((account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream'))"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -2400,7 +2401,7 @@
       </details>
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="allowedModels" v-model:mappings="modelMappings" :presets="presetMappings"
-        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
+        :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
         </template>
@@ -2481,6 +2482,8 @@ import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
+import CompatibleProviderFields from './CompatibleProviderFields.vue'
+import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -2631,6 +2634,11 @@ watch(accountForm, (element, _previous, cleanup) => {
 }, { flush: 'post' })
 
 const props = defineProps<Props>()
+const selectedCompatibleProvider = computed(() => compatibleProvider(props.account?.platform || ''))
+const compatibleDraft = ref<Record<string, unknown>>({})
+watch([() => props.account, () => props.show], () => {
+  compatibleDraft.value = { ...(props.account?.credentials || {}) }
+}, { immediate: true })
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
@@ -2997,12 +3005,12 @@ const editVertexProjectId = ref('')
 const editVertexClientEmail = ref('')
 const editVertexLocation = ref('us-central1')
 const modelCandidateIdentity = computed(() => ({
-  host: editBaseUrl.value,
+  host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : editBaseUrl.value,
   type: props.account?.type,
   profile: String(props.account?.credentials?.provider_profile || ''),
   region: props.account?.type === 'bedrock' ? editBedrockRegion.value
     : props.account?.type === 'service_account' ? editVertexLocation.value : '',
-  mode: currentOpenCodeOrCNMode()
+  mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode()
 }))
 const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
   () => [props.account?.platform || ''], modelCandidateIdentity, () => props.show
@@ -3484,6 +3492,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (selectedCompatibleProvider.value) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -3603,6 +3612,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 
 const savedModelGeneration = ref(0)
 const modelDiscoveryContext = computed(() => JSON.stringify([
+  selectedCompatibleProvider.value ? compatibleDraft.value : null,
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
   editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
@@ -3707,7 +3717,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
+	upstreamBillingAutoProbeEnabled.value = !selectedCompatibleProvider.value && extra?.upstream_billing_probe_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
@@ -4654,6 +4664,10 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
+      if (selectedCompatibleProvider.value) {
+        delete newCredentials.base_url
+        Object.assign(newCredentials, compatibleDraft.value)
+      }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
       if (isProtocolApiKeyAccount.value) {
@@ -4768,6 +4782,13 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         return
       }
 
+      if (selectedCompatibleProvider.value) {
+        try {
+          Object.assign(newCredentials, buildCompatibleCredentials(selectedCompatibleProvider.value, newCredentials))
+        } catch { appStore.showError(t('admin.accounts.compatible.invalid')); return }
+        updatePayload.upstream_billing_probe_enabled = false
+        updatePayload.upstream_billing_rate_sync_enabled = false
+      }
       updatePayload.credentials = newCredentials
     } else if (props.account.type === 'upstream') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}

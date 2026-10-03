@@ -21,7 +21,7 @@
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
       <AccountModelConfigurationSection v-model="allowedModels" v-model:mappings="modelMappings"
         :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
-        :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" />
+        :active="show" :discovery-disabled="compatibleDiscoveryDisabled(compatibleProvider(selectedReviewRequest?.platform || ''), selectedReviewRequest?.credentials || {})" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" />
       <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
     </section>
     <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
@@ -1317,7 +1317,8 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
-        <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
+        <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" />
+        <div v-else-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="apiKeyBaseUrl" data-account-field="apiKeyBaseUrl"
@@ -1379,7 +1380,7 @@
         </div>
 
         <!-- Only verified billing-probe platforms expose this control. -->
-        <div
+        <div v-if="!selectedCompatibleProvider"
           class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
         >
           <div>
@@ -3423,6 +3424,8 @@ import { buildPlanTypeOptions } from './credentialsBuilder'
 import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountWorkflowRequest, type AccountCredentialDraft } from './accountCredentialDraft'
 
 import AccountPlatformSelector from './AccountPlatformSelector.vue'
+import CompatibleProviderFields from './CompatibleProviderFields.vue'
+import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
@@ -3606,6 +3609,7 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
 })
 
 const apiKeyValuePlaceholder = computed(() => {
+  if (compatibleProvider(form.platform)) return '<api-key>'
   switch (form.platform) {
     case 'openai':
       return 'sk-proj-...'
@@ -3726,6 +3730,8 @@ const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
+const compatibleDraft = ref<Record<string, unknown>>({})
+const selectedCompatibleProvider = computed(() => compatibleProvider(form.platform))
 const accountMode = ref<CnAccountMode>('payg')
 const openCodeAccountMode = ref<OpenCodeAccountMode>('zen')
 // API 协议决定转发端点与格式：cc=现有转换链，anthropic=原生直通（Claude Code），
@@ -3866,6 +3872,7 @@ const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platfor
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
 function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value'] | 'vertex') {
+  if (compatibleProvider(platform)) { form.platform = platform; accountCategory.value = 'apikey'; form.type = 'apikey'; return }
   if (platform === 'vertex') { form.platform = 'gemini'; accountCategory.value = 'service_account'; form.type = 'service_account'; return }
   if (platform === 'bedrock') { form.platform = 'anthropic'; accountCategory.value = 'bedrock'; form.type = 'bedrock'; return }
   if ((platform === 'anthropic' || platform === 'gemini') && (accountCategory.value === 'bedrock' || accountCategory.value === 'service_account')) accountCategory.value = 'oauth-based'
@@ -4432,7 +4439,7 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
-const modelCandidateIdentity = computed(() => ({ host: form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
+const modelCandidateIdentity = computed(() => ({ host: selectedCompatibleProvider.value ? String(compatibleDraft.value.base_url || '') : form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: selectedCompatibleProvider.value ? compatibleMode(selectedCompatibleProvider.value, compatibleDraft.value.account_mode)?.mode : currentOpenCodeOrCNMode() }))
 
 const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
   () => [form.platform], modelCandidateIdentity, () => props.show
@@ -4441,7 +4448,7 @@ const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform,
 
 // Defaults belong to one open draft; old responses cannot populate another identity.
 let mappingGeneration = 0
-watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
+watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, compatibleDraft.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
 // A selection edit, including an intentional clear, ends pending default seeding.
 watch([allowedModels, modelMappings], () => { mappingGeneration++ }, { deep: true, flush: 'sync' })
 const loadAntigravityMappings = async () => {
@@ -4481,6 +4488,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (compatibleProvider(form.platform)) { form.type = 'apikey'; return }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -4518,7 +4526,13 @@ watch(
     cursorClientVersion.value = ''
     if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
     // Reset base URL based on platform
-    if (isMultiProtocolApiKeyPlatform(newPlatform)) {
+    if (compatibleProvider(newPlatform)) {
+      compatibleDraft.value = {}
+      accountCategory.value = 'apikey'
+      form.type = 'apikey'
+      apiKeyBaseUrl.value = ''
+      upstreamBillingAutoProbeEnabled.value = false
+    } else if (isMultiProtocolApiKeyPlatform(newPlatform)) {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
@@ -4874,7 +4888,7 @@ const credentialPreview = computed(() => {
 // 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
 // 复用 ModelWhitelistSelector 已有的上下文修订栅栏，不新增全局状态。
 const previewConnectionContext = computed(() => [
-  form.platform, form.type, form.proxy_id, form.proxy_group_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
+  compatibleDraft.value, form.platform, form.type, form.proxy_id, form.proxy_group_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
 ])
 async function cancelAccountReview() {
   if (reviewSubmitting.value) return
@@ -5037,6 +5051,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   upstreamRequestIdHeader.value = ''
+  compatibleDraft.value = {}
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
@@ -5501,9 +5516,14 @@ const handleSubmit = async () => {
           : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
-  const credentials: Record<string, unknown> = {
+  let credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
+  }
+  if (selectedCompatibleProvider.value) {
+    try {
+      credentials = buildCompatibleCredentials(selectedCompatibleProvider.value, { ...compatibleDraft.value, api_key: apiKeyValue.value.trim() })
+    } catch { appStore.showError(t('admin.accounts.compatible.invalid')); return }
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
@@ -5617,7 +5637,7 @@ const handleSubmit = async () => {
     ...form,
     group_ids: form.group_ids,
     extra: withUpstreamRequestIdHeader(extra),
-    upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
+    upstream_billing_probe_enabled: selectedCompatibleProvider.value ? false : upstreamBillingAutoProbeEnabled.value,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

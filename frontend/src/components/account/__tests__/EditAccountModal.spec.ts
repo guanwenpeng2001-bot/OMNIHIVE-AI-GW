@@ -2925,3 +2925,34 @@ it('round-trips Qianwen Coding Plan credentials without replacing its private en
   expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject(account.credentials)
   wrapper.unmount()
 })
+
+vi.mock('@/constants/compatibleProviders', async () => {
+  const actual = await vi.importActual<typeof import('@/constants/compatibleProviders')>('@/constants/compatibleProviders')
+  const { compatibleFixture, resourceFixture } = await import('./compatibleProviderFixtures')
+  return { ...actual, compatibleProvider: (platform: string) => [compatibleFixture, resourceFixture].find(provider => provider.id === platform) ?? actual.compatibleProvider(platform) }
+})
+
+
+it('edits a compatible account without changing custom endpoints, proxy, key refs or mappings', async () => {
+  const credentials = { account_mode: 'coding', api_protocol: 'anthropic', base_url: 'https://relay.example.com', api_base_urls: { anthropic: 'https://relay.example.com/messages', responses: 'https://retained.example.com' }, api_key_ref: 'vault:fixture', model_mapping: { public: 'deployment-name' } }
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  const account = { ...buildAccount(), platform: 'example-cloud', proxy_id: 8, credentials_status: { has_api_key: true }, credentials }
+  showErrorMock.mockReset()
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  const wrapper = mountModal(account)
+  await flushPromises()
+  expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+  expect(wrapper.get('[data-testid="compatible-protocol"]').element).toHaveProperty('value', 'anthropic')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(showErrorMock.mock.calls).toEqual([])
+  expect(updateAccountMock).toHaveBeenCalledOnce()
+  const payload = updateAccountMock.mock.calls[0][1]
+  expect(payload.credentials).toMatchObject(credentials)
+  expect(payload.credentials.api_key).toBeUndefined()
+  expect(payload.proxy_id).toBeUndefined()
+  expect(payload.upstream_billing_probe_enabled).toBe(false)
+  expect(payload.upstream_billing_rate_sync_enabled).toBe(false)
+  expect(account.credentials).toEqual(credentials)
+  wrapper.unmount()
+})

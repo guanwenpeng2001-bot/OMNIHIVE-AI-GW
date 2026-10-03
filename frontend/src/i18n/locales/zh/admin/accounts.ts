@@ -1,6 +1,9 @@
+import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
+
 export default {
 
     accounts: {
+      compatible: { protocolHint: '自适应优先使用匹配的原生端点。固定协议仅使用该端点；仅在已声明支持时进行网关转换。', manualModels: '不支持自动发现模型。请在下方模型映射中手动填写准确的模型名称。', deploymentHint: '填写 Azure 资源基础地址。模型映射的目标填写部署名称，不同映射可使用不同部署。', invalid: '请检查账号模式、协议和资源基础地址。' },
       tpmUnlimited: '不限额',
       tpmLimit: '每分钟 token 上限',
       tpmLimitHint: '按请求准入分钟归属，含输入、输出和缓存 token；0 表示不限额。采用 UTC 固定分钟，非滑动吞吐上限；请求必须有经验证的上游数量界限，无法确定时拒绝。',
@@ -375,6 +378,7 @@ export default {
       failedToClearRateLimit: '清除速率限制失败',
       openrouterUsage: {'spending': '密钥已用（美元）', 'cap': '密钥上限', 'remaining': '密钥剩余', 'windows': '日 / 周 / 月用量', 'reset': '上限重置周期', 'unlimited': '无限制'},
     platforms: {
+      ...Object.fromEntries(COMPATIBLE_PROVIDERS.map(provider => [provider.id, provider.label_zh])),
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',

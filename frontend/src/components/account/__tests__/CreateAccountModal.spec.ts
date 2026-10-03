@@ -1868,3 +1868,35 @@ it('creates Qianwen Coding Plan with isolated defaults and preserves a custom ba
   expect(state.apiKeyBaseUrl).toBe('https://private.example/custom/v1')
   wrapper.unmount()
 })
+
+vi.mock('@/constants/compatibleProviders', async () => {
+  const actual = await vi.importActual<typeof import('@/constants/compatibleProviders')>('@/constants/compatibleProviders')
+  const { compatibleFixture, resourceFixture } = await import('./compatibleProviderFixtures')
+  return { ...actual, compatibleProvider: (platform: string) => [compatibleFixture, resourceFixture].find(provider => provider.id === platform) ?? actual.compatibleProvider(platform) }
+})
+
+
+it('creates a named compatible API-key account with mode-specific endpoints and manual models', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 401, platform: 'example-cloud', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { selectPlatform: (platform: string) => void; form: { type: string }; modelMappings: { from: string; to: string }[] }
+  state.selectPlatform('example-cloud')
+  await flushPromises()
+  expect(state.form.type).toBe('apikey')
+  expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+  expect(wrapper.find('[data-testid="account-protocol-choices"]').exists()).toBe(false)
+  await wrapper.get('[data-testid="compatible-mode"]').setValue('coding')
+  expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('option').map(option => option.attributes('value'))).toEqual(['adaptive', 'anthropic'])
+  await wrapper.get('[data-testid="compatible-base"]').setValue('https://relay.example.com')
+  await wrapper.get('[data-testid="compatible-base-anthropic"]').setValue('https://relay.example.com/messages')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('fixture-key')
+  await openReview(wrapper)
+  state.modelMappings = [{ from: 'public-model', to: 'deployment-name' }]
+  await confirmReview(wrapper)
+  expect(createAccountMock).toHaveBeenCalledOnce()
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform: 'example-cloud', type: 'apikey', upstream_billing_probe_enabled: false, credentials: {
+    account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://relay.example.com', api_base_urls: { anthropic: 'https://relay.example.com/messages' }, api_key: 'fixture-key', model_mapping: { 'public-model': 'deployment-name' }
+  } })
+  expect(JSON.stringify(createAccountMock.mock.calls[0][0])).not.toContain('api.anthropic.com')
+  wrapper.unmount()
+})
