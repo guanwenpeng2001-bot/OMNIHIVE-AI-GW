@@ -30,8 +30,128 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 	"golang.org/x/sync/errgroup"
 )
+
+// Register once, but resolve each identity against the current domain registry.
+func init() {
+	bindingValidator := binding.Validator.Engine().(*validator.Validate)
+	if err := bindingValidator.RegisterValidation("concrete_platform", func(field validator.FieldLevel) bool {
+		return domain.IsConcretePlatform(field.Field().String())
+	}); err != nil {
+		panic(err)
+	}
+	if err := bindingValidator.RegisterValidation("group_platform", func(field validator.FieldLevel) bool {
+		return domain.IsGroupPlatform(field.Field().String())
+	}); err != nil {
+		panic(err)
+	}
+	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
+		req := validation.Current().Interface().(CreateAccountRequest)
+		if err := validateCompatibleAccountIdentity(req.Platform, req.Type, req.Credentials); err != nil {
+			validation.ReportError(req.Platform, "Platform", "platform", "compatible_identity", "")
+		}
+	}, CreateAccountRequest{})
+}
+
+// Existing platforms retain their existing credential contracts. This check
+// never normalizes identities or mutates credentials, URLs, or model mappings.
+func validateCompatibleAccountIdentity(platform, accountType string, credentials map[string]any) error {
+	provider, ok := domain.LookupCompatibleProvider(platform)
+	if !ok {
+		return nil
+	}
+	if accountType != domain.AccountTypeAPIKey {
+		return fmt.Errorf("compatible provider requires apikey account type")
+	}
+	read := func(key string) (string, error) {
+		value, present := credentials[key]
+		if !present {
+			return "", nil
+		}
+		text, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("%s must be a string", key)
+		}
+		return text, nil
+	}
+	modeName, err := read("account_mode")
+	if err != nil {
+		return err
+	}
+	mode, ok := provider.ResolveMode(modeName)
+	if !ok {
+		return fmt.Errorf("unsupported compatible provider account_mode")
+	}
+	protocol, err := read("api_protocol")
+	if err != nil {
+		return err
+	}
+	if protocol != "" && protocol != domain.APIProtocolAdaptive {
+		if _, ok := mode.LookupEndpoint(protocol); !ok {
+			return fmt.Errorf("unsupported compatible provider api_protocol for account_mode")
+		}
+	}
+	if provider.BaseSource == "account" {
+		base, err := read("base_url")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(base) == "" {
+			return fmt.Errorf("compatible provider requires account resource base_url")
+		}
+	}
+	return nil
+}
+
+func prepareCompatibleAccountUpdate(existing *service.Account, req *UpdateAccountRequest) error {
+	if _, ok := domain.LookupCompatibleProvider(existing.Platform); !ok {
+		return nil
+	}
+	accountType := existing.Type
+	if req.Type != "" {
+		accountType = req.Type
+	}
+	credentials := existing.Credentials
+	if len(req.Credentials) > 0 {
+		credentials = make(map[string]any, len(existing.Credentials)+len(req.Credentials))
+		for key, value := range existing.Credentials {
+			credentials[key] = value
+		}
+		for key, value := range req.Credentials {
+			credentials[key] = value
+		}
+		// Per-protocol URL edits must not erase another protocol's custom host.
+		if incoming, ok := req.Credentials["api_base_urls"].(map[string]any); ok && len(incoming) > 0 {
+			bases := make(map[string]any)
+			switch stored := existing.Credentials["api_base_urls"].(type) {
+			case map[string]any:
+				for protocol, base := range stored {
+					bases[protocol] = base
+				}
+			case map[string]string:
+				for protocol, base := range stored {
+					bases[protocol] = base
+				}
+			}
+			for protocol, base := range incoming {
+				bases[protocol] = base
+			}
+			credentials["api_base_urls"] = bases
+		}
+	}
+	if err := validateCompatibleAccountIdentity(existing.Platform, accountType, credentials); err != nil {
+		return err
+	}
+	// The legacy service replaces non-secret keys on PUT. Forward the validated
+	// resulting map for compatible providers; leave absent credential edits absent.
+	if len(req.Credentials) > 0 {
+		req.Credentials = credentials
+	}
+	return nil
+}
 
 // OAuthHandler handles OAuth-related operations for accounts
 type OAuthHandler struct {
@@ -125,7 +245,7 @@ type CreateAccountRequest struct {
 	CredentialDraftRevision string                   `json:"credential_draft_revision,omitempty"`
 	Name                    string                   `json:"name" binding:"required"`
 	Notes                   *string                  `json:"notes"`
-	Platform                string                   `json:"platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode volcengine qianfan hunyuan mistral openrouter bedrock"`
+	Platform                string                   `json:"platform" binding:"required,concrete_platform"`
 	Type                    string                   `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
 	Credentials             map[string]any           `json:"credentials" binding:"required"`
 	Extra                   map[string]any           `json:"extra"`
@@ -1157,6 +1277,21 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// An empty table must preserve the existing save path, including its
+	// asynchronous catalog refresh. Once providers are admitted, resolve the
+	// stored identity before validating the resulting compatible account.
+	if len(domain.CompatibleProviders()) > 0 {
+		existing, lookupErr := h.adminService.GetAccount(c.Request.Context(), accountID)
+		if lookupErr != nil {
+			response.ErrorFrom(c, lookupErr)
+			return
+		}
+		if err := prepareCompatibleAccountUpdate(existing, &req); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+	}
+
 	if req.Extra[modelCapabilityDefaultsKey] != nil {
 		existing, lookupErr := h.adminService.GetAccount(c.Request.Context(), accountID)
 		if lookupErr != nil {
@@ -2100,7 +2235,7 @@ func (h *AccountHandler) BatchRefresh(c *gin.Context) {
 // POST /api/v1/admin/accounts/batch
 func (h *AccountHandler) BatchCreate(c *gin.Context) {
 	var req struct {
-		Accounts []CreateAccountRequest `json:"accounts" binding:"required,min=1"`
+		Accounts []CreateAccountRequest `json:"accounts" binding:"required,min=1,dive"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())

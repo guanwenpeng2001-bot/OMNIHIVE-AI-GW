@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -19,7 +20,33 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
+	"github.com/go-playground/validator/v10"
 )
+
+func init() {
+	bindingValidator := binding.Validator.Engine().(*validator.Validate)
+	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
+		req := validation.Current().Interface().(CreateGroupRequest)
+		if domain.ValidateHostedRestriction(service.NormalizeGroupPlatform(req.Platform), req.AccountType) != nil {
+			validation.ReportError(req.AccountType, "AccountType", "account_type", "hosted_restriction", "")
+		}
+	}, CreateGroupRequest{})
+	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
+		req := validation.Current().Interface().(UpdateGroupRequest)
+		// Omitted platform/type require the persisted group; the service validates
+		// that resulting identity. Validate fully supplied pairs at binding too.
+		if req.Platform != "" && req.AccountType != nil && domain.ValidateHostedRestriction(req.Platform, *req.AccountType) != nil {
+			validation.ReportError(*req.AccountType, "AccountType", "account_type", "hosted_restriction", "")
+		}
+	}, UpdateGroupRequest{})
+	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
+		req := validation.Current().Interface().(CompositeRouteRequest)
+		if req.AccountType != nil && domain.ValidateHostedRestriction(req.TargetPlatform, *req.AccountType) != nil {
+			validation.ReportError(*req.AccountType, "AccountType", "account_type", "hosted_restriction", "")
+		}
+	}, CompositeRouteRequest{})
+}
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
@@ -189,7 +216,7 @@ type CreateGroupRequest struct {
 	AccountType               string                        `json:"account_type"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
-	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral openrouter bedrock volcengine composite"`
+	Platform                  string                        `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            float64                       `json:"rate_multiplier"`
 	IsExclusive               bool                          `json:"is_exclusive"`
 	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -265,7 +292,7 @@ type UpdateGroupRequest struct {
 	AccountType               *string                        `json:"account_type"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
-	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral openrouter bedrock volcengine composite"`
+	Platform                  string                         `json:"platform" binding:"omitempty,group_platform"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
 	IsExclusive               *bool                          `json:"is_exclusive"`
 	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -340,7 +367,7 @@ type CompositeRouteRequest struct {
 	AccountType    *string                        `json:"account_type"`
 	PublicModel    string                         `json:"public_model" binding:"required"`
 	MatchType      string                         `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string                         `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral openrouter bedrock volcengine"`
+	TargetPlatform string                         `json:"target_platform" binding:"required,concrete_platform"`
 	UpstreamModel  string                         `json:"upstream_model"`
 	Endpoint       string                         `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
 	Priority       int                            `json:"priority"`
