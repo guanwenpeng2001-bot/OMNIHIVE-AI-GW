@@ -3,6 +3,19 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      specialCompatibleAuth: {
+        authMode: 'Authentication mode',
+        selectAuthMode: 'Select authentication mode',
+        invocationToken: 'Manual invocation token',
+        officialProxy: 'Official Hermes proxy',
+        copilotHint: 'Enter a GitHub fine-grained PAT with Copilot Requests permission in the API Key field. Available models depend on your GitHub account and organization settings.',
+        proxyHint: 'Enter the URL of the official Hermes proxy hosted by your operator, including /v1 if configured. If the proxy requires a credential, enter it in the API Key field; otherwise, leave it empty.',
+        invocationHint: 'Enter your Nous invocation token in the API Key field. Renew and replace it manually when it expires.',
+        clearProxyKey: 'Clear proxy credential',
+        proxyBaseUrl: 'Proxy base URL (required)',
+        optionalBaseUrl: 'Base URL (optional)',
+        protocolHint: 'OmniHive converts Messages, Responses and Gemini chat requests to Chat Completions for this provider.',
+      },
       compatible: { protocolHint: 'Adaptive prefers a matching native endpoint. A fixed protocol uses only that endpoint; gateway conversion is available only where declared.', manualModels: 'Automatic model discovery is unavailable. Enter exact model names in the model mapping below.', deploymentHint: 'Enter your Azure resource base URL. Use deployment names as model mapping targets; each mapping can point to a different deployment.', invalid: 'Check the account mode, protocol and resource base URL.' },
       tpmUnlimited: 'Unlimited',
       tpmLimit: 'Tokens per admission minute',
