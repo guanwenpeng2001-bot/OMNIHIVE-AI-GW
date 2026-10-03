@@ -1900,3 +1900,22 @@ it('creates a named compatible API-key account with mode-specific endpoints and 
   expect(JSON.stringify(createAccountMock.mock.calls[0][0])).not.toContain('api.anthropic.com')
   wrapper.unmount()
 })
+
+it.each([undefined, 'https://relay.example.com'])('keeps untouched compatible preset bases absent with custom base %s', async (customBase) => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 402, platform: 'example-cloud', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { selectPlatform: (platform: string) => void }
+  state.selectPlatform('example-cloud')
+  await flushPromises()
+  if (customBase) await wrapper.get('[data-testid="compatible-base"]').setValue(customBase)
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('fixture-key')
+  await openReview(wrapper)
+  await confirmReview(wrapper)
+  expect(createAccountMock).toHaveBeenCalledOnce()
+  const credentials = createAccountMock.mock.calls[0][0].credentials
+  expect(credentials).toMatchObject({ account_mode: 'payg', api_protocol: 'adaptive', api_key: 'fixture-key' })
+  expect(credentials.api_base_urls).toBeUndefined()
+  expect(credentials.base_url).toBe(customBase)
+  expect(JSON.stringify(credentials)).not.toContain('api.example.com')
+  wrapper.unmount()
+})
