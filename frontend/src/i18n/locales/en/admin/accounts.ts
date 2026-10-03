@@ -1,6 +1,9 @@
+import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
+
 export default {
 
     accounts: {
+      compatible: { protocolHint: 'Adaptive prefers a matching native endpoint. A fixed protocol uses only that endpoint; gateway conversion is available only where declared.', manualModels: 'Automatic model discovery is unavailable. Enter exact model names in the model mapping below.', deploymentHint: 'Enter your Azure resource base URL. Use deployment names as model mapping targets; each mapping can point to a different deployment.', invalid: 'Check the account mode, protocol and resource base URL.' },
       tpmUnlimited: 'Unlimited',
       tpmLimit: 'Tokens per admission minute',
       tpmLimitHint: 'Includes input, output and cache tokens; 0 means unlimited. Fixed UTC admission minutes, not a sliding throughput limit. Verified upstream bounds are required; requests without them are rejected.',
@@ -169,6 +172,7 @@ export default {
       groupCountTotal: '{count} groups total',
       openrouterUsage: {'spending': 'Key spending (USD)', 'cap': 'Key cap', 'remaining': 'Key remaining', 'windows': 'Day / week / month', 'reset': 'Cap reset interval', 'unlimited': 'Unlimited'},
     platforms: {
+      ...Object.fromEntries(COMPATIBLE_PROVIDERS.map(provider => [provider.id, provider.label])),
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         gemini: 'Gemini',

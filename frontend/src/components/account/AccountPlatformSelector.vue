@@ -41,7 +41,7 @@ function navigate(event: KeyboardEvent, index: number) {
       <input v-model="search" type="search" class="input" :aria-label="t('common.search')" :placeholder="t('common.search')" />
       <Select v-model="family" :options="families" :aria-label="t('admin.accounts.platform')" />
     </div>
-    <div role="radiogroup" :aria-label="t('admin.accounts.platform')" class="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+    <div role="radiogroup" :aria-label="t('admin.accounts.platform')" class="flex max-h-80 flex-wrap gap-1 overflow-y-auto rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
       <button v-for="(option, index) in visible" :key="option.value" type="button" role="radio"
         :aria-checked="props.modelValue === option.value" :data-testid="`${option.value}-platform`"
         :tabindex="props.modelValue === option.value || (!visible.some(item => item.value === props.modelValue) && index === 0) ? 0 : -1"
