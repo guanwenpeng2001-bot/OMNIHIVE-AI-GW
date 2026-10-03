@@ -119,7 +119,7 @@ func TestPublicPlanProtocolBases(t *testing.T) {
 			require.Equal(t, "https://relay.invalid/native", account.GetAnthropicProtocolBaseURL())
 			require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
 			delete(account.Credentials, "api_base_urls")
-			require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account), "plan adaptive uses Chat unless a Responses base is configured")
+			require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account), "explicit legacy custom common root retains the shared Responses transport")
 			account.Credentials["account_mode"] = AccountModePayG
 			require.Empty(t, account.GetAnthropicProtocolBaseURL(), "no invented pay-as-you-go Messages URL")
 			require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
