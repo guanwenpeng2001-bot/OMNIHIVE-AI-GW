@@ -1,13 +1,13 @@
 export default {
   "title": "配置与使用手册",
-  "subtitle": "账号准备、密钥字段、模型目录、客户端配置与额度排查。按目录查阅配置项、操作步骤和错误处理。",
+  "subtitle": "从密钥和分组开始，选择协议、复制请求、配置客户端，再核对结果、用量与账单。",
   "eyebrow": "使用手册 · 配置与入门",
   "contents": "本页目录",
   "copy": "复制",
   "copied": "已复制到剪贴板",
   "copyFailed": "复制失败，请选中代码后手动复制。",
   "next": "前往相关页面",
-  "placeholder": "示例中的 API 地址取自本站配置（api_base_url），密钥请换成你自己的，model 请填写目录中返回的 id。以下 curl 命令使用 Bash / zsh 语法；Windows 可在 WSL 或 Git Bash 中运行。",
+  "placeholder": "示例使用本站公布的 API 地址。将 sk-your-api-key 替换为完整密钥，将 MODEL_ID_FROM_LIST 替换为同一密钥目录中的模型 ID。Bash 与 PowerShell 示例可分别复制；Python 和 Node 示例从环境变量读取密钥。",
   "apiBaseMissing": "本站尚未配置公开 API 地址（api_base_url），本页无法生成接入示例。请联系管理员配置后再查阅。",
   "quick": {
     "title": "快速开始",
@@ -113,8 +113,8 @@ export default {
           },
           "protocol": {
             "layer": "客户端协议",
-            "content": "OpenAI 兼容目录 / Codex 目录",
-            "purpose": "选择协议对应的模型 ID；聊天用 chat/completions，Codex 用 responses。",
+            "content": "OpenAI 兼容 / Messages / Google / Codex 目录",
+            "purpose": "按客户端协议选择目录与模型：Chat、Messages、Responses 或 Google；Codex 使用 Responses。",
             "view": "用调用时同一把密钥查询下表入口；刷新客户端 / Agent 模型选择器。"
           }
         }
@@ -130,22 +130,38 @@ export default {
           "openai": {
             "endpoint": "GET /v1/models",
             "purpose": "普通 OpenAI 兼容工具",
-            "notes": "/models 是根路径别名；带 client_version 查询参数时走 Codex 目录。"
+            "notes": "OpenAI 兼容客户端使用 data[].id。Codex 请使用专用目录 GET /backend-api/codex/models。"
           },
           "codex": {
             "endpoint": "GET /backend-api/codex/models",
             "purpose": "Codex 兼容客户端",
             "notes": "使用同一密钥鉴权，从返回目录选择 Codex 模型 ID。"
+          },
+          "catalog": {
+            "endpoint": "GET /v1/models/catalog",
+            "purpose": "富能力目录",
+            "notes": "使用 next_cursor 作为下一页 cursor；保留 guaranteed/available/unknown 的区别。"
+          },
+          "google": {
+            "endpoint": "GET /v1beta/models",
+            "purpose": "Google 模型目录",
+            "notes": "使用返回的 nextPageToken 继续分页；请求模型 ID 不含开头的 models/。"
+          },
+          "single": {
+            "endpoint": "GET /v1/models/{'{'}encoded_id{'}'}",
+            "purpose": "查询一个模型",
+            "notes": "路径段中的 ID 需编码，不要删去供应商前缀。"
           }
         }
       }
     },
     "notes": {
-      "availability": "目录列出当前分组可见的模型，不保证此刻有额度、可调度账号或支持所有端点；换密钥或分组后请刷新列表。"
+      "availability": "目录列出当前分组可见的模型，不保证此刻有额度、可调度账号或支持所有端点；换密钥或分组后请刷新列表。",
+      "metadata": "普通目录可含 context_window、max_output_tokens、supports_reasoning、supports_function_calling 等顶层保证值，未知时省略。富目录的 endpoints 与能力资料不保证实时空闲账户；available 不等于所有路由都保证。Messages 目录带 anthropic-version，可用 after_id/before_id 分页（不要同时传）；Google 使用 pageToken。"
     }
   },
   "clients": {
-    "title": "配置客户端与流式响应",
+    "title": "客户端与工作流",
     "steps": {},
     "tables": {
       "matrix": {
@@ -177,7 +193,7 @@ export default {
             "base": "自定义 OpenAI API 地址",
             "key": "本站创建的完整密钥",
             "model": "MODEL_ID_FROM_LIST",
-            "notes": "配置自定义地址、密钥与模型；只有使用该自定义接口的功能经过本网关。"
+            "notes": "自定义 URL 覆盖依客户端版本而定；官方 BYOK 文档未明确通用第三方地址。使用支持该设置的版本，并确认地址能被 Cursor 的服务访问；Tab 等功能不一定使用此密钥。"
           },
           "codex": {
             "client": "Codex",
@@ -220,6 +236,34 @@ export default {
             "key": "—",
             "model": "—",
             "notes": "Windsurf 官方文档没有自定义第三方 OpenAI 兼容端点/自带密钥的配置说明；请在 Windsurf 内用 Cline、Roo Code 或 Continue 插件接入本站。"
+          },
+          "claude": {
+            "client": "Claude Code CLI",
+            "base": "ANTHROPIC_BASE_URL = gateway root",
+            "key": "ANTHROPIC_API_KEY",
+            "model": "--model MODEL_ID_FROM_LIST",
+            "notes": "CLI 自动添加 /v1/messages；桌面版为不同配置入口。需要分组与模型支持 Messages。"
+          },
+          "opencode": {
+            "client": "OpenCode (v1 config)",
+            "base": "provider.<id>.options.baseURL = root + /v1",
+            "key": "options.apiKey: {'{'}env:SUB2API_API_KEY{'}'}",
+            "model": "<provider>/MODEL_ID_FROM_LIST",
+            "notes": "示例使用 {'@'}ai-sdk/openai-compatible 发送 Chat。OpenCode 2 配置格式不同；不要混用。"
+          },
+          "dsh": {
+            "client": "DeepSeek Harness (DSH)",
+            "base": "baseURL = root + /v1",
+            "key": "apiKeyEnv: SUB2API_API_KEY",
+            "model": "MODEL_ID_FROM_LIST",
+            "notes": "在提供商设置中选择 openai-completions；openai-responses 和 anthropic-messages 是独立协议选项。按安装版本的向导保存。"
+          },
+          "pi": {
+            "client": "Pi",
+            "base": "baseUrl = root + /v1",
+            "key": "apiKey: $SUB2API_API_KEY",
+            "model": "models[].id: MODEL_ID_FROM_LIST",
+            "notes": "在 ~/.pi/agent/models.json 中配置 openai-completions；打开 /model 重载并选择。"
           }
         }
       },
@@ -234,7 +278,7 @@ export default {
           "base": {
             "field": "base_url",
             "meaning": "通常为站点 API 根地址加 /v1，不要重复添加 /v1；以密钥页「使用」生成的对应客户端配置为准，特别是需要专用端点的分组。",
-            "example": "本站 api_base_url + /v1（如 https://api.your-domain.com/v1）"
+            "example": "本站公布的根地址 + /v1"
           },
           "key": {
             "field": "api_key",
@@ -248,17 +292,18 @@ export default {
           },
           "stream": {
             "field": "stream",
-            "meaning": "true：HTTP 流式响应（SSE）；省略或 false：普通完整响应。curl 加 -N，SDK 逐块读取。",
+            "meaning": "Chat、Messages、Responses 支持时设 true 开启 SSE，省略或 false 请求完整响应；Gemini 使用 streamGenerateContent。curl 使用 -N。",
             "example": "\"stream\": true"
           }
         }
       }
     },
     "notes": {
-      "streaming": "供应商流没有通用断点续传：流已经开始（状态码已固化为 200）后，中断只会就地补一个标准终止帧（/v1/responses 为 response.failed，Messages 与 Chat Completions 为 error 帧），不会悄悄换上游续写，也不会把半截内容当成完整答案重放。中断后先查看用量记录，再用新请求重试；带 Idempotency-Key 的重试不会重复启动生成（会返回 409 与 X-Idempotency-State）。GET /v1/responses 支持 WebSocket 接入，但可用性取决于分组、账号和管理员 WS 模式；聊天 SSE 与 WebSocket 不同，未确认支持时使用 HTTP/SSE。",
-      "mediaEndpoints": "以上客户端配置都是文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请改用 /v1/images/generations、/v1/images/edits、/v1/videos/generations、/v1/tts、/v1/stt 等媒体入口；具体可用性取决于分组平台与分组开关。",
+      "streaming": "流式请求、工具结果回传与推理设置见对应章节。Codex 示例使用 HTTP Responses；WebSocket 需要分组、账户和站点配置共同允许，未确认前不要启用。",
+      "mediaEndpoints": "以上客户端配置使用文本/视觉协议（Messages、Responses、Chat Completions）。图像与视频使用 /v1/images/generations、/v1/images/edits 和 /v1/videos/generations；语音合成、转写与翻译分别使用 /v1/audio/speech、/v1/audio/transcriptions 和 /v1/audio/translations。可用性和请求格式取决于分组平台、模型及已启用功能。/v1/tts 与 /v1/stt 有独立平台契约，不能与标准音频端点互换。",
       "clientSources": "新增客户端的字段名称取自各自第一方文档（Cline 文档：OpenAI Compatible；Roo Code 仓库文档：Using OpenAI Compatible Providers；Continue 文档：How to Configure OpenAI Models；JetBrains 帮助：Use third-party and local models）。Windsurf 官方文档未提供自定义 OpenAI 兼容端点，故列出为不可用说明。",
-      "antigravity": "Antigravity 的协议与工具支持取决于实际模型和分组；混合客户端工具时，部分上游内置工具可能被省略，请勿依赖内置搜索或代码执行一定可用。"
+      "antigravity": "Antigravity 的协议与工具支持取决于实际模型和分组；混合客户端工具时，部分上游内置工具可能被省略，请勿依赖内置搜索或代码执行一定可用。",
+      "workflow": "工作流工具先选择 HTTP 方法、完整 URL、认证头和 JSON 请求体；发送一次简单请求，读取结果和 usage，再接入循环或并发。不要把客户端能配置某协议当作所有模型均支持。"
     }
   },
   "usage": {
@@ -415,8 +460,8 @@ export default {
             "action": "检查有效期，编辑或替换密钥。"
           },
           "balance": {
-            "status": "403",
-            "code": "INSUFFICIENT_BALANCE",
+            "status": "403 / 429",
+            "code": "INSUFFICIENT_BALANCE / insufficient_quota",
             "meaning": "账户余额不足。",
             "action": "检查可用余额并充值或兑换。"
           },
@@ -436,7 +481,7 @@ export default {
             "status": "429",
             "code": "API_KEY_QUOTA_EXHAUSTED / insufficient_quota",
             "meaning": "密钥消费上限用尽；部分 Responses 入口返回 insufficient_quota。",
-            "action": "检查密钥额度，等待几秒或快速重试不会恢复消费上限。"
+            "action": "检查额度与余额；余额或额度不足不能按短暂拥塞无限重试，也不一定有 Retry-After。"
           },
           "window": {
             "status": "429",
@@ -455,10 +500,892 @@ export default {
             "code": "以响应正文为准",
             "meaning": "上游出错、临时无可用账号或服务不可用。",
             "action": "稍后有限重试；持续失败时携带请求信息联系管理员。"
+          },
+          "missing": {
+            "status": "404",
+            "code": "Read the response body",
+            "meaning": "模型不可见、动作未开放或资源不归当前密钥。",
+            "action": "核对模型目录、功能权限与原始任务密钥，不要只修改 URL。"
+          },
+          "conflict": {
+            "status": "409",
+            "code": "Read the response body",
+            "meaning": "任务尚未完成或内容冲突。",
+            "action": "检查任务状态与错误码，勿直接重复生成。"
+          },
+          "large": {
+            "status": "413",
+            "code": "Read the response body",
+            "meaning": "请求或上传过大。",
+            "action": "按对应文本、图片或音频限制缩小请求。"
           }
         }
       }
     },
-    "notes": {}
+    "notes": {
+      "shape": "同一失败在不同协议中的响应结构可能不同：Chat/Responses 通常读取 error；Messages 还含 type: error；Gemini 读取 error.code、error.status 和 error.message。保留原始状态码与错误体，不能只按一条字符串判断。"
+    }
+  },
+  "groups": {
+    "start": "开始使用",
+    "api": "调用 API",
+    "calls": "请求期间",
+    "media": "图像与音视频",
+    "apps": "客户端与工作流",
+    "account": "账户与排错"
+  },
+  "capability": "先确认密钥分组允许目标协议和模型。目录可见、功能提示和当前请求成功是不同的事实；工具、推理、缓存与媒体能力还取决于实际模型。以下为常用字段的最小子集，并非所有上游参数均可用。",
+  "addresses": {
+    "title": "API 地址与认证",
+    "steps": {},
+    "tables": {
+      "formats": {
+        "title": "选择正确的地址",
+        "columns": {
+          "field": "用途",
+          "value": "地址形式",
+          "notes": "说明"
+        },
+        "rows": {
+          "root": {
+            "field": "Gateway root",
+            "value": "api_base_url",
+            "notes": "移除末尾 /v1 或 /v1beta，保留部署前缀。Claude Code 使用此根地址。"
+          },
+          "base": {
+            "field": "OpenAI-compatible base",
+            "value": "root + /v1",
+            "notes": "客户端添加端点路径；不要重复 /v1 或填入 /chat/completions。"
+          },
+          "full": {
+            "field": "HTTP request URL",
+            "value": "root + /v1/chat/completions",
+            "notes": "curl、PowerShell 和 fetch 使用完整 URL。Gemini 使用 /v1beta/models/…:generateContent。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "auth": "Chat、Responses 与媒体使用 Authorization: Bearer；Messages 使用 x-api-key 和 anthropic-version: 2023-06-01；Gemini 使用 x-goog-api-key。不要在查询字符串传密钥。面板密码不是 API 密钥。"
+    }
+  },
+  "cc-switch": {
+    "title": "CC Switch（可选）",
+    "steps": {
+      "import": {
+        "title": "从密钥页面导入",
+        "body": "创建密钥后在一次性显示密钥的区域选择导入，或在密钥操作中使用已有入口。选择 Claude 或 Gemini，确认目标应用和地址后再导入。"
+      }
+    },
+    "tables": {},
+    "notes": {
+      "optional": "直接填写 URL、密钥和模型即可使用；CC Switch 不是必需依赖。导入包含密钥，不要分享导入链接。未配置本站 API 地址时不应生成导入链接。",
+      "address": "分组可能改变导入的应用及地址形式：根地址、/v1 或 /antigravity。请在 CC Switch 中核对最终地址，不能把一个分组的设置视为所有分组通用。"
+    }
+  },
+  "chat": {
+    "title": "Chat Completions 对话",
+    "endpoint": "POST /v1/chat/completions",
+    "intro": "适用于发送 OpenAI 兼容消息历史的客户端。选择密钥分组中可调用 Chat 的模型。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "目录中的精确 ID，保留供应商前缀。"
+          },
+          "messages": {
+            "field": "messages",
+            "type": "array · required",
+            "meaning": "按顺序提交 role/content 消息；后续请求重新提交上下文。"
+          },
+          "stream": {
+            "field": "stream",
+            "type": "boolean · optional",
+            "meaning": "true 开启 SSE；默认示例请求完整 JSON。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "choices_message": {
+            "field": "choices[].message",
+            "type": "object",
+            "meaning": "文本位于 content；工具调用时可能只有 tool_calls。"
+          },
+          "choices_finish_reason_usage": {
+            "field": "choices[].finish_reason / usage",
+            "type": "string / object",
+            "meaning": "检查结束原因和已报告用量。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "不要未经转换就把 Messages system 块或 Responses input 项作为 Chat 消息。"
+    }
+  },
+  "messages": {
+    "title": "Messages 对话",
+    "endpoint": "POST /v1/messages",
+    "intro": "选择支持 Messages 协议的模型和分组。使用 x-api-key 与 anthropic-version 请求头。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "目录中的请求 ID。"
+          },
+          "max_tokens": {
+            "field": "max_tokens",
+            "type": "integer · required",
+            "meaning": "输出预算，不超过所选模型限制。"
+          },
+          "messages": {
+            "field": "messages",
+            "type": "array · required",
+            "meaning": "user/assistant 消息；content 可以是文本或内容块。"
+          },
+          "system": {
+            "field": "system",
+            "type": "string / array · optional",
+            "meaning": "顶层系统指令，与 messages 分开。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "content": {
+            "field": "content[]",
+            "type": "array",
+            "meaning": "按类型读取 text、thinking 或 tool_use 内容块。"
+          },
+          "stop_reason_usage": {
+            "field": "stop_reason / usage",
+            "type": "string / object",
+            "meaning": "检查停止原因与输入/输出用量。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "POST /v1/messages/count_tokens 是依模型而定的计数或估算，不证明生成可用。"
+    }
+  },
+  "responses": {
+    "title": "Responses 响应",
+    "endpoint": "POST /v1/responses",
+    "intro": "Codex 等 Responses 客户端需使用允许 Responses 的分组与模型。默认采用 HTTP 接入。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "精确模型 ID。"
+          },
+          "input": {
+            "field": "input",
+            "type": "string / array · required",
+            "meaning": "文本或按顺序排列的输入项。"
+          },
+          "instructions": {
+            "field": "instructions",
+            "type": "string · optional",
+            "meaning": "本次请求的指令。"
+          },
+          "max_output_tokens": {
+            "field": "max_output_tokens",
+            "type": "integer · optional",
+            "meaning": "按模型设置输出预算。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "output": {
+            "field": "output[]",
+            "type": "array",
+            "meaning": "按 message、reasoning、function_call 等类型解析。"
+          },
+          "status_incomplete_details_error": {
+            "field": "status / incomplete_details / error",
+            "type": "object fields",
+            "meaning": "仅 completed 表示完整完成；检查 incomplete 或 failed 的详情。"
+          },
+          "usage": {
+            "field": "usage",
+            "type": "object",
+            "meaning": "已报告用量与最终结算状态分开。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "未确认路由支持状态续接时，应重新提交完整历史。previous_response_id 受归属与账户绑定约束；store:true 不保证状态已保存。",
+      "compatibility": "GET /v1/responses 是有条件开放的 WebSocket 入口，不是读取已保存响应。"
+    }
+  },
+  "gemini": {
+    "title": "Gemini / Google 协议",
+    "endpoint": "POST /v1beta/models/{'{'}model{'}'}:generateContent",
+    "intro": "将模型 ID 放入 URL，并使用 x-goog-api-key 认证。分组和模型必须允许对应 Google 动作。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model_URL": {
+            "field": "model (URL)",
+            "type": "encoded path segment · required",
+            "meaning": "使用请求 ID；去掉目录 name 开头的 models/ 后，对剩余 ID 编码一次。"
+          },
+          "contents": {
+            "field": "contents",
+            "type": "array · required",
+            "meaning": "包含 parts，例如 {'{'}text:\"Hello\"{'}'}；role 可为 user。"
+          },
+          "generationConfig": {
+            "field": "generationConfig",
+            "type": "object · optional",
+            "meaning": "仅使用所选模型支持的控制项。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "candidates_content_parts": {
+            "field": "candidates[].content.parts",
+            "type": "array",
+            "meaning": "逐个读取内容；安全阻断可能没有文本。"
+          },
+          "finishReason_usageMetadata": {
+            "field": "finishReason / usageMetadata",
+            "type": "fields",
+            "meaning": "检查结束原因与已报告用量。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "流式使用 :streamGenerateContent?alt=sse，而不是 Chat 的 stream 标志。:countTokens 依模型而定；:embedContent 与 :batchEmbedContents 需要可用的向量路由。"
+    }
+  },
+  "retrieval": {
+    "title": "向量与重排",
+    "endpoint": "POST /v1/embeddings · POST /v1/rerank",
+    "intro": "从有权限的分组选择专用向量或重排模型，不能用任意聊天模型替代。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model": {
+            "field": "model",
+            "type": "string · required",
+            "meaning": "用于对应检索端点的模型。"
+          },
+          "input_embeddings": {
+            "field": "input (embeddings)",
+            "type": "string · required in example",
+            "meaning": "待编码文本；维数与编码选项依模型而定。"
+          },
+          "query_documents_rerank": {
+            "field": "query / documents (rerank)",
+            "type": "string / string[] · required",
+            "meaning": "查询文本与候选文档。"
+          },
+          "top_n_rerank": {
+            "field": "top_n (rerank)",
+            "type": "positive integer · optional",
+            "meaning": "请求返回的排序结果数量。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "data_embedding_index": {
+            "field": "data[].embedding / index",
+            "type": "vector / integer",
+            "meaning": "向量与输入位置；检查向量维数一致。"
+          },
+          "index_relevance_score": {
+            "field": "index / relevance_score",
+            "type": "ranked entries",
+            "meaning": "重排结果条目；外层结构因路由而异。"
+          },
+          "usage": {
+            "field": "usage",
+            "type": "object · when reported",
+            "meaning": "缺失计数表示未知；重排可能按查询而非 token 计费。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "这些端点不代表支持流式或工具。OpenAI 适配器未提供 rerank，需使用具有重排路由的分组。"
+    }
+  },
+  "streaming": {
+    "title": "流式输出与中断",
+    "endpoint": "POST · protocol-specific SSE",
+    "intro": "所选协议的流式能力需分组与模型支持。使用 curl -N 或可逐段读取 SSE 的 SDK。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "stream": {
+            "field": "stream",
+            "type": "boolean · Chat / Messages / Responses",
+            "meaning": "在 JSON 请求中设为 true。"
+          },
+          "alt_sse": {
+            "field": "alt=sse",
+            "type": "query · Gemini",
+            "meaning": "与 :streamGenerateContent 一起使用。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "Chat": {
+            "field": "Chat",
+            "type": "choices[].delta",
+            "meaning": "拼接 delta；通常以 [DONE] 结束。错误或提前 EOF 不代表完成。"
+          },
+          "Messages": {
+            "field": "Messages",
+            "type": "event + data",
+            "meaning": "读取 content_block 增量直到 message_stop；event:error 表示失败。"
+          },
+          "Responses": {
+            "field": "Responses",
+            "type": "typed events",
+            "meaning": "response.completed 为成功；response.incomplete 和 response.failed 需检查原因。"
+          },
+          "Gemini": {
+            "field": "Gemini",
+            "type": "Google JSON events",
+            "meaning": "读取 candidates 和最终 finishReason/usage，不等待 Chat 的 [DONE]。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "按空行分隔 SSE 事件，忽略保活注释。HTTP 200 后仍可能失败；工具参数片段需保留到调用完整。",
+      "compatibility": "中断输出不会续成一份完整答案。重发前先查用量或已有任务；并非所有重试都具备幂等性。PowerShell 快速开始仅演示非流式 JSON。"
+    }
+  },
+  "tools": {
+    "title": "函数工具与结果回传",
+    "endpoint": "POST · Chat / Messages / Responses / Gemini",
+    "intro": "选择分组允许且支持工具的模型。客户端函数由你的应用执行并回传结果；模型也可能不调用工具。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "Chat_tools": {
+            "field": "Chat tools[]",
+            "type": "type:function + function",
+            "meaning": "function 包含 name、description 和 parameters（JSON Schema）。"
+          },
+          "Messages_tools": {
+            "field": "Messages tools[]",
+            "type": "name + input_schema",
+            "meaning": "使用 Messages 的工具定义结构。"
+          },
+          "Responses_tools": {
+            "field": "Responses tools[]",
+            "type": "type:function + name + parameters",
+            "meaning": "函数字段直接位于工具对象上。"
+          },
+          "Gemini_tools": {
+            "field": "Gemini tools",
+            "type": "functionDeclarations",
+            "meaning": "使用 Google 函数声明。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "Chat_result": {
+            "field": "Chat result",
+            "type": "role:tool / tool_call_id / content",
+            "meaning": "匹配真实调用 ID，并保留 assistant 的 tool_calls 消息。"
+          },
+          "Messages_result": {
+            "field": "Messages result",
+            "type": "tool_result / tool_use_id",
+            "meaning": "将结果放入 user 内容块。"
+          },
+          "Responses_result": {
+            "field": "Responses result",
+            "type": "function_call_output / call_id / output",
+            "meaning": "匹配 call_id 并保留前序输入/输出项。"
+          },
+          "Gemini_result": {
+            "field": "Gemini result",
+            "type": "functionResponse",
+            "meaning": "在对话上下文中返回函数结果。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "保留真实调用 ID、参数及不透明推理/签名。不要编造 ID 或丢弃前序 assistant 项。函数工具能力不代表内置搜索、代码执行或所有服务端工具可用。"
+    }
+  },
+  "reasoning": {
+    "title": "推理控制",
+    "endpoint": "POST · model-specific controls",
+    "intro": "仅使用模型声明且分组路由支持的档位。目录未说明时省略控制项，不默认 high 或 max 可用。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "reasoning_effort": {
+            "field": "reasoning_effort",
+            "type": "Chat · optional",
+            "meaning": "值取自所选模型支持的档位。"
+          },
+          "reasoning_effort_reasoning_summary": {
+            "field": "reasoning.effort / reasoning.summary",
+            "type": "Responses · optional",
+            "meaning": "推理档位和摘要行为依模型而定。"
+          },
+          "thinking_output_config_effort": {
+            "field": "thinking / output_config.effort",
+            "type": "Messages · optional",
+            "meaning": "支持时 thinking 使用 type 与 budget_tokens。"
+          },
+          "generationConfig_thinkingConfig": {
+            "field": "generationConfig.thinkingConfig",
+            "type": "Gemini · optional",
+            "meaning": "Google 控制结构，不能与其他协议互换。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "reasoning_thinking": {
+            "field": "reasoning / thinking",
+            "type": "protocol-specific output",
+            "meaning": "可能含摘要或不透明续接数据；工具往返时保留这些内容。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "档位不是 token 预算、延迟或质量保证。temperature、并行工具等可能与模型推理模式冲突。"
+    }
+  },
+  "cache": {
+    "title": "提示缓存与用量",
+    "endpoint": "POST · model-specific caching",
+    "intro": "缓存取决于模型、分组路由和上游策略。保持上下文前缀稳定；目录中的缓存提示不保证命中或折扣。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "cache_control": {
+            "field": "cache_control",
+            "type": "Messages content block · optional",
+            "meaning": "支持的 Messages 路由可接收 ephemeral 缓存提示，路由可能调整它。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "cache_creation_input_tokens": {
+            "field": "cache_creation_input_tokens",
+            "type": "number · when reported",
+            "meaning": "创建缓存的 token，与缓存读取分开。"
+          },
+          "cache_read_input_tokens": {
+            "field": "cache_read_input_tokens",
+            "type": "number · when reported",
+            "meaning": "从缓存读取的 token；以实际用量和最终账单核对。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "缺失缓存字段表示未知，不是零。不同协议不存在通用的 TTL、缓存键或价格倍率。"
+    }
+  },
+  "images": {
+    "title": "图像生成与编辑",
+    "endpoint": "POST /v1/images/generations · /v1/images/edits · /v1/images/variations",
+    "intro": "使用允许对应图像动作的分组与模型。生成、编辑和变体是不同能力。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model_prompt": {
+            "field": "model / prompt",
+            "type": "JSON strings · generation",
+            "meaning": "选择图像模型并描述画面。"
+          },
+          "image_model_prompt": {
+            "field": "image / model / prompt",
+            "type": "multipart · OpenAI or Qianwen edit example",
+            "meaning": "使用 curl -F 上传 reference.png，由 curl 设置 multipart boundary。"
+          },
+          "mask": {
+            "field": "mask",
+            "type": "multipart · OpenAI subset only",
+            "meaning": "仅限所选模型接受时使用；千问编辑不接受 mask。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "data_url_data_b64_json": {
+            "field": "data[].url / data[].b64_json",
+            "type": "string",
+            "meaning": "依路由和格式返回 URL 或 base64 图像数据。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "OpenRouter 仅支持同步位图生成：b64_json 与 png/jpeg/webp，不支持 URL 输出、SSE、编辑或变体。千问编辑接受 1–3 张上传图，每张最多 10 MiB，仅输出 b64_json。",
+      "compatibility": "其他路由可能要求不同的 JSON 或 multipart 字段，不要跨平台照搬高级参数。"
+    }
+  },
+  "async-images": {
+    "title": "异步图像任务",
+    "endpoint": "POST /v1/images/generations/async · /v1/images/edits/async",
+    "intro": "仅在功能开启、分组解析为符合条件的 OpenAI/Grok 图像模型时可用。禁用时提交不会创建任务；已接受任务仍可能可查。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "request_body": {
+            "field": "request body",
+            "type": "same as synchronous action",
+            "meaning": "使用生成 JSON 或对应编辑上传格式；不接受 stream。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "HTTP_202_task_id_poll_url": {
+            "field": "HTTP 202 / task_id / poll_url",
+            "type": "accepted task",
+            "meaning": "保存任务 ID，按 Retry-After（当前 3 秒）间隔查询，不要重复提交。"
+          },
+          "status": {
+            "field": "status",
+            "type": "processing / completed / failed",
+            "meaning": "使用原密钥 GET /v1/images/tasks/{'{'}task_id{'}'}；completed 或 failed 后停止轮询。"
+          },
+          "result_http_status_error": {
+            "field": "result / http_status / error",
+            "type": "terminal details",
+            "meaning": "完成后读取 result 中的图片 URL；失败时检查状态和 error。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "任务同时绑定用户和密钥，同一用户的另一把密钥也不能查询。单次异步图像没有公共取消、删除或独立二进制下载端点。",
+      "compatibility": "图像批次是独立的 Gemini 分组功能，有专用目录、权限和生命周期，请查看批量生图指南。"
+    }
+  },
+  "media-jobs": {
+    "title": "视频任务",
+    "endpoint": "POST /v1/videos/generations · GET /v1/videos/{'{'}id{'}'} · GET /v1/videos/{'{'}id{'}'}/content",
+    "intro": "视频是任务流程，不是聊天响应。示例限定符合条件的 OpenRouter 视频模型与分组；时长需符合所选模型。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model_prompt": {
+            "field": "model / prompt",
+            "type": "JSON strings · OpenRouter example",
+            "meaning": "视频模型与描述；具体模型可能有额外要求。"
+          },
+          "duration": {
+            "field": "duration",
+            "type": "positive integer · OpenRouter",
+            "meaning": "示例为 4 秒，不代表所有模型允许此值或实际交付时长。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "id_status": {
+            "field": "id / status",
+            "type": "OpenAI / OpenRouter job",
+            "meaning": "保存返回的公开 ID；queued → in_progress → completed，或失败终态。"
+          },
+          "content": {
+            "field": "/content",
+            "type": "download after completion",
+            "meaning": "完成后使用原密钥下载；打开前核对 HTTP 状态和 Content-Type。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "OpenAI 编辑/延长使用 video:{'{'}id:...{'}'} 引用本密钥已完成的 OpenAI 视频。OpenRouter 不支持编辑、延长或取消。千问/千帆支持的取消为独立动作；收到确认不代表已最终取消或退款。",
+      "compatibility": "不要使用上游任务 ID 或远程 URL 代替本站返回的 ID；其他平台状态结构可能不同。"
+    }
+  },
+  "audio": {
+    "title": "语音合成、转写与翻译",
+    "endpoint": "POST /v1/audio/speech · /v1/audio/transcriptions · /v1/audio/translations",
+    "intro": "每个动作都需选择具备音频能力的模型与授权分组。示例区分 OpenRouter MP3、千问 WAV 和 OpenAI 音频翻译。",
+    "steps": {},
+    "tables": {
+      "request": {
+        "title": "请求字段",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "model_input_voice": {
+            "field": "model / input / voice",
+            "type": "speech JSON",
+            "meaning": "文本及模型支持的音色；千问要求 voice，文本为 1–600 个 Unicode 字符。"
+          },
+          "response_format": {
+            "field": "response_format",
+            "type": "speech · route-specific",
+            "meaning": "OpenRouter：mp3/pcm，不支持 stream；千问：仅 wav。"
+          },
+          "file_model": {
+            "field": "file / model",
+            "type": "translation multipart · OpenAI API-key route",
+            "meaning": "选择支持翻译的模型；翻译与转写为不同动作。"
+          }
+        }
+      },
+      "result": {
+        "title": "读取结果",
+        "columns": {
+          "field": "字段",
+          "type": "类型 / 要求",
+          "meaning": "说明"
+        },
+        "rows": {
+          "speech_response": {
+            "field": "speech response",
+            "type": "binary or model-specific envelope",
+            "meaning": "检查 Content-Type。Mistral 可能返回 audio_data base64 JSON，不要把所有响应当 MP3。"
+          },
+          "transcription_response": {
+            "field": "transcription response",
+            "type": "JSON in the examples",
+            "meaning": "读取文本及已提供用量；输出格式因路由而异。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "behavior": "千问转写仅接受 file/model/response_format，输出为 json；OpenRouter 支持 json/verbose_json。/v1/tts 与 /v1/stt 有专用契约，不能通用套用 OpenAI 请求体。"
+    }
+  },
+  "references": "客户端官方参考（配置随版本变化）",
+  "resources": {
+    "title": "文件、批次与专用接口",
+    "intro": "这些接口需单独确认分组、模型与动作权限。已注册的路径不代表当前密钥可用，通用对话示例不能直接作为它们的请求体。",
+    "steps": {},
+    "tables": {
+      "paths": {
+        "title": "资源定位",
+        "columns": {
+          "endpoint": "方法 / 路径",
+          "purpose": "用途与边界"
+        },
+        "rows": {
+          "files": {
+            "endpoint": "POST /v1/files · GET /v1/files · GET/DELETE /v1/files/{'{'}id{'}'} · GET /v1/files/{'{'}id{'}'}/content",
+            "purpose": "上传、列举、查看或下载归属文件；删除需明确执行。"
+          },
+          "batches": {
+            "endpoint": "POST/GET /v1/batches · GET /v1/batches/{'{'}id{'}'} · POST /v1/batches/{'{'}id{'}'}/cancel",
+            "purpose": "文本批处理；提交一次、保存 ID、再查询。与图像批次不同。"
+          },
+          "messages": {
+            "endpoint": "POST/GET /v1/messages/batches · GET/DELETE /v1/messages/batches/{'{'}id{'}'} · POST …/{'{'}id{'}'}/cancel · GET …/{'{'}id{'}'}/results",
+            "purpose": "Messages 批次生命周期和结果需对应路由支持。"
+          },
+          "images": {
+            "endpoint": "POST/GET /v1/images/batches · GET …/models · GET …/{'{'}id{'}'} · GET …/{'{'}id{'}'}/items · GET …/{'{'}id{'}'}/download",
+            "purpose": "Gemini 分组图像批次具有专用模型目录及密钥/分组归属。单项下载、取消、输出或记录删除请查看专用指南。"
+          },
+          "moderations": {
+            "endpoint": "POST /v1/moderations",
+            "purpose": "内容审核是独立动作，不是聊天结果。"
+          },
+          "realtime": {
+            "endpoint": "GET /v1/realtime · POST /v1/live · GET /v1/live/{'{'}call_id{'}'}",
+            "purpose": "实时/Live 会话需匹配协议的客户端。千问实时保留 DashScope 事件，不能全部按 OpenAI Realtime 解析。"
+          },
+          "search": {
+            "endpoint": "POST /v1/alpha/search · /v1/web_search · /v1/x_search · /v1/tools/search · /v1/tools/search_pro",
+            "purpose": "专用搜索动作；函数工具能力不代表可用这些路由。"
+          },
+          "voices": {
+            "endpoint": "POST/GET /v1/custom-voices · GET/PATCH/DELETE /v1/custom-voices/{'{'}voice_id{'}'} · GET …/{'{'}voice_id{'}'}/audio",
+            "purpose": "音色管理具有平台、方法及归属限制；不能从语音合成能力推断可用。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "native": "/api/v1/services/* 等 DashScope 原生路径、/compatible-mode/v1/files 与 batches 有各自契约，不能把通配路径当作任意供应商 API 代理。需要专用调用时请先确认该模型对应的请求格式。"
+    }
   }
 }

@@ -7,6 +7,9 @@ import zh from '@/i18n/locales/zh'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import { ref } from 'vue'
 import type { NavigationGuard, RouterOptions } from 'vue-router'
+import { helpGroups, helpSectionIds, helpScrollOffset } from '@/components/intro/helpSections'
+import DocSidebar from '@/components/intro/DocSidebar.vue'
+import { baseCompile } from '@intlify/message-compiler'
 
 const { authStore, enabledFlags, copyToClipboard } = vi.hoisted(() => ({
   authStore: { isSimpleMode: false, isAdmin: false, isAuthenticated: true, checkAuth: vi.fn() },
@@ -48,11 +51,11 @@ vi.mock('@/utils/featureFlags', () => ({
 vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard }) }))
 
 const mountedGuides: ReturnType<typeof mount>[] = []
-// These guide messages have no interpolation; runtime-only i18n accepts message functions.
+// Match runtime compilation, including literal braces in documented API paths.
 function prepareMessages(messages: Record<string, unknown>): LocaleMessages<VueMessageType> {
   return Object.fromEntries(Object.entries(messages).map(([key, value]) => [
     key,
-    typeof value === 'string' ? () => value : prepareMessages(value as Record<string, unknown>)
+    typeof value === 'string' ? new Function(`return ${baseCompile(value).code}`)() : prepareMessages(value as Record<string, unknown>)
   ]))
 }
 const messages = {
@@ -84,6 +87,84 @@ afterEach(() => {
 })
 
 describe('configuration manual', () => {
+  it.each([
+    { locale: 'en', guide: en.helpGuide, contractNote: 'separate platform contracts' },
+    { locale: 'zh', guide: zh.helpGuide, contractNote: '独立平台契约' }
+  ])('keeps catalog and audio guidance consistent in $locale', ({ guide, contractNote }) => {
+    const catalog = guide.models.tables.endpoints.rows.openai.notes
+    expect(catalog).toContain('GET /backend-api/codex/models')
+    expect(JSON.stringify(guide.models)).not.toMatch(/2027-03-21|until|截至/)
+    const media = guide.clients.notes.mediaEndpoints
+    for (const endpoint of ['/v1/audio/speech', '/v1/audio/transcriptions', '/v1/audio/translations']) {
+      expect(media).toContain(endpoint)
+      expect(guide.audio.endpoint).toContain(endpoint)
+    }
+    expect(media).toContain(contractNote)
+    expect(media).toContain('/v1/tts')
+    expect(media).toContain('/v1/stt')
+  })
+
+  it('uses one registry for grouped contents, translated sections and every hash destination', async () => {
+    const { wrapper } = mountGuide('en')
+    await import('@/router')
+    await flushPromises()
+    expect(wrapper.findAll('#guide-contents details')).toHaveLength(helpGroups.length)
+    expect(wrapper.findAll('#guide-contents a').map(link => link.attributes('href'))).toEqual(helpSectionIds.map(id => `#${id}`))
+    const scroll = routerHarness.options!.scrollBehavior!
+    const route = { path: '/help', fullPath: '/help', name: 'HelpGuide', meta: {}, params: {}, query: {}, hash: '', matched: [], redirectedFrom: undefined }
+    for (const id of helpSectionIds) {
+      expect(wrapper.find(`section#${id}`).exists()).toBe(true)
+      expect(await scroll({ ...route, hash: `#${id}` }, route, null)).toEqual({ el: `#${id}`, top: helpScrollOffset })
+    }
+    expect(await scroll({ ...route, hash: '#unknown' }, route, null)).toEqual({ top: 0 })
+    expect(await scroll(route, route, { left: 10, top: 300 })).toEqual({ left: 10, top: 300 })
+  })
+
+  it('exposes an accessible mobile contents toggle and expands the active group', async () => {
+    const sidebar = mount(DocSidebar, {
+      props: { active: 'quick', sections: helpSectionIds.map(id => ({ id, title: id })) },
+      global: { plugins: [createI18n({ legacy: false, locale: 'en', messages })] }
+    })
+    mountedGuides.push(sidebar)
+    const toggle = sidebar.get('button[aria-controls="guide-contents"]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(sidebar.get('a[href="#quick"]').attributes('aria-current')).toBe('location')
+    await sidebar.get('a[href="#chat"]').trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    await sidebar.setProps({ active: 'audio' })
+    expect(sidebar.get('a[href="#audio"]').element.closest('details')?.open).toBe(true)
+    expect(sidebar.get('a[href="#audio"]').attributes('aria-current')).toBe('location')
+  })
+
+  it('renders prefixed Bash and PowerShell quickstarts and formal protocol/media examples', async () => {
+    const configured = appStore.apiBaseUrl
+    appStore.apiBaseUrl = 'https://gateway.example/proxy/v1beta'
+    try {
+      const { wrapper } = mountGuide('en')
+      await flushPromises()
+      const quick = wrapper.get('#quick').text()
+      expect(quick).toContain('https://gateway.example/proxy/v1/chat/completions')
+      const powershell = wrapper.findAll('#quick pre').find(block => block.text().includes('Invoke-RestMethod'))!
+      expect(powershell.text()).toContain("$env:SUB2API_BASE_URL = 'https://gateway.example/proxy/v1'")
+      expect(powershell.text()).not.toMatch(/\\\r?\n/)
+      expect(wrapper.get('#gemini').text()).toContain('https://gateway.example/proxy/v1beta/models/GOOGLE_MODEL_ID_FROM_LIST:generateContent')
+      expect(wrapper.get('#gemini').text()).toContain('/v1beta/models/{model}:generateContent')
+      expect(wrapper.get('#resources').text()).toContain('/v1/files/{id}/content')
+      expect(wrapper.get('#clients').text()).toContain('@ai-sdk/openai-compatible')
+      for (const id of ['chat', 'messages', 'responses', 'gemini', 'retrieval', 'streaming', 'tools', 'reasoning', 'cache', 'images', 'async-images', 'media-jobs', 'audio']) {
+        expect(wrapper.findAll(`#${id} table`)).toHaveLength(2)
+        expect(wrapper.findAll(`#${id} pre`).length).toBeGreaterThan(0)
+      }
+      expect(wrapper.text()).not.toContain('Sub2API')
+      expect(wrapper.get('#cc-switch').text()).toContain('optional')
+      expect(wrapper.get('#clients').text()).toContain('Windsurf')
+      for (const client of ['Claude Code', 'Codex', 'OpenCode', 'DeepSeek Harness', 'Pi']) expect(wrapper.get('#clients').text()).toContain(client)
+    } finally {
+      appStore.apiBaseUrl = configured
+    }
+  })
   it('renders complete translated structures and updates them when the locale changes', async () => {
     const { wrapper, i18n } = mountGuide()
     await flushPromises()
