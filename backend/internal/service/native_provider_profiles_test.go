@@ -33,8 +33,8 @@ func TestNativeProfileExactResolution(t *testing.T) {
 			} else {
 				require.True(t, strings.HasPrefix(resolveCapabilityProfile(a), "custom:"))
 			}
-			// Explicit per-protocol roots win in fixed as well as adaptive mode.
-			a.Credentials["api_protocol"] = APIProtocolAnthropic
+			// Adaptive overrides win; fixed protocols keep the visible common base.
+			a.Credentials["api_protocol"] = APIProtocolAdaptive
 			a.Credentials["api_base_urls"] = map[string]any{APIProtocolAnthropic: "https://relay.example/kept"}
 			require.Equal(t, "https://relay.example/kept", a.GetAnthropicProtocolBaseURL())
 			require.True(t, strings.HasPrefix(resolveCapabilityProfile(a), "custom:"))
@@ -255,5 +255,67 @@ func TestNativeProfileHunyuanIntlResponsesRequiresExplicitSelection(t *testing.T
 			require.Equal(t, fixture.responses, account.GetCNProtocolBaseURL(APIProtocolResponses))
 			require.Equal(t, fixture.responses != "", account.SupportsNativeCNResponses())
 		})
+	}
+}
+
+// These expectations are independent of the profile table: request destinations
+// must follow the visible protocol choice, not a dormant adaptive setting.
+func TestNativeProfileCommonBasePrecedence(t *testing.T) {
+	gateway := &OpenAIGatewayService{cfg: upstreamModelSyncTestConfig()}
+	for _, fixture := range []struct{ protocol, common, override, target string }{
+		{APIProtocolChatCompletions, "https://relay.example/v1", "https://dormant.example/v1", "https://relay.example/v1/chat/completions"},
+		{APIProtocolAnthropic, "https://ollama.com", "https://api.moonshot.cn/anthropic", "https://ollama.com/v1/messages"},
+		{APIProtocolResponses, "https://relay.example/v1", "https://dormant.example/v1", "https://relay.example/v1/responses"},
+	} {
+		t.Run(fixture.protocol, func(t *testing.T) {
+			account := nativeProfileAccount(PlatformKimi, AccountModePayG, fixture.common)
+			account.Credentials["api_protocol"] = fixture.protocol
+			account.Credentials["api_base_urls"] = map[string]any{fixture.protocol: fixture.override}
+			require.Equal(t, fixture.common, account.GetCNProtocolBaseURL(fixture.protocol))
+			switch fixture.protocol {
+			case APIProtocolChatCompletions:
+				target, err := gateway.openAIChatCompletionsTargetURL(account)
+				require.NoError(t, err)
+				require.Equal(t, fixture.target, target)
+			case APIProtocolAnthropic:
+				target, err := gateway.nativeAnthropicTargetURL(account)
+				require.NoError(t, err)
+				require.Equal(t, fixture.target, target)
+				request, _, err := gateway.buildNativeAnthropicUpstreamRequest(context.Background(), nil, account, []byte(`{}`), "fixture-key", target)
+				require.NoError(t, err)
+				require.Equal(t, "Bearer fixture-key", request.Header.Get("Authorization"))
+				require.Empty(t, request.Header.Get("x-api-key"))
+			case APIProtocolResponses:
+				request, err := gateway.buildUpstreamRequestOpenAIPassthrough(context.Background(), nil, account, []byte(`{}`), "fixture-key")
+				require.NoError(t, err)
+				require.Equal(t, fixture.target, request.URL.String())
+			}
+			account.Credentials["api_protocol"] = APIProtocolAdaptive
+			require.Equal(t, fixture.override, account.GetCNProtocolBaseURL(fixture.protocol))
+		})
+	}
+}
+
+func TestNativeProfileCustomCommonDoesNotInventProtocols(t *testing.T) {
+	account := nativeProfileAccount(PlatformKimi, AccountModePayG, "https://relay.example/anthropic")
+	account.Credentials["api_protocol"] = APIProtocolAnthropic
+	require.Equal(t, "https://relay.example/anthropic", account.GetAnthropicProtocolBaseURL())
+	require.Empty(t, account.GetOpenAIFormatBaseURL())
+	require.Empty(t, account.GetCNProtocolBaseURL(APIProtocolResponses))
+	header := http.Header{}
+	setAnthropicAPIKeyAuthHeader(header, account, "fixture-key", account.GetAnthropicProtocolBaseURL())
+	require.Equal(t, "fixture-key", header.Get("x-api-key"))
+	require.Empty(t, header.Get("Authorization"))
+	account.Credentials["base_url"] = "https://api.moonshot.cn/anthropic"
+	account.Extra = map[string]any{anthropicAPIKeyAuthSchemeExtraKey: AnthropicAPIKeyAuthSchemeXAPIKey}
+	header = http.Header{}
+	setAnthropicAPIKeyAuthHeader(header, account, "fixture-key", account.GetAnthropicProtocolBaseURL())
+	require.Equal(t, "fixture-key", header.Get("x-api-key"))
+	require.Empty(t, header.Get("Authorization"))
+	for _, platform := range []string{PlatformZhipu, PlatformVolcengine, PlatformQianfan, PlatformQianwen} {
+		relay := nativeProfileAccount(platform, AccountModePayG, "https://relay.example/v1")
+		require.Equal(t, "https://relay.example/v1", relay.GetCNProtocolBaseURL(APIProtocolChatCompletions))
+		require.Equal(t, "https://relay.example/v1", relay.GetCNProtocolBaseURL(APIProtocolResponses))
+		require.Empty(t, relay.GetCNProtocolBaseURL(APIProtocolAnthropic))
 	}
 }

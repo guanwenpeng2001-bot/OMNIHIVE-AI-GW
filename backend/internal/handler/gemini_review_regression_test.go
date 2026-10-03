@@ -24,6 +24,7 @@ type geminiReviewUpstream struct {
 	path       string
 	embeddings bool
 	chat       bool
+	messages   bool
 }
 
 func (u *geminiReviewUpstream) Do(req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
@@ -31,12 +32,18 @@ func (u *geminiReviewUpstream) Do(req *http.Request, proxy string, id int64, con
 	u.body, err = io.ReadAll(req.Body)
 	require.NoError(u.t, err)
 	u.path = req.URL.Path
-	if u.embeddings || u.chat {
+	if u.embeddings || u.chat || u.messages {
 		u.calls++
 		u.plan = service.GatewayRequestPlanFromContext(req.Context())
 		reply := `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":2,"total_tokens":2}}`
 		if u.chat {
 			reply = `{"id":"chat-fixture","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`
+		}
+		if u.messages {
+			require.Equal(u.t, "/api/compatible/v1/messages", req.URL.Path)
+			require.Equal(u.t, "ark.cn-beijing.volces.com", req.URL.Host)
+			require.Equal(u.t, "Bearer fixture", req.Header.Get("Authorization"))
+			reply = `{"id":"msg-fixture","type":"message","role":"assistant","content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":2,"output_tokens":1}}`
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(reply))}, nil
 	}
@@ -154,7 +161,7 @@ func TestGeminiReviewCompositeConfiguredOwnership(t *testing.T) {
 			repo := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 			usage := &cursorRouteUsageRepo{}
 			receipts := newHunyuanSTTReceiptRepository()
-			upstream := &geminiReviewUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}, chat: platform == service.PlatformMistral}
+			upstream := &geminiReviewUpstream{requestPlanHTTPFixture: requestPlanHTTPFixture{t: t}, chat: platform == service.PlatformMistral, messages: platform == service.PlatformVolcengine}
 			svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receipts, nil, nil))
 			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 			defer billing.Stop()
@@ -183,6 +190,8 @@ func TestGeminiReviewCompositeConfiguredOwnership(t *testing.T) {
 				require.Equal(t, "gemini", upstream.plan.Snapshot().Protocol)
 				if platform == service.PlatformMistral {
 					require.Equal(t, "/v1/chat/completions", upstream.path)
+				} else if platform == service.PlatformVolcengine {
+					require.Equal(t, "/api/compatible/v1/messages", upstream.path)
 				} else {
 					require.Contains(t, upstream.path, "/responses")
 				}

@@ -136,7 +136,7 @@ func TestLatePlatformPlanModeKeepsChatBaseURLGuards(t *testing.T) {
 		"https://relay.example/coding/v3",
 	} {
 		account := &Account{Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{
-			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "base_url": baseURL,
+			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "api_protocol": APIProtocolChatCompletions, "base_url": baseURL,
 		}}
 		_, err := buildHunyuanChatRequest(context.Background(), account, hunyuanBody, "hunyuan-turbos-latest")
 		require.Error(t, err, baseURL)
@@ -149,7 +149,7 @@ func TestLatePlatformPlanModeKeepsChatBaseURLGuards(t *testing.T) {
 		"https://ark.cn-beijing.volces.com/api/v3/models",
 	} {
 		account := &Account{Platform: PlatformVolcengine, Type: AccountTypeAPIKey, Credentials: map[string]any{
-			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "base_url": baseURL,
+			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "api_protocol": APIProtocolChatCompletions, "base_url": baseURL,
 		}}
 		_, err := (&OpenAIGatewayService{}).prepareVolcengineChatRequest(account, volcengineBody, "ep-plan-mode-fixture")
 		require.Error(t, err, baseURL)
@@ -161,7 +161,7 @@ func TestLatePlatformPlanModeKeepsChatBaseURLGuards(t *testing.T) {
 		"https://relay.example/v2/chat/completions",
 	} {
 		account := &Account{Platform: PlatformQianfan, Type: AccountTypeAPIKey, Credentials: map[string]any{
-			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "base_url": baseURL,
+			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "api_protocol": APIProtocolChatCompletions, "base_url": baseURL,
 		}}
 		_, err := buildQianfanRequest(context.Background(), account, "chat/completions", qianfanBody, identityPolicy)
 		require.Error(t, err, baseURL)
@@ -248,27 +248,29 @@ func TestQianfanTokenPlanBaseURLIsAVersionRoot(t *testing.T) {
 	}
 }
 
-// 套餐主机必须留在本厂商的 registry profile 上：落到 custom:<host> 会让 models.dev
-// 元数据查找整体落空（火山 ark.*.volces.com 与千帆 qianfan.baidubce.com 原本就被
-// 归类，混元的套餐主机 lkeap 需要显式归类）。
-func TestLatePlatformPlanModeHostsKeepTheirPlatformProfile(t *testing.T) {
+// Routing evidence for a plan does not establish a PAYG metadata identity.
+// Unknown plan metadata must remain unknown until independently pinned.
+func TestLatePlatformPlanModeHostsKeepUnknownMetadata(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		platform string
 		baseURL  string
-		want     string
 	}{
-		{PlatformHunyuan, DefaultHunyuanCodingBaseURL, "hunyuan"},
-		{PlatformHunyuan, DefaultHunyuanCodingAnthropicBaseURL, "hunyuan"},
-		{PlatformHunyuan, "https://api.lkeap.cloud.tencent.com/plan/v3", "hunyuan"},
-		{PlatformVolcengine, DefaultVolcengineCodingBaseURL, "volcengine"},
-		{PlatformQianfan, DefaultQianfanCodingBaseURL, "qianfan"},
+		{PlatformHunyuan, DefaultHunyuanCodingBaseURL},
+		{PlatformHunyuan, DefaultHunyuanCodingAnthropicBaseURL},
+		{PlatformHunyuan, "https://api.lkeap.cloud.tencent.com/plan/v3"},
+		{PlatformVolcengine, DefaultVolcengineCodingBaseURL},
+		{PlatformQianfan, DefaultQianfanCodingBaseURL},
 	}
 	for _, testCase := range cases {
 		account := &Account{Platform: testCase.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{
 			"api_key": "sk-plan-mode-fixture", "account_mode": AccountModeCoding, "base_url": testCase.baseURL,
 		}}
-		require.Equal(t, testCase.want, resolveCapabilityProfile(account), testCase.baseURL)
+		metadataBase := testCase.baseURL
+		if metadataBase == DefaultHunyuanCodingAnthropicBaseURL {
+			metadataBase = DefaultHunyuanCodingBaseURL
+		}
+		require.Equal(t, "custom:"+testCase.platform+":"+metadataBase, resolveCapabilityProfile(account), testCase.baseURL)
 	}
 }

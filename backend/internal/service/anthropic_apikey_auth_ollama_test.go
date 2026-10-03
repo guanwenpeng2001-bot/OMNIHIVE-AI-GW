@@ -170,7 +170,7 @@ func TestSetAnthropicAPIKeyAuthHeader_CNAdaptiveBaseURL(t *testing.T) {
 	require.Empty(t, header.Get("x-api-key"))
 
 	// 反向：CC 地址挂 ollama.com，anthropic 分协议地址非 ollama → 不误判，
-	// 保持 x-api-key。
+	// 使用该官方 Kimi Messages 端点的 Bearer。
 	adaptiveOllamaCC := &Account{
 		ID:       903,
 		Name:     "adaptive-ollama-cc",
@@ -189,8 +189,8 @@ func TestSetAnthropicAPIKeyAuthHeader_CNAdaptiveBaseURL(t *testing.T) {
 	require.Equal(t, "https://api.moonshot.cn/anthropic", anthropicBase)
 	header = http.Header{}
 	setAnthropicAPIKeyAuthHeader(header, adaptiveOllamaCC, "kimi-key", anthropicBase)
-	require.Empty(t, header.Get("Authorization"))
-	require.Equal(t, "kimi-key", header.Get("x-api-key"))
+	require.Equal(t, "Bearer kimi-key", header.Get("Authorization"))
+	require.Empty(t, header.Get("x-api-key"))
 
 	// anthropic 协议（非 adaptive）：凭证 base_url 指向 ollama.com → Bearer。
 	anthropicProtocolOllama := &Account{
@@ -225,8 +225,8 @@ func TestSetAnthropicAPIKeyAuthHeader_CNAdaptiveBaseURL(t *testing.T) {
 	}
 	header = http.Header{}
 	setAnthropicAPIKeyAuthHeader(header, anthropicProtocolKimi, "kimi-key", anthropicProtocolKimi.GetAnthropicProtocolBaseURL())
-	require.Empty(t, header.Get("Authorization"))
-	require.Equal(t, "kimi-key", header.Get("x-api-key"))
+	require.Equal(t, "Bearer kimi-key", header.Get("Authorization"))
+	require.Empty(t, header.Get("x-api-key"))
 }
 
 // TestGatewayService_AnthropicPassthrough_OllamaCloudBearer：经 passthrough
@@ -324,12 +324,12 @@ func TestOpenAIGatewayService_NativeAnthropicBridge_OllamaCloudBearer(t *testing
 	require.Equal(t, "Bearer ollama-cloud-key", req.Header.Get("Authorization"))
 	require.Empty(t, req.Header.Get("x-api-key"))
 
-	// 非 Ollama 上游：保持 x-api-key，无 Authorization。
+	// Official Kimi Messages uses Bearer independently of Ollama matching.
 	account.Credentials["base_url"] = "https://api.moonshot.cn/anthropic"
 	targetURL, err = svc.nativeAnthropicTargetURL(account)
 	require.NoError(t, err)
 	req, _, err = svc.buildNativeAnthropicUpstreamRequest(context.Background(), c, account, body, "ollama-cloud-key", targetURL)
 	require.NoError(t, err)
-	require.Empty(t, req.Header.Get("Authorization"))
-	require.Equal(t, "ollama-cloud-key", req.Header.Get("x-api-key"))
+	require.Equal(t, "Bearer ollama-cloud-key", req.Header.Get("Authorization"))
+	require.Empty(t, req.Header.Get("x-api-key"))
 }

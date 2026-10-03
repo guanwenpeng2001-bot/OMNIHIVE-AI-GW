@@ -87,7 +87,7 @@ func TestChatOnlyPublishedTextProtocolsReachTheSchedulerModelGate(t *testing.T) 
 		families []string
 	}{
 		{PlatformHunyuan, []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointResponses}},
-		{PlatformVolcengine, []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses}},
+		{PlatformVolcengine, []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointResponses}},
 		{PlatformQianfan, []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses}},
 	} {
 		probe := &Account{ID: 1, Platform: scenario.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}

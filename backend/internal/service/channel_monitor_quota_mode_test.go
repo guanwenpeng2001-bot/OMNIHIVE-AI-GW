@@ -463,15 +463,15 @@ func TestMonitorAccountQuotaCapability_Matrix(t *testing.T) {
 		},
 		{
 			name:    "kimi coding default endpoint ok",
-			account: &Account{ID: 3, Platform: domain.PlatformKimi, Credentials: map[string]any{"account_mode": AccountModeCoding}},
+			account: &Account{ID: 3, Platform: domain.PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": AccountModeCoding}},
 		},
 		{
 			name:    "zhipu coding default endpoint ok",
-			account: &Account{ID: 4, Platform: domain.PlatformZhipu, Credentials: map[string]any{"account_mode": AccountModeCoding}},
+			account: &Account{ID: 4, Platform: domain.PlatformZhipu, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": AccountModeCoding}},
 		},
 		{
 			name:    "minimax coding default endpoint ok",
-			account: &Account{ID: 14, Platform: domain.PlatformMiniMax, Credentials: map[string]any{"account_mode": AccountModeCoding}},
+			account: &Account{ID: 14, Platform: domain.PlatformMiniMax, Type: AccountTypeAPIKey, Credentials: map[string]any{"account_mode": AccountModeCoding}},
 		},
 		{
 			name: "custom-domain minimax coding unsupported",
