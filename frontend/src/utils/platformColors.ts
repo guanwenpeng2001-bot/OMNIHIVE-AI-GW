@@ -1,3 +1,4 @@
+import { compatibleProvider } from '@/constants/compatibleProviders'
 import { NATIVE_PLATFORM_OPTIONS, type GroupPlatform } from '@/constants/platforms'
 /**
  * Centralized platform color definitions.
@@ -7,9 +8,12 @@ import { NATIVE_PLATFORM_OPTIONS, type GroupPlatform } from '@/constants/platfor
  */
 
 export type Platform = GroupPlatform
+type BrandedPlatform = typeof NATIVE_PLATFORM_OPTIONS[number]['value'] | 'composite'
+type PaletteIdentity = BrandedPlatform | 'compatible'
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
-const BADGE: Record<Platform, string> = {
+const BADGE: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gray-500/10 text-gray-700 border-gray-500/30 dark:text-gray-300',
   anthropic: 'bg-orange-500/10 text-orange-600 border-orange-500/30 dark:text-orange-400',
   openai: 'bg-green-500/10 text-green-600 border-green-500/30 dark:text-green-400',
   antigravity: 'bg-purple-500/10 text-purple-600 border-purple-500/30 dark:text-purple-400',
@@ -34,7 +38,8 @@ const BADGE: Record<Platform, string> = {
 const BADGE_DEFAULT = 'bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-400'
 
 // ── Light badge (softer bg, no border) ──────────────────────────────
-const BADGE_LIGHT: Record<Platform, string> = {
+const BADGE_LIGHT: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gray-500/10 text-gray-700 dark:bg-gray-500/10 dark:text-gray-300',
   anthropic: 'bg-orange-500/10 text-orange-600 dark:bg-orange-500/10 dark:text-orange-300',
   openai: 'bg-green-500/10 text-green-600 dark:bg-green-500/10 dark:text-green-300',
   antigravity: 'bg-purple-500/10 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300',
@@ -59,7 +64,8 @@ const BADGE_LIGHT: Record<Platform, string> = {
 
 // ── Solid badge (opaque light tint + dark text; account list platform/type chips) ──
 // 19 家实心徽章与各表保持同一色族；Composite 是合流组标识，共用 CommandCode 的 cyan。
-const SOLID_BADGE: Record<Platform, string> = {
+const SOLID_BADGE: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
   anthropic: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   openai: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
@@ -85,7 +91,8 @@ const SOLID_BADGE: Record<Platform, string> = {
 const SOLID_BADGE_DEFAULT = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
 
 // ── Border ──────────────────────────────────────────────────────────
-const BORDER: Record<Platform, string> = {
+const BORDER: Record<PaletteIdentity, string> = {
+  compatible: 'border-gray-500/20 dark:border-gray-500/20',
   anthropic: 'border-orange-500/20 dark:border-orange-500/20',
   openai: 'border-green-500/20 dark:border-green-500/20',
   antigravity: 'border-purple-500/20 dark:border-purple-500/20',
@@ -110,7 +117,8 @@ const BORDER: Record<Platform, string> = {
 const BORDER_DEFAULT = 'border-gray-200 dark:border-dark-700'
 
 // ── Border strong (higher-contrast platform tint, e.g. plaza group cards) ──
-const BORDER_STRONG: Record<Platform, string> = {
+const BORDER_STRONG: Record<PaletteIdentity, string> = {
+  compatible: 'border-gray-500/35 dark:border-gray-500/30',
   anthropic: 'border-orange-500/35 dark:border-orange-500/30',
   openai: 'border-green-500/35 dark:border-green-500/30',
   antigravity: 'border-purple-500/35 dark:border-purple-500/30',
@@ -136,7 +144,8 @@ const BORDER_STRONG_DEFAULT = 'border-gray-300 dark:border-dark-600'
 
 // ── Accent (single raw color per platform; consumers derive washes/tints
 //    from it via CSS color-mix, e.g. plaza paid-price zone) ──
-const ACCENT: Record<Platform, string> = {
+const ACCENT: Record<PaletteIdentity, string> = {
+  compatible: '#6b7280',
   anthropic: '#f97316', // orange-500
   openai: '#22c55e', // green-500
   antigravity: '#a855f7', // purple-500
@@ -161,7 +170,8 @@ const ACCENT: Record<Platform, string> = {
 const ACCENT_DEFAULT = '#14b8a6' // primary-500 (teal)
 
 // ── Accent bar (gradient) ───────────────────────────────────────────
-const ACCENT_BAR: Record<Platform, string> = {
+const ACCENT_BAR: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gradient-to-r from-gray-400 to-gray-500',
   anthropic: 'bg-gradient-to-r from-orange-400 to-orange-500',
   openai: 'bg-gradient-to-r from-emerald-400 to-emerald-500',
   antigravity: 'bg-gradient-to-r from-purple-400 to-purple-500',
@@ -186,7 +196,8 @@ const ACCENT_BAR: Record<Platform, string> = {
 const ACCENT_BAR_DEFAULT = 'bg-gradient-to-r from-primary-400 to-primary-500'
 
 // ── Text (price, icon) ─────────────────────────────────────────────
-const TEXT: Record<Platform, string> = {
+const TEXT: Record<PaletteIdentity, string> = {
+  compatible: 'text-gray-700 dark:text-gray-300',
   anthropic: 'text-orange-600 dark:text-orange-400',
   openai: 'text-emerald-600 dark:text-emerald-400',
   antigravity: 'text-purple-600 dark:text-purple-400',
@@ -211,7 +222,8 @@ const TEXT: Record<Platform, string> = {
 const TEXT_DEFAULT = 'text-primary-600 dark:text-primary-400'
 
 // ── Icon (check mark etc.) ──────────────────────────────────────────
-const ICON: Record<Platform, string> = {
+const ICON: Record<PaletteIdentity, string> = {
+  compatible: 'text-gray-500 dark:text-gray-300',
   anthropic: 'text-orange-500 dark:text-orange-400',
   openai: 'text-emerald-500 dark:text-emerald-400',
   antigravity: 'text-purple-500 dark:text-purple-400',
@@ -236,7 +248,8 @@ const ICON: Record<Platform, string> = {
 const ICON_DEFAULT = 'text-primary-500 dark:text-primary-400'
 
 // ── Button (solid bg) ───────────────────────────────────────────────
-const BUTTON: Record<Platform, string> = {
+const BUTTON: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gray-700 text-white hover:bg-gray-800 active:bg-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600',
   anthropic: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   openai: 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800 dark:bg-green-600/80 dark:hover:bg-green-600',
   antigravity: 'bg-purple-500 text-white hover:bg-purple-600 active:bg-purple-700 dark:bg-purple-500/80 dark:hover:bg-purple-500',
@@ -261,7 +274,8 @@ const BUTTON: Record<Platform, string> = {
 const BUTTON_DEFAULT = 'bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500'
 
 // ── Discount badge ──────────────────────────────────────────────────
-const DISCOUNT: Record<Platform, string> = {
+const DISCOUNT: Record<PaletteIdentity, string> = {
+  compatible: 'bg-gray-100 text-gray-800 dark:bg-gray-900/40 dark:text-gray-300',
   anthropic: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
   openai: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
@@ -286,7 +300,8 @@ const DISCOUNT: Record<Platform, string> = {
 const DISCOUNT_DEFAULT = 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
 
 // ── Header gradient (subscription confirm) ─────────────────────────
-const GRADIENT: Record<Platform, string> = {
+const GRADIENT: Record<PaletteIdentity, string> = {
+  compatible: 'from-gray-600 to-gray-700',
   anthropic: 'from-orange-500 to-orange-600',
   openai: 'from-emerald-500 to-emerald-600',
   antigravity: 'from-purple-500 to-purple-600',
@@ -311,7 +326,8 @@ const GRADIENT: Record<Platform, string> = {
 const GRADIENT_DEFAULT = 'from-primary-500 to-primary-600'
 
 // ── Header text (light text on gradient bg) ────────────────────────
-const GRADIENT_TEXT: Record<Platform, string> = {
+const GRADIENT_TEXT: Record<PaletteIdentity, string> = {
+  compatible: 'text-gray-100',
   anthropic: 'text-orange-100',
   openai: 'text-emerald-100',
   antigravity: 'text-purple-100',
@@ -335,7 +351,8 @@ const GRADIENT_TEXT: Record<Platform, string> = {
 }
 const GRADIENT_TEXT_DEFAULT = 'text-primary-100'
 
-const GRADIENT_SUBTEXT: Record<Platform, string> = {
+const GRADIENT_SUBTEXT: Record<PaletteIdentity, string> = {
+  compatible: 'text-gray-200',
   anthropic: 'text-orange-200',
   openai: 'text-emerald-200',
   antigravity: 'text-purple-200',
@@ -361,75 +378,89 @@ const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 
 // ── Public API ──────────────────────────────────────────────────────
 
-function isPlatform(p: string): p is Platform {
-  return p === 'composite' || NATIVE_PLATFORM_OPTIONS.some(option => option.value === p)
+// Compatible providers deliberately share neutral gray, not invented brand colors.
+// Explicit labels identify suppliers; the server icon identifies the registered
+// category. Unknown values retain the existing fallback palette and globe.
+// Resolve from the registry so new providers inherit every palette automatically.
+function paletteIdentity(platform: string): PaletteIdentity | undefined {
+  if (platform === 'composite' || NATIVE_PLATFORM_OPTIONS.some(option => option.value === platform)) {
+    return platform as BrandedPlatform
+  }
+  return compatibleProvider(platform) ? 'compatible' : undefined
+}
+
+function paletteValue(platform: string, palette: Partial<Record<PaletteIdentity, string>>, fallback: string): string {
+  const identity = paletteIdentity(platform)
+  return (identity ? palette[identity] : undefined) ?? fallback
 }
 
 export function platformBadgeClass(p: string): string {
-  return isPlatform(p) ? BADGE[p] : BADGE_DEFAULT
+  return paletteValue(p, BADGE, BADGE_DEFAULT)
 }
 
 export function platformBadgeLightClass(p: string): string {
-  return isPlatform(p) ? BADGE_LIGHT[p] : BADGE_DEFAULT
+  return paletteValue(p, BADGE_LIGHT, BADGE_DEFAULT)
 }
 
 export function platformSolidBadgeClass(p: string): string {
-  return isPlatform(p) ? SOLID_BADGE[p] : SOLID_BADGE_DEFAULT
+  return paletteValue(p, SOLID_BADGE, SOLID_BADGE_DEFAULT)
 }
 
 export function platformBorderClass(p: string): string {
-  return isPlatform(p) ? BORDER[p] : BORDER_DEFAULT
+  return paletteValue(p, BORDER, BORDER_DEFAULT)
 }
 
 export function platformBorderStrongClass(p: string): string {
-  return isPlatform(p) ? BORDER_STRONG[p] : BORDER_STRONG_DEFAULT
+  return paletteValue(p, BORDER_STRONG, BORDER_STRONG_DEFAULT)
 }
 
 export function platformAccentColor(p: string): string {
-  return isPlatform(p) ? ACCENT[p] : ACCENT_DEFAULT
+  return paletteValue(p, ACCENT, ACCENT_DEFAULT)
 }
 
 export function platformAccentBarClass(p: string): string {
-  return isPlatform(p) ? ACCENT_BAR[p] : ACCENT_BAR_DEFAULT
+  return paletteValue(p, ACCENT_BAR, ACCENT_BAR_DEFAULT)
 }
 
 export function platformTextClass(p: string): string {
-  return isPlatform(p) ? TEXT[p] : TEXT_DEFAULT
+  return paletteValue(p, TEXT, TEXT_DEFAULT)
 }
 
 export function platformIconClass(p: string): string {
-  return isPlatform(p) ? ICON[p] : ICON_DEFAULT
+  return paletteValue(p, ICON, ICON_DEFAULT)
 }
 
 export function platformButtonClass(p: string): string {
-  return isPlatform(p) ? BUTTON[p] : BUTTON_DEFAULT
+  return paletteValue(p, BUTTON, BUTTON_DEFAULT)
 }
 
 export function platformDiscountClass(p: string): string {
-  return isPlatform(p) ? DISCOUNT[p] : DISCOUNT_DEFAULT
+  return paletteValue(p, DISCOUNT, DISCOUNT_DEFAULT)
 }
 
 export function platformGradientClass(p: string): string {
-  return isPlatform(p) ? GRADIENT[p] : GRADIENT_DEFAULT
+  return paletteValue(p, GRADIENT, GRADIENT_DEFAULT)
 }
 
 export function platformGradientTextClass(p: string): string {
-  return isPlatform(p) ? GRADIENT_TEXT[p] : GRADIENT_TEXT_DEFAULT
+  return paletteValue(p, GRADIENT_TEXT, GRADIENT_TEXT_DEFAULT)
 }
 
 export function platformGradientSubtextClass(p: string): string {
-  return isPlatform(p) ? GRADIENT_SUBTEXT[p] : GRADIENT_SUBTEXT_DEFAULT
+  return paletteValue(p, GRADIENT_SUBTEXT, GRADIENT_SUBTEXT_DEFAULT)
 }
 
 // Selected account-mode cards preserve their existing colors and neutral fallback.
-const SELECTION: Partial<Record<Platform, string>> = {
+const SELECTION: Partial<Record<PaletteIdentity, string>> = {
+  compatible: 'border-gray-500 bg-gray-50 dark:bg-gray-900/20',
   kimi: 'border-pink-500 bg-pink-50 dark:bg-pink-900/20',
   zhipu: 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20',
   deepseek: 'border-teal-500 bg-teal-50 dark:bg-teal-900/20',
   minimax: 'border-rose-500 bg-rose-50 dark:bg-rose-900/20',
   opencode_go: 'border-lime-500 bg-lime-50 dark:bg-lime-900/20'
 }
-const SELECTION_ICON: Partial<Record<Platform, string>> = {
+const SELECTION_ICON: Partial<Record<PaletteIdentity, string>> = {
+  compatible: 'bg-gray-700 text-white',
   kimi: 'bg-pink-500 text-white',
   zhipu: 'bg-indigo-500 text-white',
   deepseek: 'bg-teal-500 text-white',
@@ -438,9 +469,9 @@ const SELECTION_ICON: Partial<Record<Platform, string>> = {
 }
 
 export function platformSelectionClass(platform: string): string {
-  return (isPlatform(platform) ? SELECTION[platform] : undefined) ?? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+  return paletteValue(platform, SELECTION, 'border-primary-500 bg-primary-50 dark:bg-primary-900/20')
 }
 
 export function platformSelectionIconClass(platform: string): string {
-  return (isPlatform(platform) ? SELECTION_ICON[platform] : undefined) ?? 'bg-primary-500 text-white'
+  return paletteValue(platform, SELECTION_ICON, 'bg-primary-500 text-white')
 }

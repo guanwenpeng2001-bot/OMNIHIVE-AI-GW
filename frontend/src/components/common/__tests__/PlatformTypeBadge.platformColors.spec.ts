@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { platformSolidBadgeClass } from '@/utils/platformColors'
 import PlatformTypeBadge from '../PlatformTypeBadge.vue'
@@ -31,7 +32,7 @@ describe('PlatformTypeBadge platform colors', () => {
     wrapper.unmount()
   })
 
-  it('keeps the neutral fallback off the platform chip for an unknown platform', () => {
+  it('reserves the neutral fallback for unknown platforms', () => {
     const wrapper = mount(PlatformTypeBadge, { props: { platform: 'a-future-upstream', type: 'apikey' } })
     const { platformChip } = chipClasses(wrapper)
 
@@ -40,6 +41,16 @@ describe('PlatformTypeBadge platform colors', () => {
       expect(platformChip.join(' '), platform).not.toContain(platformSolidBadgeClass(platform))
     }
     wrapper.unmount()
+  })
+
+  it.each(COMPATIBLE_PROVIDERS)('keeps the explicit $label supplier label beside the shared icon', ({ id, label }) => {
+    const wrapper = mount(PlatformTypeBadge, { props: { platform: id, type: 'apikey' } })
+    expect(wrapper.get('[data-testid="platform-label"]').text()).toBe(label)
+    const icon = wrapper.get('svg')
+    expect(icon.attributes('aria-hidden')).toBe('true')
+    expect(icon.attributes('focusable')).toBe('false')
+    expect(icon.find('title').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Key')
   })
 
   it('no longer owns a private platform color table', () => {
