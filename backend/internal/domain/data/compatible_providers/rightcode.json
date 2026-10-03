@@ -1,0 +1,41 @@
+[
+  {
+    "id": "rightcode",
+    "label": "RightCode",
+    "label_zh": "RightCode",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "anthropic",
+        "endpoints": [
+          {
+            "protocol": "anthropic",
+            "base_url": "https://www.rightapi.ai/claude/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://www.rightapi.ai/codex/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://www.rightapi.ai/codex/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "gemini_to_messages",
+          "gemini_to_responses",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "rightcode"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L791",
+    "evidence_observed": "2026-10-03"
+  }
+]
