@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, ref, computed } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import en from '@/i18n/locales/en'
@@ -73,6 +73,8 @@ import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import ModelCatalogDetails from '../ModelCatalogDetails.vue'
+import * as compatibleProviders from '@/constants/compatibleProviders'
+import { compatibleFixture } from './compatibleProviderFixtures'
 
 describe('descriptor-backed provider previews', () => {
   const repairedPlatforms = ['volcengine', 'qianfan', 'hunyuan', 'mistral', 'bedrock']
@@ -83,13 +85,21 @@ describe('descriptor-backed provider previews', () => {
     syncUpstreamModelsPreview.mockReset()
   })
 
-  it.each(CONCRETE_PLATFORM_OPTIONS.map(option => option.value))('previews saved %s accounts', async platform => {
+  it.each(CONCRETE_PLATFORM_OPTIONS.map(option => option.value))('respects default-mode discovery for saved %s accounts', async platform => {
     syncUpstreamModels.mockResolvedValueOnce({ discovered_models: [], candidate_models: [], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' })
     const wrapper = mountSelector({ platform, accountId: 19 })
     await flushPromises()
-    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await flushPromises()
-    expect(syncUpstreamModels.mock.calls).toEqual([[19, false]])
+    const provider = compatibleProviders.compatibleProvider(platform)
+    const supportsDiscovery = !provider || compatibleProviders.compatibleMode(provider)?.discovery === 'openai_models'
+    expect(wrapper.find('[data-testid="preview-upstream-models"]').exists()).toBe(supportsDiscovery)
+    if (supportsDiscovery) {
+      await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+      await flushPromises()
+    }
+    expect(syncUpstreamModels.mock.calls).toEqual(supportsDiscovery ? [[19, false]] : [])
+    expect(syncUpstreamModelsPreview).not.toHaveBeenCalled()
+    expect(wrapper.find('input[aria-label="admin.accounts.customModelName"]').exists()).toBe(true)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -958,4 +968,92 @@ it.each(['zh', 'en'] as const)('describes empty exact selection without claiming
   expect(wrapper.text()).not.toContain(expected)
   wrapper.unmount()
   realLocale = null
+})
+
+
+describe('compatible mode preview transitions', () => {
+  beforeEach(() => {
+    syncUpstreamModels.mockReset()
+    syncUpstreamModelsPreview.mockReset()
+    const lookup = compatibleProviders.compatibleProvider
+    vi.spyOn(compatibleProviders, 'compatibleProvider').mockImplementation(platform =>
+      platform === compatibleFixture.id ? compatibleFixture : lookup(platform))
+  })
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it.each(compatibleProviders.COMPATIBLE_PROVIDERS.flatMap(provider => provider.modes.map(mode => ({
+    platform: provider.id, mode: mode.mode, discovery: mode.discovery
+  }))))('gates $platform/$mode by its declared $discovery discovery', async ({ platform, mode, discovery }) => {
+    syncUpstreamModelsPreview.mockResolvedValue({ candidate_models: [] })
+    const credentials = { platform, type: 'apikey', credentials: { account_mode: mode } }
+    const wrapper = mountSelector({ platform, syncCredentials: credentials, modelValue: ['kept'] })
+    await flushPromises()
+    const supported = discovery === 'openai_models'
+    expect(wrapper.find('[data-testid="preview-upstream-models"]').exists()).toBe(supported)
+    if (supported) {
+      await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+      await flushPromises()
+    }
+    expect(syncUpstreamModelsPreview.mock.calls).toEqual(supported ? [[credentials]] : [])
+    expect(syncUpstreamModels).not.toHaveBeenCalled()
+    expect(wrapper.props('modelValue')).toEqual(['kept'])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each(['draft', 'saved'])('hides unsupported modes and restores discovery for %s accounts', async kind => {
+    const platform = compatibleFixture.id
+    const credentials = { platform, type: 'apikey', credentials: { account_mode: 'coding' } }
+    const wrapper = mountSelector({ platform, modelValue: ['kept'], modelMappings: [{ from: 'alias', to: 'target' }],
+      ...(kind === 'saved' ? { accountId: 19, candidateIdentity: { mode: 'coding' } } : { syncCredentials: credentials }) })
+    await flushPromises()
+    const setMode = (mode: string) => wrapper.setProps(kind === 'saved'
+      ? { candidateIdentity: { mode } } : { syncCredentials: { ...credentials, credentials: { account_mode: mode } } })
+    for (const mode of ['coding', 'invalid']) {
+      await setMode(mode)
+      expect(wrapper.find('[data-testid="preview-upstream-models"]').exists()).toBe(false)
+    }
+    expect(syncUpstreamModels).not.toHaveBeenCalled()
+    expect(syncUpstreamModelsPreview).not.toHaveBeenCalled()
+    const request = kind === 'saved' ? syncUpstreamModels : syncUpstreamModelsPreview
+    request.mockResolvedValue({ candidate_models: ['discovered'] })
+    await setMode('payg')
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="add-preview-models"]').exists()).toBe(true)
+    await setMode('coding')
+    expect(wrapper.find('[data-testid="preview-upstream-models"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="add-preview-models"]').exists()).toBe(false)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    const manual = wrapper.get('input[aria-label="admin.accounts.customModelName"]')
+    await manual.setValue('manual-id')
+    await manual.trigger('keydown.enter')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['kept', 'manual-id']])
+    expect(wrapper.props('modelMappings')).toEqual([{ from: 'alias', to: 'target' }])
+    wrapper.unmount()
+  })
+
+  it('discards an in-flight preview when discovery is disabled and permits a fresh preview after re-enabling', async () => {
+    let finish!: (result: unknown) => void
+    syncUpstreamModelsPreview.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mountSelector({ platform: compatibleFixture.id, modelValue: ['kept'],
+      syncCredentials: { platform: compatibleFixture.id, type: 'apikey', credentials: { account_mode: 'payg' } } })
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await wrapper.setProps({ discoveryDisabled: true })
+    expect(wrapper.find('[data-testid="preview-upstream-models"]').exists()).toBe(false)
+    finish({ candidate_models: ['stale-result'] })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="add-preview-models"]').exists()).toBe(false)
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
+    await wrapper.setProps({ discoveryDisabled: false })
+    syncUpstreamModelsPreview.mockResolvedValueOnce({ candidate_models: ['fresh-result'] })
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsPreview).toHaveBeenCalledTimes(2)
+    expect(wrapper.getComponent(ModelCatalogDetails).props('result').candidate_models).toEqual(['fresh-result'])
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
 })

@@ -220,6 +220,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorStatus } from '@/utils/apiError'
 import { platformSupportsModelCatalog } from '@/constants/platforms'
+import { compatibleProvider, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { accountsAPI } from '@/api/admin/accounts'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import type { Account, ModelAllowlist, AccountModelCatalogDetails } from '@/types'
@@ -309,7 +310,13 @@ const normalizedPlatforms = computed(() => {
 })
 
 const canSyncUpstream = computed(() => !props.discoveryDisabled && (
-  normalizedPlatforms.value.some(platformSupportsModelCatalog) ||
+  normalizedPlatforms.value.some(platform => {
+    const provider = compatibleProvider(platform.toLowerCase())
+    if (!provider) return platformSupportsModelCatalog(platform)
+    return !compatibleDiscoveryDisabled(provider, {
+      account_mode: props.syncCredentials?.credentials?.account_mode ?? props.candidateIdentity?.mode
+    })
+  }) ||
   Boolean(props.accountId && !normalizedPlatforms.value.length)
 ))
 const previewDisabledReason = computed(() => {
@@ -341,7 +348,7 @@ let selectionGeneration = 0
 const context = computed(() => {
   const credentials = props.syncCredentials ? { ...props.syncCredentials } : undefined
   if (credentials) delete credentials.model_mapping
-  return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value.map(platform => modelCandidateKey(platform, props.candidateIdentity)), credentials, props.connectionContext, props.savedRevision])
+  return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value.map(platform => modelCandidateKey(platform, props.candidateIdentity)), credentials, props.connectionContext, props.savedRevision, props.discoveryDisabled])
 })
 const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, props.syncCredentials?.model_mapping, props.configurationDirty]))
 function selectionKey(models: string[], mappings: ModelMappingEntry[]) {
