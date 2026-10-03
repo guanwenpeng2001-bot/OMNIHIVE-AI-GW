@@ -444,8 +444,15 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 	token string,
 ) (*http.Request, error) {
 	targetURL := openaiPlatformAPIInputTokensURL
+	if isNativeProfilePlatform(account.Platform) && account.GetCNProtocolBaseURL(APIProtocolResponses) == "" {
+		return nil, fmt.Errorf("native profile has no configured Responses endpoint")
+	}
 	if account.Type == AccountTypeAPIKey {
-		if baseURL := account.GetOpenAIBaseURL(); strings.TrimSpace(baseURL) != "" {
+		baseURL := account.GetOpenAIBaseURL()
+		if isNativeProfilePlatform(account.Platform) {
+			baseURL = account.GetCNProtocolBaseURL(APIProtocolResponses)
+		}
+		if strings.TrimSpace(baseURL) != "" {
 			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 			if err != nil {
 				return nil, err

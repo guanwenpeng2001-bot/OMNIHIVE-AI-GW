@@ -1,3 +1,4 @@
+import { NATIVE_PROFILE_PRESETS } from './nativeProfilePresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
@@ -388,8 +389,8 @@ export function isDeclaredProtocolPlatform(platform: string): platform is Declar
 export function declaredPlatformNativeProtocols(platform: DeclaredProtocolPlatform, mode: CnAccountMode = 'payg'): CnNativeApiProtocol[] {
   const declared = DECLARED_PLATFORM_TEXT_PROTOCOLS[platform]
   const protocols: CnNativeApiProtocol[] = ['chat_completions']
-  if (declared.messages || (mode === 'coding' && (platform === 'qianfan' || platform === 'volcengine'))) protocols.push('anthropic')
-  if (declared.responses) protocols.push('responses')
+  if (declared.messages || platform === 'volcengine' || (mode === 'coding' && platform === 'qianfan')) protocols.push('anthropic')
+  if (declared.responses && !(mode === 'coding' && platform === 'qianfan')) protocols.push('responses')
   return protocols
 }
 
@@ -627,9 +628,9 @@ function codingSitePresets(platform: DeclaredProtocolPlatform, label: string): C
   const paths = LATE_PLATFORM_CODING_BASE_URLS[platform]
   if (!paths?.chat_completions) return []
   const presets: CnBaseUrlPreset[] = [
-    { mode: 'coding', protocol: 'chat_completions', label, url: paths.chat_completions },
-    { mode: 'coding', protocol: 'responses', label, url: paths.chat_completions }
+    { mode: 'coding', protocol: 'chat_completions', label, url: paths.chat_completions }
   ]
+  if (platform === 'volcengine') presets.push({ mode: 'coding', protocol: 'responses', label, url: paths.chat_completions })
   if (paths.anthropic) {
     presets.push({ mode: 'coding', protocol: 'anthropic', label: `${label} Anthropic`, url: paths.anthropic })
   }
@@ -724,6 +725,14 @@ export const CN_BASE_URL_PRESETS: Record<CnBaseUrlPresetPlatform, CnBaseUrlPrese
   ]
 }
 
+// Retain legacy selectable endpoints, append exact regional/plan configurations.
+for (const platform of Object.keys(NATIVE_PROFILE_PRESETS) as CnBaseUrlPresetPlatform[]) {
+  const existing = CN_BASE_URL_PRESETS[platform]
+  for (const preset of NATIVE_PROFILE_PRESETS[platform] ?? []) {
+    if (!existing.some(p => p.mode === preset.mode && p.protocol === preset.protocol && p.url === preset.url && (!preset.label.startsWith('Token Enterprise') || p.label === preset.label))) existing.push(preset)
+  }
+}
+
 /** 返回指定供应商 + 账号类型 + API 协议的默认 base url。 */
 export function defaultCNBaseUrl(
   platform: string,
@@ -731,6 +740,7 @@ export function defaultCNBaseUrl(
   protocol: CnApiProtocol = 'chat_completions'
 ): string {
   if (protocol === 'anthropic') {
+    if (platform === 'volcengine' && mode === 'payg') return 'https://ark.cn-beijing.volces.com/api/compatible'
     switch (platform) {
       case 'commandcode':
         return 'https://api.commandcode.ai/provider/v1'
@@ -812,7 +822,7 @@ export function defaultCNAdaptiveBaseUrls(
   return {
     chat_completions: defaultCNBaseUrl(platform, mode, 'chat_completions'),
     anthropic: defaultCNBaseUrl(platform, mode, 'anthropic'),
-    responses: hasDeclaredNativeResponses(platform) && !(platform === 'qianwen' && mode === 'coding') ? defaultCNBaseUrl(platform, mode, 'responses') : ''
+    responses: hasDeclaredNativeResponses(platform) && !(mode === 'coding' && (platform === 'qianwen' || platform === 'qianfan' || platform === 'hunyuan')) ? defaultCNBaseUrl(platform, mode, 'responses') : ''
   }
 }
 

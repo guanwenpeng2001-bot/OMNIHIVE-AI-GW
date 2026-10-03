@@ -166,6 +166,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
 	baseURL := account.GetOpenAIBaseURL()
+	if isNativeProfilePlatform(account.Platform) {
+		baseURL = account.GetCNProtocolBaseURL(APIProtocolChatCompletions)
+		if baseURL == "" {
+			return "", fmt.Errorf("native profile has no configured Chat endpoint")
+		}
+	}
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
 	}

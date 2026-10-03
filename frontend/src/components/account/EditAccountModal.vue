@@ -2467,6 +2467,7 @@
 </template>
 
 <script setup lang="ts">
+import { nativeProfileBases, buildNativeProfileBases } from './nativeProfilePresets'
 import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
@@ -2974,7 +2975,9 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
   }
 })
 // 点击预设端点：回填 base url 与对应模式/协议。
-function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string; label?: string }) {
+  const profile = nativeProfileBases(props.account?.platform || '', preset.mode, preset.url, preset.label)
+  if (profile) editAdaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '', ...profile }
   if (preset.protocol !== 'adaptive') editAdaptiveBaseUrls.value[preset.protocol] = preset.url
   editAccountMode.value = preset.mode
   editApiProtocol.value = preset.protocol
@@ -4666,10 +4669,11 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
           for (const item of editAdaptiveProtocolOptions.value) {
             protocolBaseUrls[item.value] = (editAdaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
           }
-          newCredentials.api_base_urls = protocolBaseUrls
-          newCredentials.base_url = protocolBaseUrls.chat_completions
+          newCredentials.api_base_urls = buildNativeProfileBases(props.account.platform, currentOpenCodeOrCNMode(), editBaseUrl.value, protocolBaseUrls, defaults, (currentCredentials.api_base_urls as Record<string, unknown>) || {})
+          newCredentials.base_url = (newCredentials.api_base_urls as Record<string, string>).chat_completions || ''
         } else {
-          delete newCredentials.api_base_urls
+          if (props.account.platform === 'opencode_go' || props.account.platform === 'commandcode' || props.account.platform === 'openrouter' || props.account.platform === 'mistral') delete newCredentials.api_base_urls
+          else if (currentCredentials.api_base_urls) newCredentials.api_base_urls = { ...(currentCredentials.api_base_urls as Record<string, unknown>), [cnProtocol]: newBaseUrl }
         }
         if (props.account.platform === 'opencode_go' || props.account.platform === 'commandcode') {
           applyOpenCodeGoProtocolRules(newCredentials, editOpenCodeGoProtocolRules.value, 'edit')

@@ -147,7 +147,7 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 		// （1823/130079）。
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}
-	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
+	return NativeAnthropicProfileTargetURL(validatedURL), nil
 }
 
 func resolveOpenCodeGoMappedModel(account *Account, body []byte, defaultMappedModel string) string {

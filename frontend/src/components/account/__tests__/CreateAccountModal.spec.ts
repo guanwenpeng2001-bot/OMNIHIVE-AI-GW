@@ -902,6 +902,26 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     }
   })
 
+  it('creates the selected Kimi Global profile with exact adaptive protocol roots', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await selectButtonByText(wrapper, 'admin.accounts.cnProviders.apiProtocol.chatCompletions')
+    const preset = wrapper.findAll('[data-testid="cn-base-url-preset"]').find(p => p.text().includes('Moonshot Global'))
+    expect(preset).toBeDefined()
+    await preset!.trigger('click')
+    await flushPromises()
+    await selectButtonByText(wrapper, 'admin.accounts.cnProviders.apiProtocol.adaptive')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Global fixture')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('global-fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({
+      account_mode: 'payg', api_protocol: 'adaptive', base_url: 'https://api.moonshot.ai/v1',
+      api_base_urls: { chat_completions: 'https://api.moonshot.ai/v1', anthropic: 'https://api.moonshot.ai/anthropic', responses: 'https://api.moonshot.ai/v1' }
+    })
+  })
+
   it('submits OpenCode Zen default protocol rules with adaptive endpoints', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenCode')

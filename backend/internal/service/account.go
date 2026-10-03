@@ -1440,6 +1440,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() && !IsChatOnlyPlatform(a.Platform) {
 		return ""
 	}
+	if base, configured := nativeConfiguredProtocolBase(a, a.nativeSelectedOpenAIProtocol()); configured {
+		return base
+	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
@@ -1584,6 +1587,14 @@ func (a *Account) SupportsNativeCNResponses() bool {
 	if a == nil {
 		return false
 	}
+	if isNativeProfilePlatform(a.Platform) {
+		if base, configured := nativeConfiguredProtocolBase(a, APIProtocolResponses); configured {
+			return base != ""
+		}
+		if a.IsCodingPlan() && (a.Platform == PlatformQianwen || a.Platform == PlatformQianfan || a.Platform == PlatformHunyuan) {
+			return false
+		}
+	}
 	descriptor, _ := domain.LookupPlatform(a.Platform)
 	return descriptor.NativeMultiProtocolResponses
 }
@@ -1599,15 +1610,6 @@ func (a *Account) UsesNativeCNResponses() bool {
 		return err == nil && ep.Protocol == APIProtocolResponses
 	}
 	if a == nil || !a.SupportsNativeCNResponses() {
-		return false
-	}
-	// Coding Plan documents Chat/Messages only; adaptive Responses uses the existing Chat bridge.
-	if (a.Platform == PlatformQianwen || a.Platform == PlatformVolcengine || a.Platform == PlatformQianfan) && a.IsCodingPlan() && a.IsAdaptiveAPIProtocol() {
-		if bases, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
-			if base, ok := bases[APIProtocolResponses].(string); ok && strings.TrimSpace(base) != "" {
-				return true // Preserve an explicit per-protocol custom endpoint.
-			}
-		}
 		return false
 	}
 	switch a.GetAPIProtocol() {
@@ -1632,6 +1634,9 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 	}
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
+	}
+	if base, configured := nativeConfiguredProtocolBase(a, protocol); configured {
+		return base
 	}
 	if a.Platform == PlatformQianwen && protocol == APIProtocolResponses && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
@@ -1678,7 +1683,7 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			if a.IsCodingPlan() {
 				return DefaultVolcengineCodingAnthropicBaseURL
 			}
-			return ""
+			return "https://ark.cn-beijing.volces.com/api/compatible"
 		case PlatformQianfan:
 			if a.IsCodingPlan() {
 				return DefaultQianfanCodingAnthropicBaseURL
@@ -1717,7 +1722,7 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 		}
 	case APIProtocolChatCompletions, APIProtocolResponses:
 		switch a.Platform {
-		case PlatformVolcengine, PlatformQianfan:
+		case PlatformVolcengine, PlatformQianfan, PlatformHunyuan:
 			return a.GetOpenAIBaseURL()
 		case PlatformKimi:
 			if a.GetAccountMode() == AccountModeCoding {
@@ -1765,6 +1770,9 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	}
 	if a == nil || (!a.IsAnthropicProtocol() && !a.IsAdaptiveAPIProtocol()) {
 		return ""
+	}
+	if base, configured := nativeConfiguredProtocolBase(a, APIProtocolAnthropic); configured {
+		return base
 	}
 	if a.IsAdaptiveAPIProtocol() {
 		return a.GetCNProtocolBaseURL(APIProtocolAnthropic)
@@ -1819,6 +1827,9 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 // 端点，不能拿来拼 OpenAI 路径，此时返回该供应商 × 模式的 Chat Completions
 // 默认 base（模型同步等协议族共用路径仍可用）。
 func (a *Account) GetOpenAIFormatBaseURL() string {
+	if base, configured := nativeConfiguredProtocolBase(a, APIProtocolChatCompletions); configured {
+		return base
+	}
 	if a != nil && a.Platform == PlatformQianwen {
 		if bases, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if base, ok := bases[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(base) != "" {
@@ -1878,6 +1889,12 @@ func (a *Account) GetCodingPlanProvider() string {
 		return PlatformOpenCodeGo
 	}
 	if a.GetAccountMode() != AccountModeCoding {
+		return ""
+	}
+	if isNativeProfilePlatform(a.Platform) {
+		if p := nativeAccountProfile(a); p != nil {
+			return p.Platform
+		}
 		return ""
 	}
 	baseURL := strings.ToLower(a.GetOpenAIBaseURL())

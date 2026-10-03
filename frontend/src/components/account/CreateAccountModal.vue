@@ -3415,6 +3415,7 @@
 </template>
 
 <script setup lang="ts">
+import { nativeProfileBases, buildNativeProfileBases } from './nativeProfilePresets'
 import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import { focusAccountCredentialField } from './accountCredentialFields'
 import { navigateAccountChoices } from './accountChoiceNavigation'
@@ -3977,7 +3978,9 @@ watch(apiProtocol, (protocol, previousProtocol) => {
   if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), previousProtocol)) apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
 })
 // 点击预设端点：同时回填 base url、账号类型与协议。
-function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string; label?: string }) {
+  const profile = nativeProfileBases(form.platform, preset.mode, preset.url, preset.label)
+  if (profile) adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '', ...profile }
   if (preset.protocol !== 'adaptive') adaptiveBaseUrls.value[preset.protocol] = preset.url
   accountMode.value = preset.mode
   apiProtocol.value = preset.protocol
@@ -5529,7 +5532,7 @@ const handleSubmit = async () => {
         // 与 Anthropic 根不同（/coding/v3 与 /coding/anthropic），把一个根写进所有协议会打到错的路径。
         protocolBaseUrls[protocol] = typedSite || defaultCNBaseUrl(form.platform, mode, protocol) || site
       }
-      credentials.api_base_urls = protocolBaseUrls
+      credentials.api_base_urls = form.platform === 'openrouter' || form.platform === 'mistral' ? protocolBaseUrls : buildNativeProfileBases(form.platform, mode, typedSite, {}, defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, mode))
     }
   } else if (isMultiProtocolApiKeyPlatform(form.platform)) {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -5543,8 +5546,8 @@ const handleSubmit = async () => {
       for (const item of cnAdaptiveProtocolOptions.value) {
         protocolBaseUrls[item.value] = (adaptiveBaseUrls.value[item.value] || defaults[item.value]).trim()
       }
-      credentials.api_base_urls = protocolBaseUrls
-      credentials.base_url = protocolBaseUrls.chat_completions
+      credentials.api_base_urls = buildNativeProfileBases(form.platform, currentOpenCodeOrCNMode(), apiKeyBaseUrl.value, protocolBaseUrls, defaults)
+      credentials.base_url = (credentials.api_base_urls as Record<string, string>).chat_completions || apiKeyBaseUrl.value.trim()
     }
     const resolvedCNBase = (
       apiKeyBaseUrl.value.trim() || defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), apiProtocol.value)

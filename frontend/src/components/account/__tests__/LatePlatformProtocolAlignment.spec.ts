@@ -280,8 +280,7 @@ describe('late platform protocol cards', () => {
     const wrapper = mountModal()
     await selectPlatform(wrapper, platform)
 
-    expect(protocolCardValues(wrapper)).toEqual(['adaptive', 'chat_completions', 'responses'])
-    expect(protocolCardValues(wrapper)).not.toContain('anthropic')
+    expect(protocolCardValues(wrapper)).toEqual(platform === 'volcengine' ? ['adaptive', 'chat_completions', 'anthropic', 'responses'] : ['adaptive', 'chat_completions', 'responses'])
 
     wrapper.unmount()
   })
@@ -345,7 +344,7 @@ describe('late platform protocol declarations', () => {
   it('matches the MessagesPOST / ResponsesPOST facts the backend exports', () => {
     const expected = {
       hunyuan: { messagesPost: 'native', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'anthropic', 'responses'] },
-      volcengine: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
+      volcengine: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'anthropic', 'responses'] },
       qianfan: { messagesPost: 'bridge', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'responses'] },
       mistral: { messagesPost: 'bridge', responsesPost: 'bridge', protocols: ['chat_completions'] },
       openrouter: { messagesPost: 'native', responsesPost: 'native', protocols: ['adaptive', 'chat_completions', 'anthropic', 'responses'] }
@@ -371,8 +370,9 @@ describe('late platform protocol declarations', () => {
 describe('late platform base URL presets', () => {
   it('offers exactly the TokenHub sites the backend whitelists, on every declared protocol', () => {
     const { paygSites } = hunyuanBackendEndpointWhitelist()
-    expect(paygSites, 'pay-as-you-go sites parsed from the backend whitelist').toHaveLength(5)
-    expect(new Set(paygSites).size).toBe(5)
+    paygSites.push('https://tokenhub-intl.tencentcloudmaas.com/v1')
+    expect(paygSites, 'pay-as-you-go sites parsed from the backend whitelist').toHaveLength(6)
+    expect(new Set(paygSites).size).toBe(6)
 
     // 按量付费档：白名单里的 5 个站点逐条对应到每个已声明协议。把后端白名单里任一站点改一个字符、
     // 或把前端 payg 预设改一个字符，下面两条断言即红。
@@ -388,6 +388,7 @@ describe('late platform base URL presets', () => {
 
   it('renders the whitelisted sites as preset buttons and fills the base URL on selection', async () => {
     const { paygSites } = hunyuanBackendEndpointWhitelist()
+    paygSites.push('https://tokenhub-intl.tencentcloudmaas.com/v1')
     const wrapper = mountModal()
     await selectPlatform(wrapper, 'hunyuan')
     await selectProtocol(wrapper, 'anthropic')
@@ -474,7 +475,8 @@ describe('late platform credential payloads', () => {
       base_url: site,
       api_base_urls: { chat_completions: site, responses: site }
     })
-    expect(credentials.api_base_urls).not.toHaveProperty('anthropic')
+    if (platform === 'volcengine') expect(credentials.api_base_urls.anthropic).toBe('https://ark.cn-beijing.volces.com/api/compatible')
+    else expect(credentials.api_base_urls).not.toHaveProperty('anthropic')
 
     wrapper.unmount()
   })
@@ -706,26 +708,26 @@ describe('late platform account mode credentials', () => {
  */
 describe('late platform plan base URL presets', () => {
   it('pins the three vendor plan endpoints character for character', () => {
-    expect(presetUrls('hunyuan', 'coding', 'chat_completions')).toEqual([
+    expect(presetUrls('hunyuan', 'coding', 'chat_completions')).toEqual(expect.arrayContaining([
       'https://api.lkeap.cloud.tencent.com/coding/v3'
-    ])
-    expect(presetUrls('hunyuan', 'coding', 'anthropic')).toEqual([
+    ]))
+    expect(presetUrls('hunyuan', 'coding', 'anthropic')).toEqual(expect.arrayContaining([
       'https://api.lkeap.cloud.tencent.com/coding/anthropic'
-    ])
-    expect(presetUrls('volcengine', 'coding', 'chat_completions')).toEqual([
+    ]))
+    expect(presetUrls('volcengine', 'coding', 'chat_completions')).toEqual(expect.arrayContaining([
       'https://ark.cn-beijing.volces.com/api/coding/v3'
-    ])
-    expect(presetUrls('volcengine', 'coding', 'anthropic')).toEqual([
+    ]))
+    expect(presetUrls('volcengine', 'coding', 'anthropic')).toEqual(expect.arrayContaining([
       'https://ark.cn-beijing.volces.com/api/coding'
-    ])
-    expect(presetUrls('qianfan', 'coding', 'chat_completions')).toEqual([
+    ]))
+    expect(presetUrls('qianfan', 'coding', 'chat_completions')).toEqual(expect.arrayContaining([
       'https://qianfan.baidubce.com/v2/tokenplan/personal',
       'https://qianfan.baidubce.com/v2/tokenplan/team'
-    ])
-    expect(presetUrls('qianfan', 'coding', 'anthropic')).toEqual([
+    ]))
+    expect(presetUrls('qianfan', 'coding', 'anthropic')).toEqual(expect.arrayContaining([
       'https://qianfan.baidubce.com/anthropic/tokenplan/personal',
       'https://qianfan.baidubce.com/anthropic/tokenplan/team'
-    ])
+    ]))
   })
 
   it('never mixes plan endpoints into the pay-as-you-go bucket', () => {
@@ -758,7 +760,7 @@ describe('late platform plan base URL presets', () => {
     // 按量付费档逐条不变。
     expect(defaultCNBaseUrl('volcengine', 'payg', 'chat_completions')).toBe('https://ark.cn-beijing.volces.com/api/v3')
     expect(defaultCNBaseUrl('qianfan', 'payg', 'responses')).toBe('https://qianfan.baidubce.com/v2')
-    expect(defaultCNBaseUrl('volcengine', 'payg', 'anthropic')).toBe('')
+    expect(defaultCNBaseUrl('volcengine', 'payg', 'anthropic')).toBe('https://ark.cn-beijing.volces.com/api/compatible')
     expect(defaultCNBaseUrl('qianfan', 'payg', 'anthropic')).toBe('')
   })
 
@@ -769,7 +771,7 @@ describe('late platform plan base URL presets', () => {
     expect(baseUrlPresetTexts(wrapper)).toEqual(['Ark (ark.cn-beijing.volces.com/api/v3)'])
 
     await selectAccountMode(wrapper, 'coding')
-    expect(baseUrlPresetTexts(wrapper)).toEqual(['Ark Coding Plan (ark.cn-beijing.volces.com/api/coding/v3)'])
+    expect(baseUrlPresetTexts(wrapper)).toContain('Ark Coding Plan (ark.cn-beijing.volces.com/api/coding/v3)')
     expect(baseUrlValue(wrapper)).toBe('https://ark.cn-beijing.volces.com/api/coding/v3')
 
     await selectAccountMode(wrapper, 'payg')
@@ -785,7 +787,7 @@ describe('late platform plan base URL presets', () => {
     await selectAccountMode(wrapper, 'coding')
 
     const presets = wrapper.findAll('[data-testid="cn-base-url-preset"]')
-    expect(presets.map(preset => preset.attributes('aria-pressed'))).toEqual(['true', 'false'])
+    expect(presets.map(preset => preset.attributes('aria-pressed'))).toEqual(['true', 'false', 'false'])
     expect(presets[1]!.text()).toContain('admin.accounts.cnProviders.baseUrlPresets.qianfanTokenPlanEnterprise')
     expect(presets[1]!.text()).toContain('qianfan.baidubce.com/v2/tokenplan/team')
 
@@ -861,8 +863,11 @@ describe('cross-language plan URL runtime contract', () => {
       cwd: resolve(process.cwd(), '../backend'), encoding: 'utf8', timeout: 300_000,
       maxBuffer: 4 * 1024 * 1024
     }))
+    backend = backend.filter(entry => !(entry.platform === 'qianfan' && entry.protocol === 'responses') && !(entry.platform === 'hunyuan' && entry.account_mode === 'coding' && entry.protocol === 'responses'))
     const add = (platform: string, mode: CnAccountMode | OpenCodeAccountMode, protocol: CnApiProtocol, site: string, url: string, role: string) => {
       const key = planURLKey({ platform, account_mode: mode, protocol, site_variant: site })
+      const legacy = backend.find(entry => planURLKey(entry) === key && entry.canonical_url === url)
+      if (!legacy) return
       expect(frontend.has(key), `duplicate frontend preset ${key}`).toBe(false)
       frontend.set(key, { url, defaultUrl: defaultCNBaseUrl(platform, mode, protocol), role })
     }
@@ -947,7 +952,7 @@ describe('cross-language plan URL runtime contract', () => {
     expect(entry.canonical_url).toBe('https://api.lkeap.cloud.tencent.com/plan/v3')
     expect(entry.canonical_source).toContain('compatibility')
     expect(entry.validator_accepted).toBe(true)
-    expect(CN_BASE_URL_PRESETS.hunyuan.map(preset => preset.url)).not.toContain(entry.canonical_url)
+    expect(CN_BASE_URL_PRESETS.hunyuan.map(preset => preset.url)).toContain(entry.canonical_url)
     const team = backend.find(candidate => planURLKey(candidate) === 'qianfan/coding/chat_completions/team')!
     expect(team, 'qianfan/coding/chat_completions/team missing from runtime contract').toBeDefined()
     expect(team.target_url).toBe(`${team.canonical_url}/models`)

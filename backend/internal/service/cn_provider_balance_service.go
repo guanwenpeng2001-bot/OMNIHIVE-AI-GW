@@ -132,7 +132,10 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_APIKEY", "account api_key is empty")
 	}
 
-	targetURL := cnBalanceURL(account)
+	targetURL := nativeProfileProbeURL(account, false)
+	if targetURL == "" {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_BALANCE_UNSUPPORTED_PROFILE", "Balance is unknown: this regional/plan profile has no supported balance endpoint")
+	}
 	// 探测发起前过出站 URL 安全策略（与网关转发/Grok 探测同一套校验）：
 	// DeepSeek 端点由账号 base_url 衍生，不得把 API key 发往策略外主机。
 	validatedURL, err := cnValidateProbeURL(s.cfg, targetURL)
