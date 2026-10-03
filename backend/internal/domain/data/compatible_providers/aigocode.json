@@ -1,0 +1,37 @@
+[
+  {
+    "id": "aigocode",
+    "label": "AIGoCode",
+    "label_zh": "AIGoCode",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "anthropic",
+        "endpoints": [
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.aigocode.app/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://api.aigocode.app/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "chat_to_messages",
+          "chat_to_responses",
+          "gemini_to_messages",
+          "gemini_to_responses"
+        ],
+        "discovery": "none",
+        "capability_profile": "aigocode"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L315",
+    "evidence_observed": "2026-10-03"
+  }
+]

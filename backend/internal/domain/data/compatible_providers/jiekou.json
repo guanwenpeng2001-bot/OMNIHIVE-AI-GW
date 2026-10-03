@@ -1,0 +1,37 @@
+[
+  {
+    "id": "jiekou",
+    "label": "JieKou AI",
+    "label_zh": "JieKou AI",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.jiekou.ai/anthropic/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.jiekou.ai/openai/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "responses_to_chat",
+          "responses_to_messages",
+          "gemini_to_chat",
+          "gemini_to_messages"
+        ],
+        "discovery": "none",
+        "capability_profile": "jiekou"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1897",
+    "evidence_observed": "2026-10-03"
+  }
+]
