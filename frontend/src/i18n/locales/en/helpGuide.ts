@@ -580,7 +580,9 @@ export default {
     "tables": {},
     "notes": {
       "optional": "Direct URL, key and model configuration is sufficient; CC Switch is optional. Imports contain a key, so do not share import links. No import link should be generated without a configured public API address.",
-      "address": "The group can change the imported app and address shape: root, /v1 or /antigravity. Confirm the final address in CC Switch; one group’s settings do not apply to every group."
+      "address": "The group can change the imported app and address shape: root, /v1 or /antigravity. Confirm the final address in CC Switch; one group’s settings do not apply to every group.",
+      "conversion": "CC Switch can also run a local protocol-conversion proxy: a Responses-speaking client can be converted locally to an upstream Chat endpoint. wire_api = responses describes the client-facing protocol; it alone does not prove the supplier implements /responses. Direct upstream Responses and local Chat conversion are distinct configurations.",
+      "gateway": "When calling OmniHive, keep the site URL and site key in the client configuration. The site may separately convert /v1/messages, /v1/chat/completions, /v1/responses or /v1beta/models/… requests on an eligible group/account route. Local CC Switch conversion and gateway conversion are separate layers; inspect the actual selected protocol instead of enabling both by assumption."
     }
   },
   "chat": {
@@ -1386,6 +1388,54 @@ export default {
     },
     "notes": {
       "native": "DashScope native paths such as /api/v1/services/* and compatible-mode files/batches have separate contracts; wildcard paths are not arbitrary provider API proxies. Confirm the model-specific request format before using a specialized integration."
+    }
+  },
+  "suppliers": {
+    "title": "Suppliers, plans & access",
+    "intro": "The supplier is the upstream account selected by an administrator. Your client connects to this site with a site API key; a supplier name in the catalog is not a separate public gateway address.",
+    "steps": {},
+    "tables": {
+      "scope": {
+        "title": "Which configuration belongs where?",
+        "columns": {
+          "setting": "Setting",
+          "owner": "Where to configure it",
+          "meaning": "What it controls"
+        },
+        "rows": {
+          "public": {
+            "setting": "Public URL + site API key",
+            "owner": "Your client or workflow",
+            "meaning": "OmniHive public Base URL: https://omnihive2.com/v1. Chat and Responses clients append their operation path. Claude Code uses the root https://omnihive2.com; Gemini uses /v1beta/models/…:generateContent or :streamGenerateContent."
+          },
+          "supplier": {
+            "setting": "Supplier account + regional / plan key",
+            "owner": "Administrator account setup",
+            "meaning": "Choose the supplier, region, PAYG / coding / token plan, upstream protocol and matching credential. Supplier API bases and account keys belong in administrator setup, not in a client calling this site."
+          },
+          "group": {
+            "setting": "Site key group + exact model ID",
+            "owner": "API Keys and model catalog",
+            "meaning": "The group controls available routes, models, account selection and billing scope. Query /v1/models and /v1/models/catalog with the same key; changing supplier configuration does not grant every user access."
+          },
+          "unknown": {
+            "setting": "Unknown discovery, quota or price",
+            "owner": "Catalog, usage and pricing pages",
+            "meaning": "No discovery connector does not mean no model access. Missing quota is not zero or unlimited; missing price is not free. Ask for a confirmed model mapping and site price when the value is unknown."
+          },
+          "capabilities": {
+            "setting": "Tools, stream, thinking and cache",
+            "owner": "Model and protocol capability metadata",
+            "meaning": "Check the selected model and route separately. A text bridge does not certify all tool schemas, reasoning controls, cache discounts, multimodal inputs or upstream-native media generation."
+          }
+        }
+      }
+    },
+    "notes": {
+      "coverage": "The expansion adds 70 distinct compatible supplier IDs. Regional hosts, plan keys and legacy profiles retain separate scopes; supplier configuration evidence does not establish live availability for your account. Copilot and Nous special authentication remain pending integration verification; RelayCode is unresolved and ETok.ai is historical, not a current supplier.",
+      "plans": "A consumer subscription is not automatically API access. Coding and token plans can restrict client type, interactive use, model scope, sharing or automation. Use the entitlement actually granted to the upstream account; a saved configuration does not remove those restrictions.",
+      "media": "Image, video and audio routes are documented in their own chapters. Adding a compatible text supplier does not add native media adapters. Confirm the specific media action, group and model before calling it.",
+      "evidence": "CC Switch commit 793e67d9b3210eb527e7d36f2c866a56fae9dec7 provides client configuration evidence, not runtime certification. OpenRouter documentation is a reference for API concepts; its parameters, pricing, routing options and feature promises are not automatically this site’s contract."
     }
   }
 }

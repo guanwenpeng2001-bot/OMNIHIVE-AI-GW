@@ -87,6 +87,27 @@ afterEach(() => {
 })
 
 describe('configuration manual', () => {
+  it.each(['en', 'zh'] as const)('separates public client setup from supplier contracts in %s', locale => {
+    const { wrapper } = mountGuide(locale)
+    const supplierSection = wrapper.get('section#suppliers')
+    expect(supplierSection.findAll('tbody tr')).toHaveLength(5)
+    expect(supplierSection.text()).toContain('https://omnihive2.com/v1')
+    for (const endpoint of ['/v1/models', '/v1/models/catalog', '/v1beta/models/']) {
+      expect(supplierSection.text()).toContain(endpoint)
+    }
+    for (const pendingName of ['Copilot', 'Nous', 'RelayCode', 'ETok.ai']) {
+      expect(supplierSection.text()).toContain(pendingName)
+    }
+    expect(supplierSection.text()).toContain('793e67d9b3210eb527e7d36f2c866a56fae9dec7')
+    expect(supplierSection.text()).not.toContain('https://api.openai.com')
+    const conversionSection = wrapper.get('section#cc-switch').text()
+    expect(conversionSection).toContain('wire_api = responses')
+    for (const endpoint of ['/v1/messages', '/v1/chat/completions', '/v1/responses']) {
+      expect(conversionSection).toContain(endpoint)
+    }
+    expect(wrapper.find('a[href="https://openrouter.ai/docs/api_reference/overview"]').exists()).toBe(true)
+  })
+
   it('translates the resource, conflict and upload error guidance in Chinese', () => {
     const errors = zh.helpGuide.faq.tables.errors.rows
     for (const row of [errors.missing, errors.conflict, errors.large]) {

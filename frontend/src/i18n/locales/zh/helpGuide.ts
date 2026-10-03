@@ -580,7 +580,9 @@ export default {
     "tables": {},
     "notes": {
       "optional": "直接填写 URL、密钥和模型即可使用；CC Switch 不是必需依赖。导入包含密钥，不要分享导入链接。未配置本站 API 地址时不应生成导入链接。",
-      "address": "分组可能改变导入的应用及地址形式：根地址、/v1 或 /antigravity。请在 CC Switch 中核对最终地址，不能把一个分组的设置视为所有分组通用。"
+      "address": "分组可能改变导入的应用及地址形式：根地址、/v1 或 /antigravity。请在 CC Switch 中核对最终地址，不能把一个分组的设置视为所有分组通用。",
+      "conversion": "CC Switch 也可以运行本地协议转换代理，例如把客户端的 Responses 请求转换成上游 Chat 请求。wire_api = responses 描述客户端一侧的协议，单凭此字段不能证明供应商原生支持 /responses。直连上游 Responses 与本地转 Chat 是两种不同配置。",
+      "gateway": "调用 OmniHive 时，客户端始终填写本站地址和本站 Key。本站可在符合条件的分组 / 账号路由上转换 /v1/messages、/v1/chat/completions、/v1/responses 或 /v1beta/models/… 请求。CC Switch 本地转换和网关转换属于不同层，应核对实际选用协议，不要凭名称默认叠加转换。"
     }
   },
   "chat": {
@@ -1386,6 +1388,54 @@ export default {
     },
     "notes": {
       "native": "/api/v1/services/* 等 DashScope 原生路径、/compatible-mode/v1/files 与 batches 有各自契约，不能把通配路径当作任意供应商 API 代理。需要专用调用时请先确认该模型对应的请求格式。"
+    }
+  },
+  "suppliers": {
+    "title": "供应商、套餐与访问范围",
+    "intro": "供应商是管理员配置的上游账号来源。客户端使用本站 API Key 连接本站；目录里的供应商名称不代表另一个公开网关地址。",
+    "steps": {},
+    "tables": {
+      "scope": {
+        "title": "各项配置应该填在哪里？",
+        "columns": {
+          "setting": "配置项",
+          "owner": "配置位置",
+          "meaning": "作用与边界"
+        },
+        "rows": {
+          "public": {
+            "setting": "公开 URL + 本站 API Key",
+            "owner": "你的客户端或工作流",
+            "meaning": "OmniHive 公开 Base URL：https://omnihive2.com/v1。Chat 与 Responses 客户端自行追加操作路径；Claude Code 使用根地址 https://omnihive2.com；Gemini 使用 /v1beta/models/…:generateContent 或 :streamGenerateContent。"
+          },
+          "supplier": {
+            "setting": "供应商账号 + 区域 / 套餐密钥",
+            "owner": "管理员的账号配置",
+            "meaning": "选择供应商、区域、按量 / Coding / Token Plan、上游协议及匹配凭据。供应商 API 地址和账号密钥只填在管理员上游配置，不填进调用本站的客户端。"
+          },
+          "group": {
+            "setting": "本站 Key 分组 + 精确模型 ID",
+            "owner": "API 密钥页与模型目录",
+            "meaning": "分组决定可用路由、模型、账号选择和计费范围。用同一把 Key 查询 /v1/models 和 /v1/models/catalog；增加供应商配置不等于所有用户自动获得权限。"
+          },
+          "unknown": {
+            "setting": "未知的模型发现、额度或价格",
+            "owner": "模型目录、用量与价格页面",
+            "meaning": "没有模型发现接口不等于没有模型权限；额度缺失不等于零或无限；价格缺失不等于免费。未知时请确认模型映射和本站销售价格。"
+          },
+          "capabilities": {
+            "setting": "工具、流式、思考与缓存",
+            "owner": "模型与协议的能力元数据",
+            "meaning": "分别核对模型和实际路由。文本转换不能证明所有工具结构、推理设置、缓存折扣、多模态输入或上游原生媒体生成可用。"
+          }
+        }
+      }
+    },
+    "notes": {
+      "coverage": "本次扩展包含 70 个独立的兼容供应商 ID。区域地址、套餐密钥及历史配置各有范围；存在配置证据不代表你的账号已通过真实调用验证。Copilot、Nous 特殊鉴权仍待集成验证；RelayCode 身份未解决，ETok.ai 仅保留历史记录，不作为当前供应商。",
+      "plans": "消费者订阅不自动等于 API 使用权。Coding 与 Token Plan 可能限制客户端、交互式用途、模型范围、共享或自动化。按上游账号实际授权使用；保存配置不会取消这些限制。",
+      "media": "图片、视频和音频路由分别见对应章节。增加兼容文本供应商不等于新增原生媒体适配器；调用前须确认具体媒体动作、分组和模型。",
+      "evidence": "CC Switch 提交 793e67d9b3210eb527e7d36f2c866a56fae9dec7 是客户端配置证据，不是运行认证。OpenRouter 文档用于解释 API 概念，其参数、价格、路由选项和功能承诺不自动成为本站契约。"
     }
   }
 }
