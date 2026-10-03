@@ -649,6 +649,10 @@ func platformActionAdapterBound(account *Account, action string) bool {
 	if account == nil {
 		return false
 	}
+	if IsCompatibleProvider(account.Platform) {
+		_, err := account.compatibleEndpoint(action, "")
+		return err == nil
+	}
 	return domain.PlatformAction(domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, action).Status == domain.ActionImplemented
 }
 
@@ -897,6 +901,16 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
+	if IsCompatibleProvider(account.Platform) {
+		endpoints := []string{}
+		for _, action := range []string{"chat", "messages", "responses", "generate_content"} {
+			ep, err := account.compatibleEndpoint(action, model)
+			if err == nil && !catalogEndpointsContain(endpoints, catalogProtocolEndpoint(ep.Protocol)) {
+				endpoints = append(endpoints, catalogProtocolEndpoint(ep.Protocol))
+			}
+		}
+		return endpoints
+	}
 	if account.Platform == PlatformOpenRouter {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:

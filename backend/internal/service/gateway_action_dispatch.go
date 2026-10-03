@@ -540,6 +540,12 @@ func accountImplementsGatewayAction(ctx context.Context, account *Account) bool 
 		return true
 	}
 	identity := domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type, Profile: resolveCapabilityProfile(account), Protocol: account.GetCredential("api_protocol")}
+	if p, ok := domain.LookupCompatibleProvider(account.Platform); ok {
+		// A custom endpoint has no official metadata profile; mode and protocol
+		// still authorize its explicitly configured transport.
+		identity.Profile = ""
+		return p.Action(account.GetCredential("account_mode"), identity, action).Status == domain.ActionImplemented
+	}
 	return domain.PlatformAction(identity, action).Status == domain.ActionImplemented
 }
 

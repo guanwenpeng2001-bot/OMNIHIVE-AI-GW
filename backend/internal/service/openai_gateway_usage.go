@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -588,6 +589,13 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	longContextBillingGate *bool,
 	pricingAt time.Time,
 ) (*CostBreakdown, error) {
+	if result != nil && !result.TokenUsageObservation.known() {
+		// Consumption completed, but an absent counter is not a free quote.
+		// Freeze the observation in the existing receipt JSON for manual review.
+		snapshot, _ := json.Marshal(PricingSnapshot{PricingState: PricingStateUnpriced, Source: "upstream_usage_unknown", Model: firstUsageBillingModel(billingModels), Mode: string(BillingModeToken), Tokens: tokens, TokenUsageObservation: result.TokenUsageObservation})
+		return &CostBreakdown{PricingState: PricingStateUnpriced, BillingMode: string(BillingModeToken), PricingSnapshot: string(snapshot)}, nil
+	}
+
 	billingModel := firstUsageBillingModel(billingModels)
 	if isQianwenNativeAudioResult(result) {
 		return s.calculateQianwenNativeAudioCost(ctx, result, apiKey, webSearchMultiplier)

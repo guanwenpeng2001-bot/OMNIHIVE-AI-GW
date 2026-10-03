@@ -12,6 +12,9 @@ func buildOpenAIEndpointURL(base string, endpoint string) string {
 }
 
 func (account *Account) buildOpenAIEndpointURL(base, endpoint string) string {
+	if IsCompatibleProvider(account.Platform) {
+		return strings.TrimRight(strings.TrimSpace(base), "/") + strings.TrimPrefix(endpoint, "/v1")
+	}
 	normalized := strings.TrimSpace(base)
 	parsed, err := account.parsedBaseURL(normalized)
 	return buildOpenAIEndpointURLFromParsed(normalized, endpoint, parsed, err)

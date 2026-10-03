@@ -48,7 +48,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
-	if account.Platform != PlatformOpenRouter {
+	if account.Platform != PlatformOpenRouter && !IsCompatibleProvider(account.Platform) {
 		applyOpenAICompatModelNormalization(&anthropicReq)
 	}
 	clientStream := anthropicReq.Stream

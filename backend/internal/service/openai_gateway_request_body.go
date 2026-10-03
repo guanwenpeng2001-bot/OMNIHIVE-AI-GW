@@ -150,7 +150,7 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 	if account == nil {
 		return body
 	}
-	applyStateless := account.UsesNativeCNResponses()
+	applyStateless := !IsCompatibleProvider(account.Platform) && account.UsesNativeCNResponses()
 	applyImages := shouldAliasDeepSeekResponsesInputImages(account)
 	if !applyStateless && !applyImages {
 		return body

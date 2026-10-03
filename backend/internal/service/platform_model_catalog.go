@@ -99,6 +99,10 @@ func parsePlatformModelPresets(body []byte) ([]PlatformModelPreset, error) {
 		}
 	}
 	for _, platform := range domain.ConcretePlatforms() {
+		// Table providers may use manual declarations without vendor presets.
+		if IsCompatibleProvider(platform) {
+			continue
+		}
 		if !covered[platform] {
 			return nil, fmt.Errorf("missing preset coverage: %s", platform)
 		}

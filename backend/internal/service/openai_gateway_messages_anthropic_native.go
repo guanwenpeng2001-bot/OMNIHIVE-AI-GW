@@ -125,6 +125,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 // nativeAnthropicTargetURL 组装国产供应商原生 Anthropic messages 端点。
 // 第三方端点保持朴素路径，不附加 ?beta=true。
 func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (string, error) {
+	if IsCompatibleProvider(account.Platform) {
+		base, err := s.validateUpstreamBaseURL(account.compatibleProtocolBase(APIProtocolAnthropic))
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimRight(base, "/") + "/messages", nil
+	}
 	baseURL := strings.TrimSpace(account.GetAnthropicProtocolBaseURL())
 	if baseURL == "" {
 		return "", fmt.Errorf("account %d has no anthropic protocol base url", account.ID)
@@ -434,7 +441,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 			}
 			if ev.err != nil {
-				if sawTerminalEvent {
+				if sawTerminalEvent && !IsCompatibleProvider(account.Platform) {
 					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
 				}
 				if clientDisconnected {

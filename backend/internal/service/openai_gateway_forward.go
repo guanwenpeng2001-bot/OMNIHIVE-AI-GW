@@ -20,6 +20,12 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (forwarded *OpenAIForwardResult, forwardErr error) {
+	bound, bindErr := bindCompatibleRequest(ctx, account, "responses", resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), ""))
+	if bindErr != nil {
+		return nil, bindErr
+	}
+	account = bound
+	defer func() { attachCompatibleUsage(account, forwarded, forwardErr) }()
 	requestedEffort := CanonicalRequestedReasoningEffort(body, gjson.GetBytes(body, "model").String())
 	if c != nil && c.Request != nil {
 		if original := RequestedReasoningEffortFromContext(c.Request.Context()); original != nil {
@@ -31,6 +37,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			forwarded.RequestedReasoningEffort = requestedEffort
 		}
 	}()
+	if IsCompatibleProvider(account.Platform) && account.GetAPIProtocol() == APIProtocolResponses {
+		beginUpstreamResponseModelObservation(c)
+		SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
+		return s.forwardOpenAIPassthrough(ctx, c, account, body, body, gjson.GetBytes(body, "model").String(), false, nil, gjson.GetBytes(body, "stream").Bool(), time.Now())
+	}
 	if account.Platform == PlatformOpenRouter {
 		return s.forwardOpenRouterNative(ctx, c, account, body, APIProtocolResponses, "")
 	}
@@ -1445,6 +1456,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
+	}
+	if IsCompatibleProvider(account.Platform) {
+		return account.GetAPIProtocol() == APIProtocolChatCompletions
 	}
 	if account.Platform == PlatformOpenRouter {
 		return false

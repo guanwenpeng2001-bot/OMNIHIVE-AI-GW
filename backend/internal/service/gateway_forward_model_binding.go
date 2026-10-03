@@ -59,6 +59,9 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 // this same rule.
 func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) string {
 	plan := GatewayRequestPlanFromContext(ctx)
+	if account != nil && IsCompatibleProvider(account.Platform) {
+		return requestCatalogEndpoint(ctx)
+	}
 	if plan == nil {
 		return ""
 	}
