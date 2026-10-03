@@ -21,6 +21,25 @@ func compatibleFixture() CompatibleProvider {
 	}
 }
 
+func TestCompatibleIdentityContractRegistryGrowth(t *testing.T) {
+	provider := compatibleFixture()
+	provider.ID = "fixture-identity-growth"
+	provider.Modes[0].CapabilityProfile = provider.ID
+	for _, row := range identityPlatformContract {
+		if row.platform == provider.ID {
+			t.Fatal("growth fixture must not have a literal identity expectation")
+		}
+	}
+	// Keep the real corpus installed so the extra provider is checked against
+	// every existing identity, including other compatible suppliers.
+	rows := append(CompatibleProviders(), provider)
+	restore := SetCompatibleProvidersForTest(rows)
+	t.Cleanup(restore)
+	t.Run("projections", TestResolveAccountTypeIdentityProjections)
+	t.Run("matching", TestAccountTypeIdentityMatchingContract)
+	t.Run("hosted restrictions", TestAccountTypeIdentityHostedValidationContract)
+}
+
 func TestCompatibleProviderValidation(t *testing.T) {
 	tests := []struct {
 		name   string

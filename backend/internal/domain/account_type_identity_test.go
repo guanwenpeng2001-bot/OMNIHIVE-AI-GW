@@ -2,11 +2,13 @@ package domain
 
 import "testing"
 
-// These fixtures pin stored aliases independently of the resolver. Include all
-// product platforms, the group-only platform, unknown values and exact strings.
-var identityPlatformContract = []struct {
+type identityContractRow struct {
 	platform, product, hosted string
-}{
+}
+
+// These fixtures pin stored aliases independently of the resolver. Include all
+// legacy platforms, fixed compatible cases, group-only and unknown exact strings.
+var identityPlatformContract = []identityContractRow{
 	{"anthropic", "anthropic", ""},
 	{"gemini", "gemini", ""},
 	{"bedrock", "anthropic", "bedrock"},
@@ -52,13 +54,31 @@ var identityPlatformContract = []struct {
 
 var identityTypeContract = []string{"", "apikey", "oauth", "setup-token", "upstream", "bedrock", "service_account", "unknown", " bedrock "}
 
+func registeredIdentityContract() []identityContractRow {
+	rows := append([]identityContractRow(nil), identityPlatformContract...)
+	covered := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		covered[row.platform] = true
+	}
+	for _, provider := range CompatibleProviders() {
+		if !covered[provider.ID] {
+			// The registry supplies only the test input. The independent contract
+			// is that a compatible supplier retains its own product/budget ID and
+			// gains no implied hosted credential restriction or hosted privilege.
+			rows = append(rows, identityContractRow{platform: provider.ID, product: provider.ID, hosted: ""})
+			covered[provider.ID] = true
+		}
+	}
+	return rows
+}
+
 func TestResolveAccountTypeIdentityProjections(t *testing.T) {
 	covered := make(map[string]bool)
 	quotaOverrides := map[[2]string]string{
 		{"anthropic", "bedrock"}:      "bedrock",
 		{"gemini", "service_account"}: "vertex",
 	}
-	for _, row := range identityPlatformContract {
+	for _, row := range registeredIdentityContract() {
 		covered[row.platform] = true
 		t.Run(row.platform, func(t *testing.T) {
 			for _, accountType := range identityTypeContract {
@@ -90,9 +110,10 @@ func TestResolveAccountTypeIdentityProjections(t *testing.T) {
 func TestAccountTypeIdentityMatchingContract(t *testing.T) {
 	// A blank type is a wildcard only on the target. A legacy source or target
 	// adds its own constraint even if an explicit target type conflicts with it.
-	for _, source := range identityPlatformContract {
+	rows := registeredIdentityContract()
+	for _, source := range rows {
 		t.Run(source.platform, func(t *testing.T) {
-			for _, target := range identityPlatformContract {
+			for _, target := range rows {
 				for _, accountType := range identityTypeContract {
 					for _, required := range identityTypeContract {
 						want := source.product == target.product
@@ -124,7 +145,7 @@ func TestAccountTypeIdentityHostedValidationContract(t *testing.T) {
 		{"gemini", "service_account"}:    true,
 		{"vertex", "service_account"}:    true,
 	}
-	for _, row := range identityPlatformContract {
+	for _, row := range registeredIdentityContract() {
 		for _, accountType := range identityTypeContract {
 			want := accountType == "" || allowed[[2]string{row.platform, accountType}]
 			if got := ValidateHostedRestriction(row.platform, accountType) == nil; got != want {
