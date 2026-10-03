@@ -1,0 +1,41 @@
+[
+  {
+    "id": "byteplus",
+    "label": "BytePlus Coding",
+    "label_zh": "BytePlus Coding",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://ark.ap-southeast.bytepluses.com/api/coding/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://ark.ap-southeast.bytepluses.com/api/coding/v3",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "byteplus"
+      }
+    ],
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/opencodeProviderPresets.ts#L1154",
+    "evidence_observed": "2026-10-03"
+  }
+]
