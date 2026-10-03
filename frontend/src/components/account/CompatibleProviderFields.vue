@@ -17,8 +17,9 @@ function changeMode(value: string) {
 }
 function updateBase(protocol: string, value: string) {
   const next = { ...bases.value }
-  if (value.trim()) next[protocol] = value.trim()
-  else delete next[protocol]
+  // An explicit empty override clears the stored URL through partial map merges.
+  // Untouched preset placeholders never call this handler and remain absent.
+  next[protocol] = value.trim()
   update('api_base_urls', next)
 }
 </script>

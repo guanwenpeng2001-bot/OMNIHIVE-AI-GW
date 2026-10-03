@@ -2933,7 +2933,7 @@ vi.mock('@/constants/compatibleProviders', async () => {
 })
 
 
-it('edits a compatible account without changing custom endpoints, proxy, key refs or mappings', async () => {
+it.each([false, true])('edits a compatible account preserving other overrides and explicit protocol clear=%s', async (clearProtocol) => {
   const credentials = { account_mode: 'coding', api_protocol: 'anthropic', base_url: 'https://relay.example.com', api_base_urls: { anthropic: 'https://relay.example.com/messages', responses: 'https://retained.example.com' }, api_key_ref: 'vault:fixture', model_mapping: { public: 'deployment-name' } }
   checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
   const account = { ...buildAccount(), platform: 'example-cloud', proxy_id: 8, credentials_status: { has_api_key: true }, credentials }
@@ -2943,12 +2943,13 @@ it('edits a compatible account without changing custom endpoints, proxy, key ref
   await flushPromises()
   expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
   expect(wrapper.get('[data-testid="compatible-protocol"]').element).toHaveProperty('value', 'anthropic')
+  if (clearProtocol) await wrapper.get('[data-testid="compatible-base-anthropic"]').setValue('')
   await wrapper.get('form#edit-account-form').trigger('submit.prevent')
   await flushPromises()
   expect(showErrorMock.mock.calls).toEqual([])
   expect(updateAccountMock).toHaveBeenCalledOnce()
   const payload = updateAccountMock.mock.calls[0][1]
-  expect(payload.credentials).toMatchObject(credentials)
+  expect(payload.credentials).toMatchObject({ ...credentials, api_base_urls: { ...credentials.api_base_urls, anthropic: clearProtocol ? '' : credentials.api_base_urls.anthropic } })
   expect(payload.credentials.api_key).toBeUndefined()
   expect(payload.proxy_id).toBeUndefined()
   expect(payload.upstream_billing_probe_enabled).toBe(false)
