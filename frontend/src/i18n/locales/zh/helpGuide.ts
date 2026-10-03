@@ -503,19 +503,19 @@ export default {
           },
           "missing": {
             "status": "404",
-            "code": "Read the response body",
+            "code": "以响应正文为准",
             "meaning": "模型不可见、动作未开放或资源不归当前密钥。",
             "action": "核对模型目录、功能权限与原始任务密钥，不要只修改 URL。"
           },
           "conflict": {
             "status": "409",
-            "code": "Read the response body",
+            "code": "以响应正文为准",
             "meaning": "任务尚未完成或内容冲突。",
             "action": "检查任务状态与错误码，勿直接重复生成。"
           },
           "large": {
             "status": "413",
-            "code": "Read the response body",
+            "code": "以响应正文为准",
             "meaning": "请求或上传过大。",
             "action": "按对应文本、图片或音频限制缩小请求。"
           }
