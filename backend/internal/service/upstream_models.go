@@ -793,6 +793,11 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 	if IsCompatibleProvider(account.Platform) {
 		return nil, fmt.Errorf("compatible provider metadata requires its own reviewed capability profile")
 	}
+	if isNativeProfilePlatform(account.Platform) {
+		// Static account-profile matching is authoritative; host-only models.dev
+		// fallback must not relabel a region or subscription as PAYG.
+		return nil, fmt.Errorf("native provider metadata requires its exact reviewed capability profile")
+	}
 	registry, err := s.fetchModelsDevRegistry(ctx, account)
 	if err != nil && len(registry) == 0 {
 		return nil, err
@@ -1241,6 +1246,10 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return models, nil, err
 	}
 
+	if err := nativeProfileDiscoveryError(account); err != nil {
+		return nil, nil, err
+	}
+
 	if account.Platform == PlatformHunyuan || account.Platform == PlatformVolcengine {
 		if account.Type != AccountTypeAPIKey {
 			return nil, nil, newUpstreamModelSyncUnsupportedError("Model discovery requires an API key account", nil)
@@ -1302,6 +1311,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if err := nativeProfileDiscoveryError(account); err != nil {
+		return nil, err
+	}
 	if IsCompatibleProvider(account.Platform) {
 		return buildCompatibleModelsRequest(ctx, account, s.validateUpstreamBaseURL)
 	}
@@ -1547,6 +1559,9 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 // buildOpenAIAPIKeyModelsRequest is shared by admin discovery and public model
 // listing. Codex content negotiation is intentionally absent from this request.
 func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, validateBaseURL func(string) (string, error)) (*http.Request, error) {
+	if err := nativeProfileDiscoveryError(account); err != nil {
+		return nil, err
+	}
 	if IsCompatibleProvider(account.Platform) {
 		return buildCompatibleModelsRequest(ctx, account, validateBaseURL)
 	}

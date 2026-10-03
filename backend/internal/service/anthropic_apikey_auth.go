@@ -53,6 +53,15 @@ func setAnthropicAPIKeyAuthHeader(header http.Header, account *Account, token, b
 		header.Set("Authorization", "Bearer "+token)
 		return
 	}
+	// Explicit legacy auth choices remain authoritative. Preset-derived native
+	// Messages contracts use the pinned Claude Bearer presentation; DeepSeek's
+	// vendor documentation specifies x-api-key.
+	if account.Type == AccountTypeAPIKey && account.GetExtraString(anthropicAPIKeyAuthSchemeExtraKey) == "" {
+		if p := nativeProfileForURL(account, baseURL); p != nil && p.Platform != PlatformDeepseek && !(p.Platform == PlatformHunyuan && p.Mode == AccountModePayG) {
+			header.Set("Authorization", "Bearer "+token)
+			return
+		}
+	}
 	if account.GetAnthropicAPIKeyAuthScheme() == AnthropicAPIKeyAuthSchemeAuthorizationBearer {
 		header.Set("Authorization", "Bearer "+token)
 		return

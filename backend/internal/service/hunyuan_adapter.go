@@ -31,6 +31,11 @@ func hunyuanActionBaseURL(account *Account) (string, error) {
 	if account == nil || account.Platform != PlatformHunyuan || account.Type != AccountTypeAPIKey {
 		return "", errors.New("hunyuan requires a hunyuan API key account")
 	}
+	if base, configured := nativeConfiguredProtocolBase(account, APIProtocolChatCompletions); configured {
+		if nativeProfileForURL(account, base) != nil {
+			return base, nil
+		}
+	}
 	baseURL := strings.TrimSuffix(strings.TrimSpace(account.GetCredential("base_url")), "/")
 	switch baseURL {
 	case "":

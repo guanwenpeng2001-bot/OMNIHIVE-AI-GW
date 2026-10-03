@@ -47,6 +47,12 @@ func resolveCapabilityProfile(account *Account) string {
 	if account.Type == AccountTypeBedrock || account.Platform == PlatformBedrock {
 		return "bedrock"
 	}
+	if isNativeProfilePlatform(account.Platform) {
+		if p := nativeAccountProfile(account); p != nil && p.Capability != "" {
+			return p.Capability
+		}
+		return "custom:" + account.Platform + ":" + account.normalizeModelRegistryBaseURL(account.GetOpenAIFormatBaseURL())
+	}
 	baseURL := upstreamModelRegistryBaseURL(account)
 	// Discovery may substitute a protocol default; metadata must retain the
 	// configured endpoint, including custom Anthropic relays.

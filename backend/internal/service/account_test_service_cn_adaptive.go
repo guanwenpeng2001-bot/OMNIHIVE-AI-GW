@@ -57,7 +57,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *accoun
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Anthropic base URL: %s", err.Error()))
 	}
-	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
+	apiURL := NativeAnthropicProfileTargetURL(baseURL)
 	if IsCompatibleProvider(account.Platform) {
 		apiURL = strings.TrimRight(baseURL, "/") + "/messages"
 	}

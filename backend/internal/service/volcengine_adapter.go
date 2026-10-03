@@ -54,6 +54,12 @@ func (service *OpenAIGatewayService) prepareVolcengineChatRequest(account *Accou
 		return nil, fmt.Errorf("volcengine chat stream must be a boolean")
 	}
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if base, configured := nativeConfiguredProtocolBase(account, APIProtocolChatCompletions); configured {
+		if base == "" {
+			return nil, fmt.Errorf("this profile has no configured Chat endpoint")
+		}
+		baseURL = base
+	}
 	if baseURL == "" {
 		baseURL = volcengineRuntimeBaseURL
 		// 套餐（Coding Plan）账号走 Ark 的套餐专用数据面：官方明确按量 Base URL 不会
@@ -72,6 +78,10 @@ func (service *OpenAIGatewayService) prepareVolcengineChatRequest(account *Accou
 	// runtime key to /models or a management Action URL. Custom relays use the
 	// same runtime path.
 	switch strings.TrimRight(parsedURL.Path, "/") {
+	case "/api/plan/v3", "/api/plan/v3/chat/completions":
+		if parsedURL.Scheme != "https" || parsedURL.Host != "ark.cn-beijing.volces.com" {
+			return nil, fmt.Errorf("Ark Agent Plan requires its documented regional endpoint")
+		}
 	case "/api/v3", "/api/v3/chat/completions", volcengineCodingChatBasePath, volcengineCodingChatBasePath + "/chat/completions":
 	default:
 		return nil, fmt.Errorf("volcengine runtime base URL must use /api/v3 or /api/coding/v3")

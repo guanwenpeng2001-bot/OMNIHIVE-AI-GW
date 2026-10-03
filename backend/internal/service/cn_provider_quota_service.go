@@ -135,6 +135,9 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	if account.IsCommandCode() {
 		return s.queryCommandCodeUsage(ctx, account)
 	}
+	if isNativeProfilePlatform(account.Platform) && account.IsCodingPlan() && nativeProfileProbeURL(account, true) == "" {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_UNSUPPORTED_PROFILE", "Quota is unknown: this regional/plan profile has no supported quota endpoint")
+	}
 	provider := account.GetCodingPlanProvider()
 	if provider != PlatformKimi && provider != PlatformZhipu && provider != PlatformMiniMax && provider != PlatformOpenCodeGo {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a kimi/zhipu/minimax coding plan or opencode go account")
@@ -171,6 +174,16 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	case PlatformMiniMax:
 		targetURL = minimaxQuotaURL(baseURL)
 		authHeader = "Bearer " + apiKey
+	}
+
+	if isNativeProfilePlatform(account.Platform) {
+		targetURL = nativeProfileProbeURL(account, true)
+		if targetURL == "" {
+			return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_UNSUPPORTED_PROFILE", "Quota is unknown: this regional/plan profile has no supported quota endpoint")
+		}
+		if provider == PlatformZhipu && zhipuOrg != "" {
+			targetURL += "?type=2"
+		}
 	}
 
 	// 探测发起前过出站 URL 安全策略（与网关转发/Grok 探测同一套校验）：

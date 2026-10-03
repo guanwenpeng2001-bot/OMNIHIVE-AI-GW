@@ -51,6 +51,12 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 		return nil, newUpstreamModelSyncConfigError("Qianfan API key is missing or invalid", nil)
 	}
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if base, configured := nativeConfiguredProtocolBase(account, APIProtocolChatCompletions); configured {
+		if base == "" {
+			return nil, newUpstreamModelSyncUnsupportedError("This profile has no configured Chat endpoint", nil)
+		}
+		baseURL = base
+	}
 	if baseURL == "" {
 		baseURL = qianfanDefaultBaseURL
 		// 套餐（Token Plan）账号走厂商专属 Base URL；显式 base_url 已在上一步优先返回。
@@ -86,6 +92,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 		return nil, newUpstreamModelSyncConfigError("Invalid Qianfan API version path", nil)
 	}
 	switch {
+	case parsed.Scheme == "https" && parsed.Host == "qianfan.baidubce.com" && basePath == "/v2/coding":
 	case versionSegments == 1 && (strings.HasSuffix(basePath, qianfanTokenPlanPersonalPath) || strings.HasSuffix(basePath, qianfanTokenPlanTeamPath)):
 	case strings.HasSuffix(basePath, "/v2"):
 	default:

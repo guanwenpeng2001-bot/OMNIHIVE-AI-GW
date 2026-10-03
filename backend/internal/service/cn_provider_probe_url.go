@@ -46,3 +46,40 @@ func cnValidateProbeURL(cfg *config.Config, raw string) (string, error) {
 	}
 	return normalized, nil
 }
+
+// nativeProfileProbeURL authorizes only implemented, exact regional/plan probes.
+// An empty result means unknown/unsupported, never invalid credentials.
+func nativeProfileProbeURL(account *Account, quota bool) string {
+	p := nativeAccountProfile(account)
+	if p == nil {
+		return ""
+	}
+	if quota {
+		if p.Mode != AccountModeCoding {
+			return ""
+		}
+		switch p.Platform {
+		case PlatformKimi:
+			if p.Chat == DefaultKimiCodingBaseURL {
+				return kimiQuotaURL(p.Chat)
+			}
+		case PlatformZhipu:
+			return zhipuQuotaURL(p.Chat)
+		case PlatformMiniMax:
+			if strings.HasPrefix(p.Chat, "https://api.minimaxi.com/") || strings.HasPrefix(p.Chat, "https://api.minimax.io/") {
+				return minimaxQuotaURL(p.Chat)
+			}
+		}
+		return ""
+	}
+	if p.Mode != AccountModePayG {
+		return ""
+	}
+	switch p.Platform {
+	case PlatformKimi:
+		return p.Chat + "/users/me/balance"
+	case PlatformDeepseek:
+		return "https://api.deepseek.com/user/balance"
+	}
+	return ""
+}

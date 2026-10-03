@@ -1148,6 +1148,23 @@ describe('EditAccountModal', () => {
     expect(submittedCredentials).not.toHaveProperty('api_base_urls')
   })
 
+  it('preserves the global profile and invisible native overrides on an ordinary edit', async () => {
+    const account = buildAccount()
+    account.platform = 'kimi'
+    account.credentials_status = { has_api_key: true }
+    account.credentials = { api_key_ref: 'vault:global', account_mode: 'payg', api_protocol: 'anthropic', base_url: 'https://api.moonshot.ai/anthropic', api_base_urls: { anthropic: 'https://api.moonshot.ai/anthropic', responses: 'https://private.example/responses', extension: 'keep' }, model_mapping: { Exact: 'Exact' } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials.api_key_ref).toBe('vault:global')
+    expect(credentials.base_url).toBe('https://api.moonshot.ai/anthropic')
+    expect(credentials.api_base_urls).toEqual(account.credentials.api_base_urls)
+    expect(credentials.model_mapping).toEqual({ Exact: 'Exact' })
+  })
+
   it('uses the legacy base_url when adaptive endpoints are missing', async () => {
     const account = buildAccount()
     account.platform = 'zhipu'
@@ -1171,8 +1188,7 @@ describe('EditAccountModal', () => {
       api_protocol: 'adaptive',
       base_url: 'https://relay.example.com/v1',
       api_base_urls: {
-        chat_completions: 'https://relay.example.com/v1',
-        anthropic: 'https://open.bigmodel.cn/api/anthropic'
+        chat_completions: 'https://relay.example.com/v1'
       }
     })
   })
@@ -1254,7 +1270,8 @@ describe('EditAccountModal', () => {
     const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
     expect(credentials.api_protocol).toBe('chat_completions')
     expect(credentials.base_url).toBe('https://relay.example.com/v1')
-    expect(credentials).not.toHaveProperty('api_base_urls')
+    if (platform === 'opencode_go' || platform === 'commandcode') expect(credentials).not.toHaveProperty('api_base_urls')
+    else expect(credentials.api_base_urls).toEqual(account.credentials.api_base_urls)
   })
 
   it.each([
@@ -1350,9 +1367,8 @@ describe('EditAccountModal', () => {
       platform: 'zhipu',
       protocol: 'anthropic',
       baseUrl: 'https://relay.example.com/anthropic',
-      expectedBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      expectedBaseUrl: '',
       expectedProtocolUrls: {
-        chat_completions: 'https://open.bigmodel.cn/api/paas/v4',
         anthropic: 'https://relay.example.com/anthropic'
       }
     },
@@ -1361,10 +1377,8 @@ describe('EditAccountModal', () => {
       platform: 'deepseek',
       protocol: 'responses',
       baseUrl: 'https://relay.example.com/responses',
-      expectedBaseUrl: 'https://api.deepseek.com',
+      expectedBaseUrl: '',
       expectedProtocolUrls: {
-        chat_completions: 'https://api.deepseek.com',
-        anthropic: 'https://api.deepseek.com/anthropic',
         responses: 'https://relay.example.com/responses'
       }
     }
@@ -2702,7 +2716,7 @@ describe('editor candidate identity and additive discovery', () => {
 describe('late platform edit mode, protocol and endpoint persistence', () => {
   const platforms = [
     { platform: 'hunyuan', payg: 'https://tokenhub.tencentmaas.com/v1', coding: 'https://api.lkeap.cloud.tencent.com/coding/v3', anthropic: 'https://api.lkeap.cloud.tencent.com/coding/anthropic', protocols: 4 },
-    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: 'https://ark.cn-beijing.volces.com/api/coding', protocols: 3 },
+    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: 'https://ark.cn-beijing.volces.com/api/coding', protocols: 4 },
     { platform: 'qianfan', payg: 'https://qianfan.baidubce.com/v2', coding: 'https://qianfan.baidubce.com/v2/tokenplan/personal', anthropic: 'https://qianfan.baidubce.com/anthropic/tokenplan/personal', protocols: 3 },
     { platform: 'mistral', payg: 'https://api.mistral.ai/v1', coding: null, anthropic: null, protocols: 1 }
   ]
@@ -2728,7 +2742,7 @@ describe('late platform edit mode, protocol and endpoint persistence', () => {
     await flushPromises()
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    const expectedEndpoints = anthropic ? { chat_completions: coding, responses: coding, anthropic } : { chat_completions: coding, responses: coding }
+    const expectedEndpoints = { chat_completions: coding, ...(platform === 'volcengine' ? { responses: coding } : {}), ...(anthropic ? { anthropic } : {}) }
     expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: 'coding', api_protocol: 'adaptive', base_url: coding })
     expect(updateAccountMock.mock.calls[0][1].credentials.api_base_urls).toEqual(expectedEndpoints)
     wrapper.unmount()

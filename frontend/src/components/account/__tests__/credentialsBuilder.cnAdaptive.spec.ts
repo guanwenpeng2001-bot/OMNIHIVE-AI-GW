@@ -69,7 +69,7 @@ describe('Qianwen Coding Plan protocol defaults', () => {
       anthropic: 'https://coding.dashscope.aliyuncs.com/apps/anthropic',
       responses: ''
     })
-    expect(CN_BASE_URL_PRESETS.qianwen.filter(preset => preset.mode === 'coding').map(preset => preset.protocol)).toEqual(['chat_completions', 'anthropic'])
+    expect(CN_BASE_URL_PRESETS.qianwen.filter(preset => preset.mode === 'coding' && preset.url.startsWith('https://coding.dashscope.aliyuncs.com/')).map(preset => preset.protocol)).toEqual(['chat_completions', 'anthropic'])
     expect(defaultCNAdaptiveBaseUrls('qianwen', 'payg').chat_completions).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
   })
   it('makes CommandCode native Responses selectable', () => {
