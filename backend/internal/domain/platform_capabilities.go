@@ -73,7 +73,11 @@ var platformDescriptors = []PlatformDescriptor{
 
 // PlatformDescriptors returns a copy so callers cannot mutate the authority.
 func PlatformDescriptors() []PlatformDescriptor {
-	return append([]PlatformDescriptor(nil), platformDescriptors...)
+	descriptors := append([]PlatformDescriptor(nil), platformDescriptors...)
+	for _, provider := range CompatibleProviders() {
+		descriptors = append(descriptors, provider.descriptor())
+	}
+	return descriptors
 }
 
 func LookupPlatform(id string) (PlatformDescriptor, bool) {
@@ -81,6 +85,9 @@ func LookupPlatform(id string) (PlatformDescriptor, bool) {
 		if descriptor.ID == id {
 			return descriptor, true
 		}
+	}
+	if provider, ok := LookupCompatibleProvider(id); ok {
+		return provider.descriptor(), true
 	}
 	return PlatformDescriptor{}, false
 }
@@ -91,7 +98,7 @@ func ConcretePlatforms() []string {
 
 func PlatformsWith(include func(PlatformDescriptor) bool) []string {
 	platforms := make([]string, 0, len(platformDescriptors))
-	for _, descriptor := range platformDescriptors {
+	for _, descriptor := range PlatformDescriptors() {
 		if include(descriptor) {
 			platforms = append(platforms, descriptor.ID)
 		}
@@ -139,6 +146,9 @@ func GatewayActions() []string {
 // adapters stay unverified: absence in this repository is not proof a supplier
 // cannot implement an action. No exposure switch grants an adapter.
 func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
+	if provider, ok := LookupCompatibleProvider(identity.Platform); ok {
+		return provider.ingressAction(identity, action)
+	}
 	descriptor := ActionDescriptor{Identity: identity, Action: action, Status: ActionUnverified, Evidence: "No verified gateway adapter; provider actions task must verify this cell"}
 	platform, known := LookupPlatform(identity.Platform)
 	if !known {
