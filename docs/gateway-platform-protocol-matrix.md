@@ -10,10 +10,19 @@ Customer examples are in the [API usage guide](usage-guide.md). Public-contract
 corrections below were checked against `43e61400d` on 2026-10-03; they do not
 recertify every historical platform claim or deployment.
 
-## Current concrete platforms
+## Existing concrete platforms
 
-The current descriptor set has 19 concrete platforms. Composite is a group routing
-mode, not an account platform. N = native path; B = protocol bridge; conditional
+The table below covers the 19 existing concrete platforms. The provider expansion
+adds 70 distinct compatible supplier IDs; their exact mode, base, authentication,
+discovery and declared conversion contracts are listed in the
+[administrator provider reference](provider-configuration.md). The 70 IDs are
+not additional native media adapters. Copilot and Nous special authentication
+are pending integration and are not included in that supported set. Regional and
+plan profile refreshes must be checked against the selected account contract;
+this historical table does not certify every new preset.
+
+Composite is a group routing mode, not an account platform.
+N = native path; B = protocol bridge; conditional
 means the account mode, model, measured endpoint evidence and request gates must
 also allow it. Stream/tool entries describe implemented paths, not every model.
 

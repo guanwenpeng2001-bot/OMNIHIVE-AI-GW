@@ -2,11 +2,12 @@
 
 本手册适用于通过本站网关调用模型的开发者，以及配置编程助手、聊天客户端和自动化工作流的用户。先用自己的 API Key 获取模型列表，再选择与客户端一致的协议。登录后的 `/help` 提供配置示例；模型、密钥、用量与账单以当前站点展示为准。
 
-核对日期：**2026-10-03**。接口依据仓库版本 `43e61400d` 的路由与请求处理代码；示例经过离线语法检查，未执行真实模型调用。本文不代表每个模型、供应商账号、客户端版本或部署均已实测通过。
+核对日期：**2026-10-04**。接口依据候选版本 `09ba86e8f` 的路由与请求处理代码；示例经过离线语法检查，未执行真实模型调用。本文不代表每个模型、供应商账号、客户端版本或部署均已实测通过。
 
 ## 目录
 
 - [开始调用：地址、密钥与模型](#开始调用地址密钥与模型)
+- [供应商、区域与套餐](#供应商区域与套餐)
 - [第一次请求：Bash 与 PowerShell](#第一次请求bash-与-powershell)
 - [四种对话协议](#四种对话协议)
 - [流式输出、工具、推理与缓存](#流式输出工具推理与缓存)
@@ -23,16 +24,16 @@
 
 ### 地址填写规则
 
-向站点取得公开网关地址，不要用后台管理接口地址代替。下面的 `https://gateway.example/proxy` 是可替换的示例，其中 `/proxy` 表示可能存在的反向代理前缀。
+本站公开 OpenAI 兼容 Base URL 是 **`https://omnihive2.com/v1`**，根地址为 `https://omnihive2.com`。不要用后台管理接口或供应商上游地址代替；以下示例使用这一公开入口。其他私有部署请以其管理员公布的地址为准，并保留部署前缀。
 
 | 名称 | 示例 | 用途 |
 | --- | --- | --- |
-| 网关根地址（本文 `GATEWAY_ROOT`） | `https://gateway.example/proxy` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
-| OpenAI 兼容 Base URL | `https://gateway.example/proxy/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
-| 完整请求 URL | `https://gateway.example/proxy/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
-| Gemini 完整请求 URL | `https://gateway.example/proxy/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
+| 网关根地址（本文 `GATEWAY_ROOT`） | `https://omnihive2.com` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
+| OpenAI 兼容 Base URL | `https://omnihive2.com/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
+| 完整请求 URL | `https://omnihive2.com/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
+| Gemini 完整请求 URL | `https://omnihive2.com/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
 
-如果站点提供的是 `https://gateway.example/proxy/v1`，本文根地址应填 `https://gateway.example/proxy`；只移除末尾版本段，保留 `/proxy`。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
+如果站点提供的是 `https://omnihive2.com/v1`，本文根地址应填 `https://omnihive2.com`；只移除末尾版本段。私有部署若带 `/proxy` 等前缀，仍须保留前缀。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
 
 ### 密钥、分组和权限
 
@@ -79,6 +80,23 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 
 带 `anthropic-version` 的 `/v1/models` 使用 Anthropic 列表格式与分页，不要再按 OpenAI 的外层字段解析。目录游标失效后应从第一页重查，不要复用另一把 Key 的游标。Codex 专用模型清单属于客户端兼容入口，不能用它代替普通列表的权限判断。
 
+## 供应商、区域与套餐
+
+用户只需配置本站公开地址、本站 API Key，以及该 Key 可见的精确模型 ID。**上游账号配置由管理员完成**：供应商、区域、套餐、上游 URL、协议和供应商凭据属于另一层。后台添加供应商不会自动改变你的分组权限；供应商 Key 也不能替代本站 Key。
+
+本次目录扩展有 70 个独立兼容供应商 ID，并保留原有平台。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot 与 Nous 特殊鉴权仍待集成验证，不能当成已支持；RelayCode 身份未解决，ETok.ai 预设已移除，仅保留历史记录。
+
+| 核对项 | 应如何理解 |
+| --- | --- |
+| 区域与套餐 | 国内 / 国际、PAYG / Coding / Token Plan 可能使用不同地址和密钥；同名模型、同一公司或相似域名不证明密钥互通。 |
+| 发现与权限 | 没有自动模型发现接口不等于没有模型访问权；管理员可维护已确认的模型映射。公开模型列表、预设示例和模型目录均不证明某个账号享有全部模型。 |
+| 额度与价格 | 未接入余额查询不等于余额为零或无限；未展示价格不等于免费。本站销售价格、上游成本、套餐窗口与账户余额分别核对。 |
+| 工具、流式、思考与缓存 | 根据实际协议、模型及目录能力元数据选参数。转换路径不保证所有供应商扩展字段、工具组合、缓存命中或折扣。 |
+| 媒体 | 新增文本兼容供应商不自动新增原生图片、视频、音频适配器。单独核对对应媒体路由、模型与动作授权。 |
+| 订阅 | Claude、ChatGPT、Google 等消费者订阅不自动授予 API 权限；Coding / Token Plan 还可能限制交互式使用、客户端、共享或后台自动化。 |
+
+CC Switch 固定提交 `793e67d9b3210eb527e7d36f2c866a56fae9dec7` 提供的是客户端配置证据，供应商文档提供相应合同说明；二者均不等于账号真实调用认证。本文没有执行带供应商凭据的在线推理测试。
+
 ## 第一次请求：Bash 与 PowerShell
 
 先将以下内容保存为 **UTF-8** 文件 `chat.json`，把 `MODEL_ID_FROM_LIST` 换成刚才那把 Key 列出的、允许 Chat Completions 的模型 ID：
@@ -95,7 +113,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 适用于 Bash 和已安装 curl 的环境。将根地址换成本站公开地址；密钥通过不回显输入进入当前进程环境。
 
 ```bash
-export GATEWAY_ROOT='https://gateway.example/proxy'
+export GATEWAY_ROOT='https://omnihive2.com'
 GATEWAY_ROOT="${GATEWAY_ROOT%/}"
 read -r -s -p 'API key: ' SUB2API_API_KEY
 printf '\n'
@@ -112,7 +130,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/chat/completions" \
 不需要 WSL。以下用 `Invoke-RestMethod` 发送相同 JSON，避免 PowerShell 的 `curl` 别名与 Bash 换行符差异。
 
 ```powershell
-$env:GATEWAY_ROOT = 'https://gateway.example/proxy'
+$env:GATEWAY_ROOT = 'https://omnihive2.com'
 $env:GATEWAY_ROOT = $env:GATEWAY_ROOT.TrimEnd('/')
 $secret = Read-Host 'API key' -AsSecureString
 $env:SUB2API_API_KEY = [System.Net.NetworkCredential]::new('', $secret).Password
@@ -518,7 +536,9 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/rerank" \
 
 ### CC Switch 是可选配置工具
 
-可以手动配置地址和 Key，也可以使用站点提供的 CC Switch 导入流程。CC Switch 管理客户端配置，不负责新增本站模型权限或把不支持自定义地址的客户端变成可接入客户端。
+可以手动配置地址和 Key，也可以使用站点提供的 CC Switch 导入流程。CC Switch 管理客户端配置，不负责新增本站模型权限或把不支持自定义地址的客户端变成可接入客户端。它也可以运行本地协议转换代理：例如客户端说 Responses，而代理向供应商发送 Chat。`wire_api = "responses"` 只说明客户端侧协议；必须同时核对上游协议和本地转换设置，不能据此推断供应商原生实现 `/responses`。
+
+本站网关的协议转换是另一层：符合分组、账号模式及模型条件时，将公开的 Messages、Chat、Responses 或 Gemini 请求路由到对应上游。使用本站时，CC Switch 里填写本站地址和本站 Key；不要把管理员供应商地址混入导入项。先确认直连公开入口的协议，再决定是否需要本地转换。
 
 导入前核对应用类型、模型及生成地址。不同分组或目标应用可能使用根地址、`/v1` 或专用前缀，不能统一替换成 Chat 完整 URL。没有配置公开网关地址时，不要猜测导入地址。密钥通常仅在创建或轮换时显示一次，妥善保存；分享配置前移除密钥。
 
