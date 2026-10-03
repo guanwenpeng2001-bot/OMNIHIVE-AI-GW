@@ -19,6 +19,11 @@
             "protocol": "anthropic",
             "base_url": "https://cp.compshare.cn/v1",
             "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://cp.compshare.cn/v1",
+            "auth": "bearer"
           }
         ],
         "bridges": [
@@ -30,7 +35,7 @@
         "capability_profile": "compshare_coding_coding"
       }
     ],
-    "evidence_url": "https://compshare.cn/docs/modelverse/codingfaq",
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L1037",
     "evidence_observed": "2026-10-03"
   }
 ]

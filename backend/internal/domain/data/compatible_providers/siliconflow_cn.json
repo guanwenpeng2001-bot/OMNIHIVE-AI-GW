@@ -18,7 +18,7 @@
           {
             "protocol": "anthropic",
             "base_url": "https://api.siliconflow.cn/v1",
-            "auth": "x_api_key"
+            "auth": "bearer"
           }
         ],
         "bridges": [
@@ -31,7 +31,7 @@
         "capability_profile": "siliconflow_cn_payg"
       }
     ],
-    "evidence_url": "https://raw.githubusercontent.com/siliconflow/siliconflow-open-source-tasks/main/README.md",
+    "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L629",
     "evidence_observed": "2026-10-03"
   }
 ]
