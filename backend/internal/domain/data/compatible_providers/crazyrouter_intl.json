@@ -1,0 +1,42 @@
+[
+  {
+    "id": "crazyrouter_intl",
+    "label": "CrazyRouter International",
+    "label_zh": "CrazyRouter International",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.crazyrouter.com/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.crazyrouter.com/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://api.crazyrouter.com/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "gemini_to_chat",
+          "gemini_to_messages",
+          "gemini_to_responses"
+        ],
+        "discovery": "openai_models",
+        "capability_profile": "crazyrouter_intl",
+        "discovery_protocol": "chat_completions"
+      }
+    ],
+    "evidence_url": "https://docs.crazyrouter.com/en/api-endpoint",
+    "evidence_observed": "2026-10-03"
+  }
+]

@@ -1,0 +1,31 @@
+[
+  {
+    "id": "teamorouter_com",
+    "label": "TeamoRouter (.com)",
+    "label_zh": "TeamoRouter (.com)",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.teamorouter.com/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "teamorouter_com"
+      }
+    ],
+    "evidence_url": "https://teamorouter.com",
+    "evidence_observed": "2026-10-03"
+  }
+]
