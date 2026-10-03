@@ -3,6 +3,19 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      specialCompatibleAuth: {
+        authMode: '认证方式',
+        selectAuthMode: '请选择认证方式',
+        invocationToken: '手动调用令牌',
+        officialProxy: '官方 Hermes 代理',
+        copilotHint: '在 API Key 栏填写具有 Copilot Requests 权限的 GitHub 细粒度个人访问令牌（PAT）。可用模型取决于你的 GitHub 账号和组织设置。',
+        proxyHint: '填写由运营方部署的官方 Hermes 代理地址；如配置了 /v1，请一并填写。若代理需要凭据，请在 API Key 栏填写；否则留空。',
+        invocationHint: '在 API Key 栏填写 Nous 调用令牌。令牌到期后，需要手动续期并替换。',
+        clearProxyKey: '清除代理凭据',
+        proxyBaseUrl: '代理基础地址（必填）',
+        optionalBaseUrl: '基础地址（可选）',
+        protocolHint: 'OmniHive 会将 Messages、Responses 和 Gemini 聊天请求转换为此平台使用的 Chat Completions 协议。',
+      },
       compatible: { protocolHint: '自适应优先使用匹配的原生端点。固定协议仅使用该端点；仅在已声明支持时进行网关转换。', manualModels: '不支持自动发现模型。请在下方模型映射中手动填写准确的模型名称。', deploymentHint: '填写 Azure 资源基础地址。模型映射的目标填写部署名称，不同映射可使用不同部署。', invalid: '请检查账号模式、协议和资源基础地址。' },
       tpmUnlimited: '不限额',
       tpmLimit: '每分钟 token 上限',

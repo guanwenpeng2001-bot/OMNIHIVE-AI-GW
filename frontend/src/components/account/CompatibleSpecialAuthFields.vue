@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { changeSpecialCompatibleMode } from './compatibleSpecialAuth'
 
+const { t } = useI18n()
 const props = defineProps<{ platform: string; modelValue: Record<string, unknown> }>()
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>]; 'reset-secret': [] }>()
 const proxy = computed(() => props.modelValue.auth_mode === 'official_proxy')
@@ -18,21 +20,21 @@ function clearProxyKey() {
 <template>
   <div class="space-y-4" data-testid="compatible-special-auth">
     <label v-if="platform === 'nous_research'" class="block">
-      <span class="input-label">Authentication mode</span>
+      <span class="input-label">{{ t('admin.accounts.specialCompatibleAuth.authMode') }}</span>
       <select class="input" data-testid="special-auth-mode" :value="modelValue.auth_mode || ''" @change="changeMode(($event.target as HTMLSelectElement).value)">
-        <option disabled value="">Select authentication mode</option>
-        <option value="invocation_token">Invocation token</option>
-        <option value="official_proxy">Official proxy</option>
+        <option disabled value="">{{ t('admin.accounts.specialCompatibleAuth.selectAuthMode') }}</option>
+        <option value="invocation_token">{{ t('admin.accounts.specialCompatibleAuth.invocationToken') }}</option>
+        <option value="official_proxy">{{ t('admin.accounts.specialCompatibleAuth.officialProxy') }}</option>
       </select>
     </label>
-    <p v-if="platform === 'github_copilot'" class="input-hint">Use a GitHub fine-grained PAT in the API key field. The gateway identifies itself as OmniHive; upstream admission and entitlement are determined by GitHub.</p>
-    <p v-else-if="proxy" class="input-hint">Enter the official proxy prefix, including /v1 if configured. The API key field is an optional proxy frontdoor bearer. Leave it empty for a proxy without frontdoor authentication.</p>
-    <p v-else class="input-hint">Use an invocation JWT in the API key field. It must contain inference:invoke and a future expiry. Replace it when expired; automatic refresh is unsupported.</p>
-    <button v-if="proxy" type="button" class="btn btn-secondary" data-testid="special-auth-clear-key" @click="clearProxyKey">Clear proxy frontdoor key</button>
+    <p v-if="platform === 'github_copilot'" class="input-hint">{{ t('admin.accounts.specialCompatibleAuth.copilotHint') }}</p>
+    <p v-else-if="proxy" class="input-hint">{{ t('admin.accounts.specialCompatibleAuth.proxyHint') }}</p>
+    <p v-else class="input-hint">{{ t('admin.accounts.specialCompatibleAuth.invocationHint') }}</p>
+    <button v-if="proxy" type="button" class="btn btn-secondary" data-testid="special-auth-clear-key" @click="clearProxyKey">{{ t('admin.accounts.specialCompatibleAuth.clearProxyKey') }}</button>
     <label class="block">
-      <span class="input-label">{{ proxy ? 'Proxy base URL (required)' : 'Base URL (optional)' }}</span>
-      <input class="input" data-testid="special-auth-base" :value="modelValue.base_url || ''" :required="proxy" :placeholder="platform === 'github_copilot' ? 'https://api.githubcopilot.com/v1' : proxy ? 'http://127.0.0.1:8645/v1' : 'https://inference-api.nousresearch.com/v1'" @input="emit('update:modelValue', { ...modelValue, base_url: ($event.target as HTMLInputElement).value })" />
+      <span class="input-label">{{ t(proxy ? 'admin.accounts.specialCompatibleAuth.proxyBaseUrl' : 'admin.accounts.specialCompatibleAuth.optionalBaseUrl') }}</span>
+      <input class="input" data-testid="special-auth-base" :value="modelValue.base_url || ''" :required="proxy" :placeholder="platform === 'github_copilot' ? 'https://api.githubcopilot.com/v1' : proxy ? 'https://hermes.example.com/v1' : 'https://inference-api.nousresearch.com/v1'" @input="emit('update:modelValue', { ...modelValue, base_url: ($event.target as HTMLInputElement).value })" />
     </label>
-    <p class="input-hint">Chat Completions upstream · Messages, Responses and Gemini through gateway bridges. Routing mode is fixed; it does not describe a vendor plan or billing method.</p>
+    <p class="input-hint">{{ t('admin.accounts.specialCompatibleAuth.protocolHint') }}</p>
   </div>
 </template>
