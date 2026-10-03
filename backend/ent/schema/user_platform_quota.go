@@ -39,11 +39,25 @@ func (UserPlatformQuota) Fields() []ent.Field {
 			MaxLen(32).
 			NotEmpty().
 			Validate(func(s string) error {
-				// 注意：平台列表的单一权威源为 service.AllowedQuotaPlatforms；
-				// 此处为 ent 构建期约束，需与 service.AllowedQuotaPlatforms 保持同步。
+				// Storage identities must match migration 283, including quota-only vertex.
+				// Keep the finite list stable even when the embedded registry is empty.
 				switch s {
 				case "anthropic", "openai", "gemini", "antigravity", "grok",
-					"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock", "volcengine", "vertex":
+					"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock", "volcengine", "vertex",
+					"a6api", "aicodemirror", "aicodewith", "aicoding", "aigocode",
+					"aihubmix", "amux", "apikey_fun", "apinebula", "astron_coding",
+					"atlascloud", "azure_openai", "bailing", "byteplus", "ccsub",
+					"cherryin", "claudeapi", "claudecn", "code0", "code_9527",
+					"compshare", "compshare_coding", "crazyrouter", "crazyrouter_intl", "cubence",
+					"dmxapi", "dmxapi_com", "dmxapi_ssvip", "eflowcode", "fennoai",
+					"fluxa", "jiekou", "kat_coder", "longcat", "micu",
+					"mimo", "mimo_token_cn", "modelscope", "novita", "nvidia",
+					"packycode", "pateway", "pipellm", "ppio", "qiniu",
+					"qwencloud", "qwencloud_maas_token", "qwencloud_token", "relaxycode", "rightcode",
+					"runapi", "shengsuanyun", "siliconflow_cn", "siliconflow_global", "soleapi",
+					"soshow", "sssaicode", "stepfun_api", "stepfun_api_intl", "stepfun_plan",
+					"stepfun_plan_intl", "subrouter", "sudocode_chat", "sudocode_us", "teamorouter",
+					"teamorouter_com", "therouter", "together", "xycai", "zetaapi":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)
