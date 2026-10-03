@@ -99,6 +99,19 @@ const localOnlyAccounts = [
 ] as const
 
 describe('AccountUsageCell', () => {
+  it.each(['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi'])('shows supported %s balance without automatic upstream requests', async platform => {
+    const account = makeAccount({ platform, type: 'apikey', credentials: { account_mode: 'payg' } })
+    const wrapper = mount(AccountUsageCell, { props: { account }, global: { stubs: cnUsageCellStubs } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(getUsage).not.toHaveBeenCalled()
+    await wrapper.setProps({ account: { ...account, credentials: { account_mode: 'coding' } } })
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+    await wrapper.setProps({ account: { ...account, credentials: { base_url: 'https://relay.example/v1' } } })
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it.each(localOnlyAccounts)('renders missing/loading/zero/nonzero local statistics for %s %s without probing upstream', async (platform, accountMode) => {
     const wrapper = mount(AccountUsageCell, {
       props: { account: makeAccount({ platform, type: 'apikey', credentials: { account_mode: accountMode } }) }

@@ -451,6 +451,10 @@
       </div>
     </template>
 
+    <template v-else-if="compatibleBalanceVisible(account)">
+      <CNProviderBalanceCell :account="account" />
+    </template>
+
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
     <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go'">
       <!-- 挂在 CN 平台下的 Ollama Cloud 账号（资格由后端下发 eligible）：用量由
@@ -688,6 +692,7 @@ import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
+import { compatibleBalanceVisible } from './compatibleBalance'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
 
@@ -764,6 +769,7 @@ const hasNoUpstreamUsageApi = computed(() => {
 const keyUsageMoney = (value: number | null | undefined) => value == null ? '—' : `$${value.toFixed(4)}`
 
 const showUsageWindows = computed(() => {
+  if (compatibleBalanceVisible(props.account)) return true
   if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'

@@ -11,7 +11,7 @@ import (
 // CNProviderHandler 暴露国产供应商（kimi/zhipu/deepseek）的额度与余额查询端点。
 //
 //   - GET /admin/cn-providers/accounts/:id/quota   Coding Plan 滚动窗口用量（kimi/zhipu）
-//   - GET /admin/cn-providers/accounts/:id/balance  payg 账号余额（kimi/deepseek）
+//   - GET /admin/cn-providers/accounts/:id/balance  payg 账号余额（原生及已验证兼容供应商）
 //
 // 智谱（zhipu）无余额端点，故同一账号仅 quota 或 balance 其一可用：服务端按账号
 // platform + account_mode 校验并返回明确错误（见 CNProvider*Service 的 load*Account）。
@@ -49,7 +49,7 @@ func (h *CNProviderHandler) QueryQuota(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// QueryBalance 查询 payg 账号余额。
+// QueryBalance 查询原生及已验证兼容供应商的 payg 账号余额。
 func (h *CNProviderHandler) QueryBalance(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -60,7 +60,7 @@ func (h *CNProviderHandler) QueryBalance(c *gin.Context) {
 		response.BadRequest(c, "cn provider balance service is not enabled")
 		return
 	}
-	result, err := h.balanceService.QueryBalance(c.Request.Context(), accountID)
+	result, err := h.balanceService.QueryAccountBalance(c.Request.Context(), accountID)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

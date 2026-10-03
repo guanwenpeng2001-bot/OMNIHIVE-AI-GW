@@ -66,6 +66,7 @@ import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admi
 import type { Account } from '@/types'
 import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
+import { compatibleBalanceVisible } from './compatibleBalance'
 
 const props = defineProps<{
   account: Account
@@ -79,11 +80,12 @@ const readMode = (): string => {
 }
 
 // 仅 kimi / deepseek payg 账号有公开余额端点（智谱 payg 无）。
-const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode()))
+const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode()) || compatibleBalanceVisible(props.account))
 
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderBalanceResult | null>(null)
+let requestGeneration = 0
 
 const extraKey = (suffix: string) => `${props.account.platform}_${suffix}`
 
@@ -113,7 +115,8 @@ const balanceLow = computed(() => props.account.extra?.[extraKey('balance_low')]
 const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
   if (data.value && data.value.success) {
     if (data.value.balances && data.value.balances.length > 0) return data.value.balances
-    return [{ currency: data.value.currency || '', balance: data.value.balance }]
+    if (typeof data.value.balance === 'number') return [{ currency: data.value.currency || '', balance: data.value.balance }]
+    return []
   }
   if (snapshotBalances.value.length > 0) return snapshotBalances.value
   if (snapshotBalance.value != null) {
@@ -144,11 +147,13 @@ const truncatedError = computed(() => {
 })
 
 const handleProbe = async () => {
-  if (loading.value) return
+  if (loading.value || !visible.value) return
+  const generation = ++requestGeneration
   loading.value = true
   error.value = null
   try {
     const result = await adminAPI.cnProviders.queryBalance(props.account.id)
+    if (generation !== requestGeneration) return
     // 失败时保留快照展示（仅显示错误行），成功才覆盖。
     if (result.success) {
       data.value = result
@@ -156,15 +161,17 @@ const handleProbe = async () => {
       error.value = result.error || t('common.error')
     }
   } catch (e) {
+    if (generation !== requestGeneration) return
     error.value = extractErrorMessage(e)
   } finally {
-    loading.value = false
+    if (generation === requestGeneration) loading.value = false
   }
 }
 
 watch(
-  () => props.account.id,
+  () => [props.account.id, props.account.platform, JSON.stringify(props.account.credentials)],
   () => {
+    requestGeneration++
     data.value = null
     error.value = null
     loading.value = false

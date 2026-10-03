@@ -34,16 +34,17 @@ export interface CNProviderBalanceEntry {
   balance: number
 }
 
-/** payg 余额探测结果（kimi / deepseek），对齐后端 CNProviderBalanceResult。 */
+/** Native and compatible payg balance results; failed/unsupported queries omit unknown amounts. */
 export interface CNProviderBalanceResult {
   provider: string
   success: boolean
+  unsupported?: boolean
   /** 主币种余额（balances 首条，兼容单币种展示）。 */
-  balance: number
+  balance?: number
   currency?: string
   /** 多币种明细；缺省时按主币种展示。 */
   balances?: CNProviderBalanceEntry[]
-  available: boolean
+  available?: boolean
   status_code?: number
   fetched_at: number
   persisted: boolean

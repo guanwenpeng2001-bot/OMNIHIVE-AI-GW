@@ -73,4 +73,42 @@ describe('CNProviderBalanceCell', () => {
     expect(wrapper.text()).toContain('CNY 12.50')
     expect(wrapper.text()).toContain('HTTP 401')
   })
+
+  it('queries a compatible account and renders legitimate zero', async () => {
+    queryBalance.mockResolvedValue({ success: true, balance: 0, currency: 'USD', balances: [{ currency: 'USD', balance: 0 }] })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform: 'novita', extra: {} } as Account } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    await flushPromises()
+    expect(queryBalance).toHaveBeenCalledWith(account.id)
+    expect(wrapper.text()).toContain('USD 0.00')
+  })
+
+  it('preserves every currency in the existing balance response contract', async () => {
+    queryBalance.mockResolvedValue({ success: true, balances: [{ currency: 'CNY', balance: 2 }, { currency: 'USD', balance: 3 }] })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('CNY 2.00 · USD 3.00')
+  })
+
+  it('does not turn unsupported results into zero', async () => {
+    queryBalance.mockResolvedValue({ success: false, unsupported: true, error: 'Unsupported balance scope' })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform: 'shengsuanyun', extra: {} } as Account } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Unsupported balance scope')
+    expect(wrapper.text()).not.toContain('0.00')
+  })
+
+  it('ignores a balance reply after the account credentials change', async () => {
+    let resolve!: (value: unknown) => void
+    queryBalance.mockReturnValue(new Promise(done => { resolve = done }))
+    const compatible = { ...account, platform: 'novita', extra: {} } as Account
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: compatible } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    await wrapper.setProps({ account: { ...compatible, credentials: { api_key: 'new-fixture-key' } } as Account })
+    resolve({ success: true, balance: 900, currency: 'USD' })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('USD 900')
+  })
 })
