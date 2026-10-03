@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { COMPATIBLE_PROVIDERS, compatibleProvider } from '@/constants/compatibleProviders'
+import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '../PlatformIcon.vue'
 
 const require = createRequire(import.meta.url)
@@ -19,7 +21,7 @@ describe('PlatformIcon', () => {
     const fallback = mount(PlatformIcon)
     expect(wrapper.html()).not.toBe(fallback.html())
     expect(wrapper.get('svg').attributes('viewBox')).toBe(value === 'anthropic' ? '0 0 16 16' : '0 0 24 24')
-    expect(wrapper.get('svg').attributes('fill')).toBe('currentColor')
+    expect(wrapper.get('svg').attributes('fill')).toBe(compatibleProvider(value) ? 'none' : 'currentColor')
     expect(wrapper.get('svg').attributes('aria-hidden')).toBe('true')
     expect(wrapper.get('svg').attributes('focusable')).toBe('false')
     expect(wrapper.get('svg').attributes('tabindex')).toBeUndefined()
@@ -31,6 +33,36 @@ describe('PlatformIcon', () => {
     } else {
       expect(wrapper.findAll('path').length).toBeGreaterThan(0)
       expect(wrapper.find('text').exists()).toBe(false)
+    }
+  })
+
+  it.each(COMPATIBLE_PROVIDERS)('uses the shared decorative server mark for $id', ({ id }) => {
+    const wrapper = mount(PlatformIcon, { props: { platform: id } })
+    const server = mount(Icon, { props: { name: 'server' } })
+    expect(wrapper.get('path').attributes('d')).toBe(server.get('path').attributes('d'))
+    expect(wrapper.get('svg').attributes('stroke')).toBe('currentColor')
+    for (const size of ['xs', 'sm', 'md', 'lg'] as const) {
+      const known = mount(PlatformIcon, { props: { platform: id, size } })
+      const brand = mount(PlatformIcon, { props: { platform: 'anthropic', size } })
+      expect(known.classes()).toEqual(brand.classes())
+    }
+  })
+
+  it('uses the shared mark when the registry grows and the globe for unregistered values', () => {
+    const providers = COMPATIBLE_PROVIDERS as Array<(typeof COMPATIBLE_PROVIDERS)[number]>
+    const added = { ...providers[0]!, id: 'test-new-compatible-provider' }
+    const fallback = mount(PlatformIcon).html()
+    expect(mount(PlatformIcon, { props: { platform: added.id } }).html()).toBe(fallback)
+    providers.push(added)
+    try {
+      const wrapper = mount(PlatformIcon, { props: { platform: added.id } })
+      expect(wrapper.html()).toBe(mount(PlatformIcon, { props: { platform: providers[0]!.id } }).html())
+      expect(wrapper.html()).not.toBe(fallback)
+    } finally {
+      providers.pop()
+    }
+    for (const platform of ['', 'compatible', '__proto__', 'unknown-provider']) {
+      expect(mount(PlatformIcon, { props: { platform } }).html()).toBe(fallback)
     }
   })
 
