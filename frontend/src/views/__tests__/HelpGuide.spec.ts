@@ -87,6 +87,23 @@ afterEach(() => {
 })
 
 describe('configuration manual', () => {
+  it.each([
+    { locale: 'en', guide: en.helpGuide, contractNote: 'separate platform contracts' },
+    { locale: 'zh', guide: zh.helpGuide, contractNote: '独立平台契约' }
+  ])('keeps catalog and audio guidance consistent in $locale', ({ guide, contractNote }) => {
+    const catalog = guide.models.tables.endpoints.rows.openai.notes
+    expect(catalog).toContain('GET /backend-api/codex/models')
+    expect(JSON.stringify(guide.models)).not.toMatch(/2027-03-21|until|截至/)
+    const media = guide.clients.notes.mediaEndpoints
+    for (const endpoint of ['/v1/audio/speech', '/v1/audio/transcriptions', '/v1/audio/translations']) {
+      expect(media).toContain(endpoint)
+      expect(guide.audio.endpoint).toContain(endpoint)
+    }
+    expect(media).toContain(contractNote)
+    expect(media).toContain('/v1/tts')
+    expect(media).toContain('/v1/stt')
+  })
+
   it('uses one registry for grouped contents, translated sections and every hash destination', async () => {
     const { wrapper } = mountGuide('en')
     await import('@/router')

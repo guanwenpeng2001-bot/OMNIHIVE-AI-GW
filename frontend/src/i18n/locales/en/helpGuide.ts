@@ -130,7 +130,7 @@ export default {
           "openai": {
             "endpoint": "GET /v1/models",
             "purpose": "Standard OpenAI-compatible tools",
-            "notes": "Use data[].id. client_version is a migration-only compatibility parameter until 2027-03-21 UTC; use the dedicated Codex catalog instead."
+            "notes": "Use data[].id for OpenAI-compatible clients. For Codex, use its dedicated catalog at GET /backend-api/codex/models."
           },
           "codex": {
             "endpoint": "GET /backend-api/codex/models",
@@ -300,7 +300,7 @@ export default {
     },
     "notes": {
       "streaming": "See the streaming, tools and reasoning sections for request behavior. The Codex example uses HTTP Responses; WebSocket requires compatible group, account and site settings, so leave it disabled until confirmed.",
-      "mediaEndpoints": "Every client configuration above speaks a text/vision protocol (Messages, Responses, Chat Completions). Send image, video and speech generation to the media endpoints instead: /v1/images/generations, /v1/images/edits, /v1/videos/generations, /v1/tts and /v1/stt. Availability depends on the group platform and its switches.",
+      "mediaEndpoints": "The client configurations above use text/vision protocols (Messages, Responses, Chat Completions). For media, use /v1/images/generations, /v1/images/edits and /v1/videos/generations; for speech synthesis, transcription and translation, use /v1/audio/speech, /v1/audio/transcriptions and /v1/audio/translations respectively. Availability and request formats depend on the group platform, model and enabled features. /v1/tts and /v1/stt have separate platform contracts and are not interchangeable with the standard audio endpoints.",
       "clientSources": "Field names for the added clients come from each vendor's first-party documentation (Cline docs: OpenAI Compatible; Roo Code repository docs: Using OpenAI Compatible Providers; Continue docs: How to Configure OpenAI Models; JetBrains help: Use third-party and local models). Windsurf is listed as unsupported because its official documentation does not describe a custom OpenAI-compatible endpoint.",
       "antigravity": "Antigravity protocol and tool support depend on the model and group. Some upstream built-in tools may be omitted when mixed with client tools; do not assume built-in search or code execution is available.",
       "workflow": "For a workflow tool, configure the HTTP method, full URL, authentication header and JSON body. Send a simple request, inspect the result and usage, then add loops or concurrency. A client’s protocol setting does not grant every model that capability."

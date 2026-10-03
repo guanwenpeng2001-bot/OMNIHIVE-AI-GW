@@ -130,7 +130,7 @@ export default {
           "openai": {
             "endpoint": "GET /v1/models",
             "purpose": "普通 OpenAI 兼容工具",
-            "notes": "使用 data[].id；client_version 仅为过渡兼容参数，窗口截至 2027-03-21 UTC，Codex 请直接使用专用目录。"
+            "notes": "OpenAI 兼容客户端使用 data[].id。Codex 请使用专用目录 GET /backend-api/codex/models。"
           },
           "codex": {
             "endpoint": "GET /backend-api/codex/models",
@@ -300,7 +300,7 @@ export default {
     },
     "notes": {
       "streaming": "流式请求、工具结果回传与推理设置见对应章节。Codex 示例使用 HTTP Responses；WebSocket 需要分组、账户和站点配置共同允许，未确认前不要启用。",
-      "mediaEndpoints": "以上客户端配置都是文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请改用 /v1/images/generations、/v1/images/edits、/v1/videos/generations、/v1/tts、/v1/stt 等媒体入口；具体可用性取决于分组平台与分组开关。",
+      "mediaEndpoints": "以上客户端配置使用文本/视觉协议（Messages、Responses、Chat Completions）。图像与视频使用 /v1/images/generations、/v1/images/edits 和 /v1/videos/generations；语音合成、转写与翻译分别使用 /v1/audio/speech、/v1/audio/transcriptions 和 /v1/audio/translations。可用性和请求格式取决于分组平台、模型及已启用功能。/v1/tts 与 /v1/stt 有独立平台契约，不能与标准音频端点互换。",
       "clientSources": "新增客户端的字段名称取自各自第一方文档（Cline 文档：OpenAI Compatible；Roo Code 仓库文档：Using OpenAI Compatible Providers；Continue 文档：How to Configure OpenAI Models；JetBrains 帮助：Use third-party and local models）。Windsurf 官方文档未提供自定义 OpenAI 兼容端点，故列出为不可用说明。",
       "antigravity": "Antigravity 的协议与工具支持取决于实际模型和分组；混合客户端工具时，部分上游内置工具可能被省略，请勿依赖内置搜索或代码执行一定可用。",
       "workflow": "工作流工具先选择 HTTP 方法、完整 URL、认证头和 JSON 请求体；发送一次简单请求，读取结果和 usage，再接入循环或并发。不要把客户端能配置某协议当作所有模型均支持。"
