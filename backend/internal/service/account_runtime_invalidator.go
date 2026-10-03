@@ -236,6 +236,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 		}
 	}
 	account.Extra = shallowCopyMap(account.Extra)
+	clearCompatibleBalanceSnapshots(account.Extra)
 	for _, field := range []string{
 		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
