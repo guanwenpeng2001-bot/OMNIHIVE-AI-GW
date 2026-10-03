@@ -1,0 +1,36 @@
+[
+  {
+    "id": "qiniu",
+    "label": "Qiniu",
+    "label_zh": "七牛云",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.qnaigc.com/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.qnaigc.com/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "qiniu_payg"
+      }
+    ],
+    "evidence_url": "https://developer.qiniu.com/aitokenapi/kb/13462/aitoken-use-faq",
+    "evidence_observed": "2026-10-03"
+  }
+]

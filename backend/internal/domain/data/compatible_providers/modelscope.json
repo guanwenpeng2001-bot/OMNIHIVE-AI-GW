@@ -1,0 +1,32 @@
+[
+  {
+    "id": "modelscope",
+    "label": "ModelScope",
+    "label_zh": "魔搭 ModelScope",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api-inference.modelscope.cn/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "openai_models",
+        "discovery_protocol": "chat_completions",
+        "capability_profile": "modelscope_payg"
+      }
+    ],
+    "evidence_url": "https://community.modelscope.cn/67e3a1aa8393e26e2659c12e.html",
+    "evidence_observed": "2026-10-03"
+  }
+]

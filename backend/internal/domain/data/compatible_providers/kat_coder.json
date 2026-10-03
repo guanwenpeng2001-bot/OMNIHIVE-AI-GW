@@ -1,0 +1,59 @@
+[
+  {
+    "id": "kat_coder",
+    "label": "KAT-Coder",
+    "label_zh": "KAT-Coder",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://vanchin.streamlake.ai/api/gateway/v1/endpoints",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://vanchin.streamlake.ai/api/gateway/v1/endpoints/kat-coder-pro-v2.5/claude-code-proxy/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "kat_coder_payg"
+      },
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://vanchin.streamlake.ai/api/gateway/coding/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://vanchin.streamlake.ai/api/gateway/coding/kat-coder-pro-v2.5/claude-code-proxy/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "kat_coder_coding"
+      }
+    ],
+    "evidence_url": "https://www.streamlake.ai/document/DOC/mg6k6nlp8j6qxicx4c9",
+    "evidence_observed": "2026-10-03"
+  }
+]

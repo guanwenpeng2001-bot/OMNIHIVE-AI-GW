@@ -1,0 +1,37 @@
+[
+  {
+    "id": "siliconflow_global",
+    "label": "SiliconFlow Global",
+    "label_zh": "硅基流动（国际）",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.siliconflow.com/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.siliconflow.com/v1",
+            "auth": "x_api_key"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "openai_models",
+        "discovery_protocol": "chat_completions",
+        "capability_profile": "siliconflow_global_payg"
+      }
+    ],
+    "evidence_url": "https://raw.githubusercontent.com/siliconflow/siliconflow-open-source-tasks/main/README_EN.md",
+    "evidence_observed": "2026-10-03"
+  }
+]

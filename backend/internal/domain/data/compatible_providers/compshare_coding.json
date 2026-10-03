@@ -1,0 +1,36 @@
+[
+  {
+    "id": "compshare_coding",
+    "label": "Compshare Coding Plan",
+    "label_zh": "优云智算 Coding Plan",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://cp.compshare.cn/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://cp.compshare.cn/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "compshare_coding_coding"
+      }
+    ],
+    "evidence_url": "https://compshare.cn/docs/modelverse/codingfaq",
+    "evidence_observed": "2026-10-03"
+  }
+]

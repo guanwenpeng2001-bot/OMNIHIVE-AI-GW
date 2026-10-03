@@ -1,0 +1,42 @@
+[
+  {
+    "id": "compshare",
+    "label": "Compshare",
+    "label_zh": "优云智算",
+    "base_source": "preset",
+    "default_mode": "payg",
+    "modes": [
+      {
+        "mode": "payg",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.modelverse.cn/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "responses",
+            "base_url": "https://api.modelverse.cn/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.modelverse.cn/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "openai_models",
+        "discovery_protocol": "chat_completions",
+        "capability_profile": "compshare_payg"
+      }
+    ],
+    "evidence_url": "https://www.compshare.cn/docs/modelverse/models/text_api/model-competi",
+    "evidence_observed": "2026-10-03"
+  }
+]
