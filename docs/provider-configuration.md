@@ -2,15 +2,16 @@
 
 本文面向配置上游账号的管理员；用户调用本站请阅读[API 使用手册](usage-guide.md)。**本站公开 Base URL 是 `https://omnihive2.com/v1`**。下文供应商地址仅用于后台账号配置，不能替换用户客户端中的本站地址；本站 Key 与供应商 Key 分别签发、分别管理。
 
-核对日期：2026-10-04。兼容供应商合同基于候选源码 `09ba86e8f`；供应商资料观察日期为 2026-10-03。目录包含 **70 个新增兼容供应商 ID、71 个模式**，下方完整归一化表覆盖 **113 个原始名称项**。名称数、供应商 ID 数、模式数与账号数不是同一概念。
+核对日期：2026-10-04。本文描述发行版本的配置合同；供应商资料观察日期为 2026-10-03。目录包含 **72 个新增兼容供应商 ID、73 个路由模式（Copilot / Nous 另有 3 种认证选择）**，下方完整归一化表覆盖 **113 个原始名称项**。名称数、供应商 ID 数、模式数与账号数不是同一概念。
 
 ## 目录
 
 - [配置步骤](#配置步骤)
 - [证据与能力的读法](#证据与能力的读法)
 - [完整名称归一化](#完整名称归一化)
-- [新增供应商合同](#新增供应商合同70-个-id)
+- [新增供应商合同](#新增供应商合同72-个-id)
 - [既有平台的区域、套餐和认证配置](#既有平台的区域套餐和认证配置)
+- [手工余额查询](#手工余额查询)
 - [特定账号限制与未知项](#特定账号限制与未知项)
 - [媒体与公开入口](#媒体与公开入口)
 
@@ -18,14 +19,14 @@
 
 1. 在供应商控制台确认账号所属站点、区域、套餐和实际 API 授权，再取得该合同对应的凭据。消费者订阅、桌面会员和 API 额度不能互相推定。
 2. 在本站后台选择正确供应商及模式。PAYG、Coding、Token Plan 不共用默认密钥范围；同名模型也不证明同一能力或价格。Azure 使用资源地址和部署名称；KAT-Coder 需要按实际路由区分 Endpoint ID 与模型 ID。
-3. 按下面合同核对协议和 base。表内新供应商 base 是最终操作路径之前的前缀；Messages 追加 `/messages`，Chat 追加 `/chat/completions`，Responses 追加 `/responses`。保留 `/codex/v1`、`/api/coding/v3` 等完整前缀。已保存的自定义地址、代理和协议覆盖应逐项核对，不自动改写到另一个官方域名。
+3. 按下面合同核对协议和 base。普通新供应商 base 是最终操作路径之前的前缀；Copilot / Nous 使用下文专用地址规则，尤其不能由 Chat base 推导 Copilot 目录。Messages 追加 `/messages`，Chat 追加 `/chat/completions`，Responses 追加 `/responses`。保留 `/codex/v1`、`/api/coding/v3` 等完整前缀。已保存的自定义地址、代理和协议覆盖应逐项核对，不自动改写到另一个官方域名。
 4. 维护该账号已确认的模型与映射，挂入允许的组，按本站销售规则配置价格；再用该组签发的本站 Key 查看 `/v1/models` 与 `/v1/models/catalog`。模型显示名不能替代请求 ID；目录可见不保证此刻有可调度账号。
 5. 按授权条件分别验证非流式、流式、工具、推理、缓存及所需媒体动作。保留脱敏的模型、协议、状态、时间和 request ID。本文没有使用真实供应商凭据执行推理调用，不声称这些配置均在线实测成功。
 
 ## 证据与能力的读法
 
 - **供应商文档**是对应主机和合同的说明；**CC Switch 固定预设**是客户端配置证据，两者都不是账号访问权或运行认证。CC Switch 固定提交为 [`793e67d9b3210eb527e7d36f2c866a56fae9dec7`](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config)。旧资料与固定预设冲突时，本表明确保留选中的主机，不尝试跨域发送密钥。
-- **原生**在下面新 ID 表中表示候选合同记录了上游操作，不表示每个模型均可执行。**网关转换**是本站请求格式到上游格式的转换。**CC Switch 本地转换**发生在客户端本机，是第三层；`wire_api = responses` 不能单独证明上游存在 `/responses`。
+- **原生**在下面新 ID 表中表示供应商合同记录了上游操作，不表示每个模型均可执行。**网关转换**是本站请求格式到上游格式的转换。**CC Switch 本地转换**发生在客户端本机，是第三层；`wire_api = responses` 不能单独证明上游存在 `/responses`。
 - `discovery = none` 表示没有启用主动模型发现，并非模型不可调用；按已确认的模型映射使用。已启用发现也只提供目录证据，不能越过账号/组授权。不能把另一个域名的模型、余额或价格接口当作当前域名的后备接口。
 - 新供应商记录不自动开启余额、额度、价格同步或主动探测。没有数据用“未知 / 未接入”表示，不能展示为零、无限或免费。公开目录、示例模型和营销价格不构成账号权益；文档有余额接口也不代表本站已实现该接口。
 - `/v1/messages`、`/v1/chat/completions`、`/v1/responses` 和 `/v1beta/models/{model}:generateContent`、`:streamGenerateContent` 是本站公开协议入口。是否可用取决于组、账号模式、实际选中的原生协议/转换与模型。新增 ID 未声明供应商原生 Gemini 操作；Gemini 到文本协议的转换不能改称供应商原生 Gemini。
@@ -33,7 +34,7 @@
 
 ## 完整名称归一化
 
-“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。特殊鉴权待集成验证项没有计入 70 个新增 ID。
+“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。Copilot 与 Nous 的手工凭据接入计入 72 个新增 ID；RelayCode 未解决，ETok.ai 仅历史记录。
 
 | 请求名称 | 本站 ID / 状态 | 范围说明 | 主要来源 |
 | --- | --- | --- | --- |
@@ -90,10 +91,10 @@
 | Azure OpenAI | [`azure_openai`](#provider-azure_openai) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L1332) |
 | AWS Bedrock AKSK | `bedrock` | 既有平台配置；不同区域、套餐与鉴权范围独立。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1829) |
 | AWS Bedrock API Key | `bedrock` | 既有平台配置；不同区域、套餐与鉴权范围独立。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1868) |
-| GitHub Copilot | GitHub Copilot：待集成验证 | 特殊鉴权方案已确定但待集成验证，不列为已支持；不能用 GitHub Models/BYOK 替代 Copilot 权益。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1688) |
+| GitHub Copilot | [`github_copilot`](#provider-github_copilot) | 已实现手工 fine-grained PAT 子集；不是自动 OAuth 或供应商在线认证，GitHub Models/BYOK 不替代 Copilot 权益。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1688) |
 | Nvidia | [`nvidia`](#provider-nvidia) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1757) |
 | Together AI | [`together`](#provider-together) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
-| Nous Research | Nous Research：待集成验证 | 特殊鉴权方案已确定但待集成验证，不列为已支持；不导入 Portal refresh token 或冒用 Hermes 客户端。 | [配置来源](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
+| Nous Research | [`nous_research`](#provider-nous_research) | 已实现手工 invocation token / official proxy 子集；不自动刷新、不导入 refresh token、不冒用 Hermes 客户端。 | [配置来源](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
 | KAT-Coder | [`kat_coder`](#provider-kat_coder) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1457) |
 | Vanchin Endpoint ID | [`kat_coder`](#provider-kat_coder) | KAT-Coder 的 Endpoint ID 配置字段，不是另一个供应商或密钥；按下方当前路由合同配置。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1457) |
 | Compshare/优云智算 | [`compshare`](#provider-compshare) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L684) |
@@ -155,9 +156,9 @@
 
 原始名称之外，以下区别必须保留：`dmxapi_com`（.com）、`dmxapi_ssvip`（SSVIP）不同于 `dmxapi`（.cn）；`crazyrouter_intl` 不同于 `crazyrouter`；`teamorouter_com` 不同于 `teamorouter`；`qwencloud`（MaaS）与固定预设名称 QwenCloud 对应的 `qianwen`（国际 DashScope）不同；`qwencloud_maas_token` 与 `qwencloud_token` 不同。具体主机、协议与证据在下方逐项列出，不推定密钥互通。
 
-## 新增供应商合同（70 个 ID）
+## 新增供应商合同（72 个 ID）
 
-表内 `Authorization: Bearer`、`x-api-key`、`api-key` 是**上游**鉴权，不改变用户访问本站时的鉴权格式。Messages 还使用运行时配置的 Anthropic 版本头。默认模式与默认协议来自候选合同；显式选择协议可能改变转换路线。转换名表示“公开入口 → 原生目标”，不是额外供应商 URL。
+表内 `Authorization: Bearer`、`x-api-key`、`api-key` 是**上游**鉴权，不改变用户访问本站时的鉴权格式。Messages 还使用运行时配置的 Anthropic 版本头。默认模式与默认协议来自供应商合同；显式选择协议可能改变转换路线。转换名表示“公开入口 → 原生目标”，不是额外供应商 URL。
 
 <a id="provider-a6api"></a>
 
@@ -670,7 +671,7 @@ Azure 资源地址由管理员提供，没有通用全球 base。请求 `model` 
 
 操作级来源：[供应商文档 1](https://www.streamlake.ai/document/DOC/mh1gbfvrdn6hpbzxixv)；[供应商文档 2](https://www.streamlake.ai/document/DOC/mkaylxzkso38sqxcpa)。
 
-Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中的旧模板与当前供应商路径有差别；本表采用候选合同的具体路由，不能把 ENDPOINT_ID 任意拼进 Chat URL，或用 API Key 填此字段。
+Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中的旧模板与当前供应商路径有差别；本表采用供应商合同的具体路由，不能把 ENDPOINT_ID 任意拼进 Chat URL，或用 API Key 填此字段。
 
 <a id="provider-longcat"></a>
 
@@ -1232,9 +1233,94 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L384)；[固定配置 2](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/opencodeProviderPresets.ts#L499)。
 
+<a id="provider-github_copilot"></a>
+
+### GitHub Copilot — `github_copilot`
+
+默认路由模式 `payg`，默认协议 `chat_completions`；`account_mode=payg` 只是本站内部路由选择，不表示供应商按量计费或任何订阅权益。认证模式为空或 `fine_grained_pat` 时，管理员手工提供自己的 fine-grained `github_pat_…` 到敏感 `api_key` 字段。来源：[GitHub Copilot 文档](https://docs.github.com/en/copilot)；观察日期 2026-10-03。
+
+| 认证模式 | 上游 Chat | 模型发现 | 鉴权 |
+| --- | --- | --- | --- |
+| `fine_grained_pat`（可省略） | POST `https://api.githubcopilot.com/v1/chat/completions` | GET `https://api.githubcopilot.com/models` | `Authorization: Bearer` PAT；`Copilot-Integration-Id: omnihive`；仅目录请求增加 `X-GitHub-Api-Version: 2026-07-01` |
+
+默认 base 为 `https://api.githubcopilot.com/v1`。还允许同样路径的 `api.enterprise.githubcopilot.com`、`api.business.githubcopilot.com`、`copilot-api.<tenant>.ghe.com`；GHE tenant 必须是单个有效小写 DNS 标签。仅 HTTPS 官方主机，base 路径为空或 `/v1`；目录固定在主机根 `/models`，**不是 `/v1/models`**。不要用一般的 base + models 拼接替代专用发现逻辑。
+
+上游仅 Chat Completions；`discovery=openai_models` 由专用目录钩子处理。本站 Messages、Responses、Gemini 分别通过 `messages_to_chat`、`responses_to_chat`、`gemini_to_chat` 转换，已由离线合同测试覆盖流式、非流式及工具路径，不代表供应商原生支持这些协议，也不代表 PAT 已获真实供应商访问权。集成使用自己的 `omnihive` 身份，不伪装其他客户端；不提供自动 OAuth。
+
+<a id="provider-nous_research"></a>
+
+### Nous Research — `nous_research`
+
+默认路由模式 `payg`、默认协议 `chat_completions`，与供应商计费/套餐无关。必须显式选择 `auth_mode`。来源：[Nous Portal](https://portal.nousresearch.com/)；观察日期 2026-10-03。
+
+| 认证模式 | 上游 Chat | 模型发现 | 凭据及生命周期 |
+| --- | --- | --- | --- |
+| `invocation_token` | POST `https://inference-api.nousresearch.com/v1/chat/completions` | GET `https://inference-api.nousresearch.com/v1/models` | `api_key` 中手工提供 invocation JWT，以 `Authorization: Bearer` 发送；到期手工替换，无自动刷新 |
+| `official_proxy` | POST `{explicit-prefix}/chat/completions` | GET `{explicit-prefix}/models` | 管理员显式提供可由网关部署环境访问的官方代理前缀；`api_key` 是可选的运营方入口 Bearer key，留空不发送 Authorization |
+
+Invocation base 仅允许 `https://inference-api.nousresearch.com/v1`（或末尾斜杠），不回退到 welcome-api/Portal。JWT 只作未验证的格式、未来到期时间与 `inference:invoke` 声明检查，不能证明签名、发行方或权益；最终认证由上游负责。官方代理的 URL 必须显式、可移植地配置，例如运营方提供的 HTTPS 服务前缀；不会自动追加 `/v1`，没有本机客户端或本地端口依赖。URL、SSRF、出口代理策略仍适用，语法接受不代表网络访问许可。
+
+上游仅 Chat；`discovery=openai_models` 使用上述专用地址。本站 `messages_to_chat`、`responses_to_chat`、`gemini_to_chat` 是离线合同测试覆盖的桥接，不是供应商原生 Messages / Responses / Gemini。两种模式都不接收 `refresh_token`，不读取客户端 token 存储，不转移或共享 refresh grants；运营方自行管理代理背后的认证。
+
+**编辑凭据：**请使用单账号编辑切换 Nous 认证模式，并显式提交新凭据；切到 keyless proxy 时必须显式清空旧 key，切回 invocation 必须提供非空新 token。省略、掩码或复用旧值不能把 invocation token 变成发往另一运营方的入口 key。同模式修改保留已有密钥及账号绑定的 secret reference；需要清除 proxy key 时使用明确的清除操作。持有密钥引用的账号也应逐个编辑，不依赖批量编辑完成认证模式与密钥轮换。Copilot / Nous 不接受非空逐协议 `api_base_urls` 覆盖，以免与专用目的地址冲突。
+
+这两个 ID 没有余额/额度探测、价格预设或媒体适配器。离线合同测试证明本项目的请求构造、转换和凭据边界，**真实供应商可用性仍需运营方使用已授权 key 独立验证**，不能称为供应商认证。
+
 ## 既有平台的区域、套餐和认证配置
 
-下面是固定客户端预设中各名称对应的配置来源，不是 70 个新增 ID 的合同表。**原始客户端 base**可能由 SDK 追加 `/v1`，与上一节已规范化的网关 base 不同；不得不经核对直接覆盖已保存账号。界面中尚未出现的地区/套餐预设应视为待集成配置，不凭本表宣称当前部署已经支持。原生能力与模型授权仍以实际适配器、所选模式和同主机供应商文档为准。
+以下为本站原生配置的最终根地址。Chat 追加 `/chat/completions`，Responses 追加 `/responses`；Messages 在末尾已有 `/v1` 时追加 `/messages`，否则追加 `/v1/messages`，避免 Kimi `/coding/v1/v1/messages`。表内 `—` 表示无该协议默认值，不能跨站点/套餐补齐。显式 `api_base_urls` 在固定与自适应模式均优先；混合区域或自定义映射不借用另一配置的能力/额度信息，也不会迁移已保存账号。
+
+Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages 默认 Bearer，DeepSeek 与 Tencent PAYG 默认 `x-api-key`；显式历史鉴权覆盖仍优先。未知/自定义 URL 保持既有显式/默认鉴权逻辑，不能从名称猜鉴权。
+
+| 平台 / 配置 | 路由模式 | Chat 根 | Messages 根 | Responses 默认根 | 能力元数据 profile | 主动模型发现 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `kimi` / Moonshot CN | `payg` | `https://api.moonshot.cn/v1` | `https://api.moonshot.cn/anthropic` | `https://api.moonshot.cn/v1` | `moonshotai-cn` | 已配置 |
+| `kimi` / Moonshot Global | `payg` | `https://api.moonshot.ai/v1` | `https://api.moonshot.ai/anthropic` | `https://api.moonshot.ai/v1` | `moonshot` | 已配置 |
+| `kimi` / Kimi Coding CN | `coding` | `https://api.kimi.com/coding/v1` | `https://api.kimi.com/coding` | `https://api.kimi.com/coding/v1` | `kimi-for-coding` | 未接入 |
+| `kimi` / Kimi Coding Global | `coding` | `https://api.kimi.ai/coding/v1` | `https://api.kimi.ai/coding` | `https://api.kimi.ai/coding/v1` | 未知 | 未接入 |
+| `zhipu` / GLM CN payg | `payg` | `https://open.bigmodel.cn/api/paas/v4` | `https://open.bigmodel.cn/api/anthropic` | `https://open.bigmodel.cn/api/v1` | `zhipuai` | 未接入 |
+| `zhipu` / GLM CN coding | `coding` | `https://open.bigmodel.cn/api/coding/paas/v4` | `https://open.bigmodel.cn/api/anthropic` | `https://open.bigmodel.cn/api/v1` | `zhipuai-coding-plan` | 未接入 |
+| `zhipu` / GLM Global payg | `payg` | `https://api.z.ai/api/paas/v4` | `https://api.z.ai/api/anthropic` | `https://api.z.ai/api/v1` | `zai` | 未接入 |
+| `zhipu` / GLM Global coding | `coding` | `https://api.z.ai/api/coding/paas/v4` | `https://api.z.ai/api/anthropic` | `https://api.z.ai/api/v1` | `zai-coding-plan` | 未接入 |
+| `deepseek` / DeepSeek | `payg` | `https://api.deepseek.com/v1` | `https://api.deepseek.com/anthropic` | `https://api.deepseek.com` | `deepseek` | 已配置 |
+| `minimax` / MiniMax Legacy CN payg | `payg` | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` | `https://api.minimaxi.com/v1` | `minimax-cn` | 已配置 |
+| `minimax` / MiniMax Legacy CN coding | `coding` | `https://api.minimaxi.com/v1` | `https://api.minimaxi.com/anthropic` | `https://api.minimaxi.com/v1` | `minimax-cn-coding-plan` | 未接入 |
+| `minimax` / MiniMax CN payg | `payg` | `https://api.minimax.cn/v1` | `https://api.minimax.cn/anthropic` | `https://api.minimax.cn/v1` | 未知 | 已配置 |
+| `minimax` / MiniMax CN coding | `coding` | `https://api.minimax.cn/v1` | `https://api.minimax.cn/anthropic` | `https://api.minimax.cn/v1` | 未知 | 未接入 |
+| `minimax` / MiniMax Global payg | `payg` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | `https://api.minimax.io/v1` | `minimax` | 已配置 |
+| `minimax` / MiniMax Global coding | `coding` | `https://api.minimax.io/v1` | `https://api.minimax.io/anthropic` | `https://api.minimax.io/v1` | `minimax-coding-plan` | 未接入 |
+| `qianfan` / Qianfan PAYG | `payg` | `https://qianfan.baidubce.com/v2` | — | `https://qianfan.baidubce.com/v2` | `qianfan` | 已配置 |
+| `qianfan` / Qianfan Coding | `coding` | `https://qianfan.baidubce.com/v2/coding` | `https://qianfan.baidubce.com/anthropic/coding` | — | 未知 | 未接入 |
+| `qianfan` / Qianfan Token Personal | `coding` | `https://qianfan.baidubce.com/v2/tokenplan/personal` | `https://qianfan.baidubce.com/anthropic/tokenplan/personal` | — | 未知 | 未接入 |
+| `qianfan` / Qianfan Token Enterprise | `coding` | `https://qianfan.baidubce.com/v2/tokenplan/team` | `https://qianfan.baidubce.com/anthropic/tokenplan/team` | — | 未知 | 未接入 |
+| `qianwen` / DashScope CN | `payg` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `https://dashscope.aliyuncs.com/apps/anthropic` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `alibaba-cn` | 已配置 |
+| `qianwen` / DashScope Intl (QwenCloud) | `payg` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `https://dashscope-intl.aliyuncs.com/apps/anthropic` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `alibaba` | 已配置 |
+| `qianwen` / DashScope Coding CN | `coding` | `https://coding.dashscope.aliyuncs.com/v1` | `https://coding.dashscope.aliyuncs.com/apps/anthropic` | — | `alibaba-coding-plan-cn` | 未接入 |
+| `qianwen` / DashScope Coding Intl (QwenCloud) | `coding` | `https://coding-intl.dashscope.aliyuncs.com/v1` | `https://coding-intl.dashscope.aliyuncs.com/apps/anthropic` | — | 未知 | 未接入 |
+| `qianwen` / Qianwen Token CN Beijing | `coding` | — | `https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic` | `https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | 未知 | 未接入 |
+| `qianwen` / Qianwen MaaS CN PAYG | `payg` | `https://maas.qianwenaiapi.com/compatible-mode/v1` | `https://maas.qianwenaiapi.com/apps/anthropic` | `https://maas.qianwenaiapi.com/compatible-mode/v1` | 未知 | 未接入 |
+| `qianwen` / Qianwen MaaS CN Token | `coding` | `https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1` | `https://token-plan.maas.qianwenaiapi.com/apps/anthropic` | `https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1` | 未知 | 未接入 |
+| `hunyuan` / TokenHub CN | `payg` | `https://tokenhub.tencentmaas.com/v1` | `https://tokenhub.tencentmaas.com/v1` | `https://tokenhub.tencentmaas.com/v1` | `hunyuan` | 未接入 |
+| `hunyuan` / TokenHub CN alternate | `payg` | `https://tokenhub.tencentmaas.cn/v1` | `https://tokenhub.tencentmaas.cn/v1` | `https://tokenhub.tencentmaas.cn/v1` | 未知 | 未接入 |
+| `hunyuan` / TokenHub legacy Intl | `payg` | `https://tokenhub-intl.tencentmaas.com/v1` | `https://tokenhub-intl.tencentmaas.com/v1` | `https://tokenhub-intl.tencentmaas.com/v1` | 未知 | 未接入 |
+| `hunyuan` / TokenHub legacy Intl CN | `payg` | `https://tokenhub-intl.tencentmaas.cn/v1` | `https://tokenhub-intl.tencentmaas.cn/v1` | `https://tokenhub-intl.tencentmaas.cn/v1` | 未知 | 未接入 |
+| `hunyuan` / TokenHub Intl | `payg` | `https://tokenhub-intl.tencentcloudmaas.com/v1` | `https://tokenhub-intl.tencentcloudmaas.com/v1` | `https://tokenhub-intl.tencentcloudmaas.com/v1` | 未知 | 未接入 |
+| `hunyuan` / Hunyuan Legacy | `payg` | `https://api.hunyuan.cloud.tencent.com/v1` | `https://api.hunyuan.cloud.tencent.com/v1` | `https://api.hunyuan.cloud.tencent.com/v1` | `hunyuan` | 未接入 |
+| `hunyuan` / TokenHub Legacy Coding | `coding` | `https://api.lkeap.cloud.tencent.com/coding/v3` | `https://api.lkeap.cloud.tencent.com/coding/anthropic` | — | 未知 | 未接入 |
+| `hunyuan` / Token Personal CN | `coding` | `https://api.lkeap.cloud.tencent.com/plan/v3` | `https://api.lkeap.cloud.tencent.com/plan/anthropic` | — | 未知 | 未接入 |
+| `hunyuan` / Token Enterprise Pro / Lite CN | `coding` | `https://tokenhub.tencentmaas.com/plan/v3` | `https://tokenhub.tencentmaas.com/plan/anthropic` | `https://tokenhub.tencentmaas.com/plan/v3` | 未知 | 未接入 |
+| `hunyuan` / Token Personal / Enterprise Pro / Lite Intl | `coding` | `https://tokenhub-intl.tencentcloudmaas.com/plan/v3` | `https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic` | — | 未知 | 未接入 |
+| `volcengine` / Ark PAYG | `payg` | `https://ark.cn-beijing.volces.com/api/v3` | `https://ark.cn-beijing.volces.com/api/compatible` | `https://ark.cn-beijing.volces.com/api/v3` | `volcengine` | 未接入 |
+| `volcengine` / Ark Coding | `coding` | `https://ark.cn-beijing.volces.com/api/coding/v3` | `https://ark.cn-beijing.volces.com/api/coding` | `https://ark.cn-beijing.volces.com/api/coding/v3` | 未知 | 未接入 |
+| `volcengine` / Ark Agent | `coding` | `https://ark.cn-beijing.volces.com/api/plan/v3` | `https://ark.cn-beijing.volces.com/api/plan` | `https://ark.cn-beijing.volces.com/api/plan/v3` | 未知 | 未接入 |
+
+**Tencent 国际个人/企业共享主机不等于共享能力。**个人 Intl 不能从共享 `/plan/v3` 获得企业 Responses 默认。企业 Pro / Lite Intl 必须明确保存 `api_base_urls.responses=https://tokenhub-intl.tencentcloudmaas.com/plan/v3`，对应 POST `https://tokenhub-intl.tencentcloudmaas.com/plan/v3/responses`、Bearer 鉴权；国内企业默认为 `https://tokenhub.tencentmaas.com/plan/v3`，国内个人没有 Responses 默认。Pro / Lite 模型与额度仍分别确认。
+
+`未知` 是元数据未建立，不是协议不可用或免费。Kimi Global Coding、MiniMax 新 CN、千问新 MaaS/Token、火山 Coding/Agent 等没有能力资料时保持未知；余额/额度仅复用同一已知区域合同，没有资料时报告不支持，不发向旧站点。未接入发现时手工声明已确认模型，不用 PAYG 目录替代 plan 目录。DeepSeek 原有无 `/v1` 根保持可用；上表同时给出明确 `/v1` 选项。千问北京 Token 不推定 Chat；Qianfan Coding/Token 和 DashScope Coding 不因本地 Codex 转换而获得原生 Responses。
+
+### 固定客户端配置来源
+
+下面保留所有原始客户端配置链接，作为配置来源溯源；它不是本站默认根表。客户端 SDK 可能追加 `/v1`，本地 Chat 转换也不代表供应商缺少已由官方文档确认的原生 Responses。运行配置请以上表为准，不直接把客户端 base 覆盖到已有账号。
 
 | 名称 / 既有平台 | 客户端 | 原始客户端 base | 上游协议 / 本地转换 | 凭据语义 | 来源 |
 | --- | --- | --- | --- | --- | --- |
@@ -1334,10 +1420,29 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 - **Bedrock**：AK/SK 签名与 Bedrock API Key 属既有认证模式，区域、模型 / inference profile 权限分别核对。不能假定 API Key 替代所有 AWS 管理面签名。参阅 [Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)。
 - **Kimi / Zhipu / MiniMax**：国内与国际、PAYG 与 Coding 不互借 Key。Kimi Code 模型标签与 Moonshot PAYG 模型 ID 不同；MiniMax 历史 `api.minimaxi.com` 配置应保留，不能因新 `.cn` / `.io` 文档而静默重写。参阅 [Kimi Code](https://www.kimi.com/code/docs/)、[Moonshot](https://platform.moonshot.ai/docs)、[Z.ai](https://docs.z.ai/)、[MiniMax](https://platform.minimax.io/docs)。
 - **Qianfan**：PAYG、Coding 和个人 Token Plan 分开；FluxA 团队转售合同使用独立 `fluxa` ID，不继承 Qianfan 的发现、额度或模型元数据。Coding 的交互式编程工具限制不因保存账号而消失。参阅 [Qianfan Coding Plan](https://cloud.baidu.com/doc/qianfan/s/imlg0beiu)。
-- **千问 / QwenCloud**：固定预设的千问和 QwenCloud PAYG/Coding 分别指国内/国际 DashScope，归 `qianwen`；新 `qwencloud` MaaS、`qwencloud_maas_token`、新加坡 `qwencloud_token` 不合并。新增中国 MaaS PAYG `https://maas.qianwenaiapi.com` 与 MaaS Token `https://token-plan.maas.qianwenaiapi.com` 仍需分别匹配账号合同；资料和候选区域预设不授权自动迁移旧 DashScope Key。参阅 [Coding Plan 使用限制](https://help.aliyun.com/zh/model-studio/coding-plan)、[QwenCloud API key](https://docs.qwencloud.com/api-reference/preparation/api-key)。
+- **千问 / QwenCloud**：固定预设的千问和 QwenCloud PAYG/Coding 分别指国内/国际 DashScope，归 `qianwen`；新 `qwencloud` MaaS、`qwencloud_maas_token`、新加坡 `qwencloud_token` 不合并。新增中国 MaaS PAYG `https://maas.qianwenaiapi.com` 与 MaaS Token `https://token-plan.maas.qianwenaiapi.com` 仍需分别匹配账号合同；新增配置不授权自动迁移旧 DashScope Key。参阅 [Coding Plan 使用限制](https://help.aliyun.com/zh/model-studio/coding-plan)、[QwenCloud API key](https://docs.qwencloud.com/api-reference/preparation/api-key)。
 - **Tencent**：个人、企业 Pro、企业 Lite 与国内/国际站分别确认。企业 Pro / Lite 可以共用 `/plan` 主机，但模型与额度由套餐决定；Lite 不能借用 Pro 目录。`/plan` 与 TokenHub PAYG `/v1` 不能交换 Key；国内站新加坡主机不等于国际站。额度管理 API 使用管理权限，不是推理 Key 的余额 API。参阅 [Tencent TokenHub](https://cloud.tencent.com/document/product/1823/130079)、[Tencent Cloud international](https://www.tencentcloud.com/document/product/1300/78940)。
 - **Volcengine / BytePlus**：国内 PAYG、Coding、Agent Plan 路径分别维护；BytePlus 是独立国际合同。Agent Key 不发送到 Coding/PAYG 主机，模型名与推理端点 ID 分别核对。参阅 [Volcengine Ark](https://www.volcengine.com/docs/82379)。
 - **OpenCode Go / Command Code**：原始客户端配置中的本地 Chat 转换不构成供应商原生 Responses 或 Messages 证据；同时不删除供应商文档已明确的原生能力。按所选模式和模型验证，订阅窗口与 PAYG 余额分别处理。参阅 [OpenCode Go](https://opencode.ai/docs/go/)、[Command Code](https://commandcode.ai/docs/provider)。
+
+## 手工余额查询
+
+以下六个兼容 ID 支持管理员显式查询，不自动轮询。仅已支持的 API-key、PAYG、协议和精确官方 base 可用；请求均为 GET，以账号推理 key 作 `Authorization: Bearer`，保留同源/地区校验与出口策略。余额是带单位和时间的显示快照，不修改本站财务账本。
+
+| ID | 查询 URL | 成功字段 / 条件 | 单位与换算 | 官方来源 |
+| --- | --- | --- | --- | --- |
+| `novita` | `https://api.novita.ai/openapi/v1/billing/balance/detail` | `availableBalance` | USD；除以 10000 | [余额合同](https://novita.ai/docs/api-reference/basic-get-user-balance.md) |
+| `ppio` | `https://api.ppio.com/openapi/v1/billing/balance/detail` | `availableBalance` | CNY；除以 10000 | [余额合同](https://ppio.com/docs/management/reference-billing-get-balance-detail.md) |
+| `siliconflow_cn` | `https://api.siliconflow.cn/v1/user/info` | `data.totalBalance`；`code=20000` 且 `status=true` | CNY；不缩放 | [字段](https://raw.githubusercontent.com/siliconflow/siliconcloud/main/openapi.yaml)、[账户人民币口径](https://docs.siliconflow.cn/docs/userguide/faqs/rate-limit-and-upgradation)、[账户充值](https://docs.siliconflow.cn/docs/userguide/faqs/misc_finance) |
+| `siliconflow_global` | `https://api.siliconflow.com/v1/user/info` | `data.totalBalance`；`code=20000` 且 `status=true` | USD；不缩放 | [字段](https://docs.siliconflow.com/en/api-reference/userinfo/get-user-info)、[账户美元账本](https://www.siliconflow.com/blog/siliconflow-summer-rush%E4%B8%A8glm-5.2-week-the-more-glm-5.2-you-run-the-more-you-win) |
+| `shengsuanyun` | `https://router.shengsuanyun.com/api/v1/balance` | `data.account_balance_cny`；`success=true` 且 `gateway_type=common` | CNY；不缩放 | [余额合同](https://lean.shengsuanyun.com/apidocs/api/balance-api) |
+| `soleapi` | `https://soleapi.com/v1/usage` | `remaining`；明确 `unit=Credits` | Credits；不折算现金 | [账单字段](https://soleapi.com/ru/docs/guides/billing)、[客户端示例](https://soleapi.com/ja/docs/config/ccswitch) |
+
+Novita / PPIO 的 availableBalance 不替换成 cashBalance，也不再加 creditLimit。SiliconFlow 的 totalBalance 不重复加充值/赠送项；接口本身没有币种字段，CNY / USD 标签来自相应站点账户财务资料，不跨区套用。SoleAPI 不把 used/total 当剩余余额。
+
+真实数值零是成功结果；缺失、无效、失败或不支持不表示零。失败保留先前快照与时间，不覆盖为零；账号身份变化清除旧快照。自定义/跨域/跨区 base、Coding、未知模式或协议、OAuth 账号不调用这些接口。胜算云企业项目预算（包括无限预算）不当成个人余额。
+
+AtlasCloud 的账户管理权限、OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
 
 ## 特定账号限制与未知项
 
@@ -1352,7 +1457,7 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 | SiliconFlow CN / Global | 两站账号及 Key 不互通；保留命名空间和大小写，不借用另一站模型目录。 | [官方国际说明](https://github.com/siliconflow/siliconflow-open-source-tasks/blob/main/README_EN.md) |
 | Compshare Coding | 套餐用尽/到期与 PAYG 独立；切换 PAYG 同时核对 Key 和 base，不能仅改模式。 | [Coding FAQ](https://compshare.cn/docs/modelverse/codingfaq) |
 | Azure / KAT-Coder | Azure 部署名与 KAT Endpoint ID 各有用途；显示名称、模型 ID、部署 ID 不能互换。 | [Azure v1](https://learn.microsoft.com/en-us/azure/foundry/openai/latest)、[KAT 接入](https://www.streamlake.ai/document/DOC/mg6k6nlp8j6qxicx4c9) |
-| Copilot / Nous / RelayCode / ETok.ai | Copilot 与 Nous 特殊鉴权待集成验证；RelayCode 身份未解决；ETok.ai 仅历史记录。这四项不作为新增已支持供应商。 | [固定配置目录](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
+| Copilot / Nous / RelayCode / ETok.ai | Copilot / Nous 仅上述手工凭据子集，真实权益需验证；RelayCode 身份未解决，不能当成已实现的 RelaxyCode；ETok.ai 预设历史移除不代表供应商停服，不作为当前支持项。 | [固定配置目录](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
 
 未知余额、模型发现、价格、推理设置或缓存信息，不等于访问被拒绝。访问被拒绝需要结合实际 HTTP 状态、协议错误体、所选账号/组、模型和动作判断；401、403、404、429 与上游暂时失败分别排查。不要用一条失败请求倒推出所有模型、区域或套餐都不可用。
 

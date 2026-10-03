@@ -13,13 +13,20 @@ recertify every historical platform claim or deployment.
 ## Existing concrete platforms
 
 The table below covers the 19 existing concrete platforms. The provider expansion
-adds 70 distinct compatible supplier IDs; their exact mode, base, authentication,
+adds 72 distinct compatible supplier IDs; their exact mode, base, authentication,
 discovery and declared conversion contracts are listed in the
-[administrator provider reference](provider-configuration.md). The 70 IDs are
-not additional native media adapters. Copilot and Nous special authentication
-are pending integration and are not included in that supported set. Regional and
-plan profile refreshes must be checked against the selected account contract;
-this historical table does not certify every new preset.
+[administrator provider reference](provider-configuration.md). The 72 IDs are
+not additional native media adapters. Copilot and Nous are included as manual-credential subsets, without automatic OAuth or refresh. Regional roots, auth defaults, unknown metadata and the six manual balance contracts are documented in that reference. The original 19-platform table below retains its historical scope; migration 283 likewise retains its historical 70 compatible IDs. Neither count replaces the current 72-ID registry.
+
+| Compatible ID / auth mode | Upstream / discovery | Public gateway behavior and limits |
+| --- | --- | --- |
+| `github_copilot` / `fine_grained_pat` (also the empty auth-mode default) | Chat POST `https://api.githubcopilot.com/v1/chat/completions`; catalog GET `https://api.githubcopilot.com/models` | Manual fine-grained PAT, Bearer, own `Copilot-Integration-Id: omnihive`; catalog-only `X-GitHub-Api-Version: 2026-07-01`. Messages, Responses and Gemini bridge to Chat. |
+| `nous_research` / `invocation_token` | Chat POST `https://inference-api.nousresearch.com/v1/chat/completions`; catalog GET `https://inference-api.nousresearch.com/v1/models` | Manual invocation JWT, Bearer; replace on expiry, no automatic refresh. Messages, Responses and Gemini bridge to Chat. |
+| `nous_research` / `official_proxy` | Chat POST `{explicit-prefix}/chat/completions`; catalog GET `{explicit-prefix}/models` | Explicit portable operator URL prefix, no automatic `/v1`; optional operator frontdoor Bearer key, empty sends no Authorization. Same Chat bridges. |
+
+These are two IDs with one internal `account_mode=payg` each and three authentication choices; routing `payg` does not establish vendor billing. Special endpoint hooks control catalog URLs, so a generic Chat-base join is incorrect for Copilot. Offline contract tests cover streaming, nonstreaming and tools through the public bridges; live admission requires an authorized operator key and is not vendor certification. Use single-account editing for mode changes, including referenced credentials; changes require an explicit fresh secret or explicit clearing for a keyless proxy, while same-mode edits preserve account-bound secret references. No client token-store access, shared refresh grant, balance probe, media adapter or local-only dependency is part of these contracts.
+
+For native Tencent Intl plans, personal and enterprise share Chat/Messages hosts but personal must not inherit enterprise Responses. Enterprise Pro/Lite requires explicit `api_base_urls.responses=https://tokenhub-intl.tencentcloudmaas.com/plan/v3`; CN enterprise retains its separate default. RelayCode remains unresolved independently of implemented RelaxyCode; ETok.ai is a historically removed preset, not a shutdown claim.
 
 Composite is a group routing mode, not an account platform.
 N = native path; B = protocol bridge; conditional

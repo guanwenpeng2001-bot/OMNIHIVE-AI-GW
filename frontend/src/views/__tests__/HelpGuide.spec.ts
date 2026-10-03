@@ -95,8 +95,24 @@ describe('configuration manual', () => {
     for (const endpoint of ['/v1/models', '/v1/models/catalog', '/v1beta/models/']) {
       expect(supplierSection.text()).toContain(endpoint)
     }
-    for (const pendingName of ['Copilot', 'Nous', 'RelayCode', 'ETok.ai']) {
-      expect(supplierSection.text()).toContain(pendingName)
+    for (const supplierName of ['Copilot', 'Nous', 'RelayCode', 'RelaxyCode', 'ETok.ai']) {
+      expect(supplierSection.text()).toContain(supplierName)
+    }
+    for (const contract of ['72', 'fine_grained_pat', 'invocation_token', 'official_proxy',
+      'Copilot-Integration-Id: omnihive', '/models', '/v1/chat/completions',
+      'Tencent Intl', 'Novita', 'PPIO', 'SiliconFlow', 'SoleAPI', '10000', 'Credits']) {
+      expect(supplierSection.text()).toContain(contract)
+    }
+    const supplierCopy = supplierSection.text()
+    expect(supplierCopy).not.toMatch(/pending integration|待集成验证|70 distinct|70 个独立/)
+    for (const boundary of locale === 'en'
+      ? ['offline contract tests, not live vendor certification', 'no automatic OAuth or refresh',
+        'same-mode edits preserve secret references', 'Use single-account editing', 'Unsupported or failed is not zero',
+        'personal cannot inherit enterprise Responses', 'optional frontdoor key']
+      : ['离线合同测试，不是供应商在线认证', '无自动 OAuth 或 refresh',
+        '同模式编辑保留密钥引用', '通过单账号编辑', '不支持或失败不是零余额',
+        '个人套餐不能从共享主机继承企业 Responses', '入口 key 可选']) {
+      expect(supplierCopy).toContain(boundary)
     }
     expect(supplierSection.text()).toContain('793e67d9b3210eb527e7d36f2c866a56fae9dec7')
     expect(supplierSection.text()).not.toContain('https://api.openai.com')
