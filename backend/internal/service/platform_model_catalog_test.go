@@ -8,6 +8,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Keep the original product contract independent of the growing registry.
+func originalServicePlatforms() []string {
+	return []string{
+		"anthropic", "gemini", "openai", "antigravity", "grok", "kimi", "zhipu",
+		"deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode",
+		"volcengine", "qianfan", "hunyuan", "mistral", "openrouter", "bedrock",
+	}
+}
+
+// Supplier IDs come from the admission registry, never the service enumeration
+// being tested. The original products above remain a separate literal oracle.
+func expectedServicePlatforms() []string {
+	platforms := originalServicePlatforms()
+	for _, provider := range domain.CompatibleProviders() {
+		platforms = append(platforms, provider.ID)
+	}
+	return platforms
+}
+
+func requireOriginalPresetCoverage(t *testing.T, covered map[string]bool) {
+	t.Helper()
+	for _, platform := range originalServicePlatforms() {
+		require.True(t, covered[platform], "native product requires a preset: %s", platform)
+	}
+	for platform := range covered {
+		require.Contains(t, expectedServicePlatforms(), platform, "preset must belong to an admitted identity")
+	}
+}
+
 // Candidate schema checks can run before the separate signed-release binding step.
 // Registry trust and account eligibility are still exercised by the tests below.
 func TestPlatformModelPresetCandidateSchema(t *testing.T) {
@@ -37,7 +66,7 @@ func TestPlatformModelPresetCandidateSchema(t *testing.T) {
 		}
 	}
 	require.True(t, vertex)
-	require.Len(t, covered, len(domain.ConcretePlatforms()))
+	requireOriginalPresetCoverage(t, covered)
 }
 
 func TestPlatformModelPresetCoverageAndIsolation(t *testing.T) {
@@ -52,9 +81,7 @@ func TestPlatformModelPresetCoverageAndIsolation(t *testing.T) {
 			require.False(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}), "a preset is never account entitlement")
 		}
 	}
-	for _, platform := range domain.ConcretePlatforms() {
-		require.True(t, covered[platform], platform)
-	}
+	requireOriginalPresetCoverage(t, covered)
 	original := presets[0].ProviderProfile
 	presets[0].ProviderProfile = "mutated"
 	again, err := PlatformModelPresets()

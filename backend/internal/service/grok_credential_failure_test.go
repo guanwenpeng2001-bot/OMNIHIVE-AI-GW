@@ -70,7 +70,15 @@ type grokCredentialBlockingRepo struct {
 
 type grokCredentialCommitThenCancelRepo struct {
 	*tokenRefreshAccountRepo
-	returnErr error
+	returnErr   error
+	afterCommit context.CancelFunc
+}
+
+func (r *grokCredentialCommitThenCancelRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return r.tokenRefreshAccountRepo.GetByID(ctx, id)
 }
 
 type grokCredentialUncommittedDeadlineRepo struct {
@@ -106,6 +114,9 @@ func (r *grokCredentialCommitThenCancelRepo) SetGrokCredentialErrorIfMatch(
 	account.Status = StatusError
 	account.Schedulable = false
 	account.ErrorMessage = reason
+	if r.afterCommit != nil {
+		r.afterCommit()
+	}
 	if r.returnErr != nil {
 		return false, r.returnErr
 	}
@@ -123,6 +134,9 @@ func (r *grokCredentialCommitThenCancelRepo) SetGrokCredentialTempUnschedulableI
 	account := r.accountsByID[id]
 	account.TempUnschedulableUntil = &until
 	account.TempUnschedulableReason = reason
+	if r.afterCommit != nil {
+		r.afterCommit()
+	}
 	if r.returnErr != nil {
 		return false, r.returnErr
 	}
@@ -1197,12 +1211,14 @@ func TestGrokCredentialMutationCancellationAmbiguityConfirmsDurableCommit(t *tes
 			repo := &grokCredentialCommitThenCancelRepo{tokenRefreshAccountRepo: baseRepo}
 			cache := &grokTokenCacheForProviderTest{}
 			svc := &OpenAIGatewayService{accountRepo: repo, grokTokenProvider: NewGrokTokenProvider(repo, cache)}
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+			// Cancel only after the durable write, never before validation or CAS.
+			repo.afterCommit = cancel
 
 			token, err := svc.applyGrokCredentialAccountFailure(ctx, account, tt.class)
 
-			require.ErrorIs(t, err, context.DeadlineExceeded)
+			require.ErrorIs(t, err, context.Canceled)
 			require.Empty(t, token)
 			require.True(t, tt.committed(account), "the detached confirmation must recognize the durable mutation")
 			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account), "a confirmed durable quarantine must retain its runtime block")
