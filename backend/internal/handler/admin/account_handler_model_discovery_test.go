@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,9 +18,11 @@ import (
 
 type backgroundCatalogAdmin struct {
 	*stubAdminService
-	account service.Account
-	started chan context.Context
-	release chan struct{}
+	account         service.Account
+	started         chan context.Context
+	release         chan struct{}
+	requestContext  context.Context
+	foregroundReads int
 }
 
 func (admin *backgroundCatalogAdmin) CreateAccount(context.Context, *service.CreateAccountInput) (*service.Account, error) {
@@ -31,6 +34,13 @@ func (admin *backgroundCatalogAdmin) UpdateAccount(context.Context, int64, *serv
 	return &account, nil
 }
 func (admin *backgroundCatalogAdmin) GetAccount(ctx context.Context, id int64) (*service.Account, error) {
+	// PUT may read the stored identity for credential validation before saving.
+	// Only the independently scheduled discovery read waits on the barrier.
+	if ctx == admin.requestContext {
+		admin.foregroundReads++
+		account := admin.account
+		return &account, nil
+	}
 	select {
 	case admin.started <- ctx:
 	default:
@@ -84,29 +94,49 @@ func TestModelCatalogBackgroundSaveDoesNotWaitForDiscovery(t *testing.T) {
 			requestContext, cancel := context.WithCancel(domain.WithWorkspaceScope(request.Context(), 2))
 			defer cancel()
 			request = request.WithContext(requestContext)
+			admin.requestContext = requestContext
 			recorder := httptest.NewRecorder()
 			returned := make(chan struct{})
+			var releaseOnce sync.Once
+			releaseDiscovery := func() { releaseOnce.Do(func() { close(admin.release) }) }
+			defer func() {
+				releaseDiscovery()
+				select {
+				case <-returned:
+				case <-time.After(time.Second):
+					t.Error("save did not finish after releasing discovery")
+				}
+				require.Eventually(t, func() bool { return snapshotGrokImportProbeScheduler(scheduler).workers == 0 }, time.Second, time.Millisecond)
+			}()
 			go func() { router.ServeHTTP(recorder, request); close(returned) }()
 			select {
 			case <-returned:
 			case <-time.After(time.Second):
-				close(admin.release)
 				t.Fatal("save waited for background discovery")
 			}
 			require.Equal(t, 200, recorder.Code, recorder.Body.String())
+			expectedForegroundReads := 0
+			if method == http.MethodPut && len(domain.CompatibleProviders()) > 0 {
+				expectedForegroundReads = 1
+			}
+			require.Equal(t, expectedForegroundReads, admin.foregroundReads, "credential validation uses the request context without waiting for discovery")
 			var backgroundContext context.Context
 			select {
 			case backgroundContext = <-admin.started:
 			case <-time.After(time.Second):
-				close(admin.release)
 				t.Fatal("background task was not scheduled")
+			}
+			select {
+			case <-repo.committed:
+				t.Fatal("discovery committed before its read barrier was released")
+			default:
 			}
 			cancel()
 			require.NoError(t, backgroundContext.Err(), "request cancellation must not cancel the scheduled task")
 			workspace, scoped := domain.WorkspaceScope(backgroundContext)
 			require.True(t, scoped)
 			require.EqualValues(t, 2, workspace)
-			close(admin.release)
+			releaseDiscovery()
 			select {
 			case commit := <-repo.committed:
 				require.EqualValues(t, 2, commit.workspace)
