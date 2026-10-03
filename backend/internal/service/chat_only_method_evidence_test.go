@@ -50,9 +50,9 @@ func TestChatOnlyNilEmptyAndMixedMethods(t *testing.T) {
 			account := &Account{Platform: platform, Type: AccountTypeAPIKey}
 			textFamilies := []string{"chat_completions"}
 			switch platform {
-			case PlatformHunyuan:
+			case PlatformHunyuan, PlatformVolcengine:
 				textFamilies = append(textFamilies, "messages", "responses")
-			case PlatformVolcengine, PlatformQianfan:
+			case PlatformQianfan:
 				textFamilies = append(textFamilies, "responses")
 			}
 			require.Equal(t, textFamilies, accountCatalogModelEndpoints(account, "fixture", UpstreamModelMetadata{}))
@@ -93,9 +93,9 @@ func TestChatOnlyTextMethodDeclarationsRemainSchedulable(t *testing.T) {
 					expected = append(expected, "chat_completions")
 				}
 				switch platform {
-				case PlatformHunyuan:
+				case PlatformHunyuan, PlatformVolcengine:
 					expected = append(expected, "messages", "responses")
-				case PlatformVolcengine, PlatformQianfan:
+				case PlatformQianfan:
 					expected = append(expected, "responses")
 				}
 				require.Equal(t, expected, declared)

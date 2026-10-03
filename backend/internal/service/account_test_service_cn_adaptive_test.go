@@ -240,7 +240,8 @@ func TestAccountTestService_AnthropicProtocolProbesNativeEndpointWithoutBetaQuer
 	// Native Anthropic path without the ?beta=true suffix the generic Claude tester appends.
 	require.Equal(t, "https://open.bigmodel.cn/api/anthropic/v1/messages", req.URL.String())
 	require.Empty(t, req.URL.RawQuery)
-	require.Equal(t, "sk-anthropic-test", req.Header.Get("x-api-key"))
+	require.Empty(t, req.Header.Get("x-api-key"))
+	require.Equal(t, "Bearer sk-anthropic-test", req.Header.Get("Authorization"))
 	require.Equal(t, "2023-06-01", req.Header.Get("anthropic-version"))
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 }

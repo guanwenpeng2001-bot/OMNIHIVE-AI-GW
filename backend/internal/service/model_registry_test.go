@@ -158,7 +158,12 @@ func TestRegistryRejectsRepinnedRollbackAndSameGenerationMutation(t *testing.T) 
 func TestTokenHubCapabilityProfileUsesExactHosts(t *testing.T) {
 	for _, host := range []string{"tokenhub.tencentmaas.com", "tokenhub.tencentmaas.cn", "tokenhub-intl.tencentmaas.com", "tokenhub-intl.tencentmaas.cn"} {
 		account := &Account{Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://" + host + "/v1"}}
-		require.Equal(t, "hunyuan", resolveCapabilityProfile(account))
+		if host == "tokenhub.tencentmaas.com" {
+			require.Equal(t, "hunyuan", resolveCapabilityProfile(account))
+		} else {
+			// Alternate regions have routing evidence, but no pinned metadata identity.
+			require.Equal(t, "custom:hunyuan:https://"+host+"/v1", resolveCapabilityProfile(account))
+		}
 		for _, spoofed := range []string{host + ".example.com", "not-" + host, "proxy.example.com/" + host} {
 			account.Credentials["base_url"] = "https://" + spoofed + "/v1"
 			require.NotEqual(t, "hunyuan", resolveCapabilityProfile(account))

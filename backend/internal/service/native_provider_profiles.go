@@ -40,10 +40,10 @@ var nativeProviderProfiles = []nativeProviderProfile{
 	{"qianwen", "coding", "Qianwen Token CN Beijing", "", "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic", "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "", false},
 	{"qianwen", "payg", "Qianwen MaaS CN PAYG", "https://maas.qianwenaiapi.com/compatible-mode/v1", "https://maas.qianwenaiapi.com/apps/anthropic", "https://maas.qianwenaiapi.com/compatible-mode/v1", "", false},
 	{"qianwen", "coding", "Qianwen MaaS CN Token", "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1", "https://token-plan.maas.qianwenaiapi.com/apps/anthropic", "https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1", "", false},
-	{"hunyuan", "payg", "TokenHub CN", "https://tokenhub.tencentmaas.com/v1", "https://tokenhub.tencentmaas.com/v1", "https://tokenhub.tencentmaas.com/v1", "hunyuan", false},
-	{"hunyuan", "payg", "TokenHub CN alternate", "https://tokenhub.tencentmaas.cn/v1", "https://tokenhub.tencentmaas.cn/v1", "https://tokenhub.tencentmaas.cn/v1", "", false},
-	{"hunyuan", "payg", "TokenHub legacy Intl", "https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.com/v1", "", false},
-	{"hunyuan", "payg", "TokenHub legacy Intl CN", "https://tokenhub-intl.tencentmaas.cn/v1", "https://tokenhub-intl.tencentmaas.cn/v1", "https://tokenhub-intl.tencentmaas.cn/v1", "", false},
+	{"hunyuan", "payg", "TokenHub CN", "https://tokenhub.tencentmaas.com/v1", "https://tokenhub.tencentmaas.com/v1", "https://tokenhub.tencentmaas.com/v1", "hunyuan", true},
+	{"hunyuan", "payg", "TokenHub CN alternate", "https://tokenhub.tencentmaas.cn/v1", "https://tokenhub.tencentmaas.cn/v1", "https://tokenhub.tencentmaas.cn/v1", "", true},
+	{"hunyuan", "payg", "TokenHub legacy Intl", "https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.com/v1", "", true},
+	{"hunyuan", "payg", "TokenHub legacy Intl CN", "https://tokenhub-intl.tencentmaas.cn/v1", "https://tokenhub-intl.tencentmaas.cn/v1", "https://tokenhub-intl.tencentmaas.cn/v1", "", true},
 	{"hunyuan", "payg", "TokenHub Intl", "https://tokenhub-intl.tencentcloudmaas.com/v1", "https://tokenhub-intl.tencentcloudmaas.com/v1", "https://tokenhub-intl.tencentcloudmaas.com/v1", "", false},
 	{"hunyuan", "payg", "Hunyuan Legacy", "https://api.hunyuan.cloud.tencent.com/v1", "https://api.hunyuan.cloud.tencent.com/v1", "https://api.hunyuan.cloud.tencent.com/v1", "hunyuan", false},
 	{"hunyuan", "coding", "TokenHub Legacy Coding", "https://api.lkeap.cloud.tencent.com/coding/v3", "https://api.lkeap.cloud.tencent.com/coding/anthropic", "", "", false},
@@ -133,19 +133,21 @@ func nativeProtocolOverride(account *Account, protocol string) string {
 }
 
 // Only synthesize a missing protocol inside the same exact known profile.
-// An explicit map always wins; a custom root never selects an official root.
+// Adaptive overrides win; a fixed protocol keeps its visible common base.
+// A custom root never selects an official root.
 func nativeConfiguredProtocolBase(account *Account, protocol string) (string, bool) {
 	if account == nil || !isNativeProfilePlatform(account.Platform) {
 		return "", false
 	}
-	if base := nativeProtocolOverride(account, protocol); base != "" {
+	base := strings.TrimSpace(account.GetCredential("base_url"))
+	selected := strings.TrimSpace(account.GetCredential("api_protocol"))
+	if base != "" && selected == protocol {
 		return base, true
 	}
-	base := strings.TrimSpace(account.GetCredential("base_url"))
+	if override := nativeProtocolOverride(account, protocol); override != "" {
+		return override, true
+	}
 	if base != "" {
-		if account.GetCredential("api_protocol") == protocol {
-			return base, true
-		}
 		if p := nativeProfileForURL(account, base); p != nil {
 			for _, other := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
 				if configured := nativeProtocolOverride(account, other); configured != "" && nativeProfileForURL(account, configured) != p {
@@ -157,7 +159,18 @@ func nativeConfiguredProtocolBase(account *Account, protocol string) (string, bo
 			}
 			return p.base(protocol), true
 		}
-		return base, true
+		// Legacy common custom roots identify Chat, and for these platforms the
+		// established Responses trunk shares that root. They do not establish a
+		// missing Messages endpoint, nor an OpenAI endpoint for Messages-only relays.
+		if selected != APIProtocolAnthropic {
+			if protocol == APIProtocolChatCompletions {
+				return base, true
+			}
+			if protocol == APIProtocolResponses && (account.Platform == PlatformZhipu || account.Platform == PlatformVolcengine || account.Platform == PlatformQianfan || account.Platform == PlatformQianwen) {
+				return base, true
+			}
+		}
+		return "", true
 	}
 	for _, candidate := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
 		if base := nativeProtocolOverride(account, candidate); base != "" {
