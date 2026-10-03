@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -41,6 +43,10 @@ func protocolMatrixRouter(platform string) *gin.Engine {
 // contracts: a registered route alone is never a promise of upstream support.
 func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 	for _, descriptor := range domain.PlatformDescriptors() {
+		if provider, compatible := domain.LookupCompatibleProvider(descriptor.ID); compatible {
+			testCompatibleProviderProtocolMatrix(test, provider)
+			continue
+		}
 		accountTypes := []string{service.AccountTypeAPIKey}
 		if descriptor.OAuth {
 			accountTypes = append(accountTypes, service.AccountTypeOAuth)
@@ -125,6 +131,71 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 	test.Run("grok-cli-compatibility", TestGatewayRoutesGrokAllowsCLICompatibilityEntrypoints)
 }
 
+// Compatible suppliers have mode-specific native transports. Exercise every
+// declared mode and fixed protocol, plus adaptive selection, instead of imposing
+// the legacy platforms' wire-family assumptions on these accounts.
+func testCompatibleProviderProtocolMatrix(test *testing.T, provider domain.CompatibleProvider) {
+	for _, mode := range provider.Modes {
+		protocols := []string{service.APIProtocolAdaptive, service.APIProtocolChatCompletions, service.APIProtocolAnthropic, service.APIProtocolResponses}
+		for _, protocol := range protocols {
+			for _, action := range []string{"messages", "responses", "chat", "generate_content", "embeddings", "image.generate", "live"} {
+				test.Run(provider.ID+"/apikey/"+mode.Mode+"/"+protocol+"/"+action, func(test *testing.T) {
+					credentials := map[string]any{"account_mode": mode.Mode, "api_protocol": protocol, "api_key": "matrix-local-key"}
+					if provider.BaseSource == "account" {
+						credentials["base_url"] = "https://matrix-resource.example.invalid"
+					}
+					// Match the special-auth contracts without real credentials or
+					// invoking a transport. JWT claims are shape fixtures only.
+					switch provider.ID {
+					case "github_copilot":
+						credentials["auth_mode"] = service.CopilotAuthFineGrainedPAT
+						credentials["api_key"] = "github_pat_matrix_local_fixture"
+					case "nous_research":
+						credentials["auth_mode"] = service.NousAuthInvocationToken
+						payload := fmt.Sprintf(`{"exp":%d,"scope":"inference:invoke"}`, time.Now().Add(time.Hour).Unix())
+						credentials["api_key"] = base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256"}`)) + "." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".c2lnbmF0dXJl"
+					}
+					account := &service.Account{ID: 1, Platform: provider.ID, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: credentials}
+					endpoint, support, supported := mode.ResolveAction(action, protocol)
+					wireEndpoint := map[string]string{service.APIProtocolAnthropic: "messages", service.APIProtocolResponses: "responses", service.APIProtocolChatCompletions: "chat_completions"}[endpoint.Protocol]
+					if !supported {
+						wireEndpoint = map[string]string{"chat": "chat_completions", "image.generate": "images"}[action]
+						if wireEndpoint == "" {
+							wireEndpoint = action
+						}
+					}
+					// Explicit local catalog evidence tests the binding contract;
+					// it does not populate discovery or claim any vendor model.
+					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{wireEndpoint}, EvidenceKind: "synthetic-contract"}}}
+					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
+					options := service.AccountModelBindingOptions{Endpoint: wireEndpoint, FinalModel: "fixture-model"}
+					ctx := service.WithGatewayRequestPlan(context.Background(), service.NewGatewayRequestPlan(service.GatewayRequestSpec{Action: action}))
+					require.Equal(test, supported, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
+					if support == domain.EndpointBridge {
+						incompatible := options
+						incompatible.Endpoint = map[string]string{"chat": "chat_completions"}[action]
+						if incompatible.Endpoint == "" {
+							incompatible.Endpoint = action
+						}
+						require.False(test, service.ResolveAccountModelBinding(ctx, account, "public-alias", incompatible).Supported, "bridge does not grant native wire support")
+					}
+					account.Type = service.AccountTypeOAuth
+					require.False(test, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported, "compatible providers cannot inherit first-party OAuth")
+					account.Type = service.AccountTypeAPIKey
+					credentials["account_mode"] = "unknown-mode"
+					require.False(test, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
+					credentials["account_mode"] = mode.Mode
+					catalog.EligibleModels[0].Endpoints = []string{"unrelated-endpoint"}
+					account.Extra[service.UpstreamModelCatalogExtraKey] = catalog
+					require.False(test, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
+					account.Extra = nil
+					require.False(test, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
+				})
+			}
+		}
+	}
+}
+
 func concreteMatrixPath(path string) string {
 	for _, parameter := range []string{":model", ":call_id", ":task_id", ":request_id", ":voice_id", ":custom_id", ":id"} {
 		path = strings.ReplaceAll(path, parameter, "fixture")
@@ -135,7 +206,11 @@ func concreteMatrixPath(path string) string {
 }
 
 func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
-	for _, platform := range []string{service.PlatformVolcengine, service.PlatformQianfan, service.PlatformHunyuan, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformBedrock} {
+	platforms := []string{service.PlatformVolcengine, service.PlatformQianfan, service.PlatformHunyuan, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformBedrock}
+	for _, provider := range domain.CompatibleProviders() {
+		platforms = append(platforms, provider.ID)
+	}
+	for _, platform := range platforms {
 		router := protocolMatrixRouter(platform)
 		for _, route := range router.Routes() {
 			path := concreteMatrixPath(route.Path)
@@ -277,7 +352,36 @@ func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 	slices.Sort(documented)
 	require.Equal(test, registered, documented, "documentation must not advertise unregistered routes")
 	for _, platform := range domain.ConcretePlatforms() {
+		if _, compatible := domain.LookupCompatibleProvider(platform); compatible {
+			continue // Compatible rows have a separate, linked mode/protocol reference.
+		}
 		require.Contains(test, document, "| "+platform+" |")
+	}
+	require.Contains(test, document, "[administrator provider reference](provider-configuration.md)")
+	providerBody, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "provider-configuration.md"))
+	require.NoError(test, err)
+	providerDocument := string(providerBody)
+	for _, provider := range domain.CompatibleProviders() {
+		test.Run("provider-reference/"+provider.ID, func(test *testing.T) {
+			anchor := `<a id="provider-` + provider.ID + `"></a>`
+			require.Equal(test, 1, strings.Count(providerDocument, anchor), "each compatible supplier needs one contract section")
+			section := strings.SplitN(providerDocument, anchor, 2)[1]
+			section = strings.SplitN(section, `<a id="provider-`, 2)[0]
+			for _, mode := range provider.Modes {
+				require.Contains(test, section, "`"+mode.Mode+"`")
+				require.Contains(test, section, "`"+mode.DefaultProtocol+"`")
+				for _, endpoint := range mode.Endpoints {
+					if provider.ID == "github_copilot" || provider.ID == "nous_research" {
+						// Special-auth suppliers document their routing mode in prose
+						// and their auth modes in a dedicated endpoint table.
+						require.Contains(test, section, "`"+endpoint.Protocol+"`")
+						require.Contains(test, section, endpoint.BaseURL)
+					} else {
+						require.Contains(test, section, "| `"+mode.Mode+"` / `"+mode.DefaultProtocol+"` | `"+endpoint.Protocol+"` |", "mode/protocol contract absent from supplier section")
+					}
+				}
+			}
+		})
 	}
 	require.False(test, domain.IsConcretePlatform("workbuddy"))
 }
