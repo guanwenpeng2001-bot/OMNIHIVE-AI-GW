@@ -20,13 +20,26 @@ VERSION_FILES = (
     "internal/pkg/capabilitysources/sources.go",
     "internal/pkg/capabilitysources/collect.go",
     "resources/model-capabilities/release.go",
+    "internal/service/native_provider_profiles.go",
+    "internal/service/compatible_provider_runtime.go",
+    "internal/domain/compatible_provider.go",
 )
+
+
+def version_files():
+    # Match the Go embed's exact lower-case suffix even on Windows. Enumerate
+    # afresh so additions are detected as well as changes to pinned files.
+    providers = BACKEND / "internal/domain/data/compatible_providers"
+    embedded = sorted(path.relative_to(BACKEND).as_posix()
+                      for path in providers.glob("*.json")
+                      if path.name.endswith(".json"))
+    return (*VERSION_FILES, *embedded)
 
 
 def code_versions():
     # Reviewed source versions bind logical text, independent of checkout EOL.
     versions = {}
-    for name in VERSION_FILES:
+    for name in version_files():
         path = BACKEND / name
         catalog.require(path.is_file(), f"missing release dependency: {name}")
         versions[name] = catalog.digest(path.read_bytes().replace(b"\r\n", b"\n"))
@@ -74,7 +87,7 @@ def validate_release(value, inputs_path=catalog.INPUTS):
     # Report every stale or missing dependency before refusing the release.
     # The existing independently reviewed pin is never regenerated here.
     differences = []
-    expected_paths = set(VERSION_FILES) | set(actual.get("code_versions", {}))
+    expected_paths = set(version_files()) | set(actual.get("code_versions", {}))
     for name in sorted(expected_paths):
         path = BACKEND / name
         if not path.is_file():
