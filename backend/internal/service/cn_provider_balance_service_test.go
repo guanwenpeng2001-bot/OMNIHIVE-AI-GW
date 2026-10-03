@@ -13,16 +13,20 @@ import (
 )
 
 type cnBalanceResponseUpstream struct {
+	calls      int
+	request    *http.Request
 	statusCode int
 	body       string
 }
 
 func (u *cnBalanceResponseUpstream) Do(
-	_ *http.Request,
+	req *http.Request,
 	_ string,
 	_ int64,
 	_ int,
 ) (*http.Response, error) {
+	u.calls++
+	u.request = req
 	return &http.Response{
 		StatusCode: u.statusCode,
 		Body:       io.NopCloser(strings.NewReader(u.body)),
@@ -64,7 +68,7 @@ func newDeepSeekBalanceProbeAccount() *Account {
 		Credentials: map[string]any{
 			"account_mode": AccountModePayG,
 			"api_key":      "sk-test",
-			"base_url":     "https://relay.example.com",
+			"base_url":     "https://api.deepseek.com",
 		},
 	}
 }
@@ -101,11 +105,14 @@ func TestCNProviderBalanceService_DeepSeekInvalidBalancePayloadDoesNotBecomeZero
 			result, err := svc.QueryBalance(context.Background(), repo.account.ID)
 
 			require.NoError(t, err)
+			require.Equal(t, 1, upstream.calls, "the malformed payload must reach the balance parser")
+			require.Equal(t, "https://api.deepseek.com/user/balance", upstream.request.URL.String())
+			require.Equal(t, "Bearer sk-test", upstream.request.Header.Get("Authorization"))
 			require.NotNil(t, result)
 			require.False(t, result.Success)
 			require.Contains(t, result.Error, tt.wantError)
 			require.Empty(t, result.Balances)
-			require.Empty(t, repo.extraWrites, "invalid relay balance payload must not persist a synthetic zero balance")
+			require.Empty(t, repo.extraWrites, "invalid upstream balance payload must not persist a synthetic zero balance")
 		})
 	}
 }
@@ -121,6 +128,9 @@ func TestCNProviderBalanceService_DeepSeekValidZeroBalanceRemainsSuccessful(t *t
 	result, err := svc.QueryBalance(context.Background(), repo.account.ID)
 
 	require.NoError(t, err)
+	require.Equal(t, 1, upstream.calls, "the valid zero must come from the upstream payload")
+	require.Equal(t, "https://api.deepseek.com/user/balance", upstream.request.URL.String())
+	require.Equal(t, "Bearer sk-test", upstream.request.Header.Get("Authorization"))
 	require.NotNil(t, result)
 	require.True(t, result.Success)
 	require.False(t, result.Available)
