@@ -232,7 +232,11 @@ func TestCopilotNousAuthModeTransitionAdminBoundary(t *testing.T) {
 				} else {
 					_, err = svc.UpdateAccount(context.Background(), account.ID, &UpdateAccountInput{Credentials: patch})
 				}
-				if replacement == "" || replacement == "new-frontdoor-fixture" {
+				if referenced && bulk {
+					requireApplicationErrorReason(t, err, "SPECIAL_AUTH_REFERENCED_BULK_UNSUPPORTED")
+					require.Zero(t, repo.bulkUpdateCalls)
+					require.Empty(t, repo.updatedAccounts)
+				} else if replacement == "" || replacement == "new-frontdoor-fixture" {
 					require.NoError(t, err)
 				} else {
 					requireApplicationErrorReason(t, err, "SPECIAL_AUTH_SECRET_REPLACEMENT_REQUIRED")
@@ -312,4 +316,21 @@ func TestCopilotNousAdminCreateAccount(t *testing.T) {
 		require.Equal(t, platform, account.Platform)
 		require.NotNil(t, repo.createAccount)
 	}
+}
+
+func TestCopilotNousReferencedBulkAllTargetsPrevalidated(t *testing.T) {
+	inline := specialAuthAccount("nous_research", NousAuthInvocationToken, "", "old-jwt")
+	referenced := specialAuthAccount("nous_research", NousAuthInvocationToken, "", "old-jwt")
+	referenced.ID = 732
+	referenced.Credentials[CredentialSecretReferenceKey] = "bound-reference"
+	repo := &accountRepoStubForBulkUpdate{getByIDsAccounts: []*Account{inline, referenced}}
+	_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{AccountIDs: []int64{inline.ID, referenced.ID}, Credentials: map[string]any{"auth_mode": NousAuthOfficialProxy, "base_url": "https://new-operator.invalid/v1", "api_key": ""}})
+	requireApplicationErrorReason(t, err, "SPECIAL_AUTH_REFERENCED_BULK_UNSUPPORTED")
+	require.Zero(t, repo.bulkUpdateCalls)
+	require.Empty(t, repo.bindGroupsCalls)
+	require.Equal(t, NousAuthInvocationToken, inline.GetCredential("auth_mode"))
+	require.Equal(t, NousAuthInvocationToken, referenced.GetCredential("auth_mode"))
+	_, err = (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{AccountIDs: []int64{inline.ID, referenced.ID}, Credentials: map[string]any{"auth_mode": NousAuthInvocationToken, "api_protocol": "adaptive"}})
+	require.NoError(t, err)
+	require.Equal(t, 1, repo.bulkUpdateCalls)
 }

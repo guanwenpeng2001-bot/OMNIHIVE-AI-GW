@@ -3450,6 +3450,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 
+	if err := validateBulkCopilotNousCredentials(ctx, exec, ids, updates.Credentials); err != nil {
+		return 0, err
+	}
 	if updates.ProxyGroupID != nil || updates.ProxyID != nil {
 		if err := validateBulkAccountProxyGroups(ctx, exec, clientFromContext(ctx, r.client), ids, updates); err != nil {
 			return 0, err

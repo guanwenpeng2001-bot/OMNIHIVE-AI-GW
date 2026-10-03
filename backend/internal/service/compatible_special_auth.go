@@ -18,6 +18,32 @@ func compatibleSpecialKeyOptional(account *Account) bool {
 	return account.Platform == "nous_research" && account.GetCredential("auth_mode") == NousAuthOfficialProxy
 }
 
+// Bulk JSONB merge cannot rotate encrypted secrets. Reject these edits before
+// any target is written; the single-account path owns locked secret rotation.
+func ValidateCopilotNousBulkCredentials(account *Account, incoming map[string]any) error {
+	if !isCopilotNous(account) {
+		return nil
+	}
+	if _, referenced := CredentialReference(account.Credentials); !referenced {
+		return nil
+	}
+	mode, provided := incoming["auth_mode"]
+	modeChanged := provided && mode != account.GetCredential("auth_mode")
+	for key := range incoming {
+		if IsSensitiveCredentialKey(key) {
+			return copilotNousBulkReferenceError()
+		}
+	}
+	if modeChanged {
+		return copilotNousBulkReferenceError()
+	}
+	return nil
+}
+
+func copilotNousBulkReferenceError() error {
+	return infraerrors.BadRequest("SPECIAL_AUTH_REFERENCED_BULK_UNSUPPORTED", "Bulk edits cannot change authentication mode or secrets on a referenced Copilot/Nous account; use a single-account update to replace or clear the encrypted secret")
+}
+
 // A mode transition changes api_key's recipient and meaning. Check the actual
 // incoming patch before the generic secret-preserving merge can hide omission.
 func validateCompatibleSpecialAuthTransition(account *Account, incoming map[string]any) error {

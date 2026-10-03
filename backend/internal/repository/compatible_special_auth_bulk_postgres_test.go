@@ -74,6 +74,21 @@ func TestCopilotNousReferencedBulkBoundaryPostgres(t *testing.T) {
 	require.Zero(t, count)
 	_, err = fixture.accounts.GetByID(wrongWorkspace, account.ID)
 	require.Error(t, err)
+	foreign := *loaded
+	foreign.Credentials = maps.Clone(loaded.Credentials)
+	foreign.Credentials["api_key"] = "foreign"
+	require.Error(t, fixture.accounts.Update(wrongWorkspace, &foreign))
+	loaded, err = fixture.accounts.GetByID(fixture.ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
+	count, err = fixture.accounts.BulkUpdate(fixture.ctx, []int64{account.ID}, service.AccountBulkUpdate{Credentials: map[string]any{"model_mapping": map[string]any{"safe-alias": "fixture-model"}}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	loaded, err = fixture.accounts.GetByID(fixture.ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
+	require.Equal(t, before[service.CredentialSecretReferenceKey], loaded.Credentials[service.CredentialSecretReferenceKey])
+
 	for _, replacement := range []string{"", "new-frontdoor"} {
 		t.Run("single-update-send/"+replacement, func(t *testing.T) {
 			account := create(true)

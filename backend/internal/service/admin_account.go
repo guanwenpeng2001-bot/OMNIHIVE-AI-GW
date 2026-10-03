@@ -1123,6 +1123,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	for _, target := range cachedTargets {
 		if IsCompatibleProvider(target.Platform) && len(input.Credentials) > 0 {
+			if err := ValidateCopilotNousBulkCredentials(target, input.Credentials); err != nil {
+				return nil, err
+			}
 			if err := validateCompatibleSpecialAuthTransition(target, input.Credentials); err != nil {
 				return nil, err
 			}
