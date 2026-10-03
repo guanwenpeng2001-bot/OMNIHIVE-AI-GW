@@ -1262,7 +1262,7 @@ Invocation base 仅允许 `https://inference-api.nousresearch.com/v1`（或末�
 
 上游仅 Chat；`discovery=openai_models` 使用上述专用地址。本站 `messages_to_chat`、`responses_to_chat`、`gemini_to_chat` 是离线合同测试覆盖的桥接，不是供应商原生 Messages / Responses / Gemini。两种模式都不接收 `refresh_token`，不读取客户端 token 存储，不转移或共享 refresh grants；运营方自行管理代理背后的认证。
 
-**编辑凭据：**切换 Nous 认证模式必须显式提交新凭据；切到 keyless proxy 时必须显式清空旧 key，切回 invocation 必须提供非空新 token。省略、掩码或复用旧值不能把 invocation token 变成发往另一运营方的入口 key。同模式修改保留已有密钥及账号绑定的 secret reference；需要清除 proxy key 时使用明确的清除操作。Copilot / Nous 不接受非空逐协议 `api_base_urls` 覆盖，以免与专用目的地址冲突。
+**编辑凭据：**请使用单账号编辑切换 Nous 认证模式，并显式提交新凭据；切到 keyless proxy 时必须显式清空旧 key，切回 invocation 必须提供非空新 token。省略、掩码或复用旧值不能把 invocation token 变成发往另一运营方的入口 key。同模式修改保留已有密钥及账号绑定的 secret reference；需要清除 proxy key 时使用明确的清除操作。持有密钥引用的账号也应逐个编辑，不依赖批量编辑完成认证模式与密钥轮换。Copilot / Nous 不接受非空逐协议 `api_base_urls` 覆盖，以免与专用目的地址冲突。
 
 这两个 ID 没有余额/额度探测、价格预设或媒体适配器。离线合同测试证明本项目的请求构造、转换和凭据边界，**真实供应商可用性仍需运营方使用已授权 key 独立验证**，不能称为供应商认证。
 

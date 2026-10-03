@@ -86,7 +86,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 
 本次目录扩展有 72 个独立兼容供应商 ID，并保留原有平台。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
 
-管理员配置 Copilot 使用自己的 `Copilot-Integration-Id: omnihive`；模型发现是主机根 `/models`，与 `/v1/chat/completions` 分开。Nous invocation 到期手工换 token；官方代理需显式配置网关可访问的运营方 URL 前缀（不自动加 `/v1`），入口 key 可选。切换认证模式必须明确换 key 或在切到无 key 代理时清空；同模式编辑保留密钥引用。不得读取客户端 token 存储或共享 refresh grants。
+管理员配置 Copilot 使用自己的 `Copilot-Integration-Id: omnihive`；模型发现是主机根 `/models`，与 `/v1/chat/completions` 分开。Nous invocation 到期手工换 token；官方代理需显式配置网关可访问的运营方 URL 前缀（不自动加 `/v1`），入口 key 可选。通过单账号编辑切换认证模式，必须明确换 key 或在切到无 key 代理时清空；同模式编辑保留密钥引用。不得读取客户端 token 存储或共享 refresh grants。
 
 余额页面提供 Novita、PPIO、SiliconFlow CN / Global、胜算云、SoleAPI 六项手工查询；精确端点、成功条件及 USD / CNY / Credits 换算见[余额合同](provider-configuration.md#手工余额查询)。未接入或查询失败不是零余额，管理 key API 不等于推理 key API；地区、套餐元数据未知时不从另一站点补齐。Tencent Intl 个人套餐不能从共享主机继承企业 Responses，企业配置需显式选择对应 Responses 根。
 

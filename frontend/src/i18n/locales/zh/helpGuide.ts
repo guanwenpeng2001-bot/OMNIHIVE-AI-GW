@@ -1433,7 +1433,7 @@ export default {
     },
     "notes": {
       "coverage": "本次扩展包含 72 个独立兼容供应商 ID。Copilot / Nous 支持手工凭据子集：fine_grained_pat、invocation_token、official_proxy，无自动 OAuth 或 refresh。上游仅 Chat，本站 Messages / Responses / Gemini 桥接经过离线合同测试，不是供应商在线认证；真实可用性需运营方授权 key 验证。内部 payg 路由不表示供应商按量计费。RelayCode 身份未解决，与已实现的 RelaxyCode 分开；ETok.ai 是历史移除的预设，不是停服声明。",
-      "plans": "区域根地址、套餐 key 与未知元数据分别保留。Tencent Intl 个人套餐不能从共享主机继承企业 Responses；企业需明确配置 Responses 端点。Copilot 使用 Copilot-Integration-Id: omnihive，根 /models 与 /v1/chat/completions 分开。Nous invocation token 到期手工替换；official_proxy 需显式可移植的运营方 URL 前缀（不自动加 /v1），入口 key 可选。切换 auth_mode 必须新 key 或在无 key 代理时明确清空；同模式编辑保留密钥引用。不读取客户端 token 存储或共享 refresh grants。消费者订阅、Coding 套餐不自动授予 API、共享或自动化权限。",
+      "plans": "区域根地址、套餐 key 与未知元数据分别保留。Tencent Intl 个人套餐不能从共享主机继承企业 Responses；企业需明确配置 Responses 端点。Copilot 使用 Copilot-Integration-Id: omnihive，根 /models 与 /v1/chat/completions 分开。Nous invocation token 到期手工替换；official_proxy 需显式可移植的运营方 URL 前缀（不自动加 /v1），入口 key 可选。通过单账号编辑切换 auth_mode（包括密钥引用账号），必须新 key 或在无 key 代理时明确清空；同模式编辑保留密钥引用。不读取客户端 token 存储或共享 refresh grants。消费者订阅、Coding 套餐不自动授予 API、共享或自动化权限。",
       "media": "图片、视频和音频路由分别见对应章节。增加兼容文本供应商不等于新增原生媒体适配器；调用前须确认具体媒体动作、分组和模型。",
       "evidence": "手工余额支持 Novita / PPIO（USD / CNY，除以 10000）、SiliconFlow CN / Global（CNY / USD，不缩放）、胜算云（CNY，仅 common 网关）、SoleAPI（remaining Credits，不折算现金）。不支持或失败不是零余额；管理 key API 不等于推理 key API。CC Switch 固定提交 793e67d9b3210eb527e7d36f2c866a56fae9dec7 是客户端配置证据，不是运行认证。OpenRouter 文档是 API 参考，不自动成为本站价格或功能承诺。"
     }

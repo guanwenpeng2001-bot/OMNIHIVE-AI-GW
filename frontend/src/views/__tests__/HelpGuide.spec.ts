@@ -107,10 +107,10 @@ describe('configuration manual', () => {
     expect(supplierCopy).not.toMatch(/pending integration|待集成验证|70 distinct|70 个独立/)
     for (const boundary of locale === 'en'
       ? ['offline contract tests, not live vendor certification', 'no automatic OAuth or refresh',
-        'same-mode edits preserve secret references', 'Unsupported or failed is not zero',
+        'same-mode edits preserve secret references', 'Use single-account editing', 'Unsupported or failed is not zero',
         'personal cannot inherit enterprise Responses', 'optional frontdoor key']
       : ['离线合同测试，不是供应商在线认证', '无自动 OAuth 或 refresh',
-        '同模式编辑保留密钥引用', '不支持或失败不是零余额',
+        '同模式编辑保留密钥引用', '通过单账号编辑', '不支持或失败不是零余额',
         '个人套餐不能从共享主机继承企业 Responses', '入口 key 可选']) {
       expect(supplierCopy).toContain(boundary)
     }
