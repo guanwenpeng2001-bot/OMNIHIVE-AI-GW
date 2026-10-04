@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -20,16 +18,20 @@ import (
 // CompatibleBalanceResult keeps unknown amounts absent, rather than reporting
 // zero. Balances uses the existing balance cell's multi-currency contract.
 type CompatibleBalanceResult struct {
-	Provider    string                   `json:"provider"`
-	Success     bool                     `json:"success"`
-	Unsupported bool                     `json:"unsupported,omitempty"`
-	Balance     *float64                 `json:"balance,omitempty"`
-	Currency    string                   `json:"currency,omitempty"`
-	Balances    []CNProviderBalanceEntry `json:"balances,omitempty"`
-	StatusCode  int                      `json:"status_code,omitempty"`
-	FetchedAt   int64                    `json:"fetched_at"`
-	Persisted   bool                     `json:"persisted"`
-	Error       string                   `json:"error,omitempty"`
+	Kind          string                   `json:"kind"`
+	Reason        string                   `json:"reason,omitempty"`
+	Scope         string                   `json:"scope,omitempty"`
+	ProjectBudget *CompatibleProjectBudget `json:"project_budget,omitempty"`
+	Provider      string                   `json:"provider"`
+	Success       bool                     `json:"success"`
+	Unsupported   bool                     `json:"unsupported,omitempty"`
+	Balance       *float64                 `json:"balance,omitempty"`
+	Currency      string                   `json:"currency,omitempty"`
+	Balances      []CNProviderBalanceEntry `json:"balances,omitempty"`
+	StatusCode    int                      `json:"status_code,omitempty"`
+	FetchedAt     int64                    `json:"fetched_at"`
+	Persisted     bool                     `json:"persisted"`
+	Error         string                   `json:"error,omitempty"`
 }
 
 // QueryAccountBalance extends the existing injected admin balance service without
@@ -68,27 +70,65 @@ func compatibleBalanceEndpoint(provider string) string {
 		return "https://router.shengsuanyun.com/api/v1/balance"
 	case "soleapi":
 		return "https://soleapi.com/v1/usage"
+	case "atlascloud":
+		return "https://api.atlascloud.ai/public/v1/balance"
 	default:
 		return ""
 	}
 }
 
 func compatibleBalanceTarget(account *Account) (string, error) {
+	target, kind, err := compatibleUsageTarget(account)
+	if err == nil && kind != "wallet_balance" {
+		return "", compatibleQueryError{"no_verified_query", "this provider exposes consumed usage, not a wallet balance"}
+	}
+	return target, err
+}
+
+func compatibleUsageTarget(account *Account) (string, string, error) {
+	target, err := compatibleQueryTarget(account)
+	kind := "wallet_balance"
+	if account != nil && account.Platform == "qiniu" {
+		kind = "consumed_usage"
+	}
+	if err != nil {
+		kind = "unsupported"
+	}
+	return target, kind, err
+}
+
+func compatibleQueryTarget(account *Account) (string, error) {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return "", errors.New("balance query requires an API key account")
 	}
 	for _, field := range []string{"account_mode", "api_protocol", "base_url", "api_key"} {
-		if value := account.Credentials[field]; value != nil {
+		if value, exists := account.Credentials[field]; exists {
 			if _, valid := value.(string); !valid {
 				return "", errors.New("invalid balance account credentials")
 			}
 		}
 	}
+	key := strings.TrimSpace(account.GetCredential("api_key"))
+	if key == "" || strings.ContainsAny(key, "\r\n\t ") {
+		return "", errors.New("invalid query API key")
+	}
+	for _, character := range key {
+		if character < 33 || character > 126 {
+			return "", errors.New("invalid query API key")
+		}
+	}
 	provider, found := domain.LookupCompatibleProvider(account.Platform)
 	mode, valid := provider.ResolveMode(strings.TrimSpace(account.GetCredential("account_mode")))
 	target := compatibleBalanceEndpoint(account.Platform)
+	if account.Platform == "qiniu" {
+		target = "https://api.qnaigc.com/v3/stat/usage"
+	}
 	if !found || !valid || mode.Mode != AccountModePayG || target == "" {
-		return "", errors.New("no documented inference-key balance endpoint for this provider and mode")
+		reason := "no_verified_query"
+		if found && (!valid || mode.Mode != AccountModePayG) {
+			reason = "mode_unsupported"
+		}
+		return "", compatibleQueryError{reason, "no verified inference-key query for this provider and mode"}
 	}
 	// A later inference registry change must not silently rebind a regional key
 	// to this balance registry's fixed origin, including when no override is set.
@@ -109,7 +149,7 @@ func compatibleBalanceTarget(account *Account) (string, error) {
 	// endpoint. Never reinterpret a custom relay's API key as a preset vendor key.
 	approved := func(raw string) bool {
 		parsed, err := url.Parse(strings.TrimSpace(raw))
-		if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
 			return false
 		}
 		for _, endpoint := range mode.Endpoints {
@@ -123,35 +163,49 @@ func compatibleBalanceTarget(account *Account) (string, error) {
 	if raw := account.GetCredential("base_url"); strings.TrimSpace(raw) != "" && !approved(raw) {
 		return "", errors.New("balance query is unsupported for a custom base URL")
 	}
-	if value, exists := account.Credentials["api_base_urls"]; exists && value != nil {
+	if value, exists := account.Credentials["api_base_urls"]; exists {
 		bases, valid := value.(map[string]any)
 		if !valid {
 			return "", errors.New("invalid protocol base URLs")
 		}
-		for _, value := range bases {
+		for protocol, value := range bases {
+			endpoint, valid := mode.LookupEndpoint(protocol)
+			if !valid {
+				return "", errors.New("invalid protocol base URL key")
+			}
 			raw, valid := value.(string)
 			if !valid || (strings.TrimSpace(raw) != "" && !approved(raw)) {
 				return "", errors.New("balance query is unsupported for custom protocol base URLs")
 			}
+			if strings.TrimSpace(raw) != "" {
+				parsed, _ := url.Parse(strings.TrimSpace(raw))
+				preset, _ := url.Parse(endpoint.BaseURL)
+				if strings.TrimRight(parsed.EscapedPath(), "/") != strings.TrimRight(preset.EscapedPath(), "/") {
+					return "", errors.New("query is unsupported for custom protocol paths")
+				}
+			}
 		}
 	}
-	if account.IsCustomBaseURLEnabled() {
+	if enabled, exists := account.Extra["custom_base_url_enabled"]; exists && enabled != false && enabled != nil {
 		return "", errors.New("balance query is unsupported for a custom relay")
 	}
 	return target, nil
 }
 
 func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Context, account *Account) (*CompatibleBalanceResult, error) {
-	result := &CompatibleBalanceResult{Provider: account.Platform, FetchedAt: time.Now().UTC().Unix()}
+	result := &CompatibleBalanceResult{Provider: account.Platform, Kind: "wallet_balance", FetchedAt: time.Now().UTC().Unix()}
 	target, err := compatibleBalanceTarget(account)
 	if err != nil {
 		result.Unsupported = true
+		result.Kind = "unsupported"
+		result.Reason = compatibleQueryReason(err)
 		result.Error = err.Error()
 		return result, nil
 	}
 	key := strings.TrimSpace(account.GetCredential("api_key"))
-	if key == "" {
-		result.Error = "account API key is empty"
+	if account.Platform == "atlascloud" && (!strings.HasPrefix(key, "apikey-") || len(key) <= len("apikey-")) {
+		result.Error = "balance requires an ordinary Atlas Cloud API key"
+		result.Reason = "invalid_credentials"
 		return result, nil
 	}
 	target, err = cnValidateProbeURL(service.cfg, target)
@@ -160,65 +214,37 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 	}
 	callCtx, cancel := context.WithTimeout(ctx, cnBalanceUpstreamTimeout)
 	defer cancel()
-	// Missing single-proxy configuration must not silently fall back to direct.
-	proxyURL := ""
-	if account.ProxyGroupID != nil {
-		proxyURL, err = account.EgressProxyURL(callCtx)
-	} else if account.ProxyID != nil {
-		proxy := account.Proxy
-		if proxy == nil && service.proxyRepo != nil {
-			proxy, err = service.proxyRepo.GetByID(callCtx, *account.ProxyID)
-		}
-		if err == nil && proxy == nil {
-			err = errors.New("configured proxy is unavailable")
-		}
-		if err == nil {
-			proxyURL = proxy.URL()
-		}
-	}
+	body, status, err := service.requestCompatibleQuery(callCtx, account, target, key)
+	result.StatusCode = status
 	if err != nil {
-		return nil, infraerrors.New(http.StatusServiceUnavailable, "BALANCE_PROXY_UNAVAILABLE", "configured balance egress is unavailable")
-	}
-	request, err := http.NewRequestWithContext(WithHTTPUpstreamRedirectsDisabled(callCtx), http.MethodGet, target, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Authorization", "Bearer "+key)
-	request.Header.Set("Accept", "application/json")
-	response, err := accountHTTPUpstream(service.httpUpstream, account).Do(request, proxyURL, account.ID, maxInt(account.Concurrency, 1))
-	if err != nil {
-		if response != nil && response.Body != nil {
-			_ = response.Body.Close()
-		}
-		result.Error = "balance upstream request failed"
+		result.Error = err.Error()
+		result.Reason = compatibleQueryReason(err)
 		return result, nil
 	}
-	if response == nil || response.Body == nil {
-		result.Error = "invalid balance HTTP response"
-		return result, nil
-	}
-	defer response.Body.Close()
-	result.StatusCode = response.StatusCode
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		// Do not echo upstream bodies/errors: they can contain credentials or PII.
-		result.Error = fmt.Sprintf("Balance API error (HTTP %d)", response.StatusCode)
-		return result, nil
-	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, cnBalanceMaxBodyBytes+1))
-	if err != nil || len(body) > cnBalanceMaxBodyBytes {
-		result.Error = "invalid or oversized balance response"
+	if account.Platform == "shengsuanyun" && gjson.GetBytes(body, "data.gateway_type").String() == "enterprise" {
+		result.Kind = "project_budget"
+		result.ProjectBudget, err = parseCompatibleProjectBudget(body)
+		if err != nil {
+			result.Reason, result.Error = "invalid_response", err.Error()
+			return result, nil
+		}
+		result.Success = true
 		return result, nil
 	}
 	entries, err := parseCompatibleBalance(account.Platform, body)
 	if err != nil {
 		result.Unsupported = errors.Is(err, errCompatibleBalanceUnsupported)
 		result.Error = err.Error()
+		result.Reason = "invalid_response"
 		return result, nil
 	}
 	result.Success = true
 	result.Balances = entries
 	result.Balance = &entries[0].Balance
 	result.Currency = entries[0].Currency
+	if account.Platform == "atlascloud" {
+		result.Scope = "account"
+	}
 	updates := map[string]any{
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixBalance):  entries[0].Balance,
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixCurrency): entries[0].Currency,
@@ -232,7 +258,7 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
 
 func clearCompatibleBalanceSnapshots(extra map[string]any) {
-	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi"} {
+	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud"} {
 		for _, suffix := range []string{cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixBalances, cnBalanceExtraSuffixUpdated} {
 			delete(extra, cnExtraKey(provider, suffix))
 		}
@@ -253,6 +279,15 @@ func parseCompatibleBalance(provider string, body []byte) ([]CNProviderBalanceEn
 	}
 	path, currency, scale := "", "", float64(1)
 	switch provider {
+	case "atlascloud":
+		// https://www.atlascloud.ai/docs/public-api/balance
+		if root.Get("object").String() != "balance" || root.Get("scope").String() != "account" || root.Get("available.value").Type != gjson.String {
+			return nil, invalid
+		}
+		path, currency = "available.value", root.Get("available.currency").String()
+		if len(currency) != 3 || strings.Trim(currency, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+			return nil, invalid
+		}
 	case "novita", "ppio":
 		// novita.ai/docs/api-reference/basic-get-user-balance.md
 		// ppio.com/docs/management/reference-billing-get-balance-detail.md

@@ -43,6 +43,14 @@ func compatibleBalanceAccount(provider string) *Account {
 	return &Account{ID: 123, Platform: provider, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-only-key"}}
 }
 
+func requireCompatibleBalanceResult(test *testing.T, value any) *CompatibleBalanceResult {
+	test.Helper()
+	result, valid := value.(*CompatibleBalanceResult)
+	require.True(test, valid)
+	require.NotNil(test, result)
+	return result
+}
+
 func TestCompatibleBalanceRequestAndPersistence(test *testing.T) {
 	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun"} {
 		test.Run(provider, func(test *testing.T) {
@@ -72,7 +80,7 @@ func TestCompatibleBalanceRequestAndPersistence(test *testing.T) {
 			}}
 			result, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), account.ID)
 			require.NoError(test, err)
-			balance := result.(*CompatibleBalanceResult)
+			balance := requireCompatibleBalanceResult(test, result)
 			require.True(test, balance.Success)
 			require.True(test, balance.Persisted)
 			require.Equal(test, float64(1), *balance.Balance)
@@ -106,7 +114,10 @@ func TestCompatibleBalanceRejectsBeforeSending(test *testing.T) {
 			account.Credentials["api_base_urls"] = map[string]any{"anthropic": "https://relay.example"}
 		}, false},
 		{"unknown provider endpoint", func(account *Account) { account.Platform = "together" }, false},
-		{"management permission", func(account *Account) { account.Platform = "atlascloud" }, false},
+		{"Atlas coding", func(account *Account) {
+			account.Platform = "atlascloud"
+			account.Credentials["account_mode"] = "coding"
+		}, false},
 		{"missing key", func(account *Account) { delete(account.Credentials, "api_key") }, false},
 		{"non API key", func(account *Account) { account.Type = "oauth" }, false},
 		{"missing proxy", func(account *Account) { identity := int64(3); account.ProxyID = &identity }, false},
@@ -129,8 +140,8 @@ func TestCompatibleBalanceRejectsBeforeSending(test *testing.T) {
 			}
 			result, err := NewCNProviderBalanceService(repo, nil, upstream, cfg).QueryAccountBalance(context.Background(), account.ID)
 			if err == nil {
-				require.False(test, result.(*CompatibleBalanceResult).Success)
-				require.Nil(test, result.(*CompatibleBalanceResult).Balance)
+				require.False(test, requireCompatibleBalanceResult(test, result).Success)
+				require.Nil(test, requireCompatibleBalanceResult(test, result).Balance)
 			}
 			require.Empty(test, repo.writes)
 		})
@@ -159,7 +170,7 @@ func TestCompatibleBalanceFailuresNeverPersistZero(test *testing.T) {
 			}}
 			value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), repo.account.ID)
 			require.NoError(test, err)
-			result := value.(*CompatibleBalanceResult)
+			result := requireCompatibleBalanceResult(test, value)
 			require.False(test, result.Success)
 			require.NotEmpty(test, result.Error)
 			require.NotContains(test, result.Error, "fixture-only-key")
@@ -191,8 +202,8 @@ func TestCompatibleBalanceRedirectNeverReachesAnotherHost(test *testing.T) {
 	}}
 	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), repo.account.ID)
 	require.NoError(test, err)
-	require.Equal(test, http.StatusFound, value.(*CompatibleBalanceResult).StatusCode)
-	require.False(test, value.(*CompatibleBalanceResult).Success)
+	require.Equal(test, http.StatusFound, requireCompatibleBalanceResult(test, value).StatusCode)
+	require.False(test, requireCompatibleBalanceResult(test, value).Success)
 	require.Zero(test, escaped)
 	require.Empty(test, repo.writes)
 }
@@ -254,7 +265,7 @@ func TestCompatibleBalancePersistenceFailureRemainsExplicit(test *testing.T) {
 	}}
 	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), repo.account.ID)
 	require.NoError(test, err)
-	result := value.(*CompatibleBalanceResult)
+	result := requireCompatibleBalanceResult(test, value)
 	require.True(test, result.Success)
 	require.False(test, result.Persisted)
 	require.Equal(test, "Credits", result.Currency)
@@ -273,7 +284,7 @@ func TestCompatibleBalanceUsesResolvedGroup(test *testing.T) {
 	}}
 	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), account.ID)
 	require.NoError(test, err)
-	require.True(test, value.(*CompatibleBalanceResult).Persisted)
+	require.True(test, requireCompatibleBalanceResult(test, value).Persisted)
 }
 
 type compatibleBalanceBrokenBody struct{}
@@ -290,7 +301,7 @@ func TestCompatibleBalanceBodyReadFailure(test *testing.T) {
 	}}
 	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), repo.account.ID)
 	require.NoError(test, err)
-	require.False(test, value.(*CompatibleBalanceResult).Success)
+	require.False(test, requireCompatibleBalanceResult(test, value).Success)
 	require.Empty(test, repo.writes)
 }
 
@@ -304,6 +315,6 @@ func TestCompatibleBalanceCallerCancellation(test *testing.T) {
 	}}
 	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(ctx, repo.account.ID)
 	require.NoError(test, err)
-	require.False(test, value.(*CompatibleBalanceResult).Success)
+	require.False(test, requireCompatibleBalanceResult(test, value).Success)
 	require.Empty(test, repo.writes)
 }
