@@ -3,9 +3,9 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
-import { COMPATIBLE_PROVIDERS, compatibleProvider } from '@/constants/compatibleProviders'
-import Icon from '@/components/icons/Icon.vue'
+import { NATIVE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
+import { compatibleProviderIcon } from '../providerIcons'
 import PlatformIcon from '../PlatformIcon.vue'
 
 const require = createRequire(import.meta.url)
@@ -16,12 +16,12 @@ const monoAssets = {
 } as const
 
 describe('PlatformIcon', () => {
-  it.each(CONCRETE_PLATFORM_OPTIONS)('renders $value distinctly from the generic fallback', ({ value }) => {
+  it.each(NATIVE_PLATFORM_OPTIONS)('renders $value distinctly from the generic fallback', ({ value }) => {
     const wrapper = mount(PlatformIcon, { props: { platform: value } })
     const fallback = mount(PlatformIcon)
     expect(wrapper.html()).not.toBe(fallback.html())
     expect(wrapper.get('svg').attributes('viewBox')).toBe(value === 'anthropic' ? '0 0 16 16' : '0 0 24 24')
-    expect(wrapper.get('svg').attributes('fill')).toBe(compatibleProvider(value) ? 'none' : 'currentColor')
+    expect(wrapper.get('svg').attributes('fill')).toBe('currentColor')
     expect(wrapper.get('svg').attributes('aria-hidden')).toBe('true')
     expect(wrapper.get('svg').attributes('focusable')).toBe('false')
     expect(wrapper.get('svg').attributes('tabindex')).toBeUndefined()
@@ -36,28 +36,64 @@ describe('PlatformIcon', () => {
     }
   })
 
-  it.each(COMPATIBLE_PROVIDERS)('uses the shared decorative server mark for $id', ({ id }) => {
+  it.each(COMPATIBLE_PROVIDERS)('renders verified artwork or explicit initials for $id', ({ id, label }) => {
+    const icon = compatibleProviderIcon(id, label)
     const wrapper = mount(PlatformIcon, { props: { platform: id } })
-    const server = mount(Icon, { props: { name: 'server' } })
-    expect(wrapper.get('path').attributes('d')).toBe(server.get('path').attributes('d'))
-    expect(wrapper.get('svg').attributes('stroke')).toBe('currentColor')
+    expect(wrapper.get('svg').attributes('aria-hidden')).toBe('true')
+    expect(wrapper.find('title').exists()).toBe(false)
+    expect(wrapper.find('[tabindex]').exists()).toBe(false)
+    if (icon.kind === 'asset') {
+      expect(wrapper.get('image').attributes('href')).toBe(icon.src)
+      expect(icon.src).not.toMatch(/^https?:/)
+      expect(wrapper.get('svg').attributes('focusable')).toBe('false')
+      expect(wrapper.get('svg').classes()).toContain(icon.monochrome ? 'dark:invert' : 'bg-white')
+    } else {
+      expect(wrapper.get('text').text()).toBe(icon.text)
+      expect(wrapper.find('path').exists()).toBe(false)
+      expect(wrapper.get('svg').attributes('fill')).toBe('currentColor')
+    }
     for (const size of ['xs', 'sm', 'md', 'lg'] as const) {
       const known = mount(PlatformIcon, { props: { platform: id, size } })
       const brand = mount(PlatformIcon, { props: { platform: 'anthropic', size } })
-      expect(known.classes()).toEqual(brand.classes())
+      expect(known.get('svg').classes()).toEqual(expect.arrayContaining(brand.get('svg').classes()))
     }
   })
 
-  it('uses the shared mark when the registry grows and the globe for unregistered values', () => {
+  it('keeps genuine artwork coverage explicit and unrelated providers distinct', () => {
+    const fallbacks = COMPATIBLE_PROVIDERS.filter(p => compatibleProviderIcon(p.id, p.label).kind === 'monogram')
+    expect(fallbacks.map(p => p.id).sort()).toEqual(['bailing', 'dmxapi', 'dmxapi_com', 'dmxapi_ssvip', 'therouter'])
+    const assets = COMPATIBLE_PROVIDERS.map(p => compatibleProviderIcon(p.id, p.label)).filter(p => p.kind === 'asset')
+    expect(assets).toHaveLength(67)
+    expect(new Set(assets.map(p => p.src)).size).toBe(57)
+  })
+
+  it.each([
+    ['compshare', 'compshare_coding'], ['crazyrouter', 'crazyrouter_intl'],
+    ['dmxapi', 'dmxapi_com', 'dmxapi_ssvip'], ['mimo', 'mimo_token_cn'],
+    ['qwencloud', 'qwencloud_token', 'qwencloud_maas_token'],
+    ['siliconflow_cn', 'siliconflow_global'],
+    ['stepfun_api', 'stepfun_api_intl', 'stepfun_plan', 'stepfun_plan_intl'],
+    ['teamorouter', 'teamorouter_com'],
+  ])('shares the actual vendor artwork across %s variants', (...ids) => {
+    const expected = mount(PlatformIcon, { props: { platform: ids[0] } }).html()
+    for (const platform of ids) expect(mount(PlatformIcon, { props: { platform } }).html()).toBe(expected)
+  })
+
+  it.each([
+    ['astron_token', 'astron_coding'], ['mimo_token_sg', 'mimo'], ['mimo_token_eu', 'mimo'],
+  ])('maps upcoming plan %s to its verified vendor artwork', (plan, vendor) => {
+    const icon = compatibleProviderIcon(plan, plan)
+    expect(icon.kind).toBe('asset')
+    expect(icon).toBe(compatibleProviderIcon(vendor, vendor))
+  })
+
+  it('gives future registered providers initials and retains the unknown globe', () => {
     const providers = COMPATIBLE_PROVIDERS as Array<(typeof COMPATIBLE_PROVIDERS)[number]>
-    const added = { ...providers[0]!, id: 'test-new-compatible-provider' }
+    const added = { ...providers[0]!, id: 'test-new-compatible-provider', label: 'Future Provider' }
     const fallback = mount(PlatformIcon).html()
-    expect(mount(PlatformIcon, { props: { platform: added.id } }).html()).toBe(fallback)
     providers.push(added)
     try {
-      const wrapper = mount(PlatformIcon, { props: { platform: added.id } })
-      expect(wrapper.html()).toBe(mount(PlatformIcon, { props: { platform: providers[0]!.id } }).html())
-      expect(wrapper.html()).not.toBe(fallback)
+      expect(mount(PlatformIcon, { props: { platform: added.id } }).get('text').text()).toBe('FU')
     } finally {
       providers.pop()
     }
