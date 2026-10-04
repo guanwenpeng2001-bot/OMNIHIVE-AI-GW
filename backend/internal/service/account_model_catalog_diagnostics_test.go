@@ -42,24 +42,31 @@ func TestModelCatalogFailureDiagnosticsPreserveEvidence(t *testing.T) {
 		status            int
 		result, errorCode string
 	}{
-		{"not found", http.StatusNotFound, "unsupported", "upstream_model_discovery_unsupported"},
-		{"method unsupported", http.StatusMethodNotAllowed, "unsupported", "upstream_model_discovery_unsupported"},
+		{"not found", http.StatusNotFound, "failed", "upstream_model_sync_endpoint_not_found"},
+		{"method unsupported", http.StatusMethodNotAllowed, "failed", "upstream_model_sync_method_not_allowed"},
 		{"upstream failure", http.StatusBadGateway, "failed", "upstream_model_discovery_failed"},
-		{"access denied", http.StatusForbidden, "failed", "upstream_model_discovery_failed"},
+		{"access denied", http.StatusForbidden, "failed", "upstream_model_sync_permission"},
+		{"rate limited", http.StatusTooManyRequests, "failed", "upstream_model_sync_rate_limited"},
+		{"network", 0, "failed", "upstream_model_sync_network"},
 		{"invalid credentials", http.StatusUnauthorized, "credentials_invalid", "upstream_model_credentials_invalid"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			account := catalogEvidenceAccount(11, PlatformDeepseek, "private-model")
 			account.Credentials["api_key"] = "test"
 			account.Credentials["base_url"] = "https://api.deepseek.com"
+			account.Credentials["model_mapping"] = map[string]any{"alias": "private-model"}
 			snapshot := account.GetUpstreamModelCatalog()
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{LastSuccessAt: snapshot.ObservedAt}
 			repository := &catalogFixtureRepository{accounts: map[int64]*Account{account.ID: &account}}
 			upstream := &httpUpstreamRecorder{responses: []*http.Response{{StatusCode: scenario.status, Body: io.NopCloser(strings.NewReader(`{"error":"sensitive upstream detail"}`))}}}
+			if scenario.status == 0 {
+				upstream.err = context.DeadlineExceeded
+			}
 			syncService := &AccountTestService{accountRepo: repository, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
 			_, err := syncService.ApplyAccountModelCatalog(context.Background(), &account, nil)
 			require.Error(t, err)
 			require.Equal(t, snapshot, account.GetUpstreamModelCatalog())
+			require.Equal(t, map[string]any{"alias": "private-model"}, account.Credentials["model_mapping"])
 			state := account.ModelCatalogState()
 			require.Equal(t, scenario.result, state.Result)
 			require.Equal(t, scenario.errorCode, state.Error)

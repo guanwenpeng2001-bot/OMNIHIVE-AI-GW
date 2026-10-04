@@ -31,7 +31,8 @@
           "gemini_to_responses",
           "gemini_to_chat"
         ],
-        "discovery": "none",
+        "discovery": "openai_models",
+        "discovery_protocol": "chat_completions",
         "capability_profile": "aihubmix"
       }
     ],

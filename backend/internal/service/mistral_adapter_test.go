@@ -254,8 +254,14 @@ func TestMistralAdapterContract(t *testing.T) {
 			if status == 401 {
 				expectedKind = UpstreamModelSyncErrorCredentials
 			}
+			if status == 403 {
+				expectedKind = UpstreamModelSyncErrorPermission
+			}
+			if status == 429 {
+				expectedKind = UpstreamModelSyncErrorRateLimited
+			}
 			if status == 404 {
-				expectedKind = UpstreamModelSyncErrorUnsupported
+				expectedKind = UpstreamModelSyncErrorEndpointNotFound
 			}
 			require.Equal(t, expectedKind, syncError.Kind)
 			require.NotContains(t, err.Error(), "synthetic failure")

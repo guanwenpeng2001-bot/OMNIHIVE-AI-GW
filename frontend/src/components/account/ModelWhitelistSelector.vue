@@ -34,6 +34,7 @@
         {{ t(previewModels.length && !previewAdditions.length ? 'admin.accounts.modelSync.previewAlreadyAdded' : 'admin.accounts.modelSync.addPreviewModels', { count: previewAdditions.length }) }}
       </button>
     </div>
+    <p v-if="!canSyncUpstream && normalizedPlatforms.length" role="status" class="mb-2 text-sm text-secondary">{{ t(`admin.accounts.${discoveryUnavailableKey}`) }}</p>
     <p v-if="catalogState === 'idle' && accountId" role="status" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.unknown') }}</p>
     <p v-if="catalogState !== 'idle' && !syncResult && !catalogSummary" role="status" class="mb-2 text-sm text-secondary">{{ t(`admin.accounts.modelCatalog.${catalogState}`) }}</p>
     <button v-if="catalogState === 'failed' || catalogState === 'stale'" type="button" class="btn btn-secondary btn-sm mb-3" @click="accountId ? loadCatalog() : syncUpstreamModels()">{{ t('common.tryAgain') }}</button>
@@ -319,6 +320,8 @@ const canSyncUpstream = computed(() => !props.discoveryDisabled && (
   }) ||
   Boolean(props.accountId && !normalizedPlatforms.value.length)
 ))
+const discoveryUnavailableKey = computed(() => props.discoveryDisabled || normalizedPlatforms.value.some(platform => compatibleProvider(platform.toLowerCase()))
+  ? 'syncUpstreamModelsDiscoveryUnconfirmed' : 'syncUpstreamModelsNotAdapted')
 const previewDisabledReason = computed(() => {
   if (props.configurationDirty && props.accountId) return t('admin.accounts.modelSync.saveBeforePreview')
   if (!props.accountId && !props.syncCredentials) return props.previewUnavailableReason || t('admin.accounts.modelSync.credentialsRequired')
@@ -372,7 +375,7 @@ watch(selectionFingerprint, () => { selectionSaveFailed.value = false })
 const previewModels = computed(() => [...new Set((syncResult.value?.candidate_models ?? syncResult.value?.discovered_models ?? []).map(model => model.trim()).filter(Boolean))])
 const previewAdditions = computed(() => previewModels.value.filter(model => !configuredModelKeys.value.has(model)))
 const canAddPreview = computed(() => props.active && (!props.catalogOnly || props.catalogSelectionEnabled) && !!syncResult.value &&
-  catalogState.value === 'ready' && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
+  (catalogState.value === 'ready' || catalogState.value === 'unsynced') && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
 watch(selectionContext, () => {
   needsPreview.value = true
   confirmClear.value = false
@@ -575,7 +578,7 @@ const filteredModels = computed(() => filterModelDisplay(availableOptions.value,
 const groupedModels = computed(() => limitModelGroups(groupModelsByCategory(filteredModels.value, model => displayMetadata.value[model.value]), optionLimit.value))
 const modelSource = (id: string) => {
   const sources: string[] = []
-  if (presetModels.value.includes(id)) sources.push(t('admin.accounts.modelSync.platformCandidates'))
+  if (presetModels.value.includes(id) || (syncResult.value?.candidate_models?.includes(id) && !syncResult.value.discovered_models?.includes(id))) sources.push(t('admin.accounts.modelSync.platformCandidates'))
   const discovered = syncResult.value?.discovered_models ?? catalogSummary.value?.snapshot?.discovered_models ?? []
   if (discovered.includes(id)) sources.push(t('admin.accounts.modelSync.nativeDiscovered'))
   if (!sources.length) sources.push(t('admin.accounts.modelSync.manualSelection'))
@@ -675,8 +678,8 @@ const syncUpstreamModels = async () => {
     needsPreview.value = reviewedSelection !== selectionContext.value
     const upstreamModels = (result.candidate_models ?? result.discovered_models ?? []).map(model => model.trim()).filter(Boolean)
     catalog.value = upstreamModels
-    catalogState.value = upstreamModels.length ? 'ready' : 'empty'
-    if (!props.accountId) emit('upstream-synced')
+    catalogState.value = result.discovered_models?.length ? 'ready' : result.discovery_complete ? 'empty' : 'unsynced'
+    if (!props.accountId && result.discovery_complete) emit('upstream-synced')
 
   } catch (error) {
     if (disposed || request !== generation) return

@@ -606,7 +606,7 @@ func TestBuildUpstreamModelsRequest_CNProviders(t *testing.T) {
 			account := &Account{ID: 1, Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: creds}
 			req, err := svc.buildUpstreamModelsRequest(context.Background(), account)
 			if tc.wantURL == "" {
-				require.ErrorContains(t, err, "no documented model discovery endpoint")
+				require.ErrorContains(t, err, "has not been confirmed")
 				require.Nil(t, req)
 				return
 			}
@@ -799,7 +799,7 @@ func TestBuildUpstreamModelsRequest_AnthropicProtocol(t *testing.T) {
 		},
 	}
 	req, err := svc.buildUpstreamModelsRequest(context.Background(), account)
-	require.ErrorContains(t, err, "no documented model discovery endpoint")
+	require.ErrorContains(t, err, "has not been confirmed")
 	require.Nil(t, req)
 }
 

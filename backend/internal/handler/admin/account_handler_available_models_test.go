@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -502,7 +503,7 @@ func TestAccountHandlerSyncUpstreamModelsPreviewUsesProvidedModelMapping(t *test
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
-	require.Contains(t, rec.Body.String(), "upstream_model_sync_unsupported")
+	require.Contains(t, rec.Body.String(), "upstream_model_sync_endpoint_not_found")
 	require.Len(t, upstream.requests, 1)
 	require.NotContains(t, rec.Body.String(), "glm-5.3")
 }
@@ -615,9 +616,12 @@ func TestSyncPreviewErrorReasons(t *testing.T) {
 		upstreamStatus, status      int
 	}{
 		{"missing credentials", "qianwen", "", "configuration", 200, 400},
-		{"unsupported", "unknown", "key", "unsupported", 200, 400},
+		{"unsupported", "unknown", "key", "not_adapted", 200, 400},
 		{"authentication", "qianwen", "key", "credentials", 401, 400},
-		{"authorization", "qianwen", "key", "upstream", 403, 502},
+		{"authorization", "qianwen", "key", "permission", 403, 502},
+		{"path", "qianwen", "key", "endpoint_not_found", 404, 400},
+		{"method", "qianwen", "key", "method_not_allowed", 405, 400},
+		{"rate", "qianwen", "key", "rate_limited", 429, 502},
 		{"unavailable", "qianwen", "key", "upstream", 503, 502},
 		{"malformed", "qianwen", "key", "upstream", 200, 502},
 	} {
@@ -765,4 +769,41 @@ func TestModelCatalogDefaultPreviewAndApplyRequiresReview(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWriteUpstreamModelSyncErrorContract(test *testing.T) {
+	for _, scenario := range []struct {
+		kind   service.UpstreamModelSyncErrorKind
+		status int
+	}{
+		{service.UpstreamModelSyncErrorConfiguration, 400}, {service.UpstreamModelSyncErrorCredentials, 400},
+		{service.UpstreamModelSyncErrorAccountType, 400}, {service.UpstreamModelSyncErrorNotAdapted, 400},
+		{service.UpstreamModelSyncErrorDiscoveryUnconfirmed, 400}, {service.UpstreamModelSyncErrorEndpointNotFound, 400},
+		{service.UpstreamModelSyncErrorMethodNotAllowed, 400}, {service.UpstreamModelSyncErrorPermission, 502},
+		{service.UpstreamModelSyncErrorRateLimited, 502}, {service.UpstreamModelSyncErrorNetwork, 502},
+		{service.UpstreamModelSyncErrorUpstream, 502}, {service.UpstreamModelSyncErrorInternal, 500},
+		{service.UpstreamModelSyncErrorUnsupported, 400},
+	} {
+		test.Run(string(scenario.kind), func(test *testing.T) {
+			recorder := httptest.NewRecorder()
+			ginContext, _ := gin.CreateTestContext(recorder)
+			writeUpstreamModelSyncError(ginContext, &service.UpstreamModelSyncError{Kind: scenario.kind, Message: "Safe discovery failure", Err: fmt.Errorf("private-secret"), PartialCatalog: &service.UpstreamModelCatalog{CandidateModels: []string{"private-candidate"}, DiscoveredModels: []string{"private-discovery"}}})
+			require.Equal(test, scenario.status, recorder.Code)
+			require.Equal(test, "upstream_model_sync_"+string(scenario.kind), gjson.Get(recorder.Body.String(), "reason").String())
+			for _, secret := range []string{"private-secret", "private-candidate", "private-discovery", "candidate_models", "discovered_models"} {
+				require.NotContains(test, recorder.Body.String(), secret)
+			}
+		})
+	}
+}
+
+func TestSyncPreviewNetworkError(test *testing.T) {
+	router := setupSyncUpstreamModelsRouter(newStubAdminService(), &syncUpstreamHTTPUpstream{err: context.DeadlineExceeded})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview", strings.NewReader(`{"platform":"openai","type":"apikey","api_key":"private-secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	require.Equal(test, 502, recorder.Code)
+	require.Equal(test, "upstream_model_sync_network", gjson.Get(recorder.Body.String(), "reason").String())
+	require.NotContains(test, recorder.Body.String(), "private-secret")
 }

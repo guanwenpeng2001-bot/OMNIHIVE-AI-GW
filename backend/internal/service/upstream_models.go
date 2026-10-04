@@ -219,8 +219,16 @@ const (
 	// UpstreamModelSyncErrorConfiguration means the account or server configuration cannot perform the sync.
 	UpstreamModelSyncErrorConfiguration UpstreamModelSyncErrorKind = "configuration"
 	UpstreamModelSyncErrorCredentials   UpstreamModelSyncErrorKind = "credentials"
-	// UpstreamModelSyncErrorUnsupported means the account format is intentionally unsupported for live model sync.
-	UpstreamModelSyncErrorUnsupported UpstreamModelSyncErrorKind = "unsupported"
+	// UpstreamModelSyncErrorUnsupported is retained for legacy callers.
+	UpstreamModelSyncErrorUnsupported          UpstreamModelSyncErrorKind = "unsupported"
+	UpstreamModelSyncErrorAccountType          UpstreamModelSyncErrorKind = "account_type"
+	UpstreamModelSyncErrorNotAdapted           UpstreamModelSyncErrorKind = "not_adapted"
+	UpstreamModelSyncErrorDiscoveryUnconfirmed UpstreamModelSyncErrorKind = "discovery_unconfirmed"
+	UpstreamModelSyncErrorEndpointNotFound     UpstreamModelSyncErrorKind = "endpoint_not_found"
+	UpstreamModelSyncErrorMethodNotAllowed     UpstreamModelSyncErrorKind = "method_not_allowed"
+	UpstreamModelSyncErrorPermission           UpstreamModelSyncErrorKind = "permission"
+	UpstreamModelSyncErrorRateLimited          UpstreamModelSyncErrorKind = "rate_limited"
+	UpstreamModelSyncErrorNetwork              UpstreamModelSyncErrorKind = "network"
 	// UpstreamModelSyncErrorUpstream means the configured upstream failed or returned an unusable response.
 	UpstreamModelSyncErrorUpstream UpstreamModelSyncErrorKind = "upstream"
 	// UpstreamModelSyncErrorInternal means local persistence or service state failed after a valid upstream response.
@@ -267,6 +275,22 @@ func newUpstreamModelSyncConfigError(message string, err error) error {
 
 func newUpstreamModelSyncUnsupportedError(message string, err error) error {
 	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUnsupported, Message: message, Err: err}
+}
+
+func newUpstreamModelSyncAccountTypeError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorAccountType, Message: message, Err: err}
+}
+
+func newUpstreamModelSyncNotAdaptedError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorNotAdapted, Message: message, Err: err}
+}
+
+func newUpstreamModelSyncDiscoveryUnconfirmedError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorDiscoveryUnconfirmed, Message: message, Err: err}
+}
+
+func newUpstreamModelSyncNetworkError(message string, err error) error {
+	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorNetwork, Message: message, Err: err}
 }
 
 func newUpstreamModelSyncUpstreamError(message string, err error) error {
@@ -488,11 +512,16 @@ func upstreamModelSyncStatusCode(err error) int {
 func newUpstreamModelDiscoveryHTTPError(status int, body []byte) error {
 	kind := UpstreamModelSyncErrorUpstream
 	switch status {
-	case http.StatusNotFound, http.StatusMethodNotAllowed:
-		kind = UpstreamModelSyncErrorUnsupported
+	case http.StatusNotFound:
+		kind = UpstreamModelSyncErrorEndpointNotFound
+	case http.StatusMethodNotAllowed:
+		kind = UpstreamModelSyncErrorMethodNotAllowed
+	case http.StatusTooManyRequests:
+		kind = UpstreamModelSyncErrorRateLimited
 	case http.StatusUnauthorized:
 		kind = UpstreamModelSyncErrorCredentials
 	case http.StatusForbidden:
+		kind = UpstreamModelSyncErrorPermission
 		var payload struct {
 			Error struct {
 				Code string `json:"code"`
@@ -1211,7 +1240,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 	if account.IsCursor() {
 		if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth && account.Type != AccountTypeUpstream {
-			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Cursor account type", nil)
+			return nil, nil, newUpstreamModelSyncAccountTypeError("Unsupported Cursor account type", nil)
 		}
 		key := "api_key"
 		if account.Type == AccountTypeOAuth {
@@ -1237,7 +1266,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		if account.Type != AccountTypeOAuth {
-			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Antigravity account type", nil)
+			return nil, nil, newUpstreamModelSyncAccountTypeError("Unsupported Antigravity account type", nil)
 		}
 		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery {
 			return s.fetchAntigravityCatalog(ctx, account)
@@ -1248,7 +1277,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 	if account.Platform == PlatformHunyuan || account.Platform == PlatformVolcengine {
 		if account.Type != AccountTypeAPIKey {
-			return nil, nil, newUpstreamModelSyncUnsupportedError("Model discovery requires an API key account", nil)
+			return nil, nil, newUpstreamModelSyncAccountTypeError("Model discovery requires an API key account", nil)
 		}
 		if strings.TrimSpace(account.GetCredential("api_key")) == "" {
 			return nil, nil, newUpstreamModelSyncConfigError("API key is required", nil)
@@ -1262,7 +1291,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		// Only an exact known PAYG profile can supply platform candidates.
 		// This is not model discovery and must precede the discovery-route guard.
 		profile := nativeAccountProfile(account)
-		if profile != nil && profile.Mode == AccountModePayG && (profile.Discovery || profile.Capability != "") {
+		if profile != nil && profile.Mode == AccountModePayG && !profile.Discovery && profile.Capability != "" {
 			presets, presetErr := PlatformModelPresets()
 			if presetErr != nil {
 				return nil, nil, newUpstreamModelSyncInternalError("Failed to load platform candidates", presetErr)
@@ -1276,7 +1305,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 				}
 			}
 			candidates = dedupeAndSortModelIDs(append(candidates, configuredUpstreamModelsForCapabilitySync(account)...))
-			return nil, nil, &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUnsupported, Message: "Account-scoped native listing is unavailable; same-platform candidates require availability confirmation", PartialCatalog: &UpstreamModelCatalog{
+			return nil, nil, &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorDiscoveryUnconfirmed, Message: "Account-scoped native listing has not been confirmed; same-platform candidates require availability confirmation", PartialCatalog: &UpstreamModelCatalog{
 				Models: []string{}, DiscoveredModels: []string{}, CandidateModels: candidates,
 				CatalogSource: "platform-candidates", Metadata: map[string]UpstreamModelMetadata{},
 				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_candidates", Message: "Platform candidates are not evidence of account availability"}},
@@ -1321,7 +1350,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return buildCompatibleModelsRequest(ctx, account, s.validateUpstreamBaseURL)
 	}
 	if descriptor, exists := domain.LookupPlatform(account.Platform); !exists || !descriptor.ModelCatalog {
-		return nil, newUpstreamModelSyncUnsupportedError("Platform has no model catalog", nil)
+		return nil, newUpstreamModelSyncNotAdaptedError("Platform has no model catalog", nil)
 	}
 	switch {
 	case account.Platform == PlatformQianfan:
@@ -1347,7 +1376,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	case account.IsAnthropic():
 		return s.buildAnthropicUpstreamModelsRequest(ctx, account)
 	default:
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncNotAdaptedError(
 			fmt.Sprintf("Unsupported platform for upstream model sync: %s", account.Platform), nil,
 		)
 	}
@@ -1411,7 +1440,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 		}
 		normalizedBaseURL = validatedBaseURL
 	default:
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported Grok account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -1442,7 +1471,7 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 
 func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	if account.IsBedrock() || account.Type == AccountTypeServiceAccount {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported Anthropic account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -1481,7 +1510,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 		apiKeyAuthToken = apiKey
 		betaHeader = claude.APIKeyBetaHeader
 	} else {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported Anthropic account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -1514,7 +1543,7 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 
 func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	if account.Type != AccountTypeAPIKey {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported Antigravity account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -1528,7 +1557,7 @@ func (s *AccountTestService) buildAntigravityAPIKeyModelsRequest(ctx context.Con
 		return nil, newUpstreamModelSyncConfigError("Antigravity API-key base URL is required for upstream model sync", nil)
 	}
 	if !strings.HasSuffix(strings.ToLower(baseURL), "/antigravity") {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncConfigError(
 			"Antigravity API-key upstream model sync requires a compatible gateway base URL ending in /antigravity; use Antigravity OAuth for official Cloud Code upstreams",
 			nil,
 		)
@@ -1569,7 +1598,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 		return buildCompatibleModelsRequest(ctx, account, validateBaseURL)
 	}
 	if account.Type != AccountTypeAPIKey {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported OpenAI account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -1618,7 +1647,7 @@ func (s *AccountTestService) buildOpenAIOAuthUpstreamModelsRequest(ctx context.C
 		return nil, newUpstreamModelSyncConfigError("Failed to resolve OpenAI account credentials", err)
 	}
 	if !credentialAccount.IsOpenAIOAuth() {
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported OpenAI account type for upstream model sync: %s", credentialAccount.Type), nil,
 		)
 	}
@@ -1696,7 +1725,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 		req.Header.Set("x-goog-api-key", apiKey)
 	case AccountTypeOAuth:
 		if strings.TrimSpace(account.GetCredential("project_id")) != "" {
-			return nil, newUpstreamModelSyncUnsupportedError("Gemini Code Assist model listing is not supported by this sync button", nil)
+			return nil, newUpstreamModelSyncAccountTypeError("Gemini Code Assist model listing is not supported by this sync button", nil)
 		}
 		catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool)
 		accessToken := account.GetCredential("access_token")
@@ -1716,7 +1745,7 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	default:
-		return nil, newUpstreamModelSyncUnsupportedError(
+		return nil, newUpstreamModelSyncAccountTypeError(
 			fmt.Sprintf("Unsupported Gemini account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
@@ -2586,8 +2615,13 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		if validatedPages == 0 {
 			return nil, nil, cause
 		}
+		kind, status := UpstreamModelSyncErrorUpstream, 0
+		var syncErr *UpstreamModelSyncError
+		if errors.As(cause, &syncErr) {
+			kind, status = syncErr.Kind, syncErr.StatusCode
+		}
 		return models, merged, &UpstreamModelSyncError{
-			Kind: UpstreamModelSyncErrorUpstream, Message: "Model discovery is partial; previous availability must be retained", Err: cause,
+			Kind: kind, StatusCode: status, Message: "Model discovery is partial; previous availability must be retained", Err: cause,
 			PartialCatalog: &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, CandidateModels: models,
 				Metadata: metadata, CatalogSource: "partial", Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Model discovery contains incomplete pages or invalid entries; previous availability must be retained"}}},
 		}
@@ -2603,7 +2637,10 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		}
 		response, err := service.doUpstreamModelsRequest(request, accountProxyURL, account)
 		if err != nil || response == nil || response.Body == nil {
-			return assemble(newUpstreamModelSyncUpstreamError("Failed to request model page", err))
+			if err != nil {
+				return assemble(newUpstreamModelSyncNetworkError("Failed to connect to upstream model list", err))
+			}
+			return assemble(newUpstreamModelSyncUpstreamError("Upstream model list response is empty", nil))
 		}
 		body, readErr := io.ReadAll(io.LimitReader(response.Body, limit-consumed+1))
 		_ = response.Body.Close()
@@ -2611,7 +2648,10 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			return assemble(newUpstreamModelDiscoveryHTTPError(response.StatusCode, body))
 		}
 		consumed += int64(len(body))
-		if readErr != nil || consumed > limit {
+		if readErr != nil {
+			return assemble(newUpstreamModelSyncNetworkError("Failed to read upstream model list", readErr))
+		}
+		if consumed > limit {
 			return assemble(newUpstreamModelSyncUpstreamError(fmt.Sprintf("Model catalog response exceeds %d bytes or is unreadable", limit), readErr))
 		}
 		if account.Platform == PlatformMistral {

@@ -392,7 +392,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('keeps discovered IDs without metadata warning Toasts', async () => {
     syncUpstreamModels.mockResolvedValue({
-      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'], discovered_models: ['x-preview-f-free'], discovery_complete: true,
       warnings: [
         {
           code: 'upstream_model_metadata_incomplete',
@@ -465,7 +465,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('reports a successful preview so account creation can persist metadata', async () => {
     syncUpstreamModelsPreview.mockResolvedValue({
-      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'], discovered_models: ['x-preview-f-free'], discovery_complete: true,
       metadata: {
         'x-preview-f-free': {
           id: 'x-preview-f-free',
@@ -1054,6 +1054,45 @@ describe('compatible mode preview transitions', () => {
     expect(syncUpstreamModelsPreview).toHaveBeenCalledTimes(2)
     expect(wrapper.getComponent(ModelCatalogDetails).props('result').candidate_models).toEqual(['fresh-result'])
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+})
+
+
+describe('model discovery failure classification', () => {
+  it.each([
+    ['endpoint_not_found', 'syncUpstreamModelsEndpointNotFound'],
+    ['discovery_unconfirmed', 'syncUpstreamModelsDiscoveryUnconfirmed'],
+    ['permission', 'syncUpstreamModelsPermission'],
+    ['network', 'syncUpstreamModelsNetwork'],
+  ])('keeps exact IDs and aliases after %s', async (reason, key) => {
+    syncUpstreamModelsPreview.mockRejectedValueOnce({ response: { status: 400, data: { reason: `upstream_model_sync_${reason}` } } })
+    const wrapper = mountSelector({ modelValue: ['kept'], modelMappings: [{ from: 'alias', to: 'target' }], syncCredentials: { platform: 'openai', type: 'apikey', api_key: 'fixture' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain(`admin.accounts.${key}`)
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('kept')
+    expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('alias')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('update:modelMappings')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps candidate-only results manual and does not announce discovery success', async () => {
+    syncUpstreamModelsPreview.mockResolvedValueOnce({ discovered_models: [], candidate_models: ['candidate-only'], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' })
+    const wrapper = mountSelector({ syncCredentials: { platform: 'openai', type: 'apikey', api_key: 'fixture' } })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
+    expect(wrapper.getComponent(ModelCatalogDetails).props('statusOverride')).not.toBe('ready')
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    const candidate = wrapper.findAll('[data-testid="model-option"]').find(option => option.text().includes('candidate-only'))!
+    expect(candidate.text()).toContain('admin.accounts.modelSync.platformCandidates')
+    expect(candidate.text()).not.toContain('admin.accounts.modelSync.nativeDiscovered')
+    await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['candidate-only']])
     wrapper.unmount()
   })
 })
