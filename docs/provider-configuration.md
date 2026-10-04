@@ -1598,11 +1598,13 @@ AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，40
 | `volcengine_access_key_id` | 火山 AccessKey ID，用量查询认证；不回显原值 |
 | `volcengine_secret_access_key` | 对应 SecretKey，用量查询签名；不回显原值 |
 | `volcengine_plan_edition` | `personal` 或 `team`；旧账号缺省 `personal`，不是购买套餐操作 |
-| `volcengine_seat_id` | 团队可选席位 ID；未设置时查询当前身份绑定席位，不枚举其他成员 |
+| `volcengine_seat_id` | 团队查询必须明确保存的席位 ID；未设置时零出站，不自动解析或枚举成员 |
 
 AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key 字段。编辑时留空/省略查询密钥字段保留已保存值；明确清除通过 `null` 删除对应字段，不能用脱敏占位符替换原值。保存新的查询凭据也不更换推理 Key。查询密钥缺失、被拒或权限不足只说明本次查询状态，不能直接认定推理账号不可用。认证依据：[火山官方认证说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-auth/references/auth-modes.md)。
 
-在账号用量单元格发起查询，继续使用既有管理接口 `GET /api/v1/admin/cn-providers/accounts/:id/quota`（前端 API 客户端中的相对路径为 `/admin/cn-providers/accounts/:id/quota`），需本站管理员认证。后台使用保存的 AK/SK 签名访问固定火山控制面 `https://open.volcengineapi.com/`，不把推理 Key 或推理自定义请求头发送过去。个人查询 `GetCodingPlanUsage`；团队有席位时查询 `GetSeatInfoUsage`，无已保存席位时先 `GetSeatInfo`，没有绑定席位就停止。团队 Coding 的 `Scene` 为空字符串；无需用户手写请求或复用 CLI 输出。
+团队响应支持官方平铺 `Result` 和 `Result.SeatInfoUsage` 两种形状；冲突字段使查询失败。缺窗口保持未知，负重置 sentinel 不显示为日期，不伪造 used/total。
+
+在账号用量单元格发起查询，继续使用既有管理接口 `GET /api/v1/admin/cn-providers/accounts/:id/quota`（前端 API 客户端中的相对路径为 `/admin/cn-providers/accounts/:id/quota`），需本站管理员认证。后台使用保存的 AK/SK 签名访问固定控制面（个人参考实现使用 `https://open.volcengineapi.com/`，团队使用下述独立主机），不把推理 Key 或推理自定义请求头发送过去。个人查询 `GetCodingPlanUsage`；团队必须有明确保存的席位，查询 `GetSeatInfoUsage`，缺席位返回 `no_seat` 且零出站，不调用 `GetSeatInfo`。团队控制面为 `ark.cn-beijing.volcengineapi.com`，正文仅 SeatID，不发送 Scene。个人 `GetCodingPlanUsage` 保留参考实现，公开 explorer 没有该动作的原始 schema，在线未验证。
 
 结果 `provider=volcengine`、`source=coding_plan`、`plan_level=personal|team`。窗口 `5h`、`weekly`、`monthly` 分别表示 5 小时、周、月；只显示上游提供的已用百分比及重置时间，不填造 used/total、Token 数或现金余额。某窗口缺失表示该窗口没有本次读数，不补零；重置时间也可能缺失，且不是订阅到期日期。百分比不能用来推算绝对剩余次数。查询失败不覆盖上次成功快照，旧读数必须结合其更新时间和当前错误判断。来源：[官方套餐用量说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-usage/references/arkcli-usage-plan.md)。
 
@@ -1620,7 +1622,7 @@ AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key
 | `upstream_error` | 上游、传输或代理查询失败；检查服务/出口后重试 |
 | `url_rejected` | 控制面主机被本站出站 URL 策略拒绝；由管理员核对策略，不能关闭校验绕过 |
 
-先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 与个人 Ark Agent 用量仍未验证**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
+先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 个人与个人 Ark Agent 用量仍未验证**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
 
 
 ### 独立管理查询与新增套餐
@@ -1633,12 +1635,13 @@ AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key
 | Azure OpenAI | 独立 `usage_query_token`（ARM access token）、`usage_query_subscription_id`、`usage_query_region` | 仅公有 Azure 的订阅×区域配额，保留上游 `currentValue` / `limit` / `unit`；Count 不是 Token、现金或可推算余额；不发送月份/时区 |
 | GitHub Copilot | 独立 `usage_query_token` 和个人 `usage_query_username`，选择近 24 个月内年月 | 个人 premium request / AI credit 两份账单；不含组织/企业代付，部分失败明确标记，不推断币种或合计；不发送时区 |
 | Together 官方 PAYG | 原推理 Key，UTC 月份，day 粒度；组织需开通 billing beta | 整个组织含其他项目/Key 的已发生费用；数量/单价/费用保留十进制字符串；404 为未开通，不是零账单 |
+| BytePlus 团队 Coding | 现有 `billing_plan=team`；独立 `byteplus_access_key_id`、`byteplus_secret_access_key`、`byteplus_seat_id`，不新增套餐选择 | 仅官方 profile；固定国际控制面 `ark.ap-southeast-1.byteplusapi.com`，5h/周/月百分比与毫秒重置；缺席位零出站。个人/未选套餐无验证查询，不使用国内控制面 |
 | 腾讯国内企业 Token 套餐 | `hunyuan` coding 官方 `https://tokenhub.tencentmaas.com/plan/v3` 或 `/plan/anthropic`；独立 `tencent_query_secret_id`、`tencent_query_secret_key`、`tencent_query_region`、`tencent_query_team_id` | `token_plan` 套餐/周期/账单项；enterprise 为 credits、enterprise-auto 为 tokens；`call_count` 仍是次数；所有金额及 `total_qty` 精确字符串，不转浮点、不作为余额/5h 窗口 |
 | MiniMax 新国内 Token Plan | 仅精确 `https://api.minimax.cn/v1` coding profile，原套餐 Key | `/v1/token_plan/remains` 的文本模型 5h/周读数；`remaining_percent` 优先，无百分比时 `usage_count` 表示剩余。旧国内、国际/其他套餐不借用该合同 |
 
 AiHubMix、DMX 中国站、CrazyRouter 国内/国际站通过独立 `usage_query_token` 查询管理余额；DMX 与 CrazyRouter 另需 `usage_query_user_id`。TheRouter 管理查询显示 `account_credits` 的总 credits 与总使用量，不自行相减为余额。StepFun 国内/国际、TeamoRouter 两站、SudoCode 只在各自已验证官方 profile 使用原推理 Key。DMX .com/SSVIP 没有继承中国站管理查询。
 
-依据：[Atlas model usage](https://www.atlascloud.ai/docs/public-api/model-usage)、[Azure regional usage](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/usages/list?view=rest-aiservices-accountmanagement-2024-10-01)、[GitHub personal billing](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10)、[Together billing beta](https://docs.together.ai/reference/billing-usage)、[腾讯 DescribeTokenPlan](https://cloud.tencent.com/document/api/1823/132270)、[火山 Agent 源合同](https://github.com/volcengine/byted-supabase-cli/blob/main/internal/volcengine/agent_plan.go)。来源与离线边界测试不代表真实账号在线成功；未验证地区、个人 Agent、BytePlus 和未知产品仍保持未知。
+依据：[Atlas model usage](https://www.atlascloud.ai/docs/public-api/model-usage)、[Azure regional usage](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/usages/list?view=rest-aiservices-accountmanagement-2024-10-01)、[GitHub personal billing](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10)、[Together billing beta](https://docs.together.ai/reference/billing-usage)、[腾讯 DescribeTokenPlan](https://cloud.tencent.com/document/api/1823/132270)、[BytePlus 席位原始合同](https://docs.byteplus.com/en/docs/ModelArk/2306579)、[火山 Agent 源合同](https://github.com/volcengine/byted-supabase-cli/blob/main/internal/volcengine/agent_plan.go)。来源与离线边界测试不代表真实账号在线成功；未验证地区、个人 Agent、BytePlus 个人和未知产品仍保持未知。
 
 模型发现同时更新：AiHubMix、DMX 中国站、Qiniu PAYG 已接入已验证的模型列表协议；DMX .com/SSVIP、Qiniu 订阅及其他 `none` 模式不能据此开放发现。失败保留模型映射；候选列表不等于发现成功或账号可用模型。反重力保存并重新打开仍保留完整别名映射，别名不会冒充直接模型 ID。
 

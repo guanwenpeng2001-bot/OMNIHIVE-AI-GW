@@ -18,8 +18,8 @@
       />
     </div>
 
-    <template v-if="account.platform === 'volcengine'">
-      <p data-test="quota-source" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.source') }}</p>
+    <template v-if="['volcengine', 'byteplus'].includes(account.platform)">
+      <p data-test="quota-source" class="text-[10px] text-gray-500">{{ t(`admin.accounts.cnProviders.${account.platform}Quota.source`) }}</p>
       <p v-if="observationTime" data-test="quota-observed-at" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.observedAt') }}: {{ observationTime }}</p>
       <p v-if="!observedTiers.length && !loading" data-test="quota-unknown" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.usageUnknown') }}</p>
     </template>
@@ -246,8 +246,8 @@ const handleProbe = async () => {
       data.value = result
     } else {
       if (props.account.platform === 'commandcode') data.value = null
-      error.value = ['volcengine', 'hunyuan'].includes(props.account.platform) && result.status && result.status !== 'ok'
-        ? t(`admin.accounts.${props.account.platform === 'hunyuan' ? 'tencentQuota' : 'cnProviders.volcengineQuota'}.status.${result.status}`)
+      error.value = ['volcengine', 'byteplus', 'hunyuan'].includes(props.account.platform) && result.status && result.status !== 'ok'
+        ? t(`admin.accounts.${props.account.platform === 'hunyuan' ? 'tencentQuota' : `cnProviders.${props.account.platform}Quota`}.status.${result.status}`)
         : result.unsupported && props.account.platform === 'commandcode'
         ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
     }

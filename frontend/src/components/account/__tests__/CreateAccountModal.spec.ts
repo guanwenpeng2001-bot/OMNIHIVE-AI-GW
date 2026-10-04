@@ -2149,3 +2149,23 @@ it('creates Tencent domestic enterprise query credentials without changing the i
   expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', tencent_query_secret_id: 'synthetic-cloud-id', tencent_query_secret_key: 'synthetic-cloud-key', tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'synthetic-team' })
   wrapper.unmount()
 })
+
+
+it('creates BytePlus query keys only for the existing team billing plan', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 8811, platform: 'byteplus', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { form: { platform: string }; compatibleDraft: Record<string, unknown> }
+  state.form.platform = 'byteplus'; await flushPromises()
+  state.compatibleDraft = { ...state.compatibleDraft, billing_plan: 'team' }; await flushPromises()
+  const fields = wrapper.get('[data-test="byteplus-quota-fields"]')
+  expect(fields.find('[data-test="quota-edition"]').exists()).toBe(false)
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('BytePlus fixture')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+  await fields.get('[data-test="accessKeyId"]').setValue('synthetic-byteplus-id')
+  await fields.get('[data-test="secretAccessKey"]').setValue('synthetic-byteplus-secret')
+  await fields.get('[data-test="quota-seat"]').setValue('synthetic-seat')
+  await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+  expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ billing_plan: 'team', api_key: 'synthetic-inference', byteplus_access_key_id: 'synthetic-byteplus-id', byteplus_secret_access_key: 'synthetic-byteplus-secret', byteplus_seat_id: 'synthetic-seat' })
+  expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('byteplus_plan_edition')
+  wrapper.unmount()
+})

@@ -1,3 +1,4 @@
+import { compatibleProvider, compatibleMode } from '@/constants/compatibleProviders'
 import { NATIVE_PROFILE_PRESETS } from './nativeProfilePresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
@@ -890,6 +891,7 @@ export function volcengineQuotaProfile(credentials: Record<string, unknown> = {}
 }
 
 export function cnQuotaCellVisible(platform: string, accountMode: string, credentials?: Record<string, unknown>, customBaseUrlEnabled?: unknown): boolean {
+  if (platform === 'byteplus') return byteplusQuotaProfile(credentials, customBaseUrlEnabled)
   if (platform === 'hunyuan') return tencentQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
   if (platform === 'volcengine') {
     const profile = volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
@@ -1066,4 +1068,42 @@ export function applyTencentQuotaCredentials(credentials: Record<string, unknown
   }
   credentials.tencent_query_region = draft.region.trim()
   credentials.tencent_query_team_id = draft.teamId.trim()
+}
+
+
+export function byteplusQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): boolean {
+  if (credentials.billing_plan !== 'team' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const provider = compatibleProvider('byteplus')
+  const mode = provider && compatibleMode(provider, credentials.account_mode)
+  if (!mode || mode.mode !== 'coding') return false
+  const protocol = credentials.api_protocol || mode.default_protocol
+  if (protocol !== 'adaptive' && !mode.endpoints.some(endpoint => endpoint.protocol === protocol)) return false
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return false
+  for (const [key, value] of [['base_url', credentials.base_url], ...Object.entries(bases || {})]) {
+    if (key !== 'base_url' && !mode.endpoints.some(endpoint => endpoint.protocol === key)) return false
+    if (value == null || value === '') continue
+    if (typeof value !== 'string') return false
+    const selected = key === 'base_url' ? protocol : key
+    if (!mode.endpoints.some(endpoint => (selected === 'adaptive' || endpoint.protocol === selected) && endpoint.base_url === value.trim().replace(/\/+$/, ''))) return false
+  }
+  return true
+}
+
+/** Reuse the existing cloud-key form; BytePlus edition comes only from billing_plan. */
+export function byteplusQuotaDraft(credentials: Record<string, unknown> = {}): VolcengineQuotaDraft {
+  return { accessKeyId: '', secretAccessKey: '', edition: 'team',
+    seatId: typeof credentials.byteplus_seat_id === 'string' ? credentials.byteplus_seat_id : '',
+    clearAccessKeyId: false, clearSecretAccessKey: false }
+}
+export function applyByteplusQuotaCredentials(credentials: Record<string, unknown>, draft: VolcengineQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['byteplus_access_key_id', draft.accessKeyId, draft.clearAccessKeyId],
+    ['byteplus_secret_access_key', draft.secretAccessKey, draft.clearSecretAccessKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.byteplus_seat_id = draft.seatId.trim()
 }

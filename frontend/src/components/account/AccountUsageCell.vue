@@ -452,7 +452,8 @@
     </template>
 
     <template v-else-if="compatibleProvider(account.platform)">
-      <CNProviderBalanceCell v-if="['wallet_balance', 'account_credits'].includes(compatibleCapability.kind)" :account="account" />
+      <CNProviderQuotaCell v-if="account.platform === 'byteplus' && cnQuotaCellVisible" :account="account" />
+      <CNProviderBalanceCell v-else-if="['wallet_balance', 'account_credits'].includes(compatibleCapability.kind)" :account="account" />
       <ProviderManagementUsage v-else-if="managementUsageVisible(account)" :account="account" />
       <TogetherBillingUsage v-else-if="togetherBillingVisible(account)" :account="account" />
       <CompatibleConsumedUsage v-else-if="compatibleCapability.kind === 'consumed_usage'" :account="account" />

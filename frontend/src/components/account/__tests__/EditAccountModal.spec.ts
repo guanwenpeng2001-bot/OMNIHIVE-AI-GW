@@ -3209,3 +3209,25 @@ describe('integrated query credentials and model readback', () => {
     reopened.unmount()
   })
 })
+
+
+it('edits BytePlus team query keys using the existing plan without another edition selector', async () => {
+  const account = { ...buildAccount(), platform: 'byteplus', credentials: { account_mode: 'coding', billing_plan: 'team', byteplus_seat_id: 'saved-seat' }, credentials_status: { has_api_key: true, has_byteplus_access_key_id: true, has_byteplus_secret_access_key: true } }
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  const wrapper = mountModal(account); await flushPromises()
+  const fields = wrapper.get('[data-test="byteplus-quota-fields"]')
+  expect(fields.find('[data-test="quota-edition"]').exists()).toBe(false)
+  expect(fields.get('[data-test="quota-seat"]').element).toHaveProperty('value', 'saved-seat')
+  expect(fields.get('[data-test="accessKeyId"]').element).toHaveProperty('value', '')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ billing_plan: 'team', byteplus_seat_id: 'saved-seat' })
+  expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('byteplus_access_key_id')
+  expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
+  await fields.get('[data-test="accessKeyId"]').setValue('replacement-byteplus-id')
+  await fields.get('[data-test="clearSecretAccessKey"]').setValue(true)
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(updateAccountMock.mock.calls[1][1].credentials).toMatchObject({ billing_plan: 'team', byteplus_access_key_id: 'replacement-byteplus-id', byteplus_secret_access_key: null })
+  expect(updateAccountMock.mock.calls[1][1].credentials).not.toHaveProperty('byteplus_plan_edition')
+  wrapper.unmount()
+})

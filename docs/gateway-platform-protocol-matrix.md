@@ -87,12 +87,12 @@ public protocol and the selected handler rather than one universal body shape.
 
 ## Coding quota and model synchronization
 
-Domestic Ark Coding personal/team uses the existing administrator route
+Domestic Ark Coding personal (reference implementation, not verified online) / team uses the existing administrator route
 `GET /api/v1/admin/cn-providers/accounts/:id/quota`. Query credentials are
 `volcengine_access_key_id` and `volcengine_secret_access_key`, independent of the
 inference key and never echoed back. Omitted updates preserve them; explicit null
 clears them. `volcengine_plan_edition` is personal/team (default personal), and
-`volcengine_seat_id` is optional for team access. The domestic Coding profile is eligible; BytePlus and personal Ark Agent queries remain unverified. Domestic team Agent requires an explicit seat and separate AK/SK; reported daily/5h/week/month windows remain independent.
+`volcengine_seat_id` is required for team queries; no automatic GetSeatInfo lookup. The domestic Coding profile is eligible; BytePlus personal and personal Ark Agent queries remain unverified. BytePlus Team uses existing billing_plan=team plus separate BytePlus cloud keys and an explicit seat, against its fixed international control plane. Domestic team Agent requires an explicit seat and separate AK/SK; reported daily/5h/week/month windows remain independent.
 
 Returned 5h/weekly/monthly windows contain used percentages and optional reset
 times, not absolute used/total or cash. Missing windows and failed queries are not

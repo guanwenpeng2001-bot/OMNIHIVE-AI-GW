@@ -109,3 +109,19 @@ it.each(['azure_openai', 'github_copilot'])('shows an unsupported state for non-
   expect(urls).toEqual([])
   wrapper.unmount()
 })
+
+
+it('mounts BytePlus team quota with exact profile, and does not infer a wallet or personal entitlement', async () => {
+  respond({ provider: 'byteplus', source: 'coding_plan', success: true, tiers: [{ window: '5h', used_percent: 12 }, { window: 'weekly', used_percent: 34 }] })
+  const team = { ...account('byteplus', { account_mode: 'coding', billing_plan: 'team', byteplus_seat_id: 'seat-fixture' }), id: 9881 }
+  const wrapper = mount(AccountUsageCell, { props: { account: team } }); await flushPromises()
+  expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(2)
+  expect(urls[0]).toContain('/9881/quota')
+  expect(wrapper.find('[data-test="cn-provider-balance-probe"]').exists()).toBe(false)
+  await wrapper.setProps({ account: { ...team, credentials: { ...team.credentials, billing_plan: 'personal' } } })
+  expect(wrapper.find('[data-test="cn-provider-quota-probe"]').exists()).toBe(false)
+  await wrapper.setProps({ account: { ...team, credentials: { ...team.credentials, base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' } } })
+  expect(wrapper.find('[data-test="cn-provider-quota-probe"]').exists()).toBe(false)
+  expect(urls).toHaveLength(1)
+  wrapper.unmount()
+})

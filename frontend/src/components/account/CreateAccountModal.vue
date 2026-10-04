@@ -635,6 +635,7 @@
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <UsageQueryCredentialFields v-if="supportsUsageQuery(form.platform)" v-model="usageCredentials" :platform="form.platform" class="mt-4" />
+      <VolcengineQuotaFields v-if="showByteplusQuotaFields" v-model="byteplusCredentials" provider="byteplus" class="mt-4" />
       <TencentQuotaFields v-if="showTencentQuotaFields" v-model="tencentCredentials" class="mt-4" />
       <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" class="mt-4" />
 
@@ -3444,7 +3445,7 @@ import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
 import TencentQuotaFields from './TencentQuotaFields.vue'
-import { tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
+import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
 import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
@@ -3791,6 +3792,8 @@ const openCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(
   cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
 )
 const usageCredentials = ref(usageQueryDraft())
+const byteplusCredentials = ref(byteplusQuotaDraft())
+const showByteplusQuotaFields = computed(() => form.platform === 'byteplus' && byteplusQuotaProfile(compatibleDraft.value))
 const tencentCredentials = ref(tencentQuotaDraft())
 const quotaCredentials = ref(volcengineQuotaDraft())
 const showVolcengineQuotaFields = computed(() => form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile({
@@ -5094,6 +5097,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 const resetForm = () => {
   usageCredentials.value = usageQueryDraft()
+  byteplusCredentials.value = byteplusQuotaDraft()
   tencentCredentials.value = tencentQuotaDraft()
   quotaCredentials.value = volcengineQuotaDraft()
   selectedSupplier.value = undefined
@@ -5660,6 +5664,7 @@ const handleSubmit = async () => {
     }
   }
 
+  if (form.platform === 'byteplus' && byteplusQuotaProfile(credentials)) applyByteplusQuotaCredentials(credentials, byteplusCredentials.value)
   if (form.platform === 'hunyuan' && tencentQuotaProfile(credentials)) applyTencentQuotaCredentials(credentials, tencentCredentials.value)
   applyUsageQueryCredentials(credentials, form.platform, usageCredentials.value)
   if (form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile(credentials))) {
