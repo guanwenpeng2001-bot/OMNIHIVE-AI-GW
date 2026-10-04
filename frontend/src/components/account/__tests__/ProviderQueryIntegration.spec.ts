@@ -89,7 +89,6 @@ describe('account list queries through real API boundary', () => {
 
 it.each([
   ['volcengine', { base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'personal' }],
-  ['volcengine', { base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'team' }],
   ['hunyuan', { base_url: 'https://api.hunyuan.cloud.tencent.com/v1' }],
   ['hunyuan', { base_url: 'https://tokenhub.tencentmaas.com/plan/v3', api_base_urls: { anthropic: 'https://relay.example/messages' } }]
 ])('does not expose a cloud query for unsupported %s profile %j', async (platform, credentials) => {
@@ -136,5 +135,21 @@ it('clears CN quota history on a server identity rejection before the refreshed 
   expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(0)
   expect(wrapper.text()).toContain('identity_changed')
   expect(wrapper.text()).not.toContain('99%')
+  wrapper.unmount()
+})
+
+
+it('shows a configurable team Agent query without a seat, with no automatic request', async () => {
+  const wrapper = mount(AccountUsageCell, { props: { account: { ...account('volcengine', { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'team' }), id: 99882 } } })
+  await flushPromises()
+  expect(wrapper.find('[data-test="cn-provider-quota-probe"]').exists()).toBe(true)
+  expect(wrapper.text()).toContain('no_seat')
+  expect(wrapper.text()).not.toContain('agentUnverified')
+  expect(urls).toEqual([])
+  respond({ provider: 'volcengine', success: false, status: 'missing_configuration' })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(urls).toHaveLength(1)
+  expect(wrapper.text()).toContain('no_seat')
+  expect(wrapper.find('[data-test="cn-provider-quota-tier"]').exists()).toBe(false)
   wrapper.unmount()
 })

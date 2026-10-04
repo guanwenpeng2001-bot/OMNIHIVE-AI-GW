@@ -120,3 +120,23 @@ func TestByteplusSeatQuotaHandler(test *testing.T) {
 		})
 	}
 }
+
+func TestVolcengineAgentMissingSeatQuotaHandler(test *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := compatibleBalanceHandlerRepo{account: &service.Account{ID: 12, Platform: "volcengine", Type: service.AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "coding", "api_protocol": "chat_completions", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "volcengine_plan_edition": "team", "api_key": "inference-fixture", "volcengine_access_key_id": "cloud-id", "volcengine_secret_access_key": "cloud-secret"}}}
+	upstream := &compatibleUsageHandlerHTTP{}
+	handler := NewCNProviderHandler(service.NewCNProviderQuotaService(repo, nil, upstream, nil), nil)
+	router := gin.New()
+	router.GET("/accounts/:id/quota", handler.QueryQuota)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/accounts/12/quota", nil))
+	require.Equal(test, 200, recorder.Code)
+	require.Zero(test, upstream.calls)
+	var envelope struct {
+		Data service.CNProviderQuotaProbeResult `json:"data"`
+	}
+	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.False(test, envelope.Data.Success)
+	require.Equal(test, "missing_configuration", envelope.Data.Status)
+	require.Empty(test, envelope.Data.Tiers)
+}

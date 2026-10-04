@@ -53,6 +53,8 @@
       </p>
     </template>
 
+    <p v-if="missingAgentSeat && !error" role="status" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.status.no_seat') }}</p>
+
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): a verb label tells users this chip is clickable. The previous
          noun label ("5h/weekly") read as a passive caption and users could not
@@ -110,7 +112,7 @@ import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
 import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
-import { cnQuotaCellVisible } from './credentialsBuilder'
+import { cnQuotaCellVisible, volcengineQuotaProfile } from './credentialsBuilder'
 import UsageProgressBar from './UsageProgressBar.vue'
 
 const props = defineProps<{
@@ -125,6 +127,9 @@ const readMode = (): string => {
 }
 
 const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode(), props.account.credentials, props.account.extra?.custom_base_url_enabled))
+
+const agentQuota = computed(() => props.account.platform === 'volcengine' && volcengineQuotaProfile(props.account.credentials, props.account.extra?.custom_base_url_enabled) === 'agent')
+const missingAgentSeat = computed(() => agentQuota.value && (typeof props.account.credentials?.volcengine_seat_id !== 'string' || !props.account.credentials.volcengine_seat_id.trim()))
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -196,7 +201,9 @@ const snapshotIsStale = computed(() => {
 // 避免静默失败导致单元格空白无提示）。
 onMounted(() => {
   if (!visible.value) return
-  data.value = snapshotData.value
+  data.value = missingAgentSeat.value ? null : snapshotData.value
+  // Agent queries are explicit actions; missing configuration is not capability absence.
+  if (agentQuota.value) return
   if (!snapshotIsStale.value) return
   // 模块级去抖：列表页每行一个实例，翻页/筛选/刷新会重复挂载；同一账号
   // 短时间内已自动探测过则跳过，避免对上游形成探测风暴。
@@ -247,6 +254,10 @@ const handleProbe = async () => {
       return
     }
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
+    if (missingAgentSeat.value && result.status === 'missing_configuration') {
+      error.value = t('admin.accounts.cnProviders.volcengineQuota.status.no_seat')
+      return
+    }
     if (result.success) {
       data.value = result
     } else {

@@ -895,7 +895,7 @@ export function cnQuotaCellVisible(platform: string, accountMode: string, creden
   if (platform === 'hunyuan') return tencentQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
   if (platform === 'volcengine') {
     const profile = volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
-    return profile === 'coding' || (profile === 'agent' && credentials?.volcengine_plan_edition === 'team' && typeof credentials.volcengine_seat_id === 'string' && !!credentials.volcengine_seat_id.trim())
+    return profile === 'coding' || (profile === 'agent' && credentials?.volcengine_plan_edition === 'team')
   }
   if (platform === 'commandcode') return true
   if (platform === 'opencode_go') return accountMode !== 'zen'
