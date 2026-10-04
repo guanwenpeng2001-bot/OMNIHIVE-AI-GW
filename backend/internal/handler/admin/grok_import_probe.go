@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -62,19 +63,26 @@ func newGrokImportProbeScheduler(concurrency int, timeout time.Duration) *grokIm
 	}
 }
 
-func (s *grokImportProbeScheduler) schedule(prober grokImportProber, account *service.Account) {
-	if s == nil || prober == nil || account == nil || account.ID <= 0 {
+func (s *grokImportProbeScheduler) schedule(prober grokImportProber, admin service.AdminService, account *service.Account) {
+	if s == nil || prober == nil || admin == nil || account == nil || account.ID <= 0 || account.Status != service.StatusActive {
 		return
 	}
 	if account.Platform != service.PlatformGrok || account.Type != service.AccountTypeOAuth {
 		return
 	}
 
-	s.scheduleTask(prober, account.ID)
+	s.scheduleTask(prober, admin, account)
 }
 
-func (s *grokImportProbeScheduler) scheduleTask(prober grokImportProber, accountID int64) {
-	s.scheduleProbe(accountID, func(ctx context.Context) { runGrokImportProbe(ctx, prober, accountID) })
+func (s *grokImportProbeScheduler) scheduleTask(prober grokImportProber, admin service.AdminService, account *service.Account) {
+	accountID, workspaceID := account.ID, account.WorkspaceID
+	if workspaceID <= 0 {
+		workspaceID = domain.DefaultWorkspaceID
+	}
+	s.scheduleProbe(accountID, func(ctx context.Context) {
+		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
+		runGrokImportProbe(ctx, prober, admin, accountID)
+	})
 }
 
 func (s *grokImportProbeScheduler) scheduleProbe(accountID int64, execute func(context.Context)) {
@@ -164,7 +172,12 @@ func (s *grokImportProbeScheduler) run(task grokImportProbeTask) {
 	}
 }
 
-func runGrokImportProbe(ctx context.Context, prober grokImportProber, accountID int64) {
+func runGrokImportProbe(ctx context.Context, prober grokImportProber, admin service.AdminService, accountID int64) {
+	fresh, err := admin.GetAccount(ctx, accountID)
+	if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID ||
+		(fresh.WorkspaceID > 0 && fresh.WorkspaceID != domain.ResourceWorkspaceID(ctx)) {
+		return
+	}
 	result, err := prober.QueryQuota(ctx, accountID)
 	if err != nil {
 		slog.Warn(
@@ -208,7 +221,7 @@ func (h *AccountHandler) scheduleGrokImportProbe(account *service.Account) {
 	if h == nil {
 		return
 	}
-	defaultGrokImportProbeScheduler.schedule(h.grokImportProber, account)
+	defaultGrokImportProbeScheduler.schedule(h.grokImportProber, h.adminService, account)
 }
 
 // ProvideAccountHandler injects the Grok active prober for production while

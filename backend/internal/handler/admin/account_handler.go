@@ -1175,8 +1175,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		}
 		createdAccount = account
 		if req.CredentialDraft == "" {
-			h.adminService.EnsureAntigravityPrivacy(ctx, account)
-			h.adminService.EnsureOpenAIPrivacy(ctx, account)
+			service.EnsureAutomaticAccountPrivacy(ctx, h.adminService, account)
 		}
 		return h.buildAccountResponseWithRuntime(ctx, account), nil
 	})
@@ -1369,24 +1368,11 @@ func (h *AccountHandler) Update(c *gin.Context) {
 // 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
-	if account == nil || account.Type != service.AccountTypeAPIKey ||
+	if account == nil || account.Status != service.StatusActive || account.Type != service.AccountTypeAPIKey ||
 		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
 		return
 	}
-	if h.accountTestService == nil {
-		return
-	}
-	accountID := account.ID
-	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
-		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
-	})
-}
-
-// Queue discovery with the optional Responses probe as one bounded task: the
-// shared scheduler deduplicates by account ID, so separate tasks would collide.
-// Capture only immutable ownership identifiers, never the request/gin context.
-func (h *AccountHandler) scheduleModelCatalogApply(account *service.Account, probeResponses bool) {
-	if account == nil || h.accountTestService == nil || h.adminService == nil {
+	if h.accountTestService == nil || h.adminService == nil {
 		return
 	}
 	accountID, workspaceID := account.ID, account.WorkspaceID
@@ -1396,14 +1382,35 @@ func (h *AccountHandler) scheduleModelCatalogApply(account *service.Account, pro
 	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
 		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
 		fresh, err := h.adminService.GetAccount(ctx, accountID)
-		if err != nil || fresh == nil || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
+		if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
+			return
+		}
+		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
+	})
+}
+
+// Queue discovery with the optional Responses probe as one bounded task: the
+// shared scheduler deduplicates by account ID, so separate tasks would collide.
+// Capture only immutable ownership identifiers, never the request/gin context.
+func (h *AccountHandler) scheduleModelCatalogApply(account *service.Account, probeResponses bool) {
+	if account == nil || account.Status != service.StatusActive || h.accountTestService == nil || h.adminService == nil {
+		return
+	}
+	accountID, workspaceID := account.ID, account.WorkspaceID
+	if workspaceID <= 0 {
+		workspaceID = domain.DefaultWorkspaceID
+	}
+	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
+		fresh, err := h.adminService.GetAccount(ctx, accountID)
+		if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
 			return
 		}
 		if probeResponses && fresh.Type == service.AccountTypeAPIKey &&
 			(fresh.Platform == service.PlatformOpenAI || service.IsCNProvider(fresh.Platform)) {
 			h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
 			fresh, err = h.adminService.GetAccount(ctx, accountID)
-			if err != nil || fresh == nil || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
+			if err != nil || fresh == nil || fresh.Status != service.StatusActive || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
 				return
 			}
 		}

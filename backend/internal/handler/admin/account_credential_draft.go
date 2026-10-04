@@ -303,6 +303,7 @@ func (handler *AccountHandler) createAccountFromRequest(ctx context.Context, gin
 	return handler.adminService.CreateAccount(ctx, &service.CreateAccountInput{
 		TPMLimit:    request.TPMLimit.Value,
 		Name:        request.Name,
+		Status:      request.Status,
 		Notes:       request.Notes,
 		Platform:    request.Platform,
 		Type:        request.Type,
@@ -396,6 +397,7 @@ func confirmCredentialDraftWithBinding(
 		account, err := adminService.CreateAccount(txCtx, &service.CreateAccountInput{
 			TPMLimit:    request.TPMLimit.Value,
 			Name:        request.Name,
+			Status:      request.Status,
 			Notes:       request.Notes,
 			Platform:    draft.Platform,
 			Type:        draft.Type,
@@ -431,8 +433,7 @@ func confirmCredentialDraftWithBinding(
 					*created = *latest
 				}
 			}
-			adminService.EnsureOpenAIPrivacy(context.Background(), created)
-			adminService.EnsureAntigravityPrivacy(context.Background(), created)
+			service.EnsureAutomaticAccountPrivacy(context.Background(), adminService, created)
 			service.InvalidateAvailableModelsCacheForAccount(created)
 		})
 		return created, nil

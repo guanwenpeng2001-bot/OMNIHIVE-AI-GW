@@ -415,6 +415,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	Status             string
 	TPMLimit           int64
 	Name               string
 	Notes              *string

@@ -429,6 +429,15 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	status := input.Status
+	if status == "" {
+		status = StatusActive
+	}
+	switch status {
+	case StatusActive, "inactive", StatusError:
+	default:
+		return nil, infraerrors.BadRequest("INVALID_ACCOUNT_STATUS", "status must be active, inactive, or error")
+	}
 	if err := validateAccountProxyChoice(input.ProxyID, input.ProxyGroupID); err != nil {
 		return nil, err
 	}
@@ -455,7 +464,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		TPMLimit:     input.TPMLimit,
 		Concurrency:  normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:     input.Priority,
-		Status:       StatusActive,
+		Status:       status,
 		Schedulable:  true,
 	}
 	if err := validateExpandedPlatformAccount(account); err != nil {
@@ -588,7 +597,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 
 	// OAuth 账号：创建后异步设置隐私。
 	// 使用 Ensure（幂等）而非 Force：新建账号 Extra 为空时效果相同，但更安全。
-	if account.Type == AccountTypeOAuth {
+	if account.Status == StatusActive && account.Type == AccountTypeOAuth {
 		switch account.Platform {
 		case PlatformOpenAI:
 			go func() {
@@ -597,7 +606,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 						slog.Error("create_account_openai_privacy_panic", "account_id", account.ID, "recover", r)
 					}
 				}()
-				s.EnsureOpenAIPrivacy(context.Background(), account)
+				EnsureAutomaticAccountPrivacy(context.Background(), s, account)
 			}()
 		case PlatformAntigravity:
 			go func() {
@@ -606,7 +615,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 						slog.Error("create_account_antigravity_privacy_panic", "account_id", account.ID, "recover", r)
 					}
 				}()
-				s.EnsureAntigravityPrivacy(context.Background(), account)
+				EnsureAutomaticAccountPrivacy(context.Background(), s, account)
 			}()
 		}
 	}

@@ -232,7 +232,7 @@ func TestModelCatalogBackgroundUsesBoundedQueue(t *testing.T) {
 	<-started
 	handler := &AccountHandler{adminService: newStubAdminService(), accountTestService: &service.AccountTestService{}}
 	for accountID := int64(2); accountID < 1000; accountID++ {
-		handler.scheduleModelCatalogApply(&service.Account{ID: accountID, WorkspaceID: 2}, false)
+		handler.scheduleModelCatalogApply(&service.Account{ID: accountID, WorkspaceID: 2, Status: service.StatusActive}, false)
 	}
 	snapshot := snapshotGrokImportProbeScheduler(scheduler)
 	require.Equal(t, grokImportProbeQueueLimit, snapshot.queued)

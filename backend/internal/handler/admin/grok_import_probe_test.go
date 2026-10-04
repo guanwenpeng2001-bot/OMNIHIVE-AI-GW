@@ -89,6 +89,7 @@ func (s *grokImportProbeStub) snapshot() (map[int64]int, int, bool) {
 func newGrokOAuthImportAccount(id int64) *service.Account {
 	return &service.Account{
 		ID:       id,
+		Status:   service.StatusActive,
 		Platform: service.PlatformGrok,
 		Type:     service.AccountTypeOAuth,
 	}
@@ -109,7 +110,7 @@ func TestGrokImportProbeSchedulerProbesSingleAccountOnce(t *testing.T) {
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 
-	scheduler.schedule(prober, newGrokOAuthImportAccount(101))
+	scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(101))
 	require.Equal(t, int64(101), awaitGrokProbeSignal(t, prober.done))
 
 	calls, maxActive, deadlineSeen := prober.snapshot()
@@ -131,7 +132,7 @@ func TestGrokImportProbeSchedulerQueuesBatchWithoutPerTaskGoroutines(t *testing.
 	prober.failures[150] = infraerrors.New(502, "GROK_TEST_PROBE_FAILED", "sensitive-upstream-body")
 
 	for id := int64(101); id < 101+taskCount; id++ {
-		scheduler.schedule(prober, newGrokOAuthImportAccount(id))
+		scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(id))
 	}
 	for i := 0; i < 3; i++ {
 		awaitGrokProbeSignal(t, prober.started)
@@ -171,11 +172,11 @@ func TestGrokImportProbeSchedulerDeduplicatesPendingAndInFlightAccounts(t *testi
 	account := newGrokOAuthImportAccount(501)
 	queued := newGrokOAuthImportAccount(502)
 
-	scheduler.schedule(prober, account)
+	scheduler.schedule(prober, newStubAdminService(), account)
 	require.Equal(t, int64(501), awaitGrokProbeSignal(t, prober.started))
-	scheduler.schedule(prober, account)
-	scheduler.schedule(prober, queued)
-	scheduler.schedule(prober, queued)
+	scheduler.schedule(prober, newStubAdminService(), account)
+	scheduler.schedule(prober, newStubAdminService(), queued)
+	scheduler.schedule(prober, newStubAdminService(), queued)
 
 	scheduler.mu.Lock()
 	require.Len(t, scheduler.queue, 1)
@@ -196,10 +197,10 @@ func TestGrokImportProbeSchedulerBoundsPendingQueue(t *testing.T) {
 	prober := newGrokImportProbeStub(grokImportProbeQueueLimit + 1)
 	release := make(chan struct{})
 	prober.block = release
-	scheduler.schedule(prober, newGrokOAuthImportAccount(600))
+	scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(600))
 	require.Equal(t, int64(600), awaitGrokProbeSignal(t, prober.started))
 	for id := int64(601); id < 601+grokImportProbeQueueLimit+10; id++ {
-		scheduler.schedule(prober, newGrokOAuthImportAccount(id))
+		scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(id))
 	}
 
 	scheduler.mu.Lock()
@@ -218,7 +219,7 @@ func TestGrokImportProbeSchedulerTimeoutCancelsProbe(t *testing.T) {
 	prober := newGrokImportProbeStub(1)
 	prober.block = neverRelease
 
-	scheduler.schedule(prober, newGrokOAuthImportAccount(201))
+	scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(201))
 	require.Equal(t, int64(201), awaitGrokProbeSignal(t, prober.done))
 
 	calls, _, _ := prober.snapshot()
@@ -229,9 +230,9 @@ func TestGrokImportProbeSchedulerSkipsMissingServiceAndNonGrokAccounts(t *testin
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 
-	scheduler.schedule(nil, newGrokOAuthImportAccount(301))
-	scheduler.schedule(prober, &service.Account{ID: 302, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth})
-	scheduler.schedule(prober, &service.Account{ID: 303, Platform: service.PlatformGrok, Type: service.AccountTypeAPIKey})
+	scheduler.schedule(nil, newStubAdminService(), newGrokOAuthImportAccount(301))
+	scheduler.schedule(prober, newStubAdminService(), &service.Account{ID: 302, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth})
+	scheduler.schedule(prober, newStubAdminService(), &service.Account{ID: 303, Platform: service.PlatformGrok, Type: service.AccountTypeAPIKey})
 
 	select {
 	case id := <-prober.started:
@@ -251,7 +252,7 @@ func TestGrokImportProbeFailureLogDoesNotIncludeErrorMessage(t *testing.T) {
 	scheduler := newGrokImportProbeScheduler(1, time.Second)
 	prober := newGrokImportProbeStub(1)
 	prober.failures[401] = infraerrors.New(502, "GROK_TEST_PROBE_FAILED", "refresh-token-secret")
-	scheduler.schedule(prober, newGrokOAuthImportAccount(401))
+	scheduler.schedule(prober, newStubAdminService(), newGrokOAuthImportAccount(401))
 	awaitGrokProbeSignal(t, prober.done)
 
 	require.Eventually(t, func() bool {
@@ -265,16 +266,16 @@ func TestImportProbeSchedulerCloseCancelsAndClears(t *testing.T) {
 	scheduler := newGrokImportProbeScheduler(1, time.Minute)
 	prober := newGrokImportProbeStub(100)
 	prober.block = make(chan struct{})
-	scheduler.scheduleTask(prober, 1)
+	scheduler.scheduleTask(prober, newStubAdminService(), newGrokOAuthImportAccount(1))
 	awaitGrokProbeSignal(t, prober.started)
 	for accountID := int64(2); accountID < 1000; accountID++ {
-		scheduler.scheduleTask(prober, accountID)
+		scheduler.scheduleTask(prober, newStubAdminService(), newGrokOAuthImportAccount(accountID))
 	}
 	require.Equal(t, grokImportProbeQueueLimit, snapshotGrokImportProbeScheduler(scheduler).queued)
 	scheduler.close()
 	awaitGrokProbeSignal(t, prober.done)
 	require.Eventually(t, func() bool { return snapshotGrokImportProbeScheduler(scheduler).workers == 0 }, time.Second, time.Millisecond)
-	scheduler.scheduleTask(prober, 1001)
+	scheduler.scheduleTask(prober, newStubAdminService(), newGrokOAuthImportAccount(1001))
 	require.Zero(t, snapshotGrokImportProbeScheduler(scheduler).queued)
 	scheduler.mu.Lock()
 	defer scheduler.mu.Unlock()
@@ -290,9 +291,9 @@ func TestOpenAIImportProbeHandlerUsesBoundedQueue(t *testing.T) {
 	started := make(chan struct{})
 	scheduler.scheduleProbe(1, func(ctx context.Context) { close(started); <-ctx.Done() })
 	<-started
-	handler := &AccountHandler{accountTestService: &service.AccountTestService{}}
+	handler := &AccountHandler{adminService: newStubAdminService(), accountTestService: &service.AccountTestService{}}
 	for accountID := int64(2); accountID < 1000; accountID++ {
-		handler.scheduleOpenAIResponsesProbe(&service.Account{ID: accountID, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey})
+		handler.scheduleOpenAIResponsesProbe(&service.Account{ID: accountID, Status: service.StatusActive, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey})
 	}
 	snapshot := snapshotGrokImportProbeScheduler(scheduler)
 	require.Equal(t, grokImportProbeQueueLimit, snapshot.queued)

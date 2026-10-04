@@ -1,16 +1,32 @@
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
-import type { Account, AccountListItem, CreateAccountRequest } from '@/types/admin'
+import type { Account, AccountListItem, AccountStatus, CreateAccountRequest } from '@/types/admin'
 import type { AvailableAccountModel } from '@/types/model'
 import type { PaginatedResponse } from '@/types/common'
 
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../client', () => ({ apiClient: { get, post } }))
 
-import { batchCreate, getAvailableModels, getById, listWithEtag, setSchedulable } from '../admin/accounts'
+import { batchCreate, create, getAvailableModels, getById, listWithEtag, setSchedulable } from '../admin/accounts'
 import type { BatchCreateAccountsResponse } from '../admin/accounts'
 
 describe('admin account DTO contracts', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it.each(['active', 'inactive', 'error', undefined] as const)('forwards optional create status %s unchanged for single and batch requests', async (status) => {
+    expectTypeOf<CreateAccountRequest['status']>().toEqualTypeOf<AccountStatus | undefined>()
+    expectTypeOf<CreateAccountRequest>().not.toHaveProperty('schedulable')
+    expectTypeOf<CreateAccountRequest>().not.toHaveProperty('skip_default_group_bind')
+    const request: CreateAccountRequest = {
+      name: 'status-contract', platform: 'openai', type: 'apikey', credentials: { api_key: 'test' },
+      ...(status === undefined ? {} : { status })
+    }
+    post.mockResolvedValue({ data: { id: 42, status: status ?? 'active' } })
+    await create(request)
+    expect(post).toHaveBeenLastCalledWith('/admin/accounts', request, expect.any(Object))
+    await batchCreate([request])
+    expect(post).toHaveBeenLastCalledWith('/admin/accounts/batch', { accounts: [request] }, expect.any(Object))
+    if (status === undefined) expect(request).not.toHaveProperty('status')
+  })
 
   it('preserves the batch IDs and named failures without inventing account objects', async () => {
     const response: BatchCreateAccountsResponse = {

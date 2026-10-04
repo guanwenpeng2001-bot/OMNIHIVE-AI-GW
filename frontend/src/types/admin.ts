@@ -909,6 +909,7 @@ export interface OpenAIResponsesState {
 }
 
 export interface CreateAccountRequest {
+  status?: AccountStatus
   tpm_limit?: number
   name: string
   notes?: string | null
