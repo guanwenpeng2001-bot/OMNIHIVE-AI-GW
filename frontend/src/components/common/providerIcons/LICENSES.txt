@@ -1,0 +1,111 @@
+Provider artwork provenance
+===========================
+
+BL, DMX and TR are text monograms, not brand logos. Regional/plan aliases reuse vendor artwork. Trademarks belong to their respective owners. LobeHub Mono geometry is transcribed without React runtime dependencies. CC Switch SVG titles are removed; otherwise geometry is preserved.
+
+a6api: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/a6-icon.png
+aicodemirror: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#aicodemirror
+aicodewith: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#aicodewith
+aicoding: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#aicoding
+aigocode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#aigocode
+aihubmix: @lobehub/icons@4.0.2/es/AiHubMix/components/Mono.js
+amux: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#amux
+apikey_fun: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/apikeyfun.png
+apinebula: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/apinebula_icon.png
+astron_coding: @lobehub/icons@4.0.2/es/IFlyTekCloud/components/Mono.js
+atlascloud: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/atlascloud_icon.png
+azure_openai: @lobehub/icons@4.0.2/es/Azure/components/Mono.js
+bailing: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+byteplus: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/byteplus.png
+ccsub: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/ccsub.svg
+cherryin: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/cherryin.png
+claudeapi: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/ClaudeApi.png
+claudecn: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/claudecn.png
+code0: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/code0.png
+code_9527: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#9527code
+compshare: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#ucloud
+crazyrouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#crazyrouter
+cubence: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#cubence
+dmxapi: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+eflowcode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/eflowcode.png
+fennoai: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/fenno-icon.webp
+fluxa: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/fluxa.png
+github_copilot: @lobehub/icons@4.0.2/es/GithubCopilot/components/Mono.js
+jiekou: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#jiekou
+kat_coder: @lobehub/icons@4.0.2/es/KwaiKAT/components/Mono.js
+longcat: @lobehub/icons@4.0.2/es/LongCat/components/Mono.js
+micu: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#micu
+mimo: @lobehub/icons@4.0.2/es/XiaomiMiMo/components/Mono.js
+modelscope: @lobehub/icons@4.0.2/es/ModelScope/components/Mono.js
+nous_research: @lobehub/icons@4.0.2/es/NousResearch/components/Mono.js
+novita: @lobehub/icons@4.0.2/es/Novita/components/Mono.js
+nvidia: @lobehub/icons@4.0.2/es/Nvidia/components/Mono.js
+packycode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#packycode
+pateway: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/pateway.jpg
+pipellm: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/pipellm.png
+ppio: @lobehub/icons@4.0.2/es/PPIO/components/Mono.js
+qiniu: @lobehub/icons@4.0.2/es/Qiniu/components/Mono.js
+qwencloud: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#qwencloud
+relaxycode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/relaxcode.png
+rightcode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#rc
+runapi: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/runapi.jpg
+shengsuanyun: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/shengsuanyun.svg
+siliconflow_cn: @lobehub/icons@4.0.2/es/SiliconCloud/components/Mono.js
+soleapi: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#soleapi
+soshow: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/soshow.png
+sssaicode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#sssaicode
+stepfun_api: @lobehub/icons@4.0.2/es/Stepfun/components/Mono.js
+subrouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/subrouter.svg
+sudocode_chat: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/sudocode.png
+sudocode_us: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/sudocode-us.png
+teamorouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/TeamoRouter-icon-dark.png
+therouter: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+together: @lobehub/icons@4.0.2/es/Together/components/Mono.js
+xycai: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/xycai-icon.png
+zetaapi: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/zetaapi-icon.png
+
+LobeHub license:
+MIT License
+
+Copyright (c) 2023 LobeHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+CC Switch license:
+MIT License
+
+Copyright (c) 2025 Jason Young
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

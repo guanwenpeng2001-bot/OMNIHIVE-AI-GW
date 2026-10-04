@@ -103,10 +103,15 @@
     <circle cx="18" cy="18" r="3" />
     <path stroke-linecap="round" stroke-linejoin="round" d="M8.7 10.7 15.3 7.3M8.7 13.3l6.6 3.4" />
   </svg>
-  <!-- Shared registered-provider mark; supplier identity stays in the adjacent label. -->
-  <!-- Same server geometry as components/icons/Icon.vue, with PlatformIcon sizing. -->
-  <svg v-else-if="platform && compatibleProvider(platform)" :class="sizeClass" aria-hidden="true" focusable="false" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-    <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+  <!-- Local, verified provider artwork. Monochrome assets follow the theme. -->
+  <svg v-else-if="providerIcon?.kind === 'asset'" viewBox="0 0 24 24"
+    :class="[sizeClass, providerIcon.monochrome ? 'rounded-sm bg-white dark:invert' : 'rounded-sm bg-white']"
+    aria-hidden="true" focusable="false">
+    <image :href="providerIcon.src" width="24" height="24" preserveAspectRatio="xMidYMid meet" />
+  </svg>
+  <!-- Explicit text fallback where no vendor artwork has been verified. -->
+  <svg v-else-if="providerIcon?.kind === 'monogram'" :class="sizeClass" aria-hidden="true" focusable="false" fill="currentColor" viewBox="0 0 24 24">
+    <text x="12" y="16" text-anchor="middle" font-family="sans-serif" :font-size="providerIcon.text.length > 2 ? 9 : 12" font-weight="700">{{ providerIcon.text }}</text>
   </svg>
   <!-- Fallback: generic platform icon -->
   <svg aria-hidden="true" focusable="false" v-else :class="sizeClass" fill="currentColor" viewBox="0 0 24 24">
@@ -119,6 +124,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { compatibleProvider } from '@/constants/compatibleProviders'
+import { compatibleProviderIcon } from './providerIcons'
 import type { GroupPlatform } from '@/types'
 
 interface Props {
@@ -132,6 +138,11 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const platform = computed(() => props.accountType === 'bedrock' ? 'bedrock' : props.platform)
+
+const providerIcon = computed(() => {
+  const provider = platform.value ? compatibleProvider(platform.value) : undefined
+  return provider ? compatibleProviderIcon(provider.id, provider.label) : undefined
+})
 
 const sizeClass = computed(() => {
   const sizes = {
