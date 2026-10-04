@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -78,7 +80,11 @@ func TestDiscoveryPartialPreviewPreservesEvidence(test *testing.T) {
 			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 			account := &Account{Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://relay.example/v1"}}
 			catalog, err := service.PreviewAccountModelCatalog(context.Background(), account)
-			require.NoError(test, err)
+			require.Nil(test, catalog)
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			catalog = failure.PartialCatalog
+			require.NotNil(test, catalog)
 			require.False(test, catalog.DiscoveryComplete)
 			require.False(test, catalog.Complete)
 			require.Contains(test, catalog.DiscoveredModels, "first")
@@ -97,8 +103,16 @@ func TestDiscoveryOfficialCandidateFallback(test *testing.T) {
 			upstream := &httpUpstreamRecorder{}
 			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 			account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"public": "account-declared-model"}}}
+			if platform == PlatformHunyuan {
+				account.Credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
+			}
 			catalog, err := service.PreviewAccountModelCatalog(context.Background(), account)
-			require.NoError(test, err)
+			require.Nil(test, catalog)
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			catalog = failure.PartialCatalog
+			require.NotNil(test, catalog)
+			require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
 			require.Equal(test, "platform-candidates", catalog.CatalogSource)
 			require.NotEmpty(test, catalog.CandidateModels)
 			require.Empty(test, catalog.DiscoveredModels)
@@ -153,7 +167,11 @@ func TestDiscoveryPartialHTTPFailureDoesNotRevoke(test *testing.T) {
 	}}
 	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var syncFailure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &syncFailure)
+	preview = syncFailure.PartialCatalog
+	require.NotNil(test, preview)
 	require.Equal(test, []string{"first"}, preview.DiscoveredModels)
 	require.Nil(test, preview.Review)
 	require.EqualValues(test, 7, account.GetUpstreamModelCatalog().Revision)
@@ -219,7 +237,11 @@ func TestDiscoveryEmptyPageWithContinuationIsPartial(test *testing.T) {
 	}}
 	account := &Account{Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var failure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &failure)
+	preview = failure.PartialCatalog
+	require.NotNil(test, preview)
 	require.False(test, preview.DiscoveryComplete)
 	require.Empty(test, preview.DiscoveredModels)
 	require.Nil(test, preview.Review)
@@ -285,8 +307,16 @@ func TestReviewOfficialPlatformCandidatesStayIncomplete(test *testing.T) {
 		upstream := &httpUpstreamRecorder{}
 		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+		if platform == PlatformHunyuan {
+			account.Credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
+		}
 		preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-		require.NoError(test, err)
+		require.Nil(test, preview)
+		var failure *UpstreamModelSyncError
+		require.ErrorAs(test, err, &failure)
+		preview = failure.PartialCatalog
+		require.NotNil(test, preview)
+		require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
 		require.Equal(test, "platform-candidates", preview.CatalogSource)
 		require.NotEmpty(test, preview.CandidateModels, platform)
 		require.Empty(test, preview.DiscoveredModels)
@@ -327,5 +357,186 @@ func TestNativeCandidateFallbackScope(t *testing.T) {
 			require.Equal(t, []string{"relay-model"}, models)
 			require.Equal(t, base+"/models", upstream.lastReq.URL.String())
 		})
+	}
+}
+
+func TestModelDiscoveryTransportFailureReason(test *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformQianwen} {
+		test.Run(platform, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{err: context.DeadlineExceeded}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			_, err := syncService.SyncUpstreamModelCatalog(context.Background(), &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "private-secret"}})
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			require.Equal(test, UpstreamModelSyncErrorNetwork, failure.Kind)
+			require.NotContains(test, failure.SafeMessage(), "private-secret")
+		})
+	}
+}
+
+func TestModelDiscoveryClosedProfilesDoNotRequestUpstream(test *testing.T) {
+	for _, platform := range []string{PlatformZhipu, PlatformVolcengine, "aicodewith"} {
+		test.Run(platform, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			_, err := syncService.SyncUpstreamModelCatalog(context.Background(), &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "private-secret"}})
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
+			require.Empty(test, upstream.requests)
+		})
+	}
+}
+
+func TestModelDiscoveryPartialPagesRetainFailureReason(test *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformQianwen} {
+		test.Run(platform, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{
+				catalogFixtureResponse(`{"data":[{"id":"first-page"}],"has_more":true,"last_id":"first-page"}`),
+				{StatusCode: 429, Body: io.NopCloser(strings.NewReader(`{"error":"private-secret"}`))},
+			}}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			_, err := syncService.SyncUpstreamModelCatalog(context.Background(), &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "private-secret"}})
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			require.Equal(test, UpstreamModelSyncErrorRateLimited, failure.Kind)
+			require.Equal(test, 429, failure.StatusCode)
+			require.NotNil(test, failure.PartialCatalog)
+			require.Equal(test, []string{"first-page"}, failure.PartialCatalog.DiscoveredModels)
+			require.Empty(test, failure.PartialCatalog.EligibleModels)
+			require.NotContains(test, failure.SafeMessage(), "private-secret")
+		})
+	}
+}
+
+func TestModelDiscoveryEnabledHunyuanProfilesRequestNativeList(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	for _, profile := range nativeProviderProfiles {
+		if profile.Platform != PlatformHunyuan || !profile.Discovery {
+			continue
+		}
+		test.Run(profile.Label, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"native-listed"}]}`)}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			account := nativeProfileAccount(profile.Platform, profile.Mode, profile.Chat)
+			catalog, err := syncService.SyncUpstreamModelCatalog(context.Background(), account)
+			require.NoError(test, err)
+			require.Equal(test, []string{"native-listed"}, catalog.DiscoveredModels)
+			require.Len(test, upstream.requests, 1)
+			require.Equal(test, strings.TrimRight(profile.Chat, "/")+"/models", upstream.requests[0].URL.String())
+		})
+	}
+}
+
+// Official contracts: developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api,
+// doc.dmxapi.cn/lingpai.html, docs.aihubmix.com/cn/api/Models-API (legacy authenticated list).
+func TestVerifiedCompatibleModelDiscoveryContracts(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	for _, scenario := range []struct{ platform, url string }{
+		{"qiniu", "https://api.qnaigc.com/v1/models"},
+		{"dmxapi", "https://www.dmxapi.cn/v1/models"},
+		{"aihubmix", "https://aihubmix.com/v1/models"},
+	} {
+		test.Run(scenario.platform, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"object":"list","data":[{"id":"from-account-response","object":"model","created":1,"owned_by":"upstream"}]}`)}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			account := &Account{Platform: scenario.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key", "account_mode": "payg", "model_mapping": map[string]any{"alias": "not-discovered"}}}
+			catalog, err := syncService.SyncUpstreamModelCatalog(context.Background(), account)
+			require.NoError(test, err)
+			require.Equal(test, []string{"from-account-response"}, catalog.DiscoveredModels)
+			require.Len(test, upstream.requests, 1, "single page contract")
+			require.Equal(test, scenario.url, upstream.requests[0].URL.String())
+			require.Equal(test, http.MethodGet, upstream.requests[0].Method)
+			require.Equal(test, "Bearer fixture-key", upstream.requests[0].Header.Get("Authorization"))
+			require.Empty(test, upstream.requests[0].Header.Get("x-api-key"))
+			require.Equal(test, map[string]any{"alias": "not-discovered"}, account.Credentials["model_mapping"])
+		})
+	}
+}
+
+func TestUnconfirmedCompatibleRegionsAndPlansStayClosed(test *testing.T) {
+	for _, scenario := range []struct{ platform, mode string }{
+		{"qiniu", "subscription"}, {"dmxapi_com", "payg"}, {"dmxapi_ssvip", "payg"}, {"atlascloud", "payg"}, {"atlascloud", "coding"}, {"a6api", "payg"},
+	} {
+		test.Run(scenario.platform+"/"+scenario.mode, func(test *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+			_, err := syncService.SyncUpstreamModelCatalog(context.Background(), &Account{Platform: scenario.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key", "account_mode": scenario.mode}})
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
+			require.Empty(test, upstream.requests, "must not fall through to a neighboring region or plan")
+		})
+	}
+}
+
+func TestModelDiscoveryExplicitAuthentication403(test *testing.T) {
+	for _, code := range []string{"invalid_api_key", "invalid_token", "token_expired", "token_revoked", "authentication_error", "permission_denied", ""} {
+		test.Run(code, func(test *testing.T) {
+			for _, field := range []string{"code", "type"} {
+				err := newUpstreamModelDiscoveryHTTPError(403, []byte(`{"error":{"`+field+`":"`+code+`","message":"private-secret"}}`))
+				var failure *UpstreamModelSyncError
+				require.ErrorAs(test, err, &failure)
+				expected := UpstreamModelSyncErrorCredentials
+				if code == "permission_denied" || code == "" {
+					expected = UpstreamModelSyncErrorPermission
+				}
+				require.Equal(test, expected, failure.Kind)
+				require.NotContains(test, err.Error(), "private-secret")
+			}
+		})
+	}
+}
+
+func TestModelPreviewPartialPagesRetainFailureReason(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	for _, discovery := range []struct{ name, platform, firstPage string }{
+		{"generic", PlatformOpenAI, `{"data":[{"id":"first-page"}],"has_more":true,"last_id":"first-page"}`},
+		{"qianwen native", PlatformQianwen, `{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"first-page"}]}}`},
+	} {
+		for _, failure := range []struct {
+			name   string
+			status int
+			kind   UpstreamModelSyncErrorKind
+		}{
+			{"rate limited", 429, UpstreamModelSyncErrorRateLimited},
+			{"permission", 403, UpstreamModelSyncErrorPermission},
+			{"network read", 200, UpstreamModelSyncErrorNetwork},
+		} {
+			test.Run(discovery.name+"/"+failure.name, func(test *testing.T) {
+				failedResponse := catalogFixtureResponse(`{"error":"private-secret"}`)
+				failedResponse.StatusCode = failure.status
+				if failure.kind == UpstreamModelSyncErrorNetwork {
+					failedResponse.Body = passthroughErrReadCloser{err: io.ErrUnexpectedEOF}
+				}
+				upstream := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(discovery.firstPage), failedResponse}}
+				account := &Account{ID: 73, Platform: discovery.platform, Type: AccountTypeAPIKey,
+					Credentials: map[string]any{"api_key": "private-secret", "model_mapping": map[string]any{"kept": "kept", "alias": "target"}},
+					Extra:       map[string]any{UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"kept"}, EligibleModels: []AccountCatalogModel{{ID: "kept"}}}},
+				}
+				before, err := json.Marshal(account)
+				require.NoError(test, err)
+				syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+				preview, err := syncService.PreviewAccountModelCatalog(context.Background(), account)
+				require.Nil(test, preview)
+				var syncFailure *UpstreamModelSyncError
+				require.ErrorAs(test, err, &syncFailure)
+				require.Equal(test, failure.kind, syncFailure.Kind)
+				if failure.kind != UpstreamModelSyncErrorNetwork {
+					require.Equal(test, failure.status, syncFailure.StatusCode)
+				}
+				require.NotNil(test, syncFailure.PartialCatalog)
+				require.Equal(test, []string{"first-page"}, syncFailure.PartialCatalog.DiscoveredModels)
+				require.False(test, syncFailure.PartialCatalog.DiscoveryComplete)
+				require.False(test, syncFailure.PartialCatalog.Complete)
+				require.Empty(test, syncFailure.PartialCatalog.EligibleModels)
+				require.Nil(test, syncFailure.PartialCatalog.Review)
+				require.Len(test, upstream.requests, 2)
+				require.NotContains(test, syncFailure.SafeMessage(), "private-secret")
+				after, err := json.Marshal(account)
+				require.NoError(test, err)
+				require.JSONEq(test, string(before), string(after))
+			})
+		}
 	}
 }

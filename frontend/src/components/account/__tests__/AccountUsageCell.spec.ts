@@ -1874,7 +1874,7 @@ describe('OpenRouter key usage', () => {
 
 describe('compatible usage routing', () => {
   it.each([
-    ['astron_token', 'coding'], ['mimo_token_sg', 'coding'], ['atlascloud', 'coding'], ['qiniu', 'subscription'], ['together', 'payg']
+    ['astron_token', 'coding'], ['mimo_token_sg', 'coding'], ['atlascloud', 'coding'], ['qiniu', 'subscription']
   ])('explains unsupported %s/%s without a query', async (platform, account_mode) => {
     getUsage.mockClear()
     const wrapper = mount(AccountUsageCell, { props: { account: makeAccount({ platform: platform as Account['platform'], type: 'apikey', credentials: { account_mode } }) } })
@@ -1904,4 +1904,20 @@ it.each([
   expect(wrapper.find('button').exists()).toBe(true)
   expect(getUsage).not.toHaveBeenCalled()
   wrapper.unmount()
+})
+
+describe('Volcengine saved product quota routing', () => {
+  it('routes Ark Coding into the quota cell and keeps Ark Agent and relays explicit', async () => {
+    const account = makeAccount({ platform: 'volcengine', type: 'apikey', credentials: { account_mode: 'coding', api_protocol: 'chat_completions', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' } })
+    const wrapper = mount(AccountUsageCell, { props: { account }, global: { stubs: cnUsageCellStubs } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    await wrapper.setProps({ account: { ...account, credentials: { ...account.credentials, base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3' } } })
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toContain('volcengineQuota.agentUnverified')
+    await wrapper.setProps({ account: { ...account, credentials: { ...account.credentials, base_url: 'https://relay.example/v1' } } })
+    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toContain('custom_origin')
+    wrapper.unmount()
+  })
 })

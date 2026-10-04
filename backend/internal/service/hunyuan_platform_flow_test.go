@@ -16,24 +16,24 @@ import (
 )
 
 func TestHunyuanPlatformFlow(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
 	account := &Account{ID: 101, Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
 	require.True(test, account.IsOpenAICompatible())
 	require.Equal(test, PlatformHunyuan, NormalizeOpenAICompatiblePlatform(account.Platform))
-	discoveryTransport := &httpUpstreamRecorder{}
+	discoveryTransport := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"native-listed"}]}`)}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, err := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
 	require.NoError(test, err)
 	require.Equal(test, hunyuanCompatibilityBaseURL+"/models", discoveryRequest.URL.String())
 	require.Equal(test, "Bearer fixture-key", discoveryRequest.Header.Get("Authorization"))
-	// Official accounts expose candidates without treating them as discovered availability.
+	// The default PAYG profile already declares live discovery; only returned IDs are discovered.
 	preview, err := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
 	require.NoError(test, err)
-	require.Equal(test, "platform-candidates", preview.CatalogSource)
-	require.Empty(test, preview.DiscoveredModels)
-	require.Empty(test, preview.EligibleModels)
-	require.False(test, preview.DiscoveryComplete)
-	require.Nil(test, preview.Review)
-	require.Nil(test, discoveryTransport.lastReq)
+	require.Equal(test, "live", preview.CatalogSource)
+	require.Equal(test, []string{"native-listed"}, preview.DiscoveredModels)
+	require.True(test, preview.DiscoveryComplete)
+	require.NotNil(test, preview.Review)
+	require.Equal(test, hunyuanCompatibilityBaseURL+"/models", discoveryTransport.lastReq.URL.String())
 	for _, scenario := range []struct {
 		name, body, response string
 		status               int

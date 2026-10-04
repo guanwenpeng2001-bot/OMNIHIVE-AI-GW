@@ -370,7 +370,7 @@ func TestBuildAntigravityAPIKeyModelsRequestRejectsOfficialCloudCodeBase(t *test
 
 	var syncErr *UpstreamModelSyncError
 	require.True(t, errors.As(err, &syncErr))
-	require.Equal(t, UpstreamModelSyncErrorUnsupported, syncErr.Kind)
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
 	require.Contains(t, syncErr.SafeMessage(), "compatible gateway")
 }
 
@@ -386,7 +386,7 @@ func TestBuildAnthropicUpstreamModelsRequestRejectsBedrock(t *testing.T) {
 
 	var syncErr *UpstreamModelSyncError
 	require.True(t, errors.As(err, &syncErr))
-	require.Equal(t, UpstreamModelSyncErrorUnsupported, syncErr.Kind)
+	require.Equal(t, UpstreamModelSyncErrorAccountType, syncErr.Kind)
 }
 
 func TestFetchUpstreamSupportedModelsParsesOpenAIResponse(t *testing.T) {

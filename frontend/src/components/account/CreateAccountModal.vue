@@ -634,6 +634,11 @@
       </div>
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
+      <UsageQueryCredentialFields v-if="supportsUsageQuery(form.platform)" v-model="usageCredentials" :platform="form.platform" class="mt-4" />
+      <VolcengineQuotaFields v-if="showByteplusQuotaFields" v-model="byteplusCredentials" provider="byteplus" class="mt-4" />
+      <TencentQuotaFields v-if="showTencentQuotaFields" v-model="tencentCredentials" class="mt-4" />
+      <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" class="mt-4" />
+
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
         <div class="flex items-center">
@@ -3438,7 +3443,12 @@ import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
-import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
+import TencentQuotaFields from './TencentQuotaFields.vue'
+import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
+import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
+import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -3781,6 +3791,23 @@ const apiProtocol = ref<CnApiProtocol>('adaptive')
 const openCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(
   cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
 )
+const usageCredentials = ref(usageQueryDraft())
+const byteplusCredentials = ref(byteplusQuotaDraft())
+const showByteplusQuotaFields = computed(() => form.platform === 'byteplus' && byteplusQuotaProfile(compatibleDraft.value))
+const tencentCredentials = ref(tencentQuotaDraft())
+const quotaCredentials = ref(volcengineQuotaDraft())
+const showVolcengineQuotaFields = computed(() => form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile({
+  account_mode: accountMode.value,
+  api_protocol: apiProtocol.value,
+  base_url: apiKeyBaseUrl.value,
+  ...(apiProtocol.value === 'adaptive' ? { api_base_urls: adaptiveBaseUrls.value } : {})
+})))
+const showTencentQuotaFields = computed(() => form.platform === 'hunyuan' && tencentQuotaProfile({
+  account_mode: accountMode.value,
+  api_protocol: apiProtocol.value,
+  base_url: apiKeyBaseUrl.value,
+  ...(apiProtocol.value === 'adaptive' ? { api_base_urls: adaptiveBaseUrls.value } : {})
+}))
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const zhipuOrganization = ref('')
 const zhipuProject = ref('')
@@ -5069,6 +5096,10 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 }
 
 const resetForm = () => {
+  usageCredentials.value = usageQueryDraft()
+  byteplusCredentials.value = byteplusQuotaDraft()
+  tencentCredentials.value = tencentQuotaDraft()
+  quotaCredentials.value = volcengineQuotaDraft()
   selectedSupplier.value = undefined
   supplierSelection.value = {}
   createdCatalogAccounts.value = []
@@ -5631,6 +5662,13 @@ const handleSubmit = async () => {
     if (form.platform === 'opencode_go' || form.platform === 'commandcode') {
       applyOpenCodeGoProtocolRules(credentials, openCodeGoProtocolRules.value, 'create')
     }
+  }
+
+  if (form.platform === 'byteplus' && byteplusQuotaProfile(credentials)) applyByteplusQuotaCredentials(credentials, byteplusCredentials.value)
+  if (form.platform === 'hunyuan' && tencentQuotaProfile(credentials)) applyTencentQuotaCredentials(credentials, tencentCredentials.value)
+  applyUsageQueryCredentials(credentials, form.platform, usageCredentials.value)
+  if (form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile(credentials))) {
+    applyVolcengineQuotaCredentials(credentials, quotaCredentials.value)
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
@@ -6952,4 +6990,5 @@ const handleCookieAuth = async (sessionKey: string) => {
     oauth.loading.value = false
   }
 }
+watch(() => form.platform, () => { usageCredentials.value = usageQueryDraft() })
 </script>

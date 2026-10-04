@@ -8,13 +8,46 @@ const account = (platform: string, credentials: Record<string, unknown> = {}) =>
 }) as Account
 
 describe('compatible balance eligibility', () => {
+  it.each([
+    ['teamorouter', 'https://api.teamorouter.cn/v1', 'https://api.teamorouter.com/v1', 'https://teamorouter.cn/v1'],
+    ['teamorouter_com', 'https://api.teamorouter.com/v1', 'https://api.teamorouter.cn/v1', 'https://teamorouter.com/v1'],
+    ['sudocode_chat', 'https://api.sudocode.chat/v1', 'https://api.sudocode.us/v1', 'https://api.sudocode.chat/api/account/balance']
+  ])('checks the inference host separately from billing for %s', (platform, base, otherRegion, queryBase) => {
+    const protocol = platform === 'teamorouter_com' ? 'chat_completions' : 'anthropic'
+    expect(compatibleBalanceVisible(account(platform))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: base }))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { [protocol]: base } }))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: otherRegion }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { base_url: queryBase }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { [protocol]: otherRegion } }))).toBe(false)
+  })
+  it('does not reuse the chat balance contract for sudocode_us', () => {
+    expect(compatibleBalanceVisible(account('sudocode_us'))).toBe(false)
+  })
+  it.each([
+    ['stepfun_api', 'https://api.stepfun.com/v1', 'https://api.stepfun.ai/v1'],
+    ['stepfun_api_intl', 'https://api.stepfun.ai/v1', 'https://api.stepfun.com/v1']
+  ])('only shows the verified PAYG region for %s', (platform, base, otherRegion) => {
+    expect(compatibleBalanceVisible(account(platform))).toBe(true)
+    expect(compatibleBalanceVisible({ ...account(platform, { account_mode: 'payg', base_url: base }), credentials_status: { has_api_key: true } })).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: otherRegion }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { chat_completions: otherRegion } }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { base_url: base.replace('/v1', '/step_plan/v1') }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { account_mode: 'coding' }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { billing_plan: 'step_plan' }))).toBe(false)
+    expect(compatibleBalanceVisible({ ...account(platform), credentials_status: { has_api_key: false } })).toBe(false)
+  })
+  it.each(['stepfun_plan', 'stepfun_plan_intl'])('never presents an account balance query for %s', platform => {
+    expect(compatibleBalanceVisible(account(platform))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { account_mode: 'payg', billing_plan: 'payg' }))).toBe(false)
+  })
   it.each(['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi'])('shows documented payg %s', platform => {
     expect(compatibleBalanceVisible(account(platform))).toBe(true)
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'payg' }))).toBe(true)
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'coding' }))).toBe(false)
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'invalid' }))).toBe(false)
   })
-  it.each(['dmxapi', 'together', 'openrouter'])('hides unknown or privileged %s', platform => {
+  it.each(['dmxapi_com', 'together', 'openrouter'])('hides unknown or privileged %s', platform => {
     expect(compatibleBalanceVisible(account(platform))).toBe(false)
   })
   it.each([
@@ -35,13 +68,13 @@ describe('compatible balance eligibility', () => {
 
 
 describe('compatible usage registry matrix', () => {
-  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud']
+  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'sudocode_chat', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl']
   it('covers all 75 registered provider IDs and every declared mode', () => {
     expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
     for (const provider of COMPATIBLE_PROVIDERS) {
       for (const mode of provider.modes) {
         const candidate = account(provider.id, { account_mode: mode.mode })
-        const expected = mode.mode !== 'payg' ? 'unsupported' : wallets.includes(provider.id) ? 'wallet_balance' : provider.id === 'qiniu' ? 'consumed_usage' : 'unsupported'
+        const expected = mode.mode !== 'payg' ? 'unsupported' : wallets.includes(provider.id) ? 'wallet_balance' : provider.id === 'qiniu' ? 'consumed_usage' : provider.id === 'therouter' ? 'account_credits' : 'unsupported'
         expect(compatibleUsageCapability(candidate).kind, `${provider.id}/${mode.mode}`).toBe(expected)
       }
     }
@@ -98,5 +131,27 @@ describe('persisted plan query eligibility', () => {
     expect(compatibleBalanceVisible(candidate)).toBe(true)
     delete candidate.credentials.billing_plan
     expect(compatibleBalanceVisible(candidate)).toBe(true)
+  })
+})
+
+
+describe('management query eligibility', () => {
+  it.each(['aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl', 'therouter'])('keeps %s configurable with missing management credentials', platform => {
+    const kind = platform === 'therouter' ? 'account_credits' : 'wallet_balance'
+    const missing = { ...account(platform), credentials_status: { has_api_key: false, has_usage_query_token: false } }
+    expect(compatibleBalanceVisible(missing)).toBe(true)
+    expect(compatibleUsageCapability(missing)).toEqual({ kind, reason: 'missing_query_credentials' })
+    const configured = { ...missing, credentials: { usage_query_user_id: '42' }, credentials_status: { has_api_key: false, has_usage_query_token: true } }
+    expect(compatibleUsageCapability(configured)).toEqual({ kind })
+    expect(compatibleUsageCapability({ ...configured, credentials: { ...configured.credentials, base_url: 'https://relay.example/v1' } }).reason).toBe('custom_origin')
+    expect(compatibleUsageCapability({ ...configured, credentials: { ...configured.credentials, account_mode: 'coding' } }).reason).toBe('mode_unsupported')
+  })
+  it.each(['dmxapi', 'crazyrouter', 'crazyrouter_intl'])('requires management user ID for %s', platform => {
+    const saved = { ...account(platform), credentials_status: { has_usage_query_token: true } }
+    expect(compatibleUsageCapability(saved).reason).toBe('missing_query_credentials')
+    expect(compatibleUsageCapability({ ...saved, credentials: { usage_query_user_id: 'bad id' } }).reason).toBe('invalid_credentials')
+  })
+  it.each(['dmxapi_com', 'dmxapi_ssvip'])('never applies the domestic wallet contract to %s', platform => {
+    expect(compatibleUsageCapability(account(platform)).reason).toBe('no_verified_query')
   })
 })

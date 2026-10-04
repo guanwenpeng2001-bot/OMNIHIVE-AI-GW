@@ -235,6 +235,9 @@ type AdminGroup struct {
 }
 
 type Account struct {
+	// RuntimeIdentity is an opaque digest for admin query invalidation, never a write input.
+	RuntimeIdentity string `json:"runtime_identity"`
+
 	TPMLimit int64   `json:"tpm_limit"`
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`
@@ -363,6 +366,8 @@ type Account struct {
 // repeated account_groups and groups object graphs. Fetch /admin/accounts/:id
 // for the complete Account DTO when editing or inspecting an account.
 type AccountListItem struct {
+	RuntimeIdentity string `json:"runtime_identity"`
+
 	TPMLimit int64   `json:"tpm_limit"`
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`

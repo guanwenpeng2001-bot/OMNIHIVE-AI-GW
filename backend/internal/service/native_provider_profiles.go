@@ -238,7 +238,7 @@ func nativeProfileDiscoveryError(a *Account) error {
 		if p.Discovery {
 			return nil
 		}
-		return newUpstreamModelSyncUnsupportedError("This regional/plan profile has no documented model discovery endpoint; declare model IDs manually", nil)
+		return newUpstreamModelSyncDiscoveryUnconfirmedError("Model discovery has not been confirmed for this regional/plan profile; declare model IDs manually", nil)
 	}
 	// Custom Chat discovery stays on that exact override. A Messages-only custom
 	// account must not fall through to the platform's domestic Chat catalog.
@@ -248,5 +248,5 @@ func nativeProfileDiscoveryError(a *Account) error {
 	if a.GetCredential("api_protocol") != APIProtocolAnthropic && strings.TrimSpace(a.GetCredential("base_url")) != "" {
 		return nil
 	}
-	return newUpstreamModelSyncUnsupportedError("No model discovery endpoint is known for this profile; declare model IDs manually", nil)
+	return newUpstreamModelSyncDiscoveryUnconfirmedError("Model discovery has not been confirmed for this profile; declare model IDs manually", nil)
 }

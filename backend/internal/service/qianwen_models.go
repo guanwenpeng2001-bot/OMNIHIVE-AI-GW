@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,7 +56,12 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 			return
 		}
 		models, catalogBody = partialModels, merged
-		discoveryErr = &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: "Qianwen model discovery is partial; previous availability retained", Err: discoveryErr,
+		kind, status := UpstreamModelSyncErrorUpstream, 0
+		var syncErr *UpstreamModelSyncError
+		if errors.As(discoveryErr, &syncErr) {
+			kind, status = syncErr.Kind, syncErr.StatusCode
+		}
+		discoveryErr = &UpstreamModelSyncError{Kind: kind, StatusCode: status, Message: "Qianwen model discovery is partial; previous availability retained", Err: discoveryErr,
 			PartialCatalog: &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: partialModels, CandidateModels: partialModels, Metadata: metadata, CatalogSource: "partial",
 				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Qianwen model discovery contains incomplete pages or invalid entries; previous availability must be retained"}}},
 		}
@@ -66,7 +72,10 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 	var total int64
 	for pageNumber := 0; pageNumber < 100; pageNumber++ {
 		resp, err := do(req)
-		if err != nil || resp == nil || resp.Body == nil {
+		if err != nil {
+			return nil, nil, newUpstreamModelSyncNetworkError("Failed to connect to Qianwen model list", err)
+		}
+		if resp == nil || resp.Body == nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request Qianwen model list", err)
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, limit-total+1))
@@ -78,7 +87,7 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 			return nil, nil, &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode), StatusCode: resp.StatusCode}
 		}
 		if readErr != nil {
-			return nil, nil, newUpstreamModelSyncUpstreamError("Failed to read Qianwen model list", readErr)
+			return nil, nil, newUpstreamModelSyncNetworkError("Failed to read Qianwen model list", readErr)
 		}
 		total += int64(len(body))
 		if total > limit {

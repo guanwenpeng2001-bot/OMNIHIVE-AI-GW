@@ -241,3 +241,171 @@ it('clears the rendered plan when the server invalidates the credential snapshot
   expect(wrapper.text()).not.toContain('GOAT')
   expect(wrapper.text()).not.toContain('57.00')
 })
+
+// Synthetic observations exercise the frozen contract; these are not upstream captures.
+describe('Volcengine upstream usage observations', () => {
+  const codingAccount = (id: number, extra: Record<string, unknown> = {}) => ({
+    ...account, id, platform: 'volcengine', credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }, extra
+  } as Account)
+  beforeEach(() => {
+    queryQuota.mockReset()
+    translate.mockReset().mockImplementation((key: string) => key)
+  })
+  it('shows genuine zero, overage, and each window reset with query source and time', async () => {
+    const tiers = [
+      { window: '5h', used_percent: 0, reset_at: '2099-10-04T15:00:00Z' },
+      { window: 'weekly', used_percent: 123, reset_at: '2099-10-11T00:00:00Z' },
+      { window: 'monthly', used_percent: 44, reset_at: '2099-11-01T00:00:00Z' }
+    ]
+    queryQuota.mockResolvedValue({ success: true, status: 'ok', source: 'coding_plan', fetched_at: 1791120000, tiers })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5101) } })
+    await flushPromises()
+    const bars = wrapper.findAllComponents(UsageProgressBar)
+    expect(bars).toHaveLength(3)
+    tiers.forEach((tier, index) => {
+      expect(bars[index].props('utilization')).toBe(tier.used_percent)
+      expect(bars[index].props('resetsAt')).toBe(tier.reset_at)
+    })
+    expect(wrapper.text()).toContain('123%')
+    expect(wrapper.get('[data-test="quota-source"]').text()).toContain('volcengineQuota.source')
+    expect(wrapper.get('[data-test="quota-observed-at"]').text()).not.toContain('Invalid Date')
+    wrapper.unmount()
+  })
+  it.each(['missing_credentials', 'invalid_credentials', 'permission_denied', 'not_subscribed', 'no_seat', 'invalid_response', 'url_rejected'])('shows %s as unknown without manufacturing zero', async status => {
+    queryQuota.mockResolvedValue({ success: false, status })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5200 + status.length) } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.text()).toContain('usageUnknown')
+    expect(wrapper.text()).toContain(`volcengineQuota.status.${status === 'no_seat' ? 'missing_seat' : status}`)
+    expect(wrapper.text()).not.toContain('0%')
+    wrapper.unmount()
+  })
+  it('keeps the successful snapshot and its timestamp on failure, then replaces missing windows on recovery', async () => {
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5301, {
+      volcengine_5h_used_percent: 18, volcengine_weekly_used_percent: 0,
+      volcengine_usage_updated_at: new Date().toISOString()
+    }) } })
+    await flushPromises()
+    const previousTime = wrapper.get('[data-test="quota-observed-at"]').text()
+    queryQuota.mockResolvedValueOnce({ success: false, status: 'permission_denied' })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(2)
+    expect(wrapper.get('[data-test="quota-observed-at"]').text()).toBe(previousTime)
+    expect(wrapper.text()).toContain('permission_denied')
+    queryQuota.mockResolvedValueOnce({ success: true, fetched_at: 1791120000, tiers: [{ window: 'monthly', used_percent: 0 }] })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('permission_denied')
+    wrapper.unmount()
+  })
+  it('does not render malformed percentages as zero or invent missing windows', async () => {
+    queryQuota.mockResolvedValue({ success: true, tiers: [{ window: '5h', used_percent: null }, { window: 'weekly', used_percent: NaN }, { window: 'monthly', used_percent: 0 }] })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5401) } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    expect(wrapper.findComponent(UsageProgressBar).props('label')).toContain('windowMonthly')
+    wrapper.unmount()
+  })
+  it.each(['version', 'edition', 'seat', 'root', 'account'])('discards in-flight results after the %s changes', async change => {
+    let finish!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const initial = codingAccount(5450 + change.length, { volcengine_5h_used_percent: 18, volcengine_usage_updated_at: new Date().toISOString() })
+    Object.assign(initial, { runtime_identity: 'old-digest', credentials_status: { has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true } })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    await wrapper.get('button').trigger('click')
+    const updated = { ...initial, ...(change === 'version' ? { runtime_identity: 'rotated-digest' } : {
+      credentials: { ...initial.credentials, ...(change === 'edition' ? { volcengine_plan_edition: 'team' } : change === 'root' ? { base_url: 'https://relay.example/api/coding/v3' } : { volcengine_seat_id: 'another-synthetic-seat' }) }
+    }) }
+    await wrapper.setProps({ account: change === 'account' ? { ...updated, id: initial.id + 1 } : updated })
+    finish({ success: true, tiers: [{ window: '5h', used_percent: 88 }] })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('88%')
+    if (change !== 'root') expect(wrapper.text()).toContain('usageUnknown')
+    wrapper.unmount()
+  })
+  it.each(['https://ark.cn-beijing.volces.com/api/plan/v3', 'https://relay.example/api/coding/v3'])('never probes an unverified profile %s', async base_url => {
+    const original = codingAccount(5501)
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...original, credentials: { ...original.credentials, base_url } } } })
+    await flushPromises()
+    expect(queryQuota).not.toHaveBeenCalled()
+    expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+
+describe('quota identity and ordinary row refreshes', () => {
+  const initialAccount = () => ({
+    ...account, id: 6001, platform: 'volcengine',
+    credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' },
+    credentials_status: { has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true },
+    updated_at: '2026-10-04T10:00:00Z',
+    extra: { volcengine_5h_used_percent: 18, volcengine_usage_updated_at: new Date().toISOString() }
+  } as Account)
+
+  beforeEach(() => { queryQuota.mockReset() })
+
+  it.each([false, true])('preserves 18 percent on timestamp, notes, and snapshot time updates (runtime identity: %s)', async withIdentity => {
+    const initial = { ...initialAccount(), ...(withIdentity ? { runtime_identity: 'stable-digest' } : {}) }
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    for (const update of [
+      { ...initial, updated_at: '2026-10-04T10:01:00Z' },
+      { ...initial, notes: 'updated note' },
+      { ...initial, extra: { ...initial.extra, volcengine_usage_updated_at: '2099-10-04T10:01:00Z' } },
+    ]) {
+      await wrapper.setProps({ account: update })
+      expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(18)
+    }
+    wrapper.unmount()
+  })
+
+  it('keeps a live result when an equivalent persisted snapshot is refreshed', async () => {
+    const initial = initialAccount()
+    queryQuota.mockResolvedValue({ success: true, tiers: [{ window: '5h', used_percent: 41 }], fetched_at: 1791120000 })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ account: { ...initial, extra: { ...initial.extra }, notes: 'note' } })
+    expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(41)
+    wrapper.unmount()
+  })
+
+  it.each(['row', 'snapshot'])('accepts an in-flight result after a same-identity %s timestamp update', async source => {
+    let finish!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const initial = initialAccount()
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await wrapper.get('button').trigger('click')
+    await wrapper.setProps({ account: source === 'row'
+      ? { ...initial, updated_at: '2099-10-04T10:01:00Z' }
+      : { ...initial, extra: { ...initial.extra, volcengine_usage_updated_at: '2099-10-04T10:01:00Z' } } })
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    finish({ success: true, tiers: [{ window: '5h', used_percent: 29 }] })
+    await flushPromises()
+    expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(29)
+    wrapper.unmount()
+  })
+})
+
+
+it('renders only reported Agent windows including daily, then clears absent windows', async () => {
+  const agent = { ...account, id: 88342, platform: 'volcengine', credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'team', volcengine_seat_id: 'seat' }, extra: { volcengine_usage_updated_at: new Date().toISOString() } } as Account
+  const wrapper = mount(CNProviderQuotaCell, { props: { account: agent } })
+  queryQuota.mockResolvedValue({ success: true, tiers: [{ window: 'daily', used_percent: 17 }] })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+  expect(wrapper.getComponent(UsageProgressBar).props('label')).toContain('windowDaily')
+  queryQuota.mockResolvedValue({ success: true, tiers: [] })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+  expect(wrapper.text()).toContain('usageUnknown')
+  await wrapper.setProps({ account: { ...agent, credentials: { ...agent.credentials, volcengine_plan_edition: 'personal' } } })
+  expect(wrapper.find('button').exists()).toBe(false)
+  wrapper.unmount()
+})

@@ -1,3 +1,4 @@
+import { compatibleProvider, compatibleMode } from '@/constants/compatibleProviders'
 import { NATIVE_PROFILE_PRESETS } from './nativeProfilePresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
@@ -830,14 +831,92 @@ export function defaultCNAdaptiveBaseUrls(
 // CNProviderQuotaCell / CNProviderBalanceCell 与 AccountUsageCell 的占位符判定
 // 共用，避免多处复制条件后一处改另一处漏改。
 
-export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
+/** Separate control-plane query fields from the inference API key. */
+export interface VolcengineQuotaDraft {
+  accessKeyId: string
+  secretAccessKey: string
+  edition: 'personal' | 'team'
+  seatId: string
+  clearAccessKeyId: boolean
+  clearSecretAccessKey: boolean
+}
+
+/** Secrets are never restored into inputs, including legacy unredacted DTOs. */
+export function volcengineQuotaDraft(credentials: Record<string, unknown> = {}): VolcengineQuotaDraft {
+  return {
+    accessKeyId: '', secretAccessKey: '',
+    edition: credentials.volcengine_plan_edition === 'team' ? 'team' : 'personal',
+    seatId: typeof credentials.volcengine_seat_id === 'string' ? credentials.volcengine_seat_id : '',
+    clearAccessKeyId: false, clearSecretAccessKey: false
+  }
+}
+
+export function applyVolcengineQuotaCredentials(credentials: Record<string, unknown>, draft: VolcengineQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['volcengine_access_key_id', draft.accessKeyId, draft.clearAccessKeyId],
+    ['volcengine_secret_access_key', draft.secretAccessKey, draft.clearSecretAccessKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.volcengine_plan_edition = draft.edition
+  if (draft.edition === 'team' && draft.seatId.trim()) credentials.volcengine_seat_id = draft.seatId.trim()
+  else delete credentials.volcengine_seat_id
+}
+
+/** Match the saved Ark product without sending control-plane requests for relays. */
+export function volcengineQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): 'coding' | 'agent' | 'custom' | 'payg' {
+  if (credentials.account_mode !== 'coding') return 'payg'
+  if (customBaseUrlEnabled != null && customBaseUrlEnabled !== false) return 'custom'
+  const protocol = credentials.api_protocol || 'chat_completions'
+  if (!['adaptive', 'chat_completions', 'responses', 'anthropic'].includes(protocol as string)) return 'custom'
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return 'custom'
+  const entries: [string, unknown][] = [['base_url', credentials.base_url], ...Object.entries(bases || {})]
+  let product: 'coding' | 'agent' | undefined
+  for (const [key, value] of entries) {
+    if (key !== 'base_url' && !['chat_completions', 'responses', 'anthropic'].includes(key)) return 'custom'
+    if (value == null || value === '') continue
+    if (typeof value !== 'string') return 'custom'
+    const match = /^https:\/\/ark\.cn-beijing\.volces\.com\/api\/(coding|plan)(\/v3)?\/*$/.exec(value.trim())
+    if (!match) return 'custom'
+    const selected = key === 'base_url' ? protocol : key
+    if (selected !== 'adaptive' && (selected === 'anthropic') === Boolean(match[2])) return 'custom'
+    const current = match[1] === 'coding' ? 'coding' : 'agent'
+    if (product && product !== current) return 'custom'
+    product = current
+  }
+  return product || 'coding'
+}
+
+export function cnQuotaCellVisible(platform: string, accountMode: string, credentials?: Record<string, unknown>, customBaseUrlEnabled?: unknown): boolean {
+  if (platform === 'byteplus') return byteplusQuotaProfile(credentials, customBaseUrlEnabled)
+  if (platform === 'hunyuan') return tencentQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
+  if (platform === 'volcengine') {
+    const profile = volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
+    return profile === 'coding' || (profile === 'agent' && credentials?.volcengine_plan_edition === 'team')
+  }
   if (platform === 'commandcode') return true
   if (platform === 'opencode_go') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 
-export function cnBalanceCellVisible(platform: string, accountMode: string): boolean {
-  return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
+export function cnBalanceCellVisible(platform: string, accountMode: string, credentials: Record<string, unknown> = {}, accountType = 'apikey', customBaseUrlEnabled?: unknown): boolean {
+  if (platform !== 'minimax') return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
+  if (accountMode !== 'payg' || accountType !== 'apikey' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const overrides = credentials.api_base_urls
+  if (overrides != null && (typeof overrides !== 'object' || Array.isArray(overrides))) return false
+  let origin = ''
+  for (const [protocol, value] of [['base_url', credentials.base_url], ...Object.entries(overrides || {})]) {
+    if (value == null || value === '') continue
+    if (!['base_url', 'chat_completions', 'anthropic', 'responses'].includes(protocol as string) || typeof value !== 'string') return false
+    const match = /^https:\/\/(api\.minimax\.(?:cn|io))(?:\/v1|\/anthropic)?\/*$/.exec(value.trim())
+    if (!match || (origin && origin !== match[1])) return false
+    origin = match[1]
+  }
+  // The admin DTO redacts keys; key-class validation belongs to the backend.
+  return origin !== ''
 }
 
 /**
@@ -932,4 +1011,112 @@ export function applyPlanType(
     delete credentials.plan_type
   }
   return credentials
+}
+
+
+export function supportsManagementBalanceQuery(platform: string): boolean {
+  return ['aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl', 'therouter'].includes(platform)
+}
+export function supportsUsageQuery(platform: string): boolean {
+  return supportsManagementBalanceQuery(platform) || ['azure_openai', 'github_copilot'].includes(platform)
+}
+export function usageQueryNeedsUserId(platform: string): boolean {
+  return ['dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(platform)
+}
+export interface UsageQueryDraft { token: string; userId: string; clearToken: boolean; subscriptionId?: string; region?: string; username?: string }
+export function usageQueryDraft(credentials: Record<string, unknown> = {}): UsageQueryDraft {
+  // Passwords are never populated, even from legacy plaintext responses.
+  return { token: '', userId: typeof credentials.usage_query_user_id === 'string' ? credentials.usage_query_user_id : '', clearToken: false, subscriptionId: String(credentials.usage_query_subscription_id || ''), region: String(credentials.usage_query_region || ''), username: String(credentials.usage_query_username || '') }
+}
+export function applyUsageQueryCredentials(credentials: Record<string, unknown>, platform: string, draft: UsageQueryDraft): void {
+  if (!supportsUsageQuery(platform)) return
+  delete credentials.usage_query_token
+  delete credentials.usage_query_user_id
+  for (const field of ['usage_query_subscription_id', 'usage_query_region', 'usage_query_username']) delete credentials[field]
+  if (platform === 'azure_openai') {
+    credentials.usage_query_subscription_id = draft.subscriptionId || ''
+    credentials.usage_query_region = draft.region || ''
+  }
+  if (platform === 'github_copilot') credentials.usage_query_username = draft.username || ''
+  if (draft.clearToken) credentials.usage_query_token = null
+  else if (draft.token !== '') credentials.usage_query_token = draft.token
+  if (usageQueryNeedsUserId(platform)) credentials.usage_query_user_id = draft.userId
+}
+
+
+/** Exact domestic enterprise profile; never borrow another region's contract. */
+export function tencentQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): boolean {
+  if (credentials.account_mode !== 'coding' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const protocol = credentials.api_protocol || 'chat_completions'
+  if (!['adaptive', 'chat_completions', 'anthropic'].includes(protocol as string)) return false
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return false
+  const entries = [['base_url', credentials.base_url], ...Object.entries(bases || {})]
+  let matched = false
+  for (const [key, value] of entries) {
+    if (value == null || value === '') continue
+    const selected = key === 'base_url' ? protocol : key
+    if (!['adaptive', 'chat_completions', 'anthropic'].includes(selected as string) || typeof value !== 'string') return false
+    const root = value.trim().replace(/\/+$/, '')
+    if (!['https://tokenhub.tencentmaas.com/plan/v3', 'https://tokenhub.tencentmaas.com/plan/anthropic'].includes(root)) return false
+    if (selected !== 'adaptive' && (selected === 'anthropic') !== root.endsWith('/anthropic')) return false
+    matched = true
+  }
+  return matched
+}
+export interface TencentQuotaDraft { secretId: string; secretKey: string; clearSecretId: boolean; clearSecretKey: boolean; region: string; teamId: string }
+export function tencentQuotaDraft(credentials: Record<string, unknown> = {}): TencentQuotaDraft {
+  return { secretId: '', secretKey: '', clearSecretId: false, clearSecretKey: false,
+    region: typeof credentials.tencent_query_region === 'string' ? credentials.tencent_query_region : '',
+    teamId: typeof credentials.tencent_query_team_id === 'string' ? credentials.tencent_query_team_id : '' }
+}
+export function applyTencentQuotaCredentials(credentials: Record<string, unknown>, draft: TencentQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['tencent_query_secret_id', draft.secretId, draft.clearSecretId],
+    ['tencent_query_secret_key', draft.secretKey, draft.clearSecretKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.tencent_query_region = draft.region.trim()
+  credentials.tencent_query_team_id = draft.teamId.trim()
+}
+
+
+export function byteplusQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): boolean {
+  if (credentials.billing_plan !== 'team' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const provider = compatibleProvider('byteplus')
+  const mode = provider && compatibleMode(provider, credentials.account_mode)
+  if (!mode || mode.mode !== 'coding') return false
+  const protocol = credentials.api_protocol || mode.default_protocol
+  if (protocol !== 'adaptive' && !mode.endpoints.some(endpoint => endpoint.protocol === protocol)) return false
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return false
+  for (const [key, value] of [['base_url', credentials.base_url], ...Object.entries(bases || {})]) {
+    if (key !== 'base_url' && !mode.endpoints.some(endpoint => endpoint.protocol === key)) return false
+    if (value == null || value === '') continue
+    if (typeof value !== 'string') return false
+    const selected = key === 'base_url' ? protocol : key
+    if (!mode.endpoints.some(endpoint => (selected === 'adaptive' || endpoint.protocol === selected) && endpoint.base_url === value.trim().replace(/\/+$/, ''))) return false
+  }
+  return true
+}
+
+/** Reuse the existing cloud-key form; BytePlus edition comes only from billing_plan. */
+export function byteplusQuotaDraft(credentials: Record<string, unknown> = {}): VolcengineQuotaDraft {
+  return { accessKeyId: '', secretAccessKey: '', edition: 'team',
+    seatId: typeof credentials.byteplus_seat_id === 'string' ? credentials.byteplus_seat_id : '',
+    clearAccessKeyId: false, clearSecretAccessKey: false }
+}
+export function applyByteplusQuotaCredentials(credentials: Record<string, unknown>, draft: VolcengineQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['byteplus_access_key_id', draft.accessKeyId, draft.clearAccessKeyId],
+    ['byteplus_secret_access_key', draft.secretAccessKey, draft.clearSecretAccessKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.byteplus_seat_id = draft.seatId.trim()
 }

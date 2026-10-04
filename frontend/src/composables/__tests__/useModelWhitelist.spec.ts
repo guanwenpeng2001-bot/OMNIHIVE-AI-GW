@@ -1,5 +1,5 @@
 import type { PlatformModelPreset } from '@/api/admin/platformModelPresets'
-import { validateModelRestrictions } from '../useModelWhitelist'
+import { modelSyncErrorKey, validateModelRestrictions } from '../useModelWhitelist'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/api/admin/accounts', () => ({
@@ -142,4 +142,14 @@ describe('identity-scoped model candidates', () => {
     for (const field of Object.keys(identity)) expect(modelCandidateKey('anthropic', { ...identity, [field]: 'changed' })).not.toBe(baseline)
     expect(modelCandidateKey('other', identity)).not.toBe(baseline)
   })
+})
+
+
+it.each([
+ ['configuration','Configuration'], ['credentials','Credentials'], ['account_type','AccountType'],
+ ['not_adapted','NotAdapted'], ['discovery_unconfirmed','DiscoveryUnconfirmed'], ['endpoint_not_found','EndpointNotFound'],
+ ['method_not_allowed','MethodNotAllowed'], ['permission','Permission'], ['rate_limited','RateLimited'],
+ ['network','Network'], ['upstream','Unavailable'], ['internal','Failed'], ['unsupported','Unsupported'], ['unknown','Failed'],
+])('maps discovery reason %s independently of the HTTP status', (reason, suffix) => {
+ expect(modelSyncErrorKey({ response: { status: 400, data: { reason: `upstream_model_sync_${reason}` } } })).toBe(`syncUpstreamModels${suffix}`)
 })

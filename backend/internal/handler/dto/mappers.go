@@ -293,6 +293,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ollamaCloudUsage = state
 	}
 	out := &Account{
+		RuntimeIdentity:   strings.TrimPrefix(service.AccountRuntimeIdentityKey(a), strconv.FormatInt(a.ID, 10)+":"),
 		TPMLimit:          a.TPMLimit,
 		ID:                a.ID,
 		Name:              a.Name,
@@ -508,8 +509,9 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		return nil
 	}
 	return &AccountListItem{
-		TPMLimit: a.TPMLimit,
-		ID:       a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
+		RuntimeIdentity: a.RuntimeIdentity,
+		TPMLimit:        a.TPMLimit,
+		ID:              a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		OllamaCloudUsage: a.OllamaCloudUsage,
 		ProxyID:          a.ProxyID, ProxyGroupID: a.ProxyGroupID, ProxyGroupName: a.ProxyGroupName, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,

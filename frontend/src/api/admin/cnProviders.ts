@@ -7,13 +7,14 @@ import { apiClient } from '../client'
 
 /** 滚动用量窗口档（5 小时 / 每周），对齐后端 service.CNQuotaTier。 */
 export interface CNQuotaTier {
-  window: '5h' | 'weekly' | 'monthly'
+  window: '5h' | 'daily' | 'weekly' | 'monthly'
   used_percent: number
   reset_at?: string
 }
 
 /** Coding Plan 额度探测结果（kimi / zhipu），对齐后端 CNProviderQuotaProbeResult。 */
 export interface CNProviderQuotaProbeResult {
+  status?: 'identity_changed' | 'missing_configuration' | 'invalid_configuration' | 'ok' | 'missing_credentials' | 'invalid_credentials' | 'permission_denied' | 'unsupported_profile' | 'no_verified_query' | 'not_subscribed' | 'no_seat' | 'invalid_response' | 'upstream_error' | 'url_rejected'
   unsupported?: boolean
   credits?: Record<string, number>
   provider: string
@@ -21,6 +22,7 @@ export interface CNProviderQuotaProbeResult {
   success: boolean
   credential_valid: boolean
   tiers?: CNQuotaTier[]
+  token_plan?: TokenPlanQuota
   plan_level?: string
   status_code?: number
   fetched_at: number
@@ -36,7 +38,7 @@ export interface CNProviderBalanceEntry {
 
 /** Native and compatible payg balance results; failed/unsupported queries omit unknown amounts. */
 export interface CNProviderBalanceResult {
-  kind?: 'wallet_balance' | 'project_budget' | 'unsupported'
+  kind?: 'wallet_balance' | 'account_credits' | 'project_budget' | 'unsupported'
   reason?: CompatibleUsageReason
   project_budget?: CompatibleProjectBudget
   scope?: 'account' | 'account_in_project'
@@ -44,6 +46,8 @@ export interface CNProviderBalanceResult {
   success: boolean
   unsupported?: boolean
   /** 主币种余额（balances 首条，兼容单币种展示）。 */
+  used?: number
+  credits?: { total_credits: number; total_usage: number; unit: 'credits' }
   balance?: number
   currency?: string
   /** 多币种明细；缺省时按主币种展示。 */
@@ -71,7 +75,7 @@ export async function queryBalance(id: number): Promise<CNProviderBalanceResult>
   return data
 }
 
-export type CompatibleUsageReason = 'no_verified_query' | 'mode_unsupported' | 'custom_origin' | 'invalid_credentials' | 'proxy_unavailable' | 'permission_denied' | 'upstream_error' | 'invalid_response' | 'rate_limited'
+export type CompatibleUsageReason = 'identity_changed' | 'missing_query_credentials' | 'no_verified_query' | 'mode_unsupported' | 'custom_origin' | 'invalid_credentials' | 'proxy_unavailable' | 'permission_denied' | 'upstream_error' | 'invalid_response' | 'rate_limited'
 
 export interface CompatibleProjectBudget {
   scope: 'account_in_project'
@@ -119,4 +123,15 @@ export default {
   queryUsage,
   queryQuota,
   queryBalance
+}
+
+export interface TokenPlanQuota {
+  product_type: 'enterprise' | 'enterprise-auto'
+  unit: 'credits' | 'tokens'
+  package_info?: {
+    total_quota?: string; total_used?: string; cycle_quota?: string; shared_pool?: string; shared_used?: string
+    exclusive_allocated?: string; exclusive_used?: string; start_time?: string; expire_time?: string; cycle_unit?: string
+    current_cycle?: number; remain_cycles?: number; total_cycles?: number
+  }
+  token_summary?: { cycle_seq?: number; cycle_start_time?: string; cycle_end_time?: string; billing_items?: Array<{ billing_item?: string; total_qty?: string }> }
 }

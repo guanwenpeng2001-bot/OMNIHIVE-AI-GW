@@ -3069,3 +3069,165 @@ it('allows kat_coder same-ID coding mode edits without rebinding its masked secr
   expect(account.platform).toBe('kat_coder')
   wrapper.unmount()
 })
+
+describe('Volcengine query credential editing', () => {
+  const quotaAccount = () => ({ ...buildAccount(), platform: 'volcengine', credentials_status: {
+    has_api_key: true, has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true
+  }, credentials: { account_mode: 'coding', api_protocol: 'chat_completions', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3', volcengine_plan_edition: 'team', volcengine_seat_id: 'synthetic-seat' } })
+  it('restores edition and seat while leaving saved secrets blank, and preserves them on submit', async () => {
+    const account = quotaAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.get('[data-test="accessKeyId"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="secretAccessKey"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="quota-edition"]').element).toHaveProperty('value', 'team')
+    expect(wrapper.get('[data-test="quota-seat"]').element).toHaveProperty('value', 'synthetic-seat')
+    expect(wrapper.get('[data-test="volcengine-quota-fields"]').text()).toContain('volcengineQuota.saved')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials).not.toHaveProperty('volcengine_access_key_id')
+    expect(credentials).not.toHaveProperty('volcengine_secret_access_key')
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).toMatchObject({ volcengine_plan_edition: 'team', volcengine_seat_id: 'synthetic-seat' })
+    wrapper.unmount()
+  })
+  it.each(['replace', 'clear'])('supports explicit %s without changing inference credentials', async action => {
+    const account = quotaAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    if (action === 'clear') {
+      await wrapper.get('[data-test="clearAccessKeyId"]').setValue(true)
+      await wrapper.get('[data-test="clearSecretAccessKey"]').setValue(true)
+      expect(wrapper.get('[data-test="accessKeyId"]').attributes('disabled')).toBeDefined()
+    } else {
+      await wrapper.get('[data-test="accessKeyId"]').setValue('new-synthetic-access')
+      await wrapper.get('[data-test="secretAccessKey"]').setValue('new-synthetic-secret')
+    }
+    await wrapper.get('[data-test="quota-edition"]').setValue('personal')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials.volcengine_access_key_id).toBe(action === 'clear' ? null : 'new-synthetic-access')
+    expect(credentials.volcengine_secret_access_key).toBe(action === 'clear' ? null : 'new-synthetic-secret')
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('volcengine_seat_id')
+    wrapper.unmount()
+  })
+  it('never echoes legacy secrets and resets draft secrets when switching accounts', async () => {
+    const account = quotaAccount()
+    const legacy = { ...account, credentials: { ...account.credentials, volcengine_access_key_id: 'legacy-synthetic-access', volcengine_secret_access_key: 'legacy-synthetic-secret' } }
+    const wrapper = mountModal(legacy)
+    await flushPromises()
+    expect(wrapper.html()).not.toContain('legacy-synthetic-')
+    await wrapper.get('[data-test="secretAccessKey"]').setValue('new-synthetic-secret')
+    await wrapper.setProps({ account: { ...account, id: 5699 } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="secretAccessKey"]').element).toHaveProperty('value', '')
+    wrapper.unmount()
+  })
+})
+
+
+describe('management query editing', () => {
+  it.each(['keep', 'replace', 'clear'])('submits management %s without changing inference', async action => {
+    const account = { ...buildAccount(), platform: 'dmxapi', credentials_status: { has_api_key: true, has_usage_query_token: true }, credentials: { usage_query_user_id: '42' } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="usage-query-token"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="usage-query-user-id"]').element).toHaveProperty('value', '42')
+    if (action === 'replace') await wrapper.get('[data-test="usage-query-token"]').setValue('replacement-management')
+    if (action === 'clear') await wrapper.get('[data-test="usage-query-clear"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials.usage_query_user_id).toBe('42')
+    expect(credentials.usage_query_token).toBe(action === 'keep' ? undefined : action === 'clear' ? null : 'replacement-management')
+    wrapper.unmount()
+  })
+})
+
+
+describe('integrated query credentials and model readback', () => {
+  it.each(['azure_openai', 'github_copilot'])('keeps %s inference save independent of optional query configuration', async platform => {
+    const account = { ...buildAccount(), platform, credentials: { account_mode: 'payg', base_url: platform === 'azure_openai' ? 'https://fixture.openai.azure.com/openai/v1' : '', api_key: 'inference-fixture', usage_query_subscription_id: 'subscription', usage_query_region: 'eastus', usage_query_username: 'octocat' }, credentials_status: { has_api_key: true, has_usage_query_token: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="usage-query-token"]').element).toHaveProperty('value', '')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('usage_query_token')
+    if (platform === 'azure_openai') expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ usage_query_subscription_id: 'subscription', usage_query_region: 'eastus' })
+    else expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ usage_query_username: 'octocat' })
+    await wrapper.get('[data-test="usage-query-clear"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials.usage_query_token).toBeNull()
+    wrapper.unmount()
+  })
+  it('restores Tencent region/team while independently preserving, replacing and clearing cloud secrets', async () => {
+    const account = { ...buildAccount(), platform: 'hunyuan', credentials: { account_mode: 'coding', api_protocol: 'chat_completions', base_url: 'https://tokenhub.tencentmaas.com/plan/v3', tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'team-fixture' }, credentials_status: { has_api_key: true, has_tencent_query_secret_id: true, has_tencent_query_secret_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="secretId"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="region"]').element).toHaveProperty('value', 'ap-shanghai')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'team-fixture' })
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('tencent_query_secret_id')
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
+    await wrapper.get('[data-test="secretId"]').setValue('replacement-query-id')
+    await wrapper.get('[data-test="clearSecretKey"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials).toMatchObject({ tencent_query_secret_id: 'replacement-query-id', tencent_query_secret_key: null })
+    expect(updateAccountMock.mock.calls[1][1].credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+  it('reopens Antigravity mappings from full account readback without turning aliases into direct IDs', async () => {
+    const mapping = Object.fromEntries(Array.from({ length: 41 }, (_, index) => [`public-alias-${index}`, `upstream-model-${index}`]))
+    const account = { ...buildAntigravityAccount(), credentials: { antigravity_project_id: 'configured-project', model_mapping: mapping } }
+    updateAccountMock.mockReset().mockImplementation(async (_id, payload) => ({ ...account, ...payload }))
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    const saved = updateAccountMock.mock.calls[0][1]
+    expect(saved.credentials.model_mapping).toEqual(mapping)
+    wrapper.unmount()
+    const readback = { ...account, ...saved }
+    credentialAccountRead.mockResolvedValue(readback)
+    const reopened = mountModal(readback); await flushPromises()
+    expect(reopened.get('[data-testid="model-whitelist-value"]').text()).toBe('')
+    await reopened.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials.model_mapping).toEqual(mapping)
+    expect(Object.entries(updateAccountMock.mock.calls[1][1].credentials.model_mapping).filter(([source, target]) => source === target)).toHaveLength(0)
+    reopened.unmount()
+  })
+})
+
+
+it('edits BytePlus team query keys using the existing plan without another edition selector', async () => {
+  const account = { ...buildAccount(), platform: 'byteplus', credentials: { account_mode: 'coding', billing_plan: 'team', byteplus_seat_id: 'saved-seat' }, credentials_status: { has_api_key: true, has_byteplus_access_key_id: true, has_byteplus_secret_access_key: true } }
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  const wrapper = mountModal(account); await flushPromises()
+  const fields = wrapper.get('[data-test="byteplus-quota-fields"]')
+  expect(fields.find('[data-test="quota-edition"]').exists()).toBe(false)
+  expect(fields.get('[data-test="quota-seat"]').element).toHaveProperty('value', 'saved-seat')
+  expect(fields.get('[data-test="accessKeyId"]').element).toHaveProperty('value', '')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ billing_plan: 'team', byteplus_seat_id: 'saved-seat' })
+  expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('byteplus_access_key_id')
+  expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
+  await fields.get('[data-test="accessKeyId"]').setValue('replacement-byteplus-id')
+  await fields.get('[data-test="clearSecretAccessKey"]').setValue(true)
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+  expect(updateAccountMock.mock.calls[1][1].credentials).toMatchObject({ billing_plan: 'team', byteplus_access_key_id: 'replacement-byteplus-id', byteplus_secret_access_key: null })
+  expect(updateAccountMock.mock.calls[1][1].credentials).not.toHaveProperty('byteplus_plan_edition')
+  wrapper.unmount()
+})

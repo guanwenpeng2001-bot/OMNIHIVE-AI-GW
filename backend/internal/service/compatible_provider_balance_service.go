@@ -18,24 +18,26 @@ import (
 // CompatibleBalanceResult keeps unknown amounts absent, rather than reporting
 // zero. Balances uses the existing balance cell's multi-currency contract.
 type CompatibleBalanceResult struct {
-	Kind          string                   `json:"kind"`
-	Reason        string                   `json:"reason,omitempty"`
-	Scope         string                   `json:"scope,omitempty"`
-	ProjectBudget *CompatibleProjectBudget `json:"project_budget,omitempty"`
-	Provider      string                   `json:"provider"`
-	Success       bool                     `json:"success"`
-	Unsupported   bool                     `json:"unsupported,omitempty"`
-	Balance       *float64                 `json:"balance,omitempty"`
-	Currency      string                   `json:"currency,omitempty"`
-	Balances      []CNProviderBalanceEntry `json:"balances,omitempty"`
-	StatusCode    int                      `json:"status_code,omitempty"`
-	FetchedAt     int64                    `json:"fetched_at"`
-	Persisted     bool                     `json:"persisted"`
-	Error         string                   `json:"error,omitempty"`
+	Kind          string                    `json:"kind"`
+	Reason        string                    `json:"reason,omitempty"`
+	Scope         string                    `json:"scope,omitempty"`
+	ProjectBudget *CompatibleProjectBudget  `json:"project_budget,omitempty"`
+	Provider      string                    `json:"provider"`
+	Success       bool                      `json:"success"`
+	Unsupported   bool                      `json:"unsupported,omitempty"`
+	Used          *float64                  `json:"used,omitempty"`
+	Credits       *CompatibleAccountCredits `json:"credits,omitempty"`
+	Balance       *float64                  `json:"balance,omitempty"`
+	Currency      string                    `json:"currency,omitempty"`
+	Balances      []CNProviderBalanceEntry  `json:"balances,omitempty"`
+	StatusCode    int                       `json:"status_code,omitempty"`
+	FetchedAt     int64                     `json:"fetched_at"`
+	Persisted     bool                      `json:"persisted"`
+	Error         string                    `json:"error,omitempty"`
 }
 
 // QueryAccountBalance extends the existing injected admin balance service without
-// changing native quota/balance behavior or probing management-only endpoints.
+// changing native quota/balance behavior. Management queries use their own credentials.
 func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context, accountID int64) (any, error) {
 	if service == nil || service.accountRepo == nil || service.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusServiceUnavailable, "BALANCE_NOT_CONFIGURED", "balance service is not configured")
@@ -48,7 +50,34 @@ func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context
 		return nil, infraerrors.New(http.StatusNotFound, "BALANCE_ACCOUNT_NOT_FOUND", "account not found")
 	}
 	if _, compatible := domain.LookupCompatibleProvider(account.Platform); !compatible {
-		return service.QueryBalanceForAccount(ctx, account)
+		result, err := service.QueryBalanceForAccount(ctx, account)
+		if err != nil {
+			if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+				publicResult := &CompatibleBalanceResult{
+					Kind: "wallet_balance", Provider: account.Platform, FetchedAt: time.Now().UTC().Unix(),
+				}
+				publicResult.applyPersistenceOutcome(err)
+				return publicResult, nil
+			}
+			return nil, err
+		}
+		if account.Platform != PlatformMiniMax {
+			return result, nil
+		}
+		// MiniMax provides no availability signal. Project the native observation
+		// into the existing optional-amount contract instead of exposing its
+		// internal bool placeholder or an unknown balance as a synthetic zero.
+		publicResult := &CompatibleBalanceResult{
+			Kind: "wallet_balance", Provider: result.Provider, Success: result.Success,
+			StatusCode: result.StatusCode, FetchedAt: result.FetchedAt,
+			Persisted: result.Persisted, Error: result.Error,
+		}
+		if result.Success {
+			publicResult.Balance = &result.Balance
+			publicResult.Currency = result.Currency
+			publicResult.Balances = result.Balances
+		}
+		return publicResult, nil
 	}
 	return service.queryCompatibleBalance(ctx, account)
 }
@@ -58,6 +87,16 @@ func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context
 // proves balance access. Sources and field contracts are recorded beside parser cases.
 func compatibleBalanceEndpoint(provider string) string {
 	switch provider {
+	case "stepfun_api":
+		return "https://api.stepfun.com/v1/accounts"
+	case "stepfun_api_intl":
+		return "https://api.stepfun.ai/v1/accounts"
+	case "teamorouter":
+		return "https://teamorouter.cn/v1/billing/balance"
+	case "teamorouter_com":
+		return "https://teamorouter.com/v1/billing/balance"
+	case "sudocode_chat":
+		return "https://api.sudocode.chat/api/account/balance"
 	case "novita":
 		return "https://api.novita.ai/openapi/v1/billing/balance/detail"
 	case "ppio":
@@ -108,25 +147,34 @@ func compatibleQueryTarget(account *Account) (string, error) {
 	if !allowed {
 		return "", compatibleQueryError{"mode_unsupported", "no verified query for the selected billing plan"}
 	}
+	management := managementBalanceEndpoint(account.Platform) != ""
 	for _, field := range []string{"account_mode", "api_protocol", "base_url", "api_key"} {
+		if management && field == "api_key" {
+			continue
+		}
 		if value, exists := account.Credentials[field]; exists {
 			if _, valid := value.(string); !valid {
 				return "", errors.New("invalid balance account credentials")
 			}
 		}
 	}
-	key := strings.TrimSpace(account.GetCredential("api_key"))
-	if key == "" || strings.ContainsAny(key, "\r\n\t ") {
-		return "", errors.New("invalid query API key")
-	}
-	for _, character := range key {
-		if character < 33 || character > 126 {
+	if !management {
+		key := strings.TrimSpace(account.GetCredential("api_key"))
+		if key == "" || strings.ContainsAny(key, "\r\n\t ") {
 			return "", errors.New("invalid query API key")
+		}
+		for _, character := range key {
+			if character < 33 || character > 126 {
+				return "", errors.New("invalid query API key")
+			}
 		}
 	}
 	provider, found := domain.LookupCompatibleProvider(account.Platform)
 	mode, valid := provider.ResolveMode(strings.TrimSpace(account.GetCredential("account_mode")))
 	target := compatibleBalanceEndpoint(account.Platform)
+	if management {
+		target = managementBalanceEndpoint(account.Platform)
+	}
 	if account.Platform == "qiniu" {
 		target = "https://api.qnaigc.com/v3/stat/usage"
 	}
@@ -137,12 +185,21 @@ func compatibleQueryTarget(account *Account) (string, error) {
 		}
 		return "", compatibleQueryError{reason, "no verified inference-key query for this provider and mode"}
 	}
-	// A later inference registry change must not silently rebind a regional key
-	// to this balance registry's fixed origin, including when no override is set.
+	// Management queries retain the preset inference-origin guard below, but their
+	// fixed management host need not equal the inference host. Inference-key
+	// queries bind inference to the fixed query origin. TeamoRouter documents
+	// billing on the regional apex, separately from its api. inference host.
 	targetURL, _ := url.Parse(target)
+	inferenceHost := targetURL.Host
+	switch account.Platform {
+	case "teamorouter":
+		inferenceHost = "api.teamorouter.cn"
+	case "teamorouter_com":
+		inferenceHost = "api.teamorouter.com"
+	}
 	for _, endpoint := range mode.Endpoints {
 		preset, err := url.Parse(endpoint.BaseURL)
-		if err != nil || preset.Scheme != targetURL.Scheme || !strings.EqualFold(preset.Host, targetURL.Host) {
+		if err != nil || preset.Scheme != targetURL.Scheme || (!management && !strings.EqualFold(preset.Host, inferenceHost)) {
 			return "", errors.New("balance and inference origins do not match")
 		}
 	}
@@ -200,6 +257,9 @@ func compatibleQueryTarget(account *Account) (string, error) {
 }
 
 func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Context, account *Account) (*CompatibleBalanceResult, error) {
+	if managementBalanceEndpoint(account.Platform) != "" {
+		return service.queryManagementBalance(ctx, account)
+	}
 	result := &CompatibleBalanceResult{Provider: account.Platform, Kind: "wallet_balance", FetchedAt: time.Now().UTC().Unix()}
 	target, err := compatibleBalanceTarget(account)
 	if err != nil {
@@ -249,7 +309,8 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 	result.Balances = entries
 	result.Balance = &entries[0].Balance
 	result.Currency = entries[0].Currency
-	if account.Platform == "atlascloud" {
+	switch account.Platform {
+	case "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com":
 		result.Scope = "account"
 	}
 	updates := map[string]any{
@@ -258,14 +319,32 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixBalances): entries,
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixUpdated):  time.Unix(result.FetchedAt, 0).UTC().Format(time.RFC3339),
 	}
-	result.Persisted = persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil) == nil
+	result.applyPersistenceOutcome(persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil))
 	return result, nil
+}
+
+// A rejected identity means these observations belong to an obsolete account
+// configuration. Ordinary storage failures do not invalidate the upstream read.
+func (result *CompatibleBalanceResult) applyPersistenceOutcome(err error) {
+	result.Persisted = err == nil
+	if !errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+		return
+	}
+	result.Success = false
+	result.Reason = "identity_changed"
+	result.Error = "Account configuration changed; query again."
+	result.Balance = nil
+	result.Balances = nil
+	result.Used = nil
+	result.Credits = nil
+	result.ProjectBudget = nil
+	result.Currency = ""
 }
 
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
 
 func clearCompatibleBalanceSnapshots(extra map[string]any) {
-	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud"} {
+	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat", "aihubmix", "dmxapi", "crazyrouter", "crazyrouter_intl", "therouter"} {
 		for _, suffix := range []string{cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixBalances, cnBalanceExtraSuffixUpdated} {
 			delete(extra, cnExtraKey(provider, suffix))
 		}
@@ -286,6 +365,35 @@ func parseCompatibleBalance(provider string, body []byte) ([]CNProviderBalanceEn
 	}
 	path, currency, scale := "", "", float64(1)
 	switch provider {
+	case "teamorouter", "teamorouter_com":
+		// https://teamorouter.cn/docs/open-api and https://teamorouter.com/docs/open-api
+		if root.Get("balance.value").Type != gjson.String || root.Get("balance.currency").Type != gjson.String {
+			return nil, invalid
+		}
+		path, currency = "balance.value", root.Get("balance.currency").String()
+		if len(currency) != 3 || strings.Trim(currency, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+			return nil, invalid
+		}
+	case "sudocode_chat":
+		// https://sudocode.chat/docs/claude-code: the display balance includes
+		// wallet and subscriptions; token.remaining must not be added again.
+		if root.Get("success").Type != gjson.True || root.Get("data.ccswitch.remaining").Type != gjson.Number || root.Get("data.ccswitch.unit").Type != gjson.String {
+			return nil, invalid
+		}
+		path, currency = "data.ccswitch.remaining", root.Get("data.ccswitch.unit").String()
+		if strings.TrimSpace(currency) == "" {
+			return nil, invalid
+		}
+	case "stepfun_api", "stepfun_api_intl":
+		// https://platform.stepfun.com/docs/zh/api-reference/accounts/get.md
+		// https://platform.stepfun.ai/docs/en/api-reference/accounts/get.md
+		// Only balance is available funds; cash/voucher totals are cumulative.
+		// Neither regional contract specifies a currency.
+		accountType := root.Get("type").String()
+		if root.Get("object").String() != "account" || (accountType != "prepaid" && accountType != "postpaid") || root.Get("balance").Type != gjson.Number {
+			return nil, invalid
+		}
+		path = "balance"
 	case "atlascloud":
 		// https://www.atlascloud.ai/docs/public-api/balance
 		if root.Get("object").String() != "balance" || root.Get("scope").String() != "account" || root.Get("available.value").Type != gjson.String {

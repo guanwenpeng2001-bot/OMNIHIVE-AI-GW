@@ -813,6 +813,10 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 				state.Result, state.Error = "credentials_invalid", "upstream_model_credentials_invalid"
 			case UpstreamModelSyncErrorUnsupported:
 				state.Result, state.Error = "unsupported", "upstream_model_discovery_unsupported"
+			case UpstreamModelSyncErrorAccountType, UpstreamModelSyncErrorNotAdapted, UpstreamModelSyncErrorDiscoveryUnconfirmed,
+				UpstreamModelSyncErrorEndpointNotFound, UpstreamModelSyncErrorMethodNotAllowed,
+				UpstreamModelSyncErrorPermission, UpstreamModelSyncErrorRateLimited, UpstreamModelSyncErrorNetwork:
+				state.Error = "upstream_model_sync_" + string(syncError.Kind)
 			case UpstreamModelSyncErrorConfiguration:
 				state.Error = "upstream_model_configuration_invalid"
 			case UpstreamModelSyncErrorInternal:

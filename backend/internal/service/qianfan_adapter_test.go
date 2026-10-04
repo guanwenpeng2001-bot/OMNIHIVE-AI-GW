@@ -227,7 +227,12 @@ func TestQianfanDiscoveryPaginationAndPartialPreview(test *testing.T) {
 		account := &Account{Platform: PlatformQianfan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 		if failLater {
 			preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-			require.NoError(test, err)
+			require.Nil(test, preview)
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			require.Equal(test, UpstreamModelSyncErrorUpstream, failure.Kind)
+			preview = failure.PartialCatalog
+			require.NotNil(test, preview)
 			require.Equal(test, []string{"first"}, preview.DiscoveredModels)
 			require.False(test, preview.DiscoveryComplete)
 			require.Nil(test, preview.Review)

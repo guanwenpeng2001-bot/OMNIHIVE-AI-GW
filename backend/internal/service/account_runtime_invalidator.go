@@ -238,6 +238,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 	account.Extra = shallowCopyMap(account.Extra)
 	clearCompatibleBalanceSnapshots(account.Extra)
 	for _, field := range []string{
+		"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at",
 		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
@@ -250,7 +251,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 	} {
 		delete(account.Extra, field)
 	}
-	for _, provider := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode} {
+	for _, provider := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformVolcengine, "byteplus"} {
 		for _, suffix := range []string{cnExtraSuffix5hUsed, cnExtraSuffix5hReset, cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset, cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset, cnExtraSuffixUsageUpdated, cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixAvailable, cnBalanceExtraSuffixUpdated, cnBalanceExtraSuffixBalances} {
 			delete(account.Extra, cnExtraKey(provider, suffix))
 		}

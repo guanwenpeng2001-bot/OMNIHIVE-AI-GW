@@ -72,7 +72,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], discovered_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
@@ -2064,4 +2064,108 @@ describe('supplier family create flow', () => {
     expect(JSON.stringify(payload)).not.toContain('old-model')
     wrapper.unmount()
   })
+})
+
+// Synthetic query credentials: never a production key or an upstream capture.
+describe('Volcengine usage query create fields', () => {
+  it.each(['personal', 'team'])('submits %s query credentials separately from the inference key', async edition => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5601, platform: 'volcengine', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string }
+    await wrapper.get('[data-testid="volcengine-platform"]').trigger('click')
+    await flushPromises()
+    state.accountMode = 'coding'
+    await flushPromises()
+    expect(wrapper.find('[data-test="volcengine-quota-fields"]').exists()).toBe(true)
+    await wrapper.get('[data-test="accessKeyId"]').setValue('synthetic-access')
+    await wrapper.get('[data-test="secretAccessKey"]').setValue('synthetic-secret')
+    await wrapper.get('[data-test="quota-edition"]').setValue(edition)
+    if (edition === 'team') await wrapper.get('[data-test="quota-seat"]').setValue('synthetic-seat')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Volcengine synthetic')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', volcengine_access_key_id: 'synthetic-access', volcengine_secret_access_key: 'synthetic-secret', volcengine_plan_edition: edition })
+    if (edition === 'team') expect(createAccountMock.mock.calls[0][0].credentials.volcengine_seat_id).toBe('synthetic-seat')
+    wrapper.unmount()
+  })
+  it('allows inference without query credentials and hides fields for PAYG', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5602, platform: 'volcengine', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string }
+    await wrapper.get('[data-testid="volcengine-platform"]').trigger('click')
+    await flushPromises()
+    state.accountMode = 'payg'
+    await flushPromises()
+    expect(wrapper.find('[data-test="volcengine-quota-fields"]').exists()).toBe(false)
+    state.accountMode = 'coding'
+    await flushPromises()
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Volcengine without query key')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('volcengine_secret_access_key')
+    wrapper.unmount()
+  })
+})
+
+
+describe('management query creation', () => {
+  it('submits management and inference credentials separately', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5603, platform: 'aihubmix', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string } }
+    state.form.platform = 'aihubmix'; await flushPromises()
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Management fixture')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await wrapper.get('[data-test="usage-query-token"]').setValue('synthetic-management')
+    expect(wrapper.find('[data-test="usage-query-user-id"]').exists()).toBe(false)
+    await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', usage_query_token: 'synthetic-management' })
+    wrapper.unmount()
+  })
+})
+
+
+it('creates Tencent domestic enterprise query credentials without changing the inference key', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 8801, platform: 'hunyuan', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string; apiKeyBaseUrl: string }
+  await wrapper.get('[data-testid="hunyuan-platform"]').trigger('click'); await flushPromises()
+  state.accountMode = 'coding'; await flushPromises()
+  state.apiKeyBaseUrl = 'https://tokenhub.tencentmaas.com/plan/v3'; await flushPromises()
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Tencent fixture')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+  await wrapper.get('[data-test="secretId"]').setValue('synthetic-cloud-id')
+  await wrapper.get('[data-test="secretKey"]').setValue('synthetic-cloud-key')
+  await wrapper.get('[data-test="region"]').setValue('ap-shanghai')
+  await wrapper.get('[data-test="teamId"]').setValue('synthetic-team')
+  await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+  expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', tencent_query_secret_id: 'synthetic-cloud-id', tencent_query_secret_key: 'synthetic-cloud-key', tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'synthetic-team' })
+  wrapper.unmount()
+})
+
+
+it('creates BytePlus query keys only for the existing team billing plan', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 8811, platform: 'byteplus', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { form: { platform: string }; compatibleDraft: Record<string, unknown> }
+  state.form.platform = 'byteplus'; await flushPromises()
+  state.compatibleDraft = { ...state.compatibleDraft, billing_plan: 'team' }; await flushPromises()
+  const fields = wrapper.get('[data-test="byteplus-quota-fields"]')
+  expect(fields.find('[data-test="quota-edition"]').exists()).toBe(false)
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('BytePlus fixture')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+  await fields.get('[data-test="accessKeyId"]').setValue('synthetic-byteplus-id')
+  await fields.get('[data-test="secretAccessKey"]').setValue('synthetic-byteplus-secret')
+  await fields.get('[data-test="quota-seat"]').setValue('synthetic-seat')
+  await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+  expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ billing_plan: 'team', api_key: 'synthetic-inference', byteplus_access_key_id: 'synthetic-byteplus-id', byteplus_secret_access_key: 'synthetic-byteplus-secret', byteplus_seat_id: 'synthetic-seat' })
+  expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('byteplus_plan_edition')
+  wrapper.unmount()
 })

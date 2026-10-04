@@ -1,5 +1,9 @@
+import { usageQueryDraft, applyUsageQueryCredentials } from '../credentialsBuilder'
 import { describe, it, expect } from 'vitest'
 import {
+  applyVolcengineQuotaCredentials,
+  volcengineQuotaDraft,
+  volcengineQuotaProfile,
   ANTIGRAVITY_PROJECT_ID_CREDENTIAL_KEY,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
@@ -13,6 +17,7 @@ import {
   buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
   cnQuotaCellVisible,
+  cnBalanceCellVisible,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
@@ -27,6 +32,41 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('Volcengine query credentials and profile', () => {
+  it('never echoes secrets and preserves inference credentials when query fields are blank or cleared', () => {
+    const existing = { api_key: 'synthetic-inference', volcengine_access_key_id: 'synthetic-access', volcengine_secret_access_key: 'synthetic-secret', volcengine_plan_edition: 'team', volcengine_seat_id: 'seat' }
+    const draft = volcengineQuotaDraft(existing)
+    expect(draft).toMatchObject({ accessKeyId: '', secretAccessKey: '', edition: 'team', seatId: 'seat' })
+    const saved: Record<string, unknown> = { ...existing }
+    applyVolcengineQuotaCredentials(saved, draft)
+    expect(saved).not.toHaveProperty('volcengine_access_key_id')
+    expect(saved).not.toHaveProperty('volcengine_secret_access_key')
+    applyVolcengineQuotaCredentials(saved, { ...draft, clearAccessKeyId: true, clearSecretAccessKey: true })
+    expect(saved).toMatchObject({ api_key: 'synthetic-inference', volcengine_access_key_id: null, volcengine_secret_access_key: null })
+    applyVolcengineQuotaCredentials(saved, { ...draft, accessKeyId: ' replacement ', secretAccessKey: ' new-secret ', edition: 'personal' })
+    expect(saved).toMatchObject({ volcengine_access_key_id: 'replacement', volcengine_secret_access_key: 'new-secret', volcengine_plan_edition: 'personal' })
+    expect(saved).not.toHaveProperty('volcengine_seat_id')
+  })
+  it.each([
+    ['https://ark.cn-beijing.volces.com/api/coding/v3', 'coding'],
+    ['https://ark.cn-beijing.volces.com/api/plan/v3', 'agent'],
+    ['https://relay.example/api/coding/v3', 'custom'],
+    ['https://ark.ap-southeast.bytepluses.com/api/coding/v3', 'custom'],
+    ['https://ark.cn-beijing.volces.com:443/api/coding/v3', 'custom'],
+    ['https://ark.cn-beijing.volces.com/api/coding/../coding/v3', 'custom'],
+  ])('classifies %s as %s without inventing a query host', (base_url, expected) => {
+    expect(volcengineQuotaProfile({ account_mode: 'coding', base_url })).toBe(expected)
+  })
+  it('rejects mixed products, wrong protocol roots, and custom origin overrides', () => {
+    const credentials = { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }
+    expect(volcengineQuotaProfile({ ...credentials, api_base_urls: { anthropic: 'https://ark.cn-beijing.volces.com/api/plan' } })).toBe('custom')
+    expect(volcengineQuotaProfile({ ...credentials, api_protocol: 'anthropic' })).toBe('custom')
+    expect(volcengineQuotaProfile(credentials, true)).toBe('custom')
+    expect(cnQuotaCellVisible('volcengine', 'coding', credentials)).toBe(true)
+    expect(cnQuotaCellVisible('volcengine', 'payg')).toBe(false)
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {
@@ -572,5 +612,52 @@ describe('plan_type helpers', () => {
       expect(out).toEqual({ email: 'a@b.c' })
       expect('plan_type' in out).toBe(false)
     })
+  })
+})
+
+
+describe('management credential payloads', () => {
+  it.each(['aihubmix', 'therouter'])('drops irrelevant user ID for %s without touching inference', platform => {
+    const credentials = { api_key: 'original', usage_query_user_id: 'old' } as Record<string, unknown>
+    applyUsageQueryCredentials(credentials, platform, { token: 'management', userId: '42', clearToken: false })
+    expect(credentials).toEqual({ api_key: 'original', usage_query_token: 'management' })
+  })
+  it('never copies passwords into edit drafts', () => {
+    expect(usageQueryDraft({ usage_query_token: 'legacy', usage_query_user_id: '42' })).toMatchObject({ token: '', userId: '42', clearToken: false })
+  })
+  it('omits a saved Azure secret so the repository preserves it', () => {
+    const credentials = { usage_query_token: 'azure-token', usage_query_subscription_id: 'subscription' }
+    applyUsageQueryCredentials(credentials, 'azure_openai', usageQueryDraft())
+    expect(credentials).not.toHaveProperty('usage_query_token')
+  })
+})
+
+describe('MiniMax PAYG balance profile', () => {
+  it.each(['cn', 'io'])('accepts only current %s roots and same-region overrides without requiring a plaintext key', region => {
+    for (const suffix of ['', '/', '/v1', '/anthropic/']) {
+      expect(cnBalanceCellVisible('minimax', 'payg', { base_url: `https://api.minimax.${region}${suffix}` }, 'apikey')).toBe(true)
+    }
+    expect(cnBalanceCellVisible('minimax', 'payg', { api_base_urls: { chat_completions: `https://api.minimax.${region}/v1`, anthropic: `https://api.minimax.${region}/anthropic` } }, 'apikey')).toBe(true)
+  })
+  it.each([
+    { base_url: 'https://api.minimax.cn:443/v1' },
+    { base_url: 'http://api.minimax.cn/v1' },
+    { base_url: 'https://user@api.minimax.cn/v1' },
+    { base_url: 'https://api.minimax.cn/v1#fragment' },
+    { base_url: 'https://api.minimax.cn/v1/chat/completions' },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: [] },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: { anthropic: 42 } },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: { unknown: 'https://api.minimax.cn/v1' } },
+  ])('rejects unsupported URL or override shapes %j', credentials => {
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'apikey')).toBe(false)
+  })
+  it('requires an API-key account and explicit payg mode while retaining Kimi and DeepSeek', () => {
+    const credentials = { base_url: 'https://api.minimax.cn/v1' }
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'oauth')).toBe(false)
+    expect(cnBalanceCellVisible('minimax', '', credentials)).toBe(false)
+    expect(cnBalanceCellVisible('minimax', 'coding', credentials)).toBe(false)
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'apikey', true)).toBe(false)
+    expect(cnBalanceCellVisible('kimi', 'payg')).toBe(true)
+    expect(cnBalanceCellVisible('deepseek', 'payg')).toBe(true)
   })
 })

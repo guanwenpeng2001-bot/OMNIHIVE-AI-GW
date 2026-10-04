@@ -61,11 +61,27 @@ describe('PlatformIcon', () => {
 
   it('keeps genuine artwork coverage explicit and unrelated providers distinct', () => {
     const fallbacks = COMPATIBLE_PROVIDERS.filter(p => compatibleProviderIcon(p.id, p.label).kind === 'monogram')
-    expect(fallbacks.map(p => p.id).sort()).toEqual(['bailing', 'dmxapi', 'dmxapi_com', 'dmxapi_ssvip', 'therouter'])
+    expect(fallbacks).toEqual([])
     const assets = COMPATIBLE_PROVIDERS.map(p => compatibleProviderIcon(p.id, p.label)).filter(p => p.kind === 'asset')
     expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
-    expect(assets).toHaveLength(70)
-    expect(new Set(assets.map(p => p.src)).size).toBe(57)
+    expect(assets).toHaveLength(75)
+    expect(new Set(assets.map(p => p.src)).size).toBe(60)
+  })
+
+  it.each([
+    ['bailing', 'bailing.ico', false],
+    ['dmxapi', 'dmxapi.png', false],
+    ['therouter', 'therouter.svg', true],
+  ] as const)('uses official local artwork and the appropriate theme for %s', (platform, filename, monochrome) => {
+    const icon = compatibleProviderIcon(platform, platform)
+    expect(icon.kind).toBe('asset')
+    if (icon.kind !== 'asset') throw new Error('Expected official artwork')
+    expect(icon.src).toContain(filename)
+    expect(icon.monochrome).toBe(monochrome)
+    const wrapper = mount(PlatformIcon, { props: { platform } })
+    expect(wrapper.get('svg').classes().includes('dark:invert')).toBe(monochrome)
+    expect(wrapper.get('image').attributes('preserveAspectRatio')).toBe('xMidYMid meet')
+    expect(wrapper.find('text').exists()).toBe(false)
   })
 
   it.each([
@@ -77,7 +93,10 @@ describe('PlatformIcon', () => {
     ['teamorouter', 'teamorouter_com'],
   ])('shares the actual vendor artwork across %s variants', (...ids) => {
     const expected = mount(PlatformIcon, { props: { platform: ids[0] } }).html()
-    for (const platform of ids) expect(mount(PlatformIcon, { props: { platform } }).html()).toBe(expected)
+    for (const platform of ids) {
+      expect(compatibleProviderIcon(platform, platform)).toBe(compatibleProviderIcon(ids[0]!, ids[0]!))
+      expect(mount(PlatformIcon, { props: { platform } }).html()).toBe(expected)
+    }
   })
 
   it.each([

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -48,6 +50,7 @@ type cnBalanceProbeRepo struct {
 	AccountRepository
 	account     *Account
 	extraWrites []map[string]any
+	persistErr  error
 }
 
 func (r *cnBalanceProbeRepo) GetByID(_ context.Context, _ int64) (*Account, error) {
@@ -141,8 +144,58 @@ func TestCNProviderBalanceService_DeepSeekValidZeroBalanceRemainsSuccessful(t *t
 }
 
 func (r *cnBalanceProbeRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, end *time.Time) error {
+	if r.persistErr != nil {
+		return r.persistErr
+	}
 	if AccountRuntimeIdentityKey(expected) != AccountRuntimeIdentityKey(r.account) {
 		return ErrAccountRuntimeIdentityChanged
 	}
 	return r.UpdateExtra(ctx, expected.ID, updates)
+}
+
+func TestCNProviderBalanceService_NativePersistenceIdentity(t *testing.T) {
+	for _, provider := range []string{PlatformDeepseek, PlatformKimi} {
+		for name, persistErr := range map[string]error{
+			"success":              nil,
+			"identity":             ErrAccountRuntimeIdentityChanged,
+			"wrapped identity":     fmt.Errorf("private details: %w", ErrAccountRuntimeIdentityChanged),
+			"ordinary store error": errors.New("store unavailable"),
+		} {
+			t.Run(provider+"/"+name, func(t *testing.T) {
+				account := newDeepSeekBalanceProbeAccount()
+				account.Platform = provider
+				body := `{"is_available":false,"balance_infos":[{"currency":"CNY","total_balance":"98"},{"currency":"USD","total_balance":"3.5"}]}`
+				wantEntries := []CNProviderBalanceEntry{{Currency: "CNY", Balance: 98}, {Currency: "USD", Balance: 3.5}}
+				if provider == PlatformKimi {
+					account.Credentials["base_url"] = "https://api.moonshot.cn/v1"
+					body = `{"code":0,"data":{"available_balance":98}}`
+					wantEntries = wantEntries[:1]
+				}
+				repo := &cnBalanceProbeRepo{account: account, persistErr: persistErr}
+				upstream := &cnBalanceResponseUpstream{statusCode: http.StatusOK, body: body}
+				result, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryBalance(context.Background(), account.ID)
+				require.Equal(t, 1, upstream.calls)
+				require.Equal(t, StatusActive, account.Status)
+				if errors.Is(persistErr, ErrAccountRuntimeIdentityChanged) {
+					require.ErrorIs(t, err, ErrAccountRuntimeIdentityChanged)
+					require.Same(t, persistErr, err)
+					require.Nil(t, result, "obsolete observations must not escape the native service")
+					require.Empty(t, repo.extraWrites)
+					return
+				}
+				require.NoError(t, err)
+				require.True(t, result.Success)
+				require.Equal(t, persistErr == nil, result.Persisted)
+				require.Equal(t, 98.0, result.Balance)
+				require.Equal(t, "CNY", result.Currency)
+				require.Equal(t, wantEntries, result.Balances)
+				require.Equal(t, provider == PlatformKimi, result.Available)
+				if persistErr != nil {
+					require.Empty(t, repo.extraWrites)
+				} else {
+					require.Len(t, repo.extraWrites, 1)
+				}
+			})
+		}
+	}
 }

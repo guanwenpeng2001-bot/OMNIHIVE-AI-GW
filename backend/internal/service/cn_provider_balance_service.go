@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,6 +21,7 @@ import (
 // 仅覆盖有公开余额端点的供应商：
 //   - Kimi/Moonshot：GET https://api.moonshot.cn/v1/users/me/balance (Bearer) → data.available_balance
 //   - DeepSeek：     GET https://api.deepseek.com/user/balance (Bearer) → balance_infos[].total_balance + is_available
+//   - MiniMax current CN/Global: GET /account/query_balance (Bearer sk-api-) → available_amount, unknown currency
 //
 // 智谱（zhipu）无公开余额端点（OpenAPI 规格验证），仅靠响应式 429/402（见
 // ratelimit_cn_providers.go）。解析逻辑对齐 cc-switch services/balance.rs::query_deepseek。
@@ -50,14 +52,14 @@ type CNProviderBalanceResult struct {
 	Balance    float64                  `json:"balance"`
 	Currency   string                   `json:"currency,omitempty"`
 	Balances   []CNProviderBalanceEntry `json:"balances,omitempty"`
-	Available  bool                     `json:"available"` // 健康标记（deepseek is_available；kimi 无此概念恒 true）
+	Available  bool                     `json:"available"` // DeepSeek health; Kimi legacy true; MiniMax unknown (unused false).
 	StatusCode int                      `json:"status_code,omitempty"`
 	FetchedAt  int64                    `json:"fetched_at"`
 	Persisted  bool                     `json:"persisted"`
 	Error      string                   `json:"error,omitempty"`
 }
 
-// CNProviderBalanceService 探测 Kimi / DeepSeek payg 账号的账户余额。
+// CNProviderBalanceService 探测 Kimi / DeepSeek / MiniMax payg 账号的账户余额。
 type CNProviderBalanceService struct {
 	accountRepo  AccountRepository
 	proxyRepo    ProxyRepository
@@ -123,7 +125,7 @@ func (s *CNProviderBalanceService) QueryBalanceForAccount(ctx context.Context, a
 
 func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, account *Account) (*CNProviderBalanceResult, error) {
 	provider := account.Platform
-	if provider != PlatformKimi && provider != PlatformDeepseek {
+	if provider != PlatformKimi && provider != PlatformDeepseek && provider != PlatformMiniMax {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_BALANCE_NO_ENDPOINT", "account provider has no balance endpoint")
 	}
 
@@ -149,6 +151,9 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	}
 	callCtx, cancel := context.WithTimeout(ctx, cnBalanceUpstreamTimeout)
 	defer cancel()
+	if provider == PlatformMiniMax {
+		callCtx = WithHTTPUpstreamRedirectsDisabled(callCtx)
+	}
 	req, err := http.NewRequestWithContext(callCtx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "CN_BALANCE_REQUEST_BUILD_FAILED", "build request: %v", err)
@@ -156,13 +161,21 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 	account.ApplyHeaderOverrides(req.Header)
+	if provider == PlatformMiniMax {
+		// The official balance contract authenticates the saved API key with Bearer.
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadGateway, "CN_BALANCE_REQUEST_FAILED", "upstream request failed: %v", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, cnBalanceMaxBodyBytes))
+	bodyLimit := int64(cnBalanceMaxBodyBytes)
+	if provider == PlatformMiniMax {
+		bodyLimit++ // Detect truncation instead of accepting a complete JSON prefix.
+	}
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, bodyLimit))
 
 	now := time.Now().UTC()
 	result := &CNProviderBalanceResult{
@@ -171,12 +184,24 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		StatusCode: resp.StatusCode,
 		Available:  true,
 	}
+	if provider == PlatformMiniMax {
+		// No official availability/schedulability signal exists for this response.
+		result.Available = false
+		if readErr != nil || len(bodyBytes) > cnBalanceMaxBodyBytes {
+			result.Error = "Invalid balance response: incomplete body"
+			return result, nil
+		}
+	}
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		result.Error = fmt.Sprintf("Authentication failed (HTTP %d)", resp.StatusCode)
 		return result, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if provider == PlatformMiniMax {
+			result.Error = fmt.Sprintf("API error (HTTP %d)", resp.StatusCode)
+			return result, nil
+		}
 		result.Error = fmt.Sprintf("API error (HTTP %d): %s", resp.StatusCode, truncate(strings.TrimSpace(string(bodyBytes)), 240))
 		return result, nil
 	}
@@ -184,6 +209,14 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	var entries []CNProviderBalanceEntry
 	available := true
 	switch provider {
+	case PlatformMiniMax:
+		entry, parseErr := parseMiniMaxPayGBalance(bodyBytes)
+		if parseErr != nil {
+			result.Error = parseErr.Error()
+			return result, nil
+		}
+		entries = append(entries, entry)
+		available = false
 	case PlatformKimi:
 		// Moonshot：code==0 成功；data.available_balance（number），单币种 CNY。
 		balance, _ := cnParseF64(gjson.GetBytes(bodyBytes, "data.available_balance").Value())
@@ -240,7 +273,15 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		// 余额探测成功即清除响应式 402/429 写下的 balance_low 标记。
 		cnExtraKey(provider, cnBalanceExtraSuffixLow): false,
 	}
+	if provider == PlatformMiniMax {
+		// A wallet observation must not clear reactive failures or infer account health.
+		delete(updates, cnExtraKey(provider, cnBalanceExtraSuffixAvailable))
+		delete(updates, cnExtraKey(provider, cnBalanceExtraSuffixLow))
+	}
 	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
+		if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+			return nil, err
+		}
 		slog.Warn("cn_balance_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
 		result.Persisted = true

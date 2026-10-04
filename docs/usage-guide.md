@@ -84,11 +84,11 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 
 用户只需配置本站公开地址、本站 API Key，以及该 Key 可见的精确模型 ID。**上游账号配置由管理员完成**：供应商、区域、套餐、上游 URL、协议和供应商凭据属于另一层。后台添加供应商不会自动改变你的分组权限；供应商 Key 也不能替代本站 Key。
 
-本次目录扩展有 72 个独立兼容供应商 ID，并保留原有平台。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
+供应商系列、地区、产品与套餐以当前后台目录为准，保留原有平台及账号路由。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
 
 管理员配置 Copilot 使用自己的 `Copilot-Integration-Id: omnihive`；模型发现是主机根 `/models`，与 `/v1/chat/completions` 分开。Nous invocation 到期手工换 token；官方代理需显式配置网关可访问的运营方 URL 前缀（不自动加 `/v1`），入口 key 可选。通过单账号编辑切换认证模式，必须明确换 key 或在切到无 key 代理时清空；同模式编辑保留密钥引用。不得读取客户端 token 存储或共享 refresh grants。
 
-余额页面提供 Novita、PPIO、SiliconFlow CN / Global、胜算云、SoleAPI 六项手工查询；精确端点、成功条件及 USD / CNY / Credits 换算见[余额合同](provider-configuration.md#手工余额查询)。未接入或查询失败不是零余额，管理 key API 不等于推理 key API；地区、套餐元数据未知时不从另一站点补齐。Tencent Intl 个人套餐不能从共享主机继承企业 Responses，企业配置需显式选择对应 Responses 根。
+后台账号列表提供已接入供应商的手工查询：Novita、PPIO、SiliconFlow CN / Global、SoleAPI 和 AtlasCloud PAYG 钱包余额，胜算云普通钱包或企业项目预算，以及七牛 PAYG 的时间窗口已消耗用量。币种、Credits、kToken、预算周期与无限预算分别展示；精确条件见[余额与用量合同](provider-configuration.md#手工余额查询)。未接入或查询失败不是零余额，管理 key API 不等于推理 key API；地区、套餐元数据未知时不从另一站点补齐。Tencent Intl 个人套餐不能从共享主机继承企业 Responses，企业配置需显式选择对应 Responses 根。
 
 | 核对项 | 应如何理解 |
 | --- | --- |
@@ -100,6 +100,37 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 | 订阅 | Claude、ChatGPT、Google 等消费者订阅不自动授予 API 权限；Coding / Token Plan 还可能限制交互式使用、客户端、共享或后台自动化。 |
 
 CC Switch 固定提交 `793e67d9b3210eb527e7d36f2c866a56fae9dec7` 提供的是客户端配置证据，供应商文档提供相应合同说明；二者均不等于账号真实调用认证。本文没有执行带供应商凭据的在线推理测试。
+
+### 套餐配置与读数的区别
+
+管理员先选供应商系列及地区/产品，再核对认证方式、套餐类型和协议。有套餐目录的账号可以保存、重新编辑或清除产品选择；例如 AICodeMirror 的 PRO / MAX / ULTRA / 按量付费，CCSub 的月度订阅 / 按量付费。选择只记录账号产品，不等于购买成功、获得额度或修改模型权限。独立接入模式（如 AtlasCloud Coding、七牛订阅）还须匹配专用 Key；同一 URL 不证明权限互通。套餐明细及清除规则见[套餐配置](provider-configuration.md#套餐选择保存与清除)。
+
+| 页面读数 | 代表什么 | 不能推导什么 |
+| --- | --- | --- |
+| 上游钱包余额 | 供应商账号可用资金或 Credits，附币种和查询时间 | 不等于本站用户余额或订阅剩余次数 |
+| 上游套餐/项目额度 | 指定产品、项目和周期的额度/消耗，须有对应查询合同 | 没有查询数据不表示零或无限，不能拿 PAYG 钱包替代 |
+| 七牛时间窗口用量 | 所选今天/近 7 天/近 30 天各模型计费项的已消耗量 | 不是剩余额度，也不是现金；不同单位不能相加 |
+| 本站账本消耗 | 本站对该用户、Key 和分组记下的请求用量与费用 | 不等于上游账号全量消耗，不包含绕过本站的请求 |
+
+保存订阅/套餐后，未验证的 PAYG 查询会被阻止；AtlasCloud Coding、七牛订阅不能用普通余额或用量推测剩余额度。权限不足、查询失败、尚未接入均有独立含义；核对时间与错误状态，不把旧快照当实时读数。本站购买的订阅是本站分组权益，与管理员上游供应商套餐分别管理。
+
+直接配置客户端时只需本站 URL + 本站 Key + 可见模型 ID；CC Switch 是可选的配置管理工具。它的供应商预设、本地协议转换和模型名称映射需要单独核对，不能替代网关的分组权限或证明上游支持某个协议。没有主动模型发现接口时，管理员仍可维护已确认的模型映射；模型同步与推理调用分别验证。
+
+BytePlus 团队 Coding 复用现有团队套餐选择，另配 BytePlus AK/SK 和明确席位，不借用国内火山凭据或控制面；缺查询配置仍可保存推理。
+
+账号查询现已包含 Atlas 日模型消耗（余额按钮仍保留）、Azure 订阅区域配额、GitHub 个人账单、Together 组织月账单、腾讯国内企业 Token 套餐和 MiniMax 新国内 Token Plan。Azure/GitHub 需单独管理令牌；腾讯需独立云 Secret ID/Key、地域与团队，缺配置不妨碍保存推理设置。TheRouter 显示总 credits/总使用量，不推算余额；不同账单/周期/额度不可相加。腾讯和 Together 的精确十进制数量保留原样，`call_count` 不是 tokens。账户身份变化清旧数据；同身份失败保留有错误标记的历史读数。范围和来源见[新增查询说明](provider-configuration.md#独立管理查询与新增套餐)。
+
+AiHubMix、DMX 中国站和 Qiniu PAYG 已接入模型发现；其他地区/订阅模式不继承此能力。候选模型不等于账号权益，失败不会清空已保存映射。
+
+MiniMax 当前中国站（api.minimax.cn）与 Global（api.minimax.io）的 API Key 按量账号可手动查询余额。旧 minimaxi.com、Coding、自定义或跨地区地址不显示该余额查询；后台检验按量 Key 类别。余额按上游值显示，币种未提供时不加 ¥/USD，不缩放或把错误当零；真实零仍可显示。具体配置见[管理员说明](provider-configuration.md#minimax-当前地区按量余额)。
+
+### 火山套餐读数与模型同步提示
+
+国内 Ark Coding 的个人/团队套餐用量由管理员在账号表单另配查询 AK/SK，和推理 API Key 分开；查询密钥不回显，编辑留空保留，明确清除才删除。个人/团队选择只匹配已有产品，团队必须明确保存席位，缺席位零出站。缺查询凭据不影响原推理配置，普通用户无需把这些管理凭据填入客户端。
+
+5 小时、周、月显示的是已用百分比和重置时间，不是 Token 总量、现金或本站余额；重置时间不等于套餐到期时间。缺窗口、未订阅、无席位、认证/权限失败、上游错误都不能显示为零用量。普通失败保留此前成功读数，须结合更新时间判断；账号身份变化时清除旧观测。BytePlus 个人与个人 Ark Agent 用量查询未接入；国内团队 Agent 需明确席位，可显示每日及 5h/周/月真实窗口；详见[管理员配置与查询状态](provider-configuration.md#火山-ark-coding-套餐用量)。
+
+管理员“同步上游模型”失败时，已有模型 ID、别名映射、白名单和上次成功目录保留。平台候选、手工选择与上游真实发现分别标识；候选可以用于手工配置，但不能当作该账号已授权。尚未确认发现接口不等于官方确认没有接口，也不等于该模型无法调用。404 路径、405 方法、403 权限、429 限流和网络失败应分别排查；不要为修复同步错误清空当前模型配置。完整原因码见[模型同步说明](provider-configuration.md#模型同步候选与失败处理)。
 
 ## 第一次请求：Bash 与 PowerShell
 

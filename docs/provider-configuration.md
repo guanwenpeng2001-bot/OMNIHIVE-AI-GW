@@ -2,26 +2,95 @@
 
 本文面向配置上游账号的管理员；用户调用本站请阅读[API 使用手册](usage-guide.md)。**本站公开 Base URL 是 `https://omnihive2.com/v1`**。下文供应商地址仅用于后台账号配置，不能替换用户客户端中的本站地址；本站 Key 与供应商 Key 分别签发、分别管理。
 
-核对日期：2026-10-04。本文描述发行版本的配置合同；供应商资料观察日期为 2026-10-03。目录包含 **72 个新增兼容供应商 ID、73 个路由模式（Copilot / Nous 另有 3 种认证选择）**，下方完整归一化表覆盖 **113 个原始名称项**。名称数、供应商 ID 数、模式数与账号数不是同一概念。
+核对日期：2026-10-04。本文按当前源码注册目录核对；各供应商的资料观察日期见对应条目。可选供应商、地区、产品与套餐以当前后台目录为准，账号可用模型以实际授权和分组为准。名称、供应商路由 ID、接入模式、套餐和账号不是同一概念；供应商系列入口会合并展示地区/产品选项，原路由 ID 与账号关联仍保留。
 
 ## 目录
 
 - [配置步骤](#配置步骤)
+- [套餐选择、保存与清除](#套餐选择保存与清除)
+- [模型同步、候选与失败处理](#模型同步候选与失败处理)
 - [证据与能力的读法](#证据与能力的读法)
 - [完整名称归一化](#完整名称归一化)
-- [新增供应商合同](#新增供应商合同72-个-id)
+- [新增供应商合同](#新增供应商合同)
 - [既有平台的区域、套餐和认证配置](#既有平台的区域套餐和认证配置)
 - [手工余额查询](#手工余额查询)
+  - [项目预算、时间窗口用量与本站账本](#项目预算时间窗口用量与本站账本)
+  - [火山 Ark Coding 套餐用量](#火山-ark-coding-套餐用量)
 - [特定账号限制与未知项](#特定账号限制与未知项)
 - [媒体与公开入口](#媒体与公开入口)
 
 ## 配置步骤
 
 1. 在供应商控制台确认账号所属站点、区域、套餐和实际 API 授权，再取得该合同对应的凭据。消费者订阅、桌面会员和 API 额度不能互相推定。
-2. 在本站后台选择正确供应商及模式。PAYG、Coding、Token Plan 不共用默认密钥范围；同名模型也不证明同一能力或价格。Azure 使用资源地址和部署名称；KAT-Coder 需要按实际路由区分 Endpoint ID 与模型 ID。
+2. 在本站后台选择供应商系列及地区/产品，按表单顺序核对认证方式、套餐类型和协议。认证方式回答“用什么凭据”，套餐类型回答“账号购买了什么产品”；独立接入模式还会决定地址与协议。PAYG、Coding、Token Plan 不共用默认密钥范围；同名模型也不证明同一能力或价格。Azure 使用资源地址和部署名称；KAT-Coder 需要按实际路由区分 Endpoint ID 与模型 ID。
 3. 按下面合同核对协议和 base。普通新供应商 base 是最终操作路径之前的前缀；Copilot / Nous 使用下文专用地址规则，尤其不能由 Chat base 推导 Copilot 目录。Messages 追加 `/messages`，Chat 追加 `/chat/completions`，Responses 追加 `/responses`。保留 `/codex/v1`、`/api/coding/v3` 等完整前缀。已保存的自定义地址、代理和协议覆盖应逐项核对，不自动改写到另一个官方域名。
 4. 维护该账号已确认的模型与映射，挂入允许的组，按本站销售规则配置价格；再用该组签发的本站 Key 查看 `/v1/models` 与 `/v1/models/catalog`。模型显示名不能替代请求 ID；目录可见不保证此刻有可调度账号。
 5. 按授权条件分别验证非流式、流式、工具、推理、缓存及所需媒体动作。保留脱敏的模型、协议、状态、时间和 request ID。本文没有使用真实供应商凭据执行推理调用，不声称这些配置均在线实测成功。
+
+## 套餐选择、保存与清除
+
+有套餐目录的账号使用真实套餐选择卡片。请选择供应商控制台已购买的产品；例如 AICodeMirror 可选 PRO、MAX、ULTRA、按量付费，CCSub 可选月度订阅或按量付费。未选择保持未设置，不代表自动购买或默认按量付费。切换供应商后重新核对可选产品；不把上一家的套餐名称移植过来。
+
+- 保存字段为 `credentials.billing_plan`，是非敏感产品 ID。创建、编辑回显、安全读取和导出保留它；清除按钮移除选择。它不证明已经购买、不增加额度、不改模型权限，也不自行改变传输地址或协议。
+- 管理 API 局部更新省略该字段会保留旧值；显式 `null` 或空字符串清除，仅删除套餐字段。批量更新遵循同一规则。未知 ID、大小写不匹配、错误类型或无套餐目录供应商的非空选择会被拒绝。
+- 具有独立接入模式的 AtlasCloud、七牛继续用模式选择。AtlasCloud 普通 API Key 与 Coding 专用 Key 地址可能相同，但权限不同；七牛订阅需要专用 Key 和套餐内模型，不能把耗尽自动视作转为 PAYG。参阅 [AtlasCloud 套餐接入](https://www.atlascloud.ai/docs/coding-plan/api)、[七牛订阅说明](https://developer.qiniu.com/aitokenapi/13330/subscription-introduction)。
+- 下表是保存值的参考。`payg` 查询分类仅允许继续检查已实现的钱包/用量查询，**不保证存在查询接口**；`plan` 阻止误用 PAYG 查询。产品名称带 PayGo 也不改变这个分类。未选择仍需通过模式、协议、官方地址、凭据与代理检查。
+
+| 供应商路由 ID | 可保存的套餐 ID（显示名称；查询分类） |
+| --- | --- |
+| `aicodemirror` | `pro`（PRO；`plan`）；`max`（MAX；`plan`）；`ultra`（ULTRA；`plan`）；`paygo`（按量付费；`payg`） |
+| `aigocode` | `pro`（Pro；`plan`）；`max`（Max；`plan`）；`ultra`（Ultra；`plan`）；`payg`（按量付费；`payg`） |
+| `astron_token` | `standard`（Standard；`plan`）；`advanced`（Advanced；`plan`）；`premium`（Premium；`plan`） |
+| `byteplus` | `personal`（Personal；`plan`）；`team`（Team；`plan`） |
+| `ccsub` | `subscription`（月度订阅；`plan`）；`paygo`（按量付费；`payg`） |
+| `fennoai` | `mini`（Mini；`plan`）；`solo`（Solo；`plan`）；`studio`（Studio；`plan`）；`organization`（Organization；`plan`）；`wallet`（钱包余额；`payg`） |
+| `github_copilot` | `free`（Free；`plan`）；`pro`（Pro；`plan`）；`pro_plus`（Pro+；`plan`）；`business`（Business；`plan`）；`enterprise`（Enterprise；`plan`） |
+| `jiekou` | `enterprise_basic`（Enterprise Basic；`plan`）；`enterprise_pro`（Enterprise Pro；`plan`）；`enterprise`（Enterprise；`plan`）；`pack_lite`（Lite pack；`plan`）；`pack_pro`（Pro pack；`plan`）；`pack_max`（Max pack；`plan`） |
+| `mimo_token_cn` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `mimo_token_eu` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `mimo_token_sg` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `nous_research` | `plus`（Plus；`plan`）；`super`（Super；`plan`）；`ultra`（Ultra；`plan`） |
+| `novita` | `payg`（按量付费；`payg`）；`coding_plan`（Coding Plan；`plan`） |
+| `ppio` | `payg`（按量付费；`payg`）；`token_plan`（Token Plan；`plan`）；`addon_pack`（加量包；`plan`） |
+| `qwencloud_maas_token` | `personal`（Personal；`plan`）；`team_standard`（Team Standard；`plan`）；`team_pro`（Team Pro；`plan`）；`team_max`（Team Max；`plan`） |
+| `relaxycode` | `codex_package`（Codex Package；`plan`）；`codex_pro_max`（Codex Pro Max；`plan`）；`claude_paygo`（Claude PayGo；`plan`） |
+| `shengsuanyun` | `payg`（按量付费；`payg`）；`lite`（Lite；`plan`）；`pro`（Pro；`plan`）；`enterprise`（Enterprise；`plan`） |
+
+此表与 [供应商注册目录](../backend/internal/domain/data/compatible_providers/index.json)、[套餐校验](../backend/internal/domain/compatible_plan.go)对应；供应商未来新增套餐应先进入当前目录，再在后台选择，不能仅凭文档自行提交未知 ID。
+
+## 模型同步、候选与失败处理
+
+“同步上游模型”是管理员获取账号目录的操作，不等于开通全部模型、改变本站分组权限或执行一次推理。直接模型 ID 与别名映射都属于账号配置；预览不改已保存账号，同步或保存失败不清空原有白名单、映射、选中项或上次成功目录。保存失败后保留草稿，核对错误后再保存，不通过重新提交空配置修复同步错误。
+
+| 模型来源/状态 | 正确读法 |
+| --- | --- |
+| 上游实际返回的 `discovered_models` | 才能标为原生已发现；仍需核对模型动作、分组与可调度账号 |
+| 平台预设或 `candidate_models` | 只是平台候选，不证明当前账号可用；候选本身不能使目录变成 ready 或写入 eligible_models |
+| 手工选择候选、填写 ID 或别名映射 | 属于手工配置；保存时可能提示 `not_discovered`，不因此变成发现成功 |
+| 失败/过期目录 | 显示 failed/stale 或对应状态，保留配置和已有读数，不将旧目录标成刚刚同步成功 |
+
+`discovery=none` 或关闭发现的原生档案默认表示“尚未确认该配置的发现接口”，不等于“官方确认没有接口”。未适配、尚未确认和官方明确无列表接口是不同事实；确认无接口必须有该地区/套餐/认证方式的官方依据。关闭状态不尝试猜测 `/models`，也不向另一区域发送凭据；管理员仍可填写已确认可调用的模型 ID。新增查询凭据或套餐选择不自动开通发现。已有发现配置沿其原有地址与认证查询。
+
+管理端使用 `POST /api/v1/admin/accounts/models/sync-upstream-preview` 预览、`POST /api/v1/admin/accounts/:id/models/sync-upstream` 同步已保存账号、`GET /api/v1/admin/accounts/:id/models/catalog` 读取账号目录；均需管理员认证。它们与普通用户使用本站 Key 查询 `/v1/models` 的公开列表不同。路由依据：[管理路由](../backend/internal/server/routes/admin.go)，同步与保存边界依据：[账号目录服务](../backend/internal/service/account_model_catalog.go)。
+
+管理错误码采用 `upstream_model_sync_` 前缀，后缀与排查方向如下；HTTP 状态指上游原始结果时已明确标注，不能仅凭本站返回码猜根因：
+
+| 后缀 | 原因与处理 |
+| --- | --- |
+| `configuration` | 缺密钥、地址不合法或服务未配置；先修配置 |
+| `credentials` | 上游 401，或明确认证错误码；核对密钥有效性，保留原模型配置 |
+| `account_type` | 该平台的账号类型本身没有列表流程；不要把所有失败都归为此类 |
+| `not_adapted` | 尚无该平台的列表适配；使用已确认的手工模型配置 |
+| `discovery_unconfirmed` | 当前档案发现合同尚未确认，保持发现关闭；不是确认无接口 |
+| `endpoint_not_found` | 上游 404 路径未找到；核对当前地区/产品的模型列表路径 |
+| `method_not_allowed` | 上游 405 方法不允许；核对接口方法，不能据此认定账号类型不支持 |
+| `permission` | 上游 403 且无明确认证错误码；核对目录访问权限，不直接认定 Key 失效 |
+| `rate_limited` | 上游 429 限流；降低频率并稍后重试 |
+| `network` | 超时、连接重置或网络失败；检查代理与出口 |
+| `upstream` | 上游服务错误、无效列表或分页问题；已校验的部分目录不冒充完整成功目录 |
+| `internal` | 本地保存或服务状态失败；保留配置并排查服务 |
+
+未知原因使用通用同步失败提示，不回退成“账号类型不支持”。错误响应不回传上游原文、密钥或候选/已发现模型列表。修复发现问题后重新查询目录，再用同一分组的本站 Key 验证具体调用；一次同步成功不证明流式、工具、推理档位或媒体动作都可用。
 
 ## 证据与能力的读法
 
@@ -34,7 +103,7 @@
 
 ## 完整名称归一化
 
-“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。Copilot 与 Nous 的手工凭据接入计入 72 个新增 ID；RelayCode 未解决，ETok.ai 仅历史记录。
+“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。Copilot 与 Nous 的手工凭据接入已列入当前目录；RelayCode 未解决，ETok.ai 仅历史记录。
 
 | 请求名称 | 本站 ID / 状态 | 范围说明 | 主要来源 |
 | --- | --- | --- | --- |
@@ -151,12 +220,15 @@
 | BaiLing | [`bailing`](#provider-bailing) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1549) |
 | Xiaomi MiMo | [`mimo`](#provider-mimo) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1793) |
 | Xiaomi MiMo Token Plan China | [`mimo_token_cn`](#provider-mimo_token_cn) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1811) |
+| 讯飞 Astron Token Plan | [`astron_token`](#provider-astron_token) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://www.xfyun.cn/doc/spark/TokenPlan.html) |
+| 小米 MiMo Token Plan（欧洲） | [`mimo_token_eu`](#provider-mimo_token_eu) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md) |
+| 小米 MiMo Token Plan（新加坡） | [`mimo_token_sg`](#provider-mimo_token_sg) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md) |
 
 ### 为独立合同增设的 ID
 
 原始名称之外，以下区别必须保留：`dmxapi_com`（.com）、`dmxapi_ssvip`（SSVIP）不同于 `dmxapi`（.cn）；`crazyrouter_intl` 不同于 `crazyrouter`；`teamorouter_com` 不同于 `teamorouter`；`qwencloud`（MaaS）与固定预设名称 QwenCloud 对应的 `qianwen`（国际 DashScope）不同；`qwencloud_maas_token` 与 `qwencloud_token` 不同。具体主机、协议与证据在下方逐项列出，不推定密钥互通。
 
-## 新增供应商合同（72 个 ID）
+## 新增供应商合同
 
 表内 `Authorization: Bearer`、`x-api-key`、`api-key` 是**上游**鉴权，不改变用户访问本站时的鉴权格式。Messages 还使用运行时配置的 Anthropic 版本头。默认模式与默认协议来自供应商合同；显式选择协议可能改变转换路线。转换名表示“公开入口 → 原生目标”，不是额外供应商 URL。
 
@@ -248,7 +320,7 @@
 | `payg` / `anthropic` | `responses` | `https://aihubmix.com/v1` | `Authorization: Bearer` |
 | `payg` / `anthropic` | `chat_completions` | `https://aihubmix.com/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L3205)；[供应商文档 2](https://aihubmix.com/openapi.json)。
 
@@ -313,6 +385,21 @@
 
 `coding`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
+<a id="provider-astron_token"></a>
+
+### 讯飞 Astron Token Plan — `astron_token`
+
+默认模式：`coding`。来源：[供应商文档](https://www.xfyun.cn/doc/spark/TokenPlan.html)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://maas-token-api.cn-huabei-1.xf-yun.com/v2` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `anthropic` | `https://maas-token-api.cn-huabei-1.xf-yun.com/anthropic/v1` | `Authorization: Bearer` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要独立套餐 API Key 和专用接口，与 Astron Coding Plan 不同。请从供应商控制台选择有权限的模型。
+
 <a id="provider-atlascloud"></a>
 
 ### AtlasCloud — `atlascloud`
@@ -324,10 +411,14 @@
 | `payg` / `chat_completions` | `chat_completions` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `responses` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `anthropic` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `chat_completions` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `anthropic` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 
 `payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
 操作级来源：[供应商文档 1](https://www.atlascloud.ai/docs/public-api)；[供应商文档 2](https://www.atlascloud.ai/docs/faq)；[供应商文档 3](https://www.atlascloud.ai/docs/en/models/llm)。
+
+模式边界：Coding Plan 使用专用套餐密钥，与普通 API Key 不同，但共用 API 地址。套餐文档确认 Chat Completions 和 Messages；尚未确认 Responses 权限。独立预充值包不等于订阅，系统不检查密钥，选择密钥接入方式不代表开通订阅。独立模式的模型发现均未接入；按已确认映射调用。
 
 <a id="provider-azure_openai"></a>
 
@@ -560,7 +651,7 @@ Azure 资源地址由管理员提供，没有通用全球 base。请求 `model` 
 | `payg` / `anthropic` | `responses` | `https://www.dmxapi.cn/v1` | `Authorization: Bearer` |
 | `payg` / `anthropic` | `chat_completions` | `https://www.dmxapi.cn/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L1180)；[供应商文档 2](https://doc.dmxapi.com/baseurl.html)。
 
@@ -736,6 +827,38 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1811)；[固定配置 2](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L2924)。
 
+<a id="provider-mimo_token_eu"></a>
+
+### 小米 MiMo Token Plan（欧洲） — `mimo_token_eu`
+
+默认模式：`coding`。来源：[供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://token-plan-ams.xiaomimimo.com/v1` | `api-key` |
+| `coding` / `chat_completions` | `anthropic` | `https://token-plan-ams.xiaomimimo.com/anthropic/v1` | `api-key` |
+| `coding` / `chat_completions` | `responses` | `https://token-plan-ams.xiaomimimo.com/v1` | `api-key` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用。请选择供应商控制台分配的集群。密钥前缀仅作提示，此表单不会检查密钥。
+
+<a id="provider-mimo_token_sg"></a>
+
+### 小米 MiMo Token Plan（新加坡） — `mimo_token_sg`
+
+默认模式：`coding`。来源：[供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://token-plan-sgp.xiaomimimo.com/v1` | `api-key` |
+| `coding` / `chat_completions` | `anthropic` | `https://token-plan-sgp.xiaomimimo.com/anthropic/v1` | `api-key` |
+| `coding` / `chat_completions` | `responses` | `https://token-plan-sgp.xiaomimimo.com/v1` | `api-key` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用。请选择供应商控制台分配的集群。密钥前缀仅作提示，此表单不会检查密钥。
+
 <a id="provider-modelscope"></a>
 
 ### ModelScope — `modelscope`
@@ -849,10 +972,13 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 | `payg` / `chat_completions` | `chat_completions` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `anthropic` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `responses` | `https://api.qnaigc.com/bypass/openai/v1` | `Authorization: Bearer` |
+| `subscription` / `chat_completions` | `chat_completions` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
 操作级来源：[供应商文档 1](https://developer.qiniu.com/aitokenapi/kb/13462/aitoken-use-faq)；[供应商文档 2](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api)。
+
+模式边界：订阅调用需要订阅专用 API Key，且模型必须在套餐内。额度耗尽不会自动转为预充值按量计费：供应商要求另用按量付费密钥。系统不检查密钥，选择密钥接入方式不代表开通订阅。PAYG 已接入模型列表；订阅发现仍未验证，按已确认映射调用。
 
 <a id="provider-qwencloud"></a>
 
@@ -1320,6 +1446,8 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 
 ### 固定客户端配置来源
 
+此表描述 CC Switch 写入客户端的地址和协议映射。直接 URL + Key 调用应使用前文的本站公开入口或管理员上游合同，不需要安装 CC Switch；使用 CC Switch 时须确认它最终发送的协议与本地转换开关。配置转换成功不等于上游模型调用成功。
+
 下面保留所有原始客户端配置链接，作为配置来源溯源；它不是本站默认根表。客户端 SDK 可能追加 `/v1`，本地 Chat 转换也不代表供应商缺少已由官方文档确认的原生 Responses。运行配置请以上表为准，不直接把客户端 base 覆盖到已有账号。
 
 | 名称 / 既有平台 | 客户端 | 原始客户端 base | 上游协议 / 本地转换 | 凭据语义 | 来源 |
@@ -1427,7 +1555,7 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 
 ## 手工余额查询
 
-以下六个兼容 ID 支持管理员显式查询，不自动轮询。仅已支持的 API-key、PAYG、协议和精确官方 base 可用；请求均为 GET，以账号推理 key 作 `Authorization: Bearer`，保留同源/地区校验与出口策略。余额是带单位和时间的显示快照，不修改本站财务账本。
+以下查询由管理员在账号列表显式触发，不自动轮询。仅已支持的 API-key、PAYG、协议和精确官方 base 可用；请求均为 GET，以账号推理 key 作 `Authorization: Bearer`，保留同源/地区校验与出口策略。结果区分钱包余额、项目预算和已消耗用量，不修改本站财务账本。已保存的 `plan` 套餐不误走 PAYG 查询；未设置或 `payg` 选择仍须满足上述检查。
 
 | ID | 查询 URL | 成功字段 / 条件 | 单位与换算 | 官方来源 |
 | --- | --- | --- | --- | --- |
@@ -1437,12 +1565,86 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 | `siliconflow_global` | `https://api.siliconflow.com/v1/user/info` | `data.totalBalance`；`code=20000` 且 `status=true` | USD；不缩放 | [字段](https://docs.siliconflow.com/en/api-reference/userinfo/get-user-info)、[账户美元账本](https://www.siliconflow.com/blog/siliconflow-summer-rush%E4%B8%A8glm-5.2-week-the-more-glm-5.2-you-run-the-more-you-win) |
 | `shengsuanyun` | `https://router.shengsuanyun.com/api/v1/balance` | `data.account_balance_cny`；`success=true` 且 `gateway_type=common` | CNY；不缩放 | [余额合同](https://lean.shengsuanyun.com/apidocs/api/balance-api) |
 | `soleapi` | `https://soleapi.com/v1/usage` | `remaining`；明确 `unit=Credits` | Credits；不折算现金 | [账单字段](https://soleapi.com/ru/docs/guides/billing)、[客户端示例](https://soleapi.com/ja/docs/config/ccswitch) |
+| `atlascloud`（PAYG） | `https://api.atlascloud.ai/public/v1/balance` | `object=balance`、`scope=account`、`available.value` 和 `available.currency` | 账户可用余额；保留返回币种，不重复加 cash/bonus/credit | [余额合同](https://www.atlascloud.ai/docs/public-api/balance) |
 
 Novita / PPIO 的 availableBalance 不替换成 cashBalance，也不再加 creditLimit。SiliconFlow 的 totalBalance 不重复加充值/赠送项；接口本身没有币种字段，CNY / USD 标签来自相应站点账户财务资料，不跨区套用。SoleAPI 不把 used/total 当剩余余额。
 
 真实数值零是成功结果；缺失、无效、失败或不支持不表示零。失败保留先前快照与时间，不覆盖为零；账号身份变化清除旧快照。自定义/跨域/跨区 base、Coding、未知模式或协议、OAuth 账号不调用这些接口。胜算云企业项目预算（包括无限预算）不当成个人余额。
 
-AtlasCloud 的账户管理权限、OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
+AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，403 表示权限不足，不是零余额；Coding 模式不查询该钱包；官方 PAYG 同时提供独立的日模型消耗查询。OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
+
+### 项目预算、时间窗口用量与本站账本
+
+| 查询 | 实际含义 | 边界 |
+| --- | --- | --- |
+| 胜算云同一 `/api/v1/balance` 返回 `gateway_type=enterprise` | `kind=project_budget`，`scope=account_in_project`；项目内账号的日/月预算与消耗，CNY | 显式保留周期起止、`consumed`、`limit`、`unlimited`；无限预算的 limit 为空，不写成钱包零值。保存为 plan 套餐时仍会被 PAYG 查询门禁阻止。 |
+| 七牛 PAYG `GET https://api.qnaigc.com/v3/stat/usage` | `kind=consumed_usage`；当前 Key 在所选时间窗口内各模型/计费项的已消耗量 | 普通 `sk-` / `tk-` Key，Bearer；本站只接入 day 粒度，不能查询订阅剩余额度。 |
+| 本站用量记录 | 当前本站用户/Key/分组经本站记账的请求消耗与费用 | 不覆盖绕过本站的上游调用，不等于上游钱包、套餐余额或项目预算。 |
+
+七牛查询在后台选择今天、近 7 天或近 30 天；请求使用 `granularity=day`、带明确时区偏移的 RFC3339 `start` / `end`，结束必须晚于开始，跨度至多 31 天，`timezone` 默认 `Asia/Shanghai`。保留 `usage.models[].items[]` 的名称、`unit` 与 `total`，例如 kToken 不改成 Token，不把不同单位相加。非法窗口返回校验错误；上游数据可能延迟，不推断时间边界的包含关系。按量消耗不作为钱包快照保存。来源：[七牛用量 API](https://developer.qiniu.com/aitokenapi/13382/new-usage-api)、[胜算云余额与企业预算](https://lean.shengsuanyun.com/apidocs/api/balance-api)。
+
+本站管理接口为 `GET /api/v1/admin/cn-providers/accounts/:id/balance` 和 `GET /api/v1/admin/cn-providers/accounts/:id/usage`（后一项带上述窗口参数），需本站管理员认证；它们不是公开模型接口，不能用普通用户模型 Key 调用。上游 Key 从保存的账号读取，遵循账号/分组的代理绑定，不允许调用方传任意查询 URL。
+
+兼容结果先检查 `success`、`unsupported`、`kind`、`reason` 与 `fetched_at`，再读取对应数据。`wallet_balance` 看余额与币种，`project_budget` 看预算对象，`consumed_usage` 看窗口与模型项；原生平台保持各自响应合同。`no_verified_query` 表示尚无已接入查询，`mode_unsupported` 表示当前模式/套餐不可查，`custom_origin` 表示自定义地址不匹配；`invalid_credentials`、`permission_denied`、`proxy_unavailable`、`rate_limited`、`upstream_error`、`invalid_response` 分别排查密钥、权限、代理、频率、上游和响应格式。HTTP 成功不替代业务 success 检查，失败和不支持都不能显示为零。
+
+查询显示的是带时间的读数；旧钱包快照须结合时间判断。七牛有进程级限流并明确返回限流状态，不自动重试，多实例共享出口还要遵守供应商每 IP 限制。不支持的账号显示原因，不提供误导性的查询按钮。实现依据：[查询门禁与余额解析](../backend/internal/service/compatible_provider_balance_service.go)、[预算解析](../backend/internal/service/compatible_provider_query.go)、[窗口用量](../backend/internal/service/compatible_provider_usage_service.go)、[前端查询能力](../frontend/src/components/account/compatibleBalance.ts)。
+
+### 火山 Ark Coding 套餐用量
+
+在管理员账号表单选择国内 **Ark Coding** 档案与 `coding` 模式，配置推理 Key 后，另在用量查询区域填写火山访问凭据。个人与团队均可查询；未填写查询凭据不妨碍按原配置推理。只覆盖 Chat/Responses 根 `https://ark.cn-beijing.volces.com/api/coding/v3`、Messages 根 `https://ark.cn-beijing.volces.com/api/coding` 对应的档案；PAYG、自定义中转、其他地区/套餐不借用此查询。
+
+| 保存字段（credentials 内） | 填写与编辑规则 |
+| --- | --- |
+| `volcengine_access_key_id` | 火山 AccessKey ID，用量查询认证；不回显原值 |
+| `volcengine_secret_access_key` | 对应 SecretKey，用量查询签名；不回显原值 |
+| `volcengine_plan_edition` | `personal` 或 `team`；旧账号缺省 `personal`，不是购买套餐操作 |
+| `volcengine_seat_id` | 团队查询必须明确保存的席位 ID；未设置时零出站，不自动解析或枚举成员 |
+
+AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key 字段。编辑时留空/省略查询密钥字段保留已保存值；明确清除通过 `null` 删除对应字段，不能用脱敏占位符替换原值。保存新的查询凭据也不更换推理 Key。查询密钥缺失、被拒或权限不足只说明本次查询状态，不能直接认定推理账号不可用。认证依据：[火山官方认证说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-auth/references/auth-modes.md)。
+
+团队响应支持官方平铺 `Result` 和 `Result.SeatInfoUsage` 两种形状；冲突字段使查询失败。缺窗口保持未知，负重置 sentinel 不显示为日期，不伪造 used/total。
+
+在账号用量单元格发起查询，继续使用既有管理接口 `GET /api/v1/admin/cn-providers/accounts/:id/quota`（前端 API 客户端中的相对路径为 `/admin/cn-providers/accounts/:id/quota`），需本站管理员认证。后台使用保存的 AK/SK 签名访问固定控制面（个人参考实现使用 `https://open.volcengineapi.com/`，团队使用下述独立主机），不把推理 Key 或推理自定义请求头发送过去。个人查询 `GetCodingPlanUsage`；团队必须有明确保存的席位，查询 `GetSeatInfoUsage`，缺席位返回 `no_seat` 且零出站，不调用 `GetSeatInfo`。团队控制面为 `ark.cn-beijing.volcengineapi.com`，正文仅 SeatID，不发送 Scene。个人 `GetCodingPlanUsage` 保留参考实现，公开 explorer 没有该动作的原始 schema，在线未验证。
+
+结果 `provider=volcengine`、`source=coding_plan`、`plan_level=personal|team`。窗口 `5h`、`weekly`、`monthly` 分别表示 5 小时、周、月；只显示上游提供的已用百分比及重置时间，不填造 used/total、Token 数或现金余额。某窗口缺失表示该窗口没有本次读数，不补零；重置时间也可能缺失，且不是订阅到期日期。百分比不能用来推算绝对剩余次数。普通查询失败不覆盖上次成功快照，旧读数必须结合其更新时间和当前错误判断；identity_changed 表示账号身份变化，立即清除旧观测并重新查询。来源：[官方套餐用量说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-usage/references/arkcli-usage-plan.md)。
+
+| status | 含义与下一步 |
+| --- | --- |
+| `ok` | 查询成功，读取返回窗口、时间及是否成功保存快照；不等于所有窗口都存在 |
+| `missing_credentials` | 缺少查询 AK 或 SK；补充查询凭据，不能用推理 Key 替代 |
+| `invalid_credentials` | 查询凭据格式或认证失败；核对/更换查询凭据 |
+| `permission_denied` | 查询身份无权限；核对火山账号权限，不把结果视作零用量 |
+| `unsupported_profile` | 当前地区、模式或套餐档案不属于支持范围；核对 Ark Coding 档案 |
+| `no_verified_query` | 尚无已核实查询合同；不能推导供应商没有该接口 |
+| `not_subscribed` | 没有有效套餐读数；未订阅不显示为已用 0% |
+| `identity_changed` | 账号身份变化，丢弃旧观测并重新查询 |
+| `no_seat` | 未保存席位时先保存要查询的席位 ID（零出站）；已保存时表示上游未返回该席位数据，核对席位 ID，不自动查找 |
+| `invalid_response` | 上游结构或字段无法识别；保留历史读数并排查响应合同 |
+| `upstream_error` | 上游、传输或代理查询失败；检查服务/出口后重试 |
+| `url_rejected` | 控制面主机被本站出站 URL 策略拒绝；由管理员核对策略，不能关闭校验绕过 |
+
+先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 个人与个人 Ark Agent 用量查询未接入**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
+
+
+### 独立管理查询与新增套餐
+
+账号编辑中的查询字段均为可选：未配置可保存原推理设置，查询显示缺配置并且后台零出站。查询密钥沿用加密存储、仅显示已保存状态、省略或空白保留、明确清除发送 `null`；不替换推理 `api_key`。普通财务/健康刷新保留成功读数；账号、查询密钥、区域/团队/席位变化清空旧读数，迟到响应不覆盖新身份。同身份查询失败保留历史并显示失败状态，历史值不能当成实时值。
+
+| 查询 | 配置与范围 | 结果语义 |
+| --- | --- | --- |
+| AtlasCloud 官方 PAYG | 原推理 Key；UTC `start_date` / `end_date`，结束不含，1–180 天；独立余额按钮保留 | 当前身份下所有 Key 的每日模型消耗，requests、token 分类、images、video seconds；缺项未知，分页/未完整日有提示，不是钱包余额 |
+| Azure OpenAI | 独立 `usage_query_token`（ARM access token）、`usage_query_subscription_id`、`usage_query_region` | 仅公有 Azure 的订阅×区域配额，保留上游 `currentValue` / `limit` / `unit`；Count 不是 Token、现金或可推算余额；不发送月份/时区 |
+| GitHub Copilot | 独立 `usage_query_token` 和个人 `usage_query_username`，选择近 24 个月内年月 | 个人 premium request / AI credit 两份账单；不含组织/企业代付，部分失败明确标记，不推断币种或合计；不发送时区 |
+| Together 官方 PAYG | 原推理 Key，UTC 月份，day 粒度；组织需开通 billing beta | 整个组织含其他项目/Key 的已发生费用；数量/单价/费用保留十进制字符串；404 为未开通，不是零账单 |
+| BytePlus 团队 Coding | 现有 `billing_plan=team`；独立 `byteplus_access_key_id`、`byteplus_secret_access_key`、`byteplus_seat_id`，不新增套餐选择 | 仅官方 profile；固定国际控制面 `ark.ap-southeast-1.byteplusapi.com`，5h/周/月百分比与毫秒重置；缺席位零出站。个人/未选套餐无验证查询，不使用国内控制面 |
+| 腾讯国内企业 Token 套餐 | `hunyuan` coding 官方 `https://tokenhub.tencentmaas.com/plan/v3` 或 `/plan/anthropic`；独立 `tencent_query_secret_id`、`tencent_query_secret_key`、`tencent_query_region`、`tencent_query_team_id` | `token_plan` 套餐/周期/账单项；enterprise 为 credits、enterprise-auto 为 tokens；`call_count` 仍是次数；所有金额及 `total_qty` 精确字符串，不转浮点、不作为余额/5h 窗口 |
+| MiniMax 新国内 Token Plan | 仅精确 `https://api.minimax.cn/v1` coding profile，原套餐 Key | `/v1/token_plan/remains` 的文本模型 5h/周读数；`remaining_percent` 优先，无百分比时 `usage_count` 表示剩余。旧国内、国际/其他套餐不借用该合同 |
+
+AiHubMix、DMX 中国站、CrazyRouter 国内/国际站通过独立 `usage_query_token` 查询管理余额；DMX 与 CrazyRouter 另需 `usage_query_user_id`。TheRouter 管理查询显示 `account_credits` 的总 credits 与总使用量，不自行相减为余额。StepFun 国内/国际、TeamoRouter 两站、SudoCode 只在各自已验证官方 profile 使用原推理 Key。DMX .com/SSVIP 没有继承中国站管理查询。
+
+依据：[Atlas model usage](https://www.atlascloud.ai/docs/public-api/model-usage)、[Azure regional usage](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/usages/list?view=rest-aiservices-accountmanagement-2024-10-01)、[GitHub personal billing](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10)、[Together billing beta](https://docs.together.ai/reference/billing-usage)、[腾讯 DescribeTokenPlan](https://cloud.tencent.com/document/api/1823/132270)、[BytePlus 席位原始合同](https://docs.byteplus.com/en/docs/ModelArk/2306579)、[火山 Agent 源合同](https://github.com/volcengine/byted-supabase-cli/blob/main/internal/volcengine/agent_plan.go)。来源与离线边界测试不代表真实账号在线成功；未验证地区、个人 Agent、BytePlus 个人和未知产品仍保持未知。
+
+模型发现同时更新：AiHubMix、DMX 中国站、Qiniu PAYG 已接入已验证的模型列表协议；DMX .com/SSVIP、Qiniu 订阅及其他 `none` 模式不能据此开放发现。失败保留模型映射；候选列表不等于发现成功或账号可用模型。反重力保存并重新打开仍保留完整别名映射，别名不会冒充直接模型 ID。
 
 ## 特定账号限制与未知项
 
@@ -1473,3 +1675,9 @@ AtlasCloud 的账户管理权限、OpenRouter credits 的管理 key、DMXAPI 系
 | 音频 | `POST /v1/audio/speech`、`/v1/audio/transcriptions`、`/v1/audio/translations` | TTS 二进制响应和 STT multipart 有独立合同；专用 `/v1/tts`、`/v1/stt` 不作通用替代。 |
 
 完整请求、返回结构、流式处理、工具循环、思考/缓存、费用及故障处理见[使用手册](usage-guide.md)。本站接口以[实际公开路由](../backend/internal/server/routes/gateway.go)与[平台协议矩阵](gateway-platform-protocol-matrix.md)为准；[兼容供应商合同源码](../backend/internal/domain/data/compatible_providers)是上表维护依据。OpenRouter 文档提供组织与 API 概念参考，不导入其插件、路由优先级、免费或价格承诺。
+
+### MiniMax 当前地区按量余额
+
+API Key 类型且明确保存 `account_mode=payg` 的账号，仅当前中国 `https://api.minimax.cn` 和 Global `https://api.minimax.io`（含 `/v1`、`/anthropic` 根）显示余额查询。所有协议覆盖必须属于同一地区；旧 `api.minimaxi.com`、Coding、自定义主机和跨地区覆盖不复用余额接口，也不自动迁移。后端核验 `sk-api-` Key 类别，列表使用脱敏账号配置判断可见性，无需取回明文密钥。
+
+既有管理员余额接口调用该地区 `GET /account/query_balance`。官方 `available_amount` 是顶层字符串；数值不缩放、不累加其他钱包字段，也不猜测 CNY/USD。沿用数值余额合同，尾随零可省略；超出 JavaScript 安全数值界限或数值往返改变原十进制值时拒绝响应，不发布近似金额。缺失币种表示未知，界面不加人民币或美元符号；真实零保留，失败不补零，未知可用性不等于余额不足。余额不会改变本站账本、健康或调度状态。普通查询错误保留带错误提示的旧读数，身份变化拒绝旧观测。参见 [MiniMax 官方 CLI 类型](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/types/api.ts)、[地区定义](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/config/schema.ts)、[原值输出](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/output/balance.ts)。这里描述已接入合同；未进行真实密钥在线验收。
