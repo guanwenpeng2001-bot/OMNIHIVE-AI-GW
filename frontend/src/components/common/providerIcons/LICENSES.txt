@@ -1,7 +1,7 @@
 Provider artwork provenance
 ===========================
 
-BL, DMX and TR are text monograms, not brand logos. Regional/plan aliases reuse vendor artwork. Trademarks belong to their respective owners. LobeHub Mono geometry is transcribed without React runtime dependencies. CC Switch SVG titles are removed; otherwise geometry is preserved.
+Unknown future providers use text monograms. Regional/plan aliases reuse vendor artwork. Trademarks belong to their respective owners. LobeHub Mono geometry is transcribed without React runtime dependencies. CC Switch SVG titles are removed; otherwise geometry is preserved.
 
 a6api: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/a6-icon.png
 aicodemirror: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#aicodemirror
@@ -15,7 +15,7 @@ apinebula: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f
 astron_coding: @lobehub/icons@4.0.2/es/IFlyTekCloud/components/Mono.js
 atlascloud: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/atlascloud_icon.png
 azure_openai: @lobehub/icons@4.0.2/es/Azure/components/Mono.js
-bailing: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+bailing: Official Ant Group Ant Ling (蚂蚁百灵), https://www.ant-ling.com/zh/ favicon; https://gw.alipayobjects.com/render/p/yuyan/180020010001289651/favicon.ico (bailing.ico, original bytes). SHA-256: 6d7f5fa4aa79c1a4a1be1a1b40ba78fc63679424623551bee0def1e3b2bfaee5. Not Alibaba Bailian.
 byteplus: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/byteplus.png
 ccsub: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/ccsub.svg
 cherryin: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/cherryin.png
@@ -26,7 +26,7 @@ code_9527: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f
 compshare: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#ucloud
 crazyrouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#crazyrouter
 cubence: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#cubence
-dmxapi: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+dmxapi: Official DMXAPI documentation header logo, https://doc.dmxapi.cn/D.png (dmxapi.png, original bytes), linked by https://doc.dmxapi.cn/. Shared by dmxapi, dmxapi_com and dmxapi_ssvip; not the generic New API console favicon. SHA-256: bdf4b6d3dbec41110fc75c6330638dc528ae73d9c697739a578971feff093d66.
 eflowcode: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/eflowcode.png
 fennoai: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/fenno-icon.webp
 fluxa: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/fluxa.png
@@ -59,10 +59,12 @@ subrouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f
 sudocode_chat: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/sudocode.png
 sudocode_us: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/sudocode-us.png
 teamorouter: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/TeamoRouter-icon-dark.png
-therouter: No provider-specific asset verified in installed LobeHub or pinned CC Switch index.
+therouter: Official TheRouter mark, https://therouter.ai/logo-black.svg (therouter.svg, original bytes), linked by https://therouter.ai/ and https://therouter.ai/docs. SHA-256: 8e48781a990e44520dca9714b1c5d7aa1e2c1f944ea9d63b10048a684443d855.
 together: @lobehub/icons@4.0.2/es/Together/components/Mono.js
 xycai: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/xycai-icon.png
 zetaapi: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/zetaapi-icon.png
+
+Official-site assets above (bailing, dmxapi, therouter) are used to identify their respective providers. Artwork and trademarks remain with their respective owners. No separate artwork license was published on the checked official pages (2026-10-05); the MIT notices below apply to the named LobeHub and CC Switch sources, not these official-site assets.
 
 LobeHub license:
 MIT License
