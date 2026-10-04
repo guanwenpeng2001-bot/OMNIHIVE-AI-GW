@@ -101,6 +101,13 @@ func compatibleQueryTarget(account *Account) (string, error) {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return "", errors.New("balance query requires an API key account")
 	}
+	allowed, err := PaygBalanceAllowed(account.Platform, account.Credentials)
+	if err != nil {
+		return "", compatibleQueryError{"invalid_credentials", "invalid billing plan selection"}
+	}
+	if !allowed {
+		return "", compatibleQueryError{"mode_unsupported", "no verified query for the selected billing plan"}
+	}
 	for _, field := range []string{"account_mode", "api_protocol", "base_url", "api_key"} {
 		if value, exists := account.Credentials[field]; exists {
 			if _, valid := value.(string); !valid {

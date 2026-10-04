@@ -1885,3 +1885,23 @@ describe('compatible usage routing', () => {
     expect(getUsage).not.toHaveBeenCalled()
   })
 })
+
+it.each([
+  ['novita', 'coding_plan'], ['ppio', 'token_plan'], ['ppio', 'addon_pack'],
+  ['shengsuanyun', 'lite'], ['shengsuanyun', 'pro'], ['shengsuanyun', 'enterprise']
+])('hides wallet controls for saved %s/%s and restores them on clear', async (platform, billing_plan) => {
+  getUsage.mockClear()
+  const candidate = makeAccount({ platform: platform as Account['platform'], type: 'apikey', credentials: { billing_plan }, credentials_status: { has_api_key: true } })
+  const wrapper = mount(AccountUsageCell, { props: { account: candidate } })
+  await flushPromises()
+  expect(wrapper.find('[data-test="compatible-usage-unsupported"]').exists()).toBe(true)
+  expect(wrapper.find('button').exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('$0')
+  expect(getUsage).not.toHaveBeenCalled()
+  await wrapper.setProps({ account: { ...candidate, credentials: { billing_plan: null } } })
+  await flushPromises()
+  expect(wrapper.find('[data-test="compatible-usage-unsupported"]').exists()).toBe(false)
+  expect(wrapper.find('button').exists()).toBe(true)
+  expect(getUsage).not.toHaveBeenCalled()
+  wrapper.unmount()
+})

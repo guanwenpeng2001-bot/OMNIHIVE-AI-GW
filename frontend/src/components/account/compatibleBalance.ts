@@ -1,4 +1,4 @@
-import { compatibleMode, compatibleProvider } from '@/constants/compatibleProviders'
+import { compatibleMode, compatibleProvider, paygBalanceAllowed } from '@/constants/compatibleProviders'
 import type { Account } from '@/types'
 import type { CompatibleUsageReason } from '@/api/admin/cnProviders'
 
@@ -16,6 +16,7 @@ export function compatibleUsageCapability(account: Account): CompatibleUsageCapa
   if (!provider) return unsupported('no_verified_query')
   if (account.type !== 'apikey') return unsupported('invalid_credentials')
   const credentials = account.credentials ?? {}
+  if (!paygBalanceAllowed(account.platform, credentials)) return unsupported('mode_unsupported')
   for (const field of ['account_mode', 'api_protocol', 'base_url', 'api_key']) {
     if (field in credentials && typeof credentials[field] !== 'string') return unsupported('invalid_credentials')
   }

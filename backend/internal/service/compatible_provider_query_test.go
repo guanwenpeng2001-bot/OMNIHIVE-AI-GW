@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func TestCompatibleUsageDoesNotChangeNativeGetUsage(test *testing.T) {
@@ -161,4 +163,144 @@ func TestCompatibleBalanceCustomRelayAndConsumedNeverSend(test *testing.T) {
 		require.Nil(test, result.Balance)
 		require.Empty(test, repo.writes)
 	}
+}
+
+func TestCompatibleQueryPersistedPlanMatrix(test *testing.T) {
+	providers := domain.CompatibleProviders()
+	require.Len(test, providers, 75)
+	for _, provider := range providers {
+		for _, mode := range provider.Modes {
+			account := compatibleBalanceAccount(provider.ID)
+			account.Credentials["account_mode"] = mode.Mode
+			legacyTarget, legacyKind, legacyErr := compatibleUsageTarget(account)
+			for _, plan := range provider.Plans {
+				test.Run(provider.ID+"/"+mode.Mode+"/"+plan.ID, func(test *testing.T) {
+					account.Credentials["billing_plan"] = plan.ID
+					target, kind, err := compatibleUsageTarget(account)
+					if plan.Query == "payg" && legacyErr == nil {
+						require.NoError(test, err)
+						require.Equal(test, legacyTarget, target)
+						require.Equal(test, legacyKind, kind)
+					} else {
+						require.Error(test, err)
+						require.Empty(test, target)
+						require.Equal(test, "unsupported", kind)
+					}
+				})
+			}
+			for _, cleared := range []any{nil, ""} {
+				account.Credentials["billing_plan"] = cleared
+				target, kind, err := compatibleUsageTarget(account)
+				require.Equal(test, legacyErr == nil, err == nil, provider.ID)
+				require.Equal(test, legacyTarget, target)
+				require.Equal(test, legacyKind, kind)
+			}
+		}
+	}
+}
+
+func TestCompatibleQueryPersistedPlansNeverSend(test *testing.T) {
+	for _, provider := range domain.CompatibleProviders() {
+		choices := []any{"unknown", "PAYG", " payg ", 1, false, map[string]any{}, []any{}}
+		for _, plan := range provider.Plans {
+			if plan.Query == "plan" {
+				choices = append(choices, plan.ID)
+			}
+		}
+		for _, choice := range choices {
+			account := compatibleBalanceAccount(provider.ID)
+			account.Credentials["billing_plan"] = choice
+			before, err := json.Marshal(account.Credentials)
+			require.NoError(test, err)
+			repo := &compatibleBalanceRepo{account: account}
+			upstream := compatibleBalanceHTTP{send: func(*http.Request, string, int64, int) (*http.Response, error) {
+				test.Fatalf("blocked plan sent an upstream request: %s/%v", provider.ID, choice)
+				return nil, nil
+			}}
+			service := NewCNProviderBalanceService(repo, nil, upstream, nil)
+			value, err := service.QueryAccountBalance(context.Background(), account.ID)
+			require.NoError(test, err)
+			balance := requireCompatibleBalanceResult(test, value)
+			require.True(test, balance.Unsupported, "%s/%v", provider.ID, choice)
+			require.False(test, balance.Success)
+			require.Nil(test, balance.Balance)
+			require.Empty(test, balance.Balances)
+			require.Nil(test, balance.ProjectBudget)
+			usage, err := service.QueryAccountUsage(context.Background(), account.ID, compatibleUsageFixtureWindow())
+			require.NoError(test, err)
+			require.True(test, usage.Unsupported)
+			require.Nil(test, usage.Usage)
+			require.Empty(test, repo.writes)
+			after, err := json.Marshal(account.Credentials)
+			require.NoError(test, err)
+			require.Equal(test, string(before), string(after))
+		}
+	}
+}
+
+func TestCompatibleQueryExplicitPaygAndClearingGuards(test *testing.T) {
+	for _, provider := range []string{"novita", "ppio", "shengsuanyun"} {
+		for _, choice := range []any{"payg", nil, ""} {
+			for _, guard := range []string{"allowed", "custom_origin", "proxy_unavailable"} {
+				test.Run(provider+"/"+fmt.Sprint(choice)+"/"+guard, func(test *testing.T) {
+					account := compatibleBalanceAccount(provider)
+					account.Credentials["billing_plan"] = choice
+					if guard == "custom_origin" {
+						account.Credentials["base_url"] = "https://relay.example/v1"
+					}
+					if guard == "proxy_unavailable" {
+						proxyID := int64(9)
+						account.ProxyID = &proxyID
+					}
+					repo := &compatibleBalanceRepo{account: account}
+					calls := 0
+					upstream := compatibleBalanceHTTP{send: func(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+						calls++
+						require.Equal(test, compatibleBalanceEndpoint(provider), request.URL.String())
+						return &http.Response{StatusCode: 403, Body: io.NopCloser(strings.NewReader("fixture permission denial"))}, nil
+					}}
+					value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), account.ID)
+					require.NoError(test, err)
+					result := requireCompatibleBalanceResult(test, value)
+					if guard == "allowed" {
+						require.Equal(test, 1, calls)
+						require.Equal(test, "permission_denied", result.Reason)
+					} else {
+						require.Zero(test, calls)
+						require.Equal(test, guard, result.Reason)
+					}
+					require.Nil(test, result.Balance)
+					require.Empty(test, repo.writes)
+				})
+			}
+		}
+	}
+}
+
+func TestCompatibleQueryInvalidPlanDoesNotConsumeRateToken(test *testing.T) {
+	previous := compatibleQiniuQueries
+	compatibleQiniuQueries = rate.NewLimiter(0, 1)
+	test.Cleanup(func() { compatibleQiniuQueries = previous })
+	account := compatibleBalanceAccount("qiniu")
+	account.Credentials["api_key"] = "sk-fixture-only"
+	account.Credentials["billing_plan"] = "subscription"
+	repo := &compatibleBalanceRepo{account: account}
+	calls := 0
+	upstream := compatibleBalanceHTTP{send: func(*http.Request, string, int64, int) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(compatibleUsageFixtureBody))}, nil
+	}}
+	service := NewCNProviderBalanceService(repo, nil, upstream, nil)
+	blocked, err := service.QueryAccountUsage(context.Background(), account.ID, compatibleUsageFixtureWindow())
+	require.NoError(test, err)
+	require.True(test, blocked.Unsupported)
+	require.Equal(test, "invalid_credentials", blocked.Reason)
+	require.Nil(test, blocked.Usage)
+	require.Zero(test, calls)
+	delete(account.Credentials, "billing_plan")
+	admitted, err := service.QueryAccountUsage(context.Background(), account.ID, compatibleUsageFixtureWindow())
+	require.NoError(test, err)
+	require.True(test, admitted.Success)
+	require.Equal(test, 1, calls)
+	require.Empty(test, repo.writes)
 }

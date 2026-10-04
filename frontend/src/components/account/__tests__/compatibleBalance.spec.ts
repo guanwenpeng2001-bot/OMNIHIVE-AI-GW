@@ -64,3 +64,39 @@ describe('compatible usage registry matrix', () => {
     expect(compatibleUsageCapability({ ...account('qiniu'), extra: { custom_base_url_enabled: true } }).reason).toBe('custom_origin')
   })
 })
+
+describe('persisted plan query eligibility', () => {
+  it('checks every saved plan against legacy eligibility across all providers and modes', () => {
+    expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
+    for (const provider of COMPATIBLE_PROVIDERS) {
+      for (const mode of provider.modes) {
+        const legacy = compatibleUsageCapability(account(provider.id, { account_mode: mode.mode }))
+        for (const plan of provider.plans ?? []) {
+          const candidate = { ...account(provider.id, { account_mode: mode.mode, billing_plan: plan.id }), credentials_status: { has_api_key: true } }
+          expect(compatibleUsageCapability(candidate).kind, `${provider.id}/${mode.mode}/${plan.id}`).toBe(plan.query === 'payg' ? legacy.kind : 'unsupported')
+          expect(candidate.credentials).not.toHaveProperty('api_key')
+        }
+        for (const cleared of [null, '']) {
+          expect(compatibleUsageCapability(account(provider.id, { account_mode: mode.mode, billing_plan: cleared }))).toEqual(legacy)
+        }
+        for (const invalid of ['unknown', 'PAYG', ' payg ', 1, false, {}, []]) {
+          expect(compatibleUsageCapability(account(provider.id, { account_mode: mode.mode, billing_plan: invalid })).kind).toBe('unsupported')
+        }
+      }
+    }
+  })
+  it.each(['novita', 'ppio', 'shengsuanyun'])('keeps explicit PAYG subject to existing guards for %s', platform => {
+    expect(compatibleBalanceVisible(account(platform, { billing_plan: 'payg' }))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { billing_plan: 'payg', base_url: 'https://relay.example/v1' }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { billing_plan: 'payg', account_mode: 'coding' }))).toBe(false)
+    expect(compatibleBalanceVisible({ ...account(platform, { billing_plan: 'payg' }), credentials_status: { has_api_key: false } })).toBe(false)
+  })
+  it('restores legacy eligibility when a selected plan is cleared', () => {
+    const candidate = account('novita', { billing_plan: 'coding_plan' })
+    expect(compatibleBalanceVisible(candidate)).toBe(false)
+    candidate.credentials.billing_plan = null
+    expect(compatibleBalanceVisible(candidate)).toBe(true)
+    delete candidate.credentials.billing_plan
+    expect(compatibleBalanceVisible(candidate)).toBe(true)
+  })
+})
