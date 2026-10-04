@@ -1870,3 +1870,18 @@ describe('OpenRouter key usage', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('compatible usage routing', () => {
+  it.each([
+    ['astron_token', 'coding'], ['mimo_token_sg', 'coding'], ['atlascloud', 'coding'], ['qiniu', 'subscription'], ['together', 'payg']
+  ])('explains unsupported %s/%s without a query', async (platform, account_mode) => {
+    getUsage.mockClear()
+    const wrapper = mount(AccountUsageCell, { props: { account: makeAccount({ platform: platform as Account['platform'], type: 'apikey', credentials: { account_mode } }) } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="compatible-usage-unsupported"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('compatibleUsage.localLedger')
+    expect(wrapper.find('button').exists()).toBe(false)
+    expect(getUsage).not.toHaveBeenCalled()
+  })
+})

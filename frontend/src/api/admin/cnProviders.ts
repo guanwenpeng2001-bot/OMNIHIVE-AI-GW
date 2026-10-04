@@ -36,6 +36,10 @@ export interface CNProviderBalanceEntry {
 
 /** Native and compatible payg balance results; failed/unsupported queries omit unknown amounts. */
 export interface CNProviderBalanceResult {
+  kind?: 'wallet_balance' | 'project_budget' | 'unsupported'
+  reason?: CompatibleUsageReason
+  project_budget?: CompatibleProjectBudget
+  scope?: 'account' | 'account_in_project'
   provider: string
   success: boolean
   unsupported?: boolean
@@ -67,7 +71,52 @@ export async function queryBalance(id: number): Promise<CNProviderBalanceResult>
   return data
 }
 
+export type CompatibleUsageReason = 'no_verified_query' | 'mode_unsupported' | 'custom_origin' | 'invalid_credentials' | 'proxy_unavailable' | 'permission_denied' | 'upstream_error' | 'invalid_response' | 'rate_limited'
+
+export interface CompatibleProjectBudget {
+  scope: 'account_in_project'
+  project_id: number
+  ram_user_id: number
+  budget_kind: 'daily' | 'monthly' | 'unlimited'
+  remaining_percentage: number | null
+  period_kind: 'daily' | 'monthly'
+  period_start: string
+  period_end: string
+  consumed: number
+  limit: number | null
+  unlimited: boolean
+  currency: 'CNY'
+}
+
+export interface CompatibleUsageWindow {
+  granularity: 'day'
+  start: string
+  end: string
+  timezone: string
+}
+
+export interface CompatibleConsumedUsageResult {
+  provider: string
+  kind: 'consumed_usage' | 'unsupported'
+  success: boolean
+  unsupported?: boolean
+  reason?: CompatibleUsageReason
+  status_code?: number
+  fetched_at: number
+  persisted: boolean
+  error?: string
+  usage?: CompatibleUsageWindow & {
+    models: { id: string; name: string; items: { name: string; unit: string; total: number }[] }[]
+  }
+}
+
+export async function queryUsage(id: number, params: CompatibleUsageWindow): Promise<CompatibleConsumedUsageResult> {
+  const { data } = await apiClient.get<CompatibleConsumedUsageResult>(`/admin/cn-providers/accounts/${id}/usage`, { params })
+  return data
+}
+
 export default {
+  queryUsage,
   queryQuota,
   queryBalance
 }

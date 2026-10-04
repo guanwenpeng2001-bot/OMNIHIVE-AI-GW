@@ -96,7 +96,7 @@ describe('CNProviderBalanceCell', () => {
     const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform: 'shengsuanyun', extra: {} } as Account } })
     await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
     await flushPromises()
-    expect(wrapper.text()).toContain('Unsupported balance scope')
+    expect(wrapper.text()).toContain('admin.accounts.compatibleUsage.reasons.no_verified_query')
     expect(wrapper.text()).not.toContain('0.00')
   })
 
@@ -110,5 +110,32 @@ describe('CNProviderBalanceCell', () => {
     resolve({ success: true, balance: 900, currency: 'USD' })
     await flushPromises()
     expect(wrapper.text()).not.toContain('USD 900')
+  })
+})
+
+
+describe('compatible wallet and budget semantics', () => {
+  it.each([false, true])('renders a project budget, unlimited=%s, without an old wallet amount', async unlimited => {
+    queryBalance.mockResolvedValue({ success: true, kind: 'project_budget', project_budget: {
+      consumed: 0, limit: null, unlimited, currency: 'CNY', period_kind: 'monthly',
+      period_start: '2026-10-01T00:00:00+08:00', period_end: '2026-11-01T00:00:00+08:00'
+    } })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform: 'shengsuanyun', extra: { shengsuanyun_balance: 888 } } as Account } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="project-budget"]').text()).toContain('consumed: 0 CNY')
+    expect(wrapper.text()).toContain(unlimited ? 'compatibleUsage.unlimited' : 'limit: —')
+    expect(wrapper.text()).not.toContain('888')
+    expect(wrapper.find('[data-test="cn-provider-balance-value"]').exists()).toBe(false)
+  })
+  it.each([[403, 'permission_denied'], [429, 'rate_limited'], [500, 'upstream_error']])('distinguishes status %s and retains a labeled snapshot', async (status_code, reason) => {
+    queryBalance.mockResolvedValue({ success: false, status_code })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform: 'atlascloud', extra: { atlascloud_balance: 4, atlascloud_balance_currency: 'USD' } } as Account } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('USD 4.00')
+    expect(wrapper.text()).toContain('compatibleUsage.stale')
+    expect(wrapper.get('[role="alert"]').text()).toContain(reason)
+    expect(wrapper.text()).toContain('compatibleUsage.accountBalance')
   })
 })
