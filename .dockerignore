@@ -44,17 +44,17 @@ backend/vendor/
 coverage/
 .nyc_output/
 
-# Environment files
-.env
-.env.*
-!.env.example
+# Environment files at any depth (keep example templates)
+**/.env
+**/.env.*
+!**/.env.example
 
 # 本地闭源插件目录可能包含发布签名私钥，绝不能进入 Docker 构建上下文。
 /plugins/
 
-# Local config
-config.yaml
-config.local.yaml
+# Local config at any depth
+**/config.yaml
+**/config.local.yaml
 
 # Logs
 *.log
