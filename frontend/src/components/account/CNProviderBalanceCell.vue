@@ -31,6 +31,7 @@
     </div>
 
     <div v-if="data?.success && data.used != null" data-test="management-used" class="text-[10px] text-gray-500">{{ t('admin.accounts.usageQuery.used') }}: {{ data.used }} {{ data.currency }}</div>
+    <div v-if="account.platform === 'minimax'" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.minimaxBalanceHint') }}</div>
     <div v-if="queryCredentialReason && !error" data-test="query-credentials-hint" class="text-[10px] text-gray-500">{{ t(`admin.accounts.compatibleUsage.reasons.${queryCredentialReason}`) }}</div>
     <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(account.platform)" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
     <div v-if="stale" class="text-[10px] text-amber-600">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
@@ -97,7 +98,7 @@ const readMode = (): string => {
 }
 
 // Native and compatible PAYG accounts with a verified balance endpoint.
-const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode()) || compatibleBalanceVisible(props.account))
+const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode(), props.account.credentials, props.account.type, props.account.extra?.custom_base_url_enabled) || compatibleBalanceVisible(props.account))
 
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -152,6 +153,7 @@ const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
 })
 
 const formatEntry = (entry: CNProviderBalanceEntry): string => {
+  if (props.account.platform === 'minimax') return `${entry.currency} ${entry.balance}`.trim()
   const fixed = entry.balance >= 100 ? entry.balance.toFixed(0) : entry.balance.toFixed(2)
   return `${entry.currency || (compatibleProvider(props.account.platform) ? '' : '¥')} ${fixed}`.trim()
 }

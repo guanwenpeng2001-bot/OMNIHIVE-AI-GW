@@ -53,7 +53,7 @@
       </p>
     </template>
 
-    <p v-if="missingAgentSeat && !error" role="status" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.status.no_seat') }}</p>
+    <p v-if="missingAgentSeat && !error" role="status" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.status.missing_seat') }}</p>
 
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): a verb label tells users this chip is clickable. The previous
@@ -255,7 +255,13 @@ const handleProbe = async () => {
     }
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
     if (missingAgentSeat.value && result.status === 'missing_configuration') {
-      error.value = t('admin.accounts.cnProviders.volcengineQuota.status.no_seat')
+      error.value = t('admin.accounts.cnProviders.volcengineQuota.status.missing_seat')
+      return
+    }
+    if (result.status === 'no_seat' && ['volcengine', 'byteplus'].includes(props.account.platform)) {
+      const seat = props.account.credentials?.[`${props.account.platform}_seat_id`]
+      const reason = typeof seat === 'string' && seat.trim() ? 'no_seat' : 'missing_seat'
+      error.value = t(`admin.accounts.cnProviders.${props.account.platform}Quota.status.${reason}`)
       return
     }
     if (result.success) {

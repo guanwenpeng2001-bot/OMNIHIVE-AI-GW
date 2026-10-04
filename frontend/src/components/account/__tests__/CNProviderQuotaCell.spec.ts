@@ -277,7 +277,7 @@ describe('Volcengine upstream usage observations', () => {
     await flushPromises()
     expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
     expect(wrapper.text()).toContain('usageUnknown')
-    expect(wrapper.text()).toContain(`volcengineQuota.status.${status}`)
+    expect(wrapper.text()).toContain(`volcengineQuota.status.${status === 'no_seat' ? 'missing_seat' : status}`)
     expect(wrapper.text()).not.toContain('0%')
     wrapper.unmount()
   })

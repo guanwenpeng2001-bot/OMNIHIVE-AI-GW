@@ -143,13 +143,103 @@ it('shows a configurable team Agent query without a seat, with no automatic requ
   const wrapper = mount(AccountUsageCell, { props: { account: { ...account('volcengine', { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'team' }), id: 99882 } } })
   await flushPromises()
   expect(wrapper.find('[data-test="cn-provider-quota-probe"]').exists()).toBe(true)
-  expect(wrapper.text()).toContain('no_seat')
+  expect(wrapper.text()).toContain('missing_seat')
   expect(wrapper.text()).not.toContain('agentUnverified')
   expect(urls).toEqual([])
   respond({ provider: 'volcengine', success: false, status: 'missing_configuration' })
   await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
   expect(urls).toHaveLength(1)
-  expect(wrapper.text()).toContain('no_seat')
+  expect(wrapper.text()).toContain('missing_seat')
   expect(wrapper.find('[data-test="cn-provider-quota-tier"]').exists()).toBe(false)
   wrapper.unmount()
+})
+
+it.each([
+ ['byteplus', { billing_plan: 'team', byteplus_seat_id: 'seat' }],
+ ['volcengine', { volcengine_plan_edition: 'team', volcengine_seat_id: 'seat', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }],
+ ['volcengine', { volcengine_plan_edition: 'team', volcengine_seat_id: 'seat', base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3' }],
+ ['hunyuan', { base_url: 'https://tokenhub.tencentmaas.com/plan/v3' }],
+] as const)('clears cloud %s observations on identity rejection through the real client (%j)', async (platform, credentials) => {
+ const initial = { ...account(platform, { account_mode: 'coding', ...credentials }), extra: {
+  [`${platform}_5h_used_percent`]: 18, [`${platform}_plan_level`]: 'old-plan', [`${platform}_usage_updated_at`]: new Date().toISOString(),
+  ...(platform === 'hunyuan' ? { hunyuan_token_plan: { unit: 'credits', package_info: { total_quota: '998877665544' } } } : {})
+ } }
+ const wrapper = mount(AccountUsageCell, { props: { account: initial } }); await flushPromises()
+ expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(1)
+ respond({ provider: platform, success: false, status: 'identity_changed' })
+ await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+ expect(urls[0]).toContain('/456/quota')
+ expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(0)
+ expect(wrapper.text()).not.toContain('old-plan')
+ expect(wrapper.text()).not.toContain('998877665544')
+ expect(wrapper.text()).toContain('identity_changed')
+ await wrapper.setProps({ account: { ...initial, updated_at: '2099-01-01' } }); await flushPromises()
+ expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(0)
+ wrapper.unmount()
+})
+
+it.each(['byteplus', 'volcengine'])('distinguishes missing saved seat from upstream missing seat data for %s', async platform => {
+ const credentials = platform === 'byteplus' ? { billing_plan: 'team' } : { volcengine_plan_edition: 'team', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }
+ respond({ provider: platform, success: false, status: 'no_seat' })
+ const initial = account(platform, { account_mode: 'coding', ...credentials })
+ const wrapper = mount(AccountUsageCell, { props: { account: initial } }); await flushPromises()
+ respond({ provider: platform, success: false, status: 'no_seat' })
+ await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+ expect(wrapper.text()).toContain('missing_seat')
+ await wrapper.setProps({ account: { ...initial, credentials: { ...initial.credentials, [`${platform}_seat_id`]: 'saved-seat' } } })
+ await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+ expect(wrapper.text()).toContain('no_seat')
+ expect(wrapper.text()).not.toContain('missing_seat')
+ wrapper.unmount()
+})
+
+it.each(['https://api.minimax.cn/v1', 'https://api.minimax.io/anthropic'])('mounts MiniMax PAYG using a redacted DTO at %s and preserves unknown currency and zero', async base_url => {
+ const initial = account('minimax', { account_mode: 'payg', base_url })
+ expect(initial.credentials).not.toHaveProperty('api_key')
+ const wrapper = mount(AccountUsageCell, { props: { account: initial } }); await flushPromises()
+ expect(urls).toEqual([])
+ const button = wrapper.get('[data-test="cn-provider-balance-probe"]')
+ respond({ provider: 'minimax', success: false, error: 'Invalid account balance response' })
+ await button.trigger('click'); await flushPromises()
+ expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('admin.accounts.cnProviders.balance')
+ for (const balance of [1234.56789, 0, -0.25]) {
+  respond({ provider: 'minimax', success: true, balance, currency: '', persisted: false })
+  await button.trigger('click'); await flushPromises()
+  expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe(String(balance))
+  expect(wrapper.text()).not.toMatch(/¥|USD|CNY/)
+ }
+ expect(urls.every(url => new URL(url, 'https://local.example').pathname.endsWith('/456/balance'))).toBe(true)
+ expect(wrapper.find('[data-test="cn-provider-quota-probe"]').exists()).toBe(false)
+ respond({ provider: 'minimax', success: false, error: 'Upstream failure' })
+ await button.trigger('click'); await flushPromises()
+ expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('-0.25')
+ expect(wrapper.text()).toContain('Upstream failure')
+ wrapper.unmount()
+ const readback = mount(AccountUsageCell, { props: { account: { ...initial, extra: { minimax_balance: 1234.56789, minimax_balance_currency: '' } } } })
+ expect(readback.get('[data-test="cn-provider-balance-value"]').text()).toBe('1234.56789')
+ readback.unmount()
+})
+
+it.each([
+ { base_url: 'https://api.minimaxi.com/v1' },
+ { base_url: 'https://api.minimax.cn/v1', account_mode: 'coding' },
+ { base_url: 'https://api.minimax.cn/v1', account_mode: '' },
+ { base_url: 'https://api.minimax.cn.evil.test/v1' },
+ { base_url: 'https://api.minimax.cn/v1?secret=x' },
+ { base_url: 'https://api.minimax.cn/v1', api_base_urls: { anthropic: 'https://api.minimax.io/anthropic' } },
+ { base_url: 'https://api.minimax.cn/v1', api_base_urls: { responses: 'https://relay.test/v1' } },
+ { base_url: '' },
+])('does not expose a MiniMax wallet for unsupported roots/modes %j', async credentials => {
+ respond({ provider: 'minimax', success: false, status: 'unsupported_profile' })
+ const wrapper = mount(AccountUsageCell, { props: { account: account('minimax', credentials) } }); await flushPromises()
+ expect(wrapper.find('[data-test="cn-provider-balance-probe"]').exists()).toBe(false)
+ expect(urls.some(url => new URL(url, 'https://local.example').pathname.endsWith('/balance'))).toBe(false)
+ wrapper.unmount()
+})
+
+it('does not expose a MiniMax wallet for non-API-key accounts', async () => {
+ const wrapper = mount(AccountUsageCell, { props: { account: { ...account('minimax', { base_url: 'https://api.minimax.cn/v1' }), type: 'oauth' } } }); await flushPromises()
+ expect(wrapper.find('[data-test="cn-provider-balance-probe"]').exists()).toBe(false)
+ expect(urls).toEqual([])
+ wrapper.unmount()
 })

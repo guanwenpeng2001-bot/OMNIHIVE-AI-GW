@@ -92,7 +92,7 @@ Domestic Ark Coding personal (reference implementation, not verified online) / t
 `volcengine_access_key_id` and `volcengine_secret_access_key`, independent of the
 inference key and never echoed back. Omitted updates preserve them; explicit null
 clears them. `volcengine_plan_edition` is personal/team (default personal), and
-`volcengine_seat_id` is required for team queries; no automatic GetSeatInfo lookup. The domestic Coding profile is eligible; BytePlus personal and personal Ark Agent queries remain unverified. BytePlus Team uses existing billing_plan=team plus separate BytePlus cloud keys and an explicit seat, against its fixed international control plane. Domestic team Agent requires an explicit seat and separate AK/SK; reported daily/5h/week/month windows remain independent.
+`volcengine_seat_id` is required for team queries; no automatic GetSeatInfo lookup. The domestic Coding profile is eligible; BytePlus personal and personal Ark Agent queries are not integrated. BytePlus Team uses existing billing_plan=team plus separate BytePlus cloud keys and an explicit seat, against its fixed international control plane. Domestic team Agent requires an explicit seat and separate AK/SK; reported daily/5h/week/month windows remain independent.
 
 Returned 5h/weekly/monthly windows contain used percentages and optional reset
 times, not absolute used/total or cash. Missing windows and failed queries are not
@@ -650,3 +650,5 @@ segments must use their documented canonical spelling (write `/models`, not
 | `POST /v1/tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
 | `POST /v1/videos/:request_id/cancel` | Qianfan owner-bound task cancellation; Qianwen owner-bound PENDING cancellation request, whose acknowledgement is nonterminal and requires continued polling |
 | `POST /videos/:request_id/cancel` | Same Qianfan/Qianwen qualification as the /v1 alias; cancellation acknowledgement is not a universal completed-cancellation guarantee |
+
+MiniMax PAYG balances: API-key accounts with explicit payg mode and current api.minimax.cn / api.minimax.io roots (origin, /v1, /anthropic; one region across overrides) use GET /account/query_balance. The server checks the key class; the redacted account UI does not inspect key prefixes. Legacy minimaxi.com, Coding and custom/mixed regions do not inherit this contract. available_amount is not scaled; currency and availability remain unknown when absent, successful zero remains an observation and failures never fabricate zero. Personal Coding uses the reference implementation documented above; BytePlus personal queries are not integrated.

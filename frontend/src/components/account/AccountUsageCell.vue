@@ -836,7 +836,7 @@ const cnAccountMode = computed(() => {
   return typeof mode === 'string' ? mode : ''
 })
 const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials, props.account.extra?.custom_base_url_enabled))
-const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account.platform, cnAccountMode.value))
+const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials, props.account.type, props.account.extra?.custom_base_url_enabled))
 const localUsageExplanation = computed(() => {
   if (props.account.platform === 'volcengine') {
     const profile = volcengineQuotaProfile(props.account.credentials, props.account.extra?.custom_base_url_enabled)

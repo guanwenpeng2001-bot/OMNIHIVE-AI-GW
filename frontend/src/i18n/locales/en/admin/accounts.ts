@@ -413,6 +413,7 @@ export default {
         openaiCompatible: 'OpenAI-compatible / Other'
       },
       cnProviders: {
+        minimaxBalanceHint: 'PAYG account balance; currency is not supplied and no conversion is applied.',
         windowDaily: "Daily",
         observedAt: "Last successful query",
         usageUnknown: "Usage unknown",
@@ -440,7 +441,8 @@ export default {
             unsupported_profile: "Usage queries are not available for this account configuration.",
             no_verified_query: "No verified usage query is available for this plan.",
             not_subscribed: "No Coding Plan subscription was found.",
-            no_seat: "Team queries require an explicit saved Seat ID.",
+            missing_seat: "Save the Seat ID to query first.",
+            no_seat: "The upstream returned no usage data for the saved seat. Check the Seat ID.",
             invalid_response: "The upstream response did not contain recognized usage windows.",
             upstream_error: "The upstream usage query failed. Retry later.",
             url_rejected: "The outbound policy blocked the usage query host.",
@@ -470,7 +472,8 @@ export default {
             unsupported_profile: "Usage queries are not available for this account configuration.",
             no_verified_query: "No verified usage query is available for this plan.",
             not_subscribed: "No Coding Plan subscription was found.",
-            no_seat: "Team queries require an explicit saved Seat ID.",
+            missing_seat: "Save the Seat ID to query first.",
+            no_seat: "The upstream returned no usage data for the saved seat. Check the Seat ID.",
             invalid_response: "The upstream response did not contain recognized usage windows.",
             upstream_error: "The upstream usage query failed. Retry later.",
             url_rejected: "The outbound policy blocked the usage query host.",

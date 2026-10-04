@@ -902,8 +902,21 @@ export function cnQuotaCellVisible(platform: string, accountMode: string, creden
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 
-export function cnBalanceCellVisible(platform: string, accountMode: string): boolean {
-  return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
+export function cnBalanceCellVisible(platform: string, accountMode: string, credentials: Record<string, unknown> = {}, accountType = 'apikey', customBaseUrlEnabled?: unknown): boolean {
+  if (platform !== 'minimax') return (platform === 'kimi' || platform === 'deepseek') && accountMode !== 'coding'
+  if (accountMode !== 'payg' || accountType !== 'apikey' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const overrides = credentials.api_base_urls
+  if (overrides != null && (typeof overrides !== 'object' || Array.isArray(overrides))) return false
+  let origin = ''
+  for (const [protocol, value] of [['base_url', credentials.base_url], ...Object.entries(overrides || {})]) {
+    if (value == null || value === '') continue
+    if (!['base_url', 'chat_completions', 'anthropic', 'responses'].includes(protocol as string) || typeof value !== 'string') return false
+    const match = /^https:\/\/(api\.minimax\.(?:cn|io))(?:\/v1|\/anthropic)?\/*$/.exec(value.trim())
+    if (!match || (origin && origin !== match[1])) return false
+    origin = match[1]
+  }
+  // The admin DTO redacts keys; key-class validation belongs to the backend.
+  return origin !== ''
 }
 
 /**

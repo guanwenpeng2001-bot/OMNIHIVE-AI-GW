@@ -619,6 +619,7 @@ export default {
         openaiCompatible: 'OpenAI 兼容 / 其它'
       },
       cnProviders: {
+        minimaxBalanceHint: '按量账户余额；上游未提供币种，不折算。',
         windowDaily: "每日",
         observedAt: "最近成功查询",
         usageUnknown: "用量未知",
@@ -646,7 +647,8 @@ export default {
             unsupported_profile: "此账号配置暂不能查询套餐用量。",
             no_verified_query: "此套餐尚无已核实的用量查询。",
             not_subscribed: "未找到 Coding Plan 订阅。",
-            no_seat: "团队查询需要明确保存的席位 ID。",
+            missing_seat: "请先保存要查询的席位 ID。",
+            no_seat: "上游未返回已保存席位的用量数据，请核对席位 ID。",
             invalid_response: "上游响应未包含可识别的用量窗口。",
             upstream_error: "上游用量查询失败，请稍后重试。",
             url_rejected: "用量查询主机被出站策略拒绝。",
@@ -676,7 +678,8 @@ export default {
             unsupported_profile: "此账号配置暂不能查询套餐用量。",
             no_verified_query: "此套餐尚无已核实的用量查询。",
             not_subscribed: "未找到 Coding Plan 订阅。",
-            no_seat: "团队查询需要明确保存的席位 ID。",
+            missing_seat: "请先保存要查询的席位 ID。",
+            no_seat: "上游未返回已保存席位的用量数据，请核对席位 ID。",
             invalid_response: "上游响应未包含可识别的用量窗口。",
             upstream_error: "上游用量查询失败，请稍后重试。",
             url_rejected: "用量查询主机被出站策略拒绝。",

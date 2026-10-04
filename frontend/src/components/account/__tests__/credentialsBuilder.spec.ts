@@ -17,6 +17,7 @@ import {
   buildPlanTypeOptions,
   cloneOpenCodeGoProtocolRules,
   cnQuotaCellVisible,
+  cnBalanceCellVisible,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
@@ -628,5 +629,35 @@ describe('management credential payloads', () => {
     const credentials = { usage_query_token: 'azure-token', usage_query_subscription_id: 'subscription' }
     applyUsageQueryCredentials(credentials, 'azure_openai', usageQueryDraft())
     expect(credentials).not.toHaveProperty('usage_query_token')
+  })
+})
+
+describe('MiniMax PAYG balance profile', () => {
+  it.each(['cn', 'io'])('accepts only current %s roots and same-region overrides without requiring a plaintext key', region => {
+    for (const suffix of ['', '/', '/v1', '/anthropic/']) {
+      expect(cnBalanceCellVisible('minimax', 'payg', { base_url: `https://api.minimax.${region}${suffix}` }, 'apikey')).toBe(true)
+    }
+    expect(cnBalanceCellVisible('minimax', 'payg', { api_base_urls: { chat_completions: `https://api.minimax.${region}/v1`, anthropic: `https://api.minimax.${region}/anthropic` } }, 'apikey')).toBe(true)
+  })
+  it.each([
+    { base_url: 'https://api.minimax.cn:443/v1' },
+    { base_url: 'http://api.minimax.cn/v1' },
+    { base_url: 'https://user@api.minimax.cn/v1' },
+    { base_url: 'https://api.minimax.cn/v1#fragment' },
+    { base_url: 'https://api.minimax.cn/v1/chat/completions' },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: [] },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: { anthropic: 42 } },
+    { base_url: 'https://api.minimax.cn/v1', api_base_urls: { unknown: 'https://api.minimax.cn/v1' } },
+  ])('rejects unsupported URL or override shapes %j', credentials => {
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'apikey')).toBe(false)
+  })
+  it('requires an API-key account and explicit payg mode while retaining Kimi and DeepSeek', () => {
+    const credentials = { base_url: 'https://api.minimax.cn/v1' }
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'oauth')).toBe(false)
+    expect(cnBalanceCellVisible('minimax', '', credentials)).toBe(false)
+    expect(cnBalanceCellVisible('minimax', 'coding', credentials)).toBe(false)
+    expect(cnBalanceCellVisible('minimax', 'payg', credentials, 'apikey', true)).toBe(false)
+    expect(cnBalanceCellVisible('kimi', 'payg')).toBe(true)
+    expect(cnBalanceCellVisible('deepseek', 'payg')).toBe(true)
   })
 })

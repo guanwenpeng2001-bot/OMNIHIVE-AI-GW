@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"strings"
 )
 
@@ -35,10 +34,9 @@ func (s *CNProviderQuotaService) cloudQueryEndpoint(ctx context.Context, account
 
 func (s *CNProviderQuotaService) persistCloudQuery(ctx context.Context, account *Account, result *CNProviderQuotaProbeResult, updates map[string]any) {
 	err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil)
-	if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
-		result.Tiers, result.TokenPlan, result.Success = nil, nil, false
-		result.Status, result.Error = "upstream_error", "Account query identity changed; query quota again"
-	} else if err == nil {
+	if err != nil {
+		result.discardChangedIdentity(err)
+	} else {
 		result.Persisted = true
 	}
 }

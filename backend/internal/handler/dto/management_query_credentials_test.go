@@ -72,3 +72,30 @@ func TestIntegratedAdminDTOQuerySecretsAndModelMapping(t *testing.T) {
 		})
 	}
 }
+
+func TestMiniMaxBalanceAdminDTOReadback(t *testing.T) {
+	for _, balance := range []float64{1234.56789, 0, -0.25} {
+		account := &service.Account{ID: 18, Platform: "minimax", Type: "apikey",
+			Credentials: map[string]any{"api_key": "sk-api-private-fixture", "account_mode": "payg", "base_url": "https://api.minimax.cn/v1"},
+			Extra:       map[string]any{"minimax_balance": balance, "minimax_balance_currency": "", "minimax_balances": []any{map[string]any{"currency": "", "balance": balance}}, "minimax_balance_updated_at": "2026-10-05T00:00:00Z"},
+		}
+		detail := AccountFromService(account)
+		for _, projection := range []any{detail, AccountListItemFromAccount(detail)} {
+			encoded, err := json.Marshal(projection)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "sk-api-private-fixture")
+			var decoded map[string]any
+			require.NoError(t, json.Unmarshal(encoded, &decoded))
+			credentials := decoded["credentials"].(map[string]any)
+			require.Equal(t, "payg", credentials["account_mode"])
+			require.Equal(t, "https://api.minimax.cn/v1", credentials["base_url"])
+			require.NotContains(t, credentials, "api_key")
+			require.Equal(t, true, decoded["credentials_status"].(map[string]any)["has_api_key"])
+			extra := decoded["extra"].(map[string]any)
+			require.Equal(t, balance, extra["minimax_balance"])
+			require.Equal(t, "", extra["minimax_balance_currency"])
+			require.Equal(t, balance, extra["minimax_balances"].([]any)[0].(map[string]any)["balance"])
+			require.NotContains(t, extra, "minimax_balance_low")
+		}
+	}
+}

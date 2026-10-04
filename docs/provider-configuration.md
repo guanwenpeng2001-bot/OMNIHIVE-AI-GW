@@ -1606,7 +1606,7 @@ AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key
 
 在账号用量单元格发起查询，继续使用既有管理接口 `GET /api/v1/admin/cn-providers/accounts/:id/quota`（前端 API 客户端中的相对路径为 `/admin/cn-providers/accounts/:id/quota`），需本站管理员认证。后台使用保存的 AK/SK 签名访问固定控制面（个人参考实现使用 `https://open.volcengineapi.com/`，团队使用下述独立主机），不把推理 Key 或推理自定义请求头发送过去。个人查询 `GetCodingPlanUsage`；团队必须有明确保存的席位，查询 `GetSeatInfoUsage`，缺席位返回 `no_seat` 且零出站，不调用 `GetSeatInfo`。团队控制面为 `ark.cn-beijing.volcengineapi.com`，正文仅 SeatID，不发送 Scene。个人 `GetCodingPlanUsage` 保留参考实现，公开 explorer 没有该动作的原始 schema，在线未验证。
 
-结果 `provider=volcengine`、`source=coding_plan`、`plan_level=personal|team`。窗口 `5h`、`weekly`、`monthly` 分别表示 5 小时、周、月；只显示上游提供的已用百分比及重置时间，不填造 used/total、Token 数或现金余额。某窗口缺失表示该窗口没有本次读数，不补零；重置时间也可能缺失，且不是订阅到期日期。百分比不能用来推算绝对剩余次数。查询失败不覆盖上次成功快照，旧读数必须结合其更新时间和当前错误判断。来源：[官方套餐用量说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-usage/references/arkcli-usage-plan.md)。
+结果 `provider=volcengine`、`source=coding_plan`、`plan_level=personal|team`。窗口 `5h`、`weekly`、`monthly` 分别表示 5 小时、周、月；只显示上游提供的已用百分比及重置时间，不填造 used/total、Token 数或现金余额。某窗口缺失表示该窗口没有本次读数，不补零；重置时间也可能缺失，且不是订阅到期日期。百分比不能用来推算绝对剩余次数。普通查询失败不覆盖上次成功快照，旧读数必须结合其更新时间和当前错误判断；identity_changed 表示账号身份变化，立即清除旧观测并重新查询。来源：[官方套餐用量说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-usage/references/arkcli-usage-plan.md)。
 
 | status | 含义与下一步 |
 | --- | --- |
@@ -1617,12 +1617,13 @@ AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key
 | `unsupported_profile` | 当前地区、模式或套餐档案不属于支持范围；核对 Ark Coding 档案 |
 | `no_verified_query` | 尚无已核实查询合同；不能推导供应商没有该接口 |
 | `not_subscribed` | 没有有效套餐读数；未订阅不显示为已用 0% |
-| `no_seat` | 团队身份没有可用绑定席位；核对席位配置/身份，不继续查询用量 |
+| `identity_changed` | 账号身份变化，丢弃旧观测并重新查询 |
+| `no_seat` | 未保存席位时先保存要查询的席位 ID（零出站）；已保存时表示上游未返回该席位数据，核对席位 ID，不自动查找 |
 | `invalid_response` | 上游结构或字段无法识别；保留历史读数并排查响应合同 |
 | `upstream_error` | 上游、传输或代理查询失败；检查服务/出口后重试 |
 | `url_rejected` | 控制面主机被本站出站 URL 策略拒绝；由管理员核对策略，不能关闭校验绕过 |
 
-先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 个人与个人 Ark Agent 用量仍未验证**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
+先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 个人与个人 Ark Agent 用量查询未接入**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
 
 
 ### 独立管理查询与新增套餐
@@ -1674,3 +1675,9 @@ AiHubMix、DMX 中国站、CrazyRouter 国内/国际站通过独立 `usage_query
 | 音频 | `POST /v1/audio/speech`、`/v1/audio/transcriptions`、`/v1/audio/translations` | TTS 二进制响应和 STT multipart 有独立合同；专用 `/v1/tts`、`/v1/stt` 不作通用替代。 |
 
 完整请求、返回结构、流式处理、工具循环、思考/缓存、费用及故障处理见[使用手册](usage-guide.md)。本站接口以[实际公开路由](../backend/internal/server/routes/gateway.go)与[平台协议矩阵](gateway-platform-protocol-matrix.md)为准；[兼容供应商合同源码](../backend/internal/domain/data/compatible_providers)是上表维护依据。OpenRouter 文档提供组织与 API 概念参考，不导入其插件、路由优先级、免费或价格承诺。
+
+### MiniMax 当前地区按量余额
+
+API Key 类型且明确保存 `account_mode=payg` 的账号，仅当前中国 `https://api.minimax.cn` 和 Global `https://api.minimax.io`（含 `/v1`、`/anthropic` 根）显示余额查询。所有协议覆盖必须属于同一地区；旧 `api.minimaxi.com`、Coding、自定义主机和跨地区覆盖不复用余额接口，也不自动迁移。后端核验 `sk-api-` Key 类别，列表使用脱敏账号配置判断可见性，无需取回明文密钥。
+
+既有管理员余额接口调用该地区 `GET /account/query_balance`。官方 `available_amount` 是顶层字符串；数值不缩放、不累加其他钱包字段，也不猜测 CNY/USD。缺失币种表示未知，界面不加人民币或美元符号；真实零保留，失败不补零，未知可用性不等于余额不足。余额不会改变本站账本、健康或调度状态。普通查询错误保留带错误提示的旧读数，身份变化拒绝旧观测。参见 [MiniMax 官方 CLI 类型](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/types/api.ts)、[地区定义](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/config/schema.ts)、[原值输出](https://github.com/MiniMax-AI/cli/blob/06e47c70/src/output/balance.ts)。这里描述已接入合同；未进行真实密钥在线验收。
