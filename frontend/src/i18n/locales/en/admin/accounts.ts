@@ -3,6 +3,33 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      compatibleUsage: {
+        project: 'Project', member: 'Member',
+        reasons: {
+          no_verified_query: 'No verified upstream usage query for this supplier and plan. Check the supplier console.',
+          mode_unsupported: 'No verified upstream usage query for this plan. Check the supplier console.',
+          custom_origin: 'Upstream queries are unavailable for this custom endpoint or relay.',
+          invalid_credentials: 'Check the credential and protocol for this supplier and plan.',
+          proxy_unavailable: 'The configured query proxy is unavailable.',
+          permission_denied: 'This credential does not have permission to read upstream usage.',
+          upstream_error: 'The upstream query failed temporarily. Try again.',
+          invalid_response: 'The upstream response could not be read. No amount was replaced.',
+          rate_limited: 'The supplier rate-limited this query. Try again later.'
+        },
+        localLedger: 'Gateway statistics are a separate local ledger, not the supplier’s balance or quota.',
+        keyConsumption: 'Consumed usage · this API key',
+        qiniuHint: 'Qiniu PAYG inference key (sk- / tk-). This query does not report subscription points.',
+        accountBalance: 'Account-wide balance · requires balance-read permission; not this key’s spending cap.',
+        projectBudget: 'Enterprise member-in-project budget · not a cash balance',
+        consumed: 'Consumed', limit: 'Limit', unlimited: 'Unlimited', daily: 'Daily period', monthly: 'Monthly period',
+        stale: 'Previous snapshot · not a current reading',
+        window: 'Requested daily window', start: 'First day', end: 'Last day (query ends at next midnight)',
+        preset1: 'Today', preset7: '7 days', preset30: '30 days',
+        invalidWindow: 'Choose valid dates in order, spanning at most 31 days.',
+        noItems: 'No usage items returned for this window.',
+        delayed: 'Same-day usage may be delayed.'
+      },
+
       supplier: {
         authenticationMethod: 'Authentication method',
         planType: 'Plan type',

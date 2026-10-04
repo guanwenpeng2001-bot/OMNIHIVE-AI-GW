@@ -451,8 +451,13 @@
       </div>
     </template>
 
-    <template v-else-if="compatibleBalanceVisible(account)">
-      <CNProviderBalanceCell :account="account" />
+    <template v-else-if="compatibleProvider(account.platform)">
+      <CNProviderBalanceCell v-if="compatibleCapability.kind === 'wallet_balance'" :account="account" />
+      <CompatibleConsumedUsage v-else-if="compatibleCapability.kind === 'consumed_usage'" :account="account" />
+      <div v-else data-test="compatible-usage-unsupported" class="text-xs text-gray-500" role="status">
+        {{ t(`admin.accounts.compatibleUsage.reasons.${compatibleCapability.reason}`) }}
+      </div>
+      <div class="mt-1 text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.localLedger') }}</div>
     </template>
 
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
@@ -692,7 +697,9 @@ import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
-import { compatibleBalanceVisible } from './compatibleBalance'
+import { compatibleUsageCapability } from './compatibleBalance'
+import { compatibleProvider } from '@/constants/compatibleProviders'
+import CompatibleConsumedUsage from './CompatibleConsumedUsage.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
 import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
 
@@ -758,7 +765,9 @@ let visibilityObserver: IntersectionObserver | null = null
 // so their all-zero row is local statistics rather than an upstream reading.
 const PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT = ['qianwen', 'qianfan', 'hunyuan', 'mistral', 'volcengine']
 
+const compatibleCapability = computed(() => compatibleUsageCapability(props.account))
 const hasNoUpstreamUsageApi = computed(() => {
+  if (compatibleProvider(props.account.platform)) return compatibleCapability.value.kind === 'unsupported'
   if (props.account.ollama_cloud_usage?.eligible) return false
   if (PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT.includes(props.account.platform)) return true
   return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
@@ -769,7 +778,7 @@ const hasNoUpstreamUsageApi = computed(() => {
 const keyUsageMoney = (value: number | null | undefined) => value == null ? '—' : `$${value.toFixed(4)}`
 
 const showUsageWindows = computed(() => {
-  if (compatibleBalanceVisible(props.account)) return true
+  if (compatibleProvider(props.account.platform)) return true
   if (props.account.platform === 'openrouter') return props.account.type === 'apikey'
   if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
