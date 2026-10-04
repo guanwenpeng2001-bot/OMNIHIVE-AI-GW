@@ -1959,6 +1959,26 @@ it('creates a keyless Nous official proxy through the actual account review flow
   wrapper.unmount()
 })
 
+it.each([['aicodemirror', 'pro'], ['ccsub', 'subscription']])('submits the selected %s plan through the create review flow', async (platform, plan) => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 412, platform, type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { selectPlatform: (platform: string) => void; modelMappings: { from: string; to: string }[] }
+  state.selectPlatform(platform)
+  await flushPromises()
+  await wrapper.get(`[data-testid="compatible-plan"] [data-choice="${plan}"]`).trigger('click')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('fixture-key')
+  await wrapper.get('[data-testid="compatible-base"]').setValue('https://relay.example/v1')
+  await openReview(wrapper)
+  state.modelMappings = [{ from: 'public-model', to: 'private-model' }]
+  await confirmReview(wrapper)
+  expect(createAccountMock).toHaveBeenCalledOnce()
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform, type: 'apikey', credentials: {
+    billing_plan: plan, account_mode: 'payg', api_key: 'fixture-key', base_url: 'https://relay.example/v1', model_mapping: { 'public-model': 'private-model' }
+  } })
+  expect(createAccountMock.mock.calls[0][0].credentials.api_base_urls).toBeUndefined()
+  wrapper.unmount()
+})
+
 
 describe('supplier family create flow', () => {
   it.each([

@@ -41,6 +41,26 @@
       "evidence_observed": "2026-10-04",
       "same_key": false,
       "same_bases": false
-    }
+    },
+    "plans": [
+      {
+        "id": "standard",
+        "label": "Standard",
+        "label_zh": "Standard",
+        "query": "plan"
+      },
+      {
+        "id": "advanced",
+        "label": "Advanced",
+        "label_zh": "Advanced",
+        "query": "plan"
+      },
+      {
+        "id": "premium",
+        "label": "Premium",
+        "label_zh": "Premium",
+        "query": "plan"
+      }
+    ]
   }
 ]

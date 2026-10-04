@@ -35,6 +35,38 @@
       "summary_zh": "GitHub Copilot 提供个人及组织订阅。权限由 GitHub 管理，并使用现有专用鉴权流程；选择套餐不能替代鉴权或授予访问权限。",
       "evidence_url": "https://github.com/features/copilot/plans",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "free",
+        "label": "Free",
+        "label_zh": "Free",
+        "query": "plan"
+      },
+      {
+        "id": "pro",
+        "label": "Pro",
+        "label_zh": "Pro",
+        "query": "plan"
+      },
+      {
+        "id": "pro_plus",
+        "label": "Pro+",
+        "label_zh": "Pro+",
+        "query": "plan"
+      },
+      {
+        "id": "business",
+        "label": "Business",
+        "label_zh": "Business",
+        "query": "plan"
+      },
+      {
+        "id": "enterprise",
+        "label": "Enterprise",
+        "label_zh": "Enterprise",
+        "query": "plan"
+      }
+    ]
   }
 ]

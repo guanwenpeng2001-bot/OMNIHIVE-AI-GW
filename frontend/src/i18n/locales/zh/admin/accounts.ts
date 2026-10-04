@@ -16,6 +16,7 @@ export default {
         choices: { tokenPlanSingapore: 'Token Plan（新加坡）', tokenPlanEurope: 'Token Plan（欧洲）', china: '中国', international: '国际', global: '全球', api: 'API', stepPlan: 'Step Plan', tokenPlanChina: 'Token Plan（中国）', codingPlan: 'Coding Plan', maas: 'MaaS', maasTokenPlan: 'MaaS Token Plan', tokenPlan: 'Token Plan', cnSite: '.cn', comSite: '.com', ssvip: 'SSVIP' }
       },
 
+      compatiblePlans: { hint: '点选套餐后会保存到这个账号。不选则保持现在的行为。选择不会认定已购买，也不会改 API 地址。', clear: '清除套餐选择', byteplusHint: 'Personal 仅限支持的编程工具；选择此套餐不会使账号成为通用 API 网关。' },
       specialCompatibleAuth: {
         authMode: '认证方式',
         selectAuthMode: '请选择认证方式',

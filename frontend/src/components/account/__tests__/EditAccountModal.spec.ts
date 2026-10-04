@@ -2999,6 +2999,30 @@ it.each([false, true])('preserves Nous references for same-mode edits and clears
   wrapper.unmount()
 })
 
+it.each([['aicodemirror', 'pro'], ['ccsub', 'subscription']])('restores and explicitly clears a saved %s plan in the real edit form', async (platform, plan) => {
+  const credentials = { billing_plan: plan, account_mode: 'payg', api_protocol: 'adaptive', credential_secret_reference: 'plan-ref', credential_secret_version: 3, base_url: 'https://relay.example/v1', api_base_urls: { anthropic: 'https://private.example/messages' }, model_mapping: { public: 'private' } }
+  const account = { ...buildAccount(), platform, proxy_id: 8, group_ids: [12], credentials_status: { has_api_key: true }, credentials }
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  showErrorMock.mockReset()
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  const wrapper = mountModal(account)
+  await flushPromises()
+  expect(wrapper.get(`[data-testid="compatible-plan"] [data-choice="${plan}"]`).attributes('aria-checked')).toBe('true')
+  await wrapper.get('[data-testid="compatible-plan-clear"]').trigger('click')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(showErrorMock.mock.calls).toEqual([])
+  expect(updateAccountMock).toHaveBeenCalledOnce()
+  const payload = updateAccountMock.mock.calls[0][1]
+  expect(payload.credentials).toMatchObject({ ...credentials, billing_plan: null })
+  expect(JSON.parse(JSON.stringify(payload)).credentials).toHaveProperty('billing_plan', null)
+  expect(payload.credentials.api_key).toBeUndefined()
+  expect(payload.proxy_id).toBeUndefined()
+  expect(payload.group_ids).toEqual([12])
+  expect(account.credentials).toEqual(credentials)
+  wrapper.unmount()
+})
+
 
 it('reconstructs and locks Step Plan while preserving masked references and overrides on save', async () => {
   const credentials = { account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://relay.example/v1', api_base_urls: { anthropic: 'https://relay.example/messages', responses: 'https://retained.example/responses' }, credential_secret_reference: 'bound-secret', credential_secret_version: 3, api_key_ref: 'vault:step-plan', model_mapping: { public: 'private-model' } }

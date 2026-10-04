@@ -35,6 +35,26 @@
       "summary_zh": "Nous Portal 提供订阅月度额度及独立充值。Portal 订阅鉴权与静态 API Key 不同；请使用现有鉴权设置并在 Portal 确认权限。",
       "evidence_url": "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/integrations/nous-portal.md",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "plus",
+        "label": "Plus",
+        "label_zh": "Plus",
+        "query": "plan"
+      },
+      {
+        "id": "super",
+        "label": "Super",
+        "label_zh": "Super",
+        "query": "plan"
+      },
+      {
+        "id": "ultra",
+        "label": "Ultra",
+        "label_zh": "Ultra",
+        "query": "plan"
+      }
+    ]
   }
 ]

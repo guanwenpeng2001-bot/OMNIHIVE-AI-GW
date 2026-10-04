@@ -44,6 +44,20 @@
       "summary_zh": "BytePlus 提供凭据要求不同的个人和团队 Coding Plan。个人套餐限用于支持的编程工具，请确认套餐权限和供应商条款；此接入方式不代表拥有无限制的网关使用权限。",
       "evidence_url": "https://docs.byteplus.com/en/docs/modelark/coding-plan-personal-plan-overview",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "personal",
+        "label": "Personal",
+        "label_zh": "Personal",
+        "query": "plan"
+      },
+      {
+        "id": "team",
+        "label": "Team",
+        "label_zh": "Team",
+        "query": "plan"
+      }
+    ]
   }
 ]

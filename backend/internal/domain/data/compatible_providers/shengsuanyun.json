@@ -45,6 +45,32 @@
       "summary_zh": "供应商提供账号内多个密钥共享额度的月度 Token Plan。其文档列出的套餐接口地址不一致，请向供应商确认正确接口和密钥要求。尚未确认扣费优先级或自动按量付费回退。",
       "evidence_url": "https://lean.shengsuanyun.com/tokens-plan",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "payg",
+        "label": "PAYG",
+        "label_zh": "按量付费",
+        "query": "payg"
+      },
+      {
+        "id": "lite",
+        "label": "Lite",
+        "label_zh": "Lite",
+        "query": "plan"
+      },
+      {
+        "id": "pro",
+        "label": "Pro",
+        "label_zh": "Pro",
+        "query": "plan"
+      },
+      {
+        "id": "enterprise",
+        "label": "Enterprise",
+        "label_zh": "Enterprise",
+        "query": "plan"
+      }
+    ]
   }
 ]

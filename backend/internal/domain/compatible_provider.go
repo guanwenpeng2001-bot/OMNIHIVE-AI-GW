@@ -52,6 +52,7 @@ type CompatibleProvider struct {
 	EvidenceURL      string             `json:"evidence_url"`
 	EvidenceObserved string             `json:"evidence_observed"`
 	Billing          *CompatibleBilling `json:"billing,omitempty"`
+	Plans            []CompatiblePlan   `json:"plans,omitempty"`
 }
 
 // CompatibleBilling is vendor commercial information, never an account mode or
@@ -175,6 +176,9 @@ func ValidateCompatibleProviders(rows []CompatibleProvider) error {
 			return fmt.Errorf("invalid, reserved or duplicate provider id %q", provider.ID)
 		}
 		seen[provider.ID] = true
+		if err := validateCompatiblePlans(provider); err != nil {
+			return fmt.Errorf("%s: %w", provider.ID, err)
+		}
 		if err := validateCompatibleBilling(provider.Billing); err != nil {
 			return fmt.Errorf("%s: %w", provider.ID, err)
 		}
@@ -346,6 +350,7 @@ func copyCompatibleMode(mode CompatibleMode) CompatibleMode {
 }
 
 func copyCompatibleProvider(provider CompatibleProvider) CompatibleProvider {
+	provider.Plans = append([]CompatiblePlan(nil), provider.Plans...)
 	if provider.Billing != nil {
 		billing := *provider.Billing
 		if billing.SameKey != nil {

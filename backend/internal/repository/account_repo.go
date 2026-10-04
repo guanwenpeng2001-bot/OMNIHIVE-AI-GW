@@ -3338,6 +3338,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 		credentialPlaceholder = "$" + itoa(idx)
 		credentialsSetClause = "credentials = COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb"
+		if value, present := updates.Credentials["billing_plan"]; present && (value == nil || value == "") {
+			credentialsSetClause = "credentials = (COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb) - 'billing_plan'"
+		}
 		args = append(args, payload)
 		idx++
 	}

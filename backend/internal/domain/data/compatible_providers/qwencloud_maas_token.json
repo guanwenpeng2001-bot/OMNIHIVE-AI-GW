@@ -44,6 +44,32 @@
       "summary_zh": "QwenCloud 提供个人和团队 Token Plan。请使用套餐颁发的密钥和对应文档指定的接口；尚未确认团队版密钥和接口可共用。不要混用 MaaS 与其他区域 Token Plan 的凭据。",
       "evidence_url": "https://www.qwencloud.com/pricing/token-plan",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "personal",
+        "label": "Personal",
+        "label_zh": "Personal",
+        "query": "plan"
+      },
+      {
+        "id": "team_standard",
+        "label": "Team Standard",
+        "label_zh": "Team Standard",
+        "query": "plan"
+      },
+      {
+        "id": "team_pro",
+        "label": "Team Pro",
+        "label_zh": "Team Pro",
+        "query": "plan"
+      },
+      {
+        "id": "team_max",
+        "label": "Team Max",
+        "label_zh": "Team Max",
+        "query": "plan"
+      }
+    ]
   }
 ]

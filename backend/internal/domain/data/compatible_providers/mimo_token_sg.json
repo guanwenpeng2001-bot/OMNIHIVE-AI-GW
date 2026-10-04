@@ -46,6 +46,20 @@
       "evidence_observed": "2026-10-04",
       "same_key": false,
       "same_bases": false
-    }
+    },
+    "plans": [
+      {
+        "id": "personal",
+        "label": "Personal",
+        "label_zh": "个人",
+        "query": "plan"
+      },
+      {
+        "id": "team",
+        "label": "Team",
+        "label_zh": "团队",
+        "query": "plan"
+      }
+    ]
   }
 ]

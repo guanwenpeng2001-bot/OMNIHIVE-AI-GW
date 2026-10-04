@@ -40,6 +40,26 @@
       "summary_zh": "供应商提供含周期额度的定期 Codex 套餐，与 Claude PayGo 充值包不同。尚未确认套餐密钥和接口与此接入方式的兼容性，请向供应商确认。",
       "evidence_url": "https://www.relaxycode.com/",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "codex_package",
+        "label": "Codex Package",
+        "label_zh": "Codex Package",
+        "query": "plan"
+      },
+      {
+        "id": "codex_pro_max",
+        "label": "Codex Pro Max",
+        "label_zh": "Codex Pro Max",
+        "query": "plan"
+      },
+      {
+        "id": "claude_paygo",
+        "label": "Claude PayGo",
+        "label_zh": "Claude PayGo",
+        "query": "plan"
+      }
+    ]
   }
 ]

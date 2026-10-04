@@ -277,8 +277,11 @@ func buildCompatibleModelsRequest(ctx context.Context, account *Account, validat
 }
 
 func validateCompatibleAccount(account *Account) error {
-	_, mode, err := account.compatibleMode()
+	provider, mode, err := account.compatibleMode()
 	if err != nil {
+		return err
+	}
+	if err := provider.ValidateBillingPlan(account.Credentials); err != nil {
 		return err
 	}
 	if isCopilotNous(account) {

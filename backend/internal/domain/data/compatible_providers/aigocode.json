@@ -40,6 +40,32 @@
       "summary_zh": "供应商提供周期订阅和预充值余额。请在供应商控制台确认当前密钥和接口要求；计费由供应商管理。",
       "evidence_url": "https://www.aigocode.net/",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "pro",
+        "label": "Pro",
+        "label_zh": "Pro",
+        "query": "plan"
+      },
+      {
+        "id": "max",
+        "label": "Max",
+        "label_zh": "Max",
+        "query": "plan"
+      },
+      {
+        "id": "ultra",
+        "label": "Ultra",
+        "label_zh": "Ultra",
+        "query": "plan"
+      },
+      {
+        "id": "payg",
+        "label": "PAYG",
+        "label_zh": "按量付费",
+        "query": "payg"
+      }
+    ]
   }
 ]

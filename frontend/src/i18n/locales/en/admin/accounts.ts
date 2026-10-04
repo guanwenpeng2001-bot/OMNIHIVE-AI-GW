@@ -16,6 +16,7 @@ export default {
         choices: { tokenPlanSingapore: 'Token Plan (Singapore)', tokenPlanEurope: 'Token Plan (Europe)', china: 'China', international: 'International', global: 'Global', api: 'API', stepPlan: 'Step Plan', tokenPlanChina: 'Token Plan (China)', codingPlan: 'Coding Plan', maas: 'MaaS', maasTokenPlan: 'MaaS Token Plan', tokenPlan: 'Token Plan', cnSite: '.cn', comSite: '.com', ssvip: 'SSVIP' }
       },
 
+      compatiblePlans: { hint: 'Choose a plan to save it on this account. Leaving the cards unselected keeps the current behavior. The choice does not verify a purchase or change the API address.', clear: 'Clear plan selection', byteplusHint: 'Personal is limited to supported coding tools; this choice does not make the account a general API gateway.' },
       specialCompatibleAuth: {
         authMode: 'Authentication mode',
         selectAuthMode: 'Select authentication mode',

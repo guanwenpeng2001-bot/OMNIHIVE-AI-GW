@@ -46,6 +46,20 @@
       "evidence_observed": "2026-10-04",
       "same_key": true,
       "same_bases": true
-    }
+    },
+    "plans": [
+      {
+        "id": "subscription",
+        "label": "Monthly card",
+        "label_zh": "月度订阅",
+        "query": "plan"
+      },
+      {
+        "id": "paygo",
+        "label": "PAYGO",
+        "label_zh": "按量付费",
+        "query": "payg"
+      }
+    ]
   }
 ]

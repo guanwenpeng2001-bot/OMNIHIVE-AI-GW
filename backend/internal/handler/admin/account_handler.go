@@ -77,6 +77,9 @@ func validateCompatibleAccountIdentity(platform, accountType string, credentials
 		}
 		return text, nil
 	}
+	if err := provider.ValidateBillingPlan(credentials); err != nil {
+		return err
+	}
 	modeName, err := read("account_mode")
 	if err != nil {
 		return err
@@ -148,6 +151,7 @@ func prepareCompatibleAccountUpdate(existing *service.Account, req *UpdateAccoun
 	// The legacy service replaces non-secret keys on PUT. Forward the validated
 	// resulting map for compatible providers; leave absent credential edits absent.
 	if len(req.Credentials) > 0 {
+		domain.ClearEmptyBillingPlan(credentials)
 		req.Credentials = credentials
 	}
 	return nil

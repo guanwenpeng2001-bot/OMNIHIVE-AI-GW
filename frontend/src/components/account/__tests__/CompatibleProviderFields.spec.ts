@@ -26,29 +26,20 @@ function mountFields(provider = compatibleFixture, modelValue: Record<string, un
 }
 
 describe('shared compatible provider forms', () => {
-  it.each(['ccsub', 'nous_research', 'github_copilot'])('discloses %s billing without emitting or mutating create/edit credentials', (id) => {
+  it.each(['ccsub', 'nous_research', 'github_copilot'])('offers %s saved plans without changing legacy credentials on mount', (id) => {
     const provider = compatibleProvider(id)!
-    for (const draft of [{}, { account_mode: provider.default_mode, api_key_ref: 'masked-reference', base_url: 'https://relay.example/v1', model_mapping: { alias: 'manual-model' } }]) {
-      const before = JSON.stringify(draft)
-      const wrapper = mountFields(provider, draft)
-      const disclosure = wrapper.get('[data-testid="compatible-billing"]')
-      expect(disclosure.text()).toContain(provider.billing!.summary)
-      expect(disclosure.find('input,select,button,[role="radio"]').exists()).toBe(false)
-      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-      expect(JSON.stringify(draft)).toBe(before)
-      if (id !== 'ccsub') {
-        expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
-        expect(wrapper.find('[data-testid="compatible-protocol"]').exists()).toBe(false)
-      }
-      wrapper.unmount()
-    }
-  })
-
-  it('retains a provider-scoped billing slot override', () => {
-    const provider = compatibleProvider('ccsub')!
-    const wrapper = mount(CompatibleProviderFields, { props: { provider, modelValue: {} }, slots: { billing: '<p data-testid="billing-override">{{ params.provider.id }}</p>' } })
-    expect(wrapper.get('[data-testid="billing-override"]').text()).toBe('ccsub')
+    const draft = { account_mode: provider.default_mode, api_key_ref: 'masked-reference', base_url: 'https://relay.example/v1', model_mapping: { alias: 'manual-model' } }
+    const before = JSON.stringify(draft)
+    const wrapper = mountFields(provider, draft)
+    expect(wrapper.get('[data-testid="compatible-plan"]').findAll('[role="radio"]')).toHaveLength(provider.plans!.length)
     expect(wrapper.find('[data-testid="compatible-billing"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(provider.billing!.summary)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(JSON.stringify(draft)).toBe(before)
+    if (id !== 'ccsub') {
+      expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="compatible-protocol"]').exists()).toBe(false)
+    }
   })
 
   it.each(['en', 'zh'])('uses actual dedicated-key labels and mode-specific protocols in %s', async (language) => {
@@ -63,7 +54,7 @@ describe('shared compatible provider forms', () => {
       const vendorMode = provider.modes.find(entry => entry.mode === selectedMode)!
       expect(option.text()).toContain(language === 'zh' ? vendorMode.label_zh! : vendorMode.label!)
       expect(wrapper.text()).toContain('admin.accounts.supplier.planKeyHint')
-      expect(wrapper.get('[data-testid="compatible-billing"]').text()).toContain(language === 'zh' ? provider.billing!.summary_zh : provider.billing!.summary)
+      expect(wrapper.find('[data-testid="compatible-billing"]').exists()).toBe(false)
       await option.trigger('click')
       expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('[role="radio"]').map(radio => radio.attributes('data-choice'))).toEqual(protocols)
       expect(wrapper.props('modelValue')).toEqual({ account_mode: selectedMode, api_protocol: 'adaptive', api_key_ref: 'masked-reference' })

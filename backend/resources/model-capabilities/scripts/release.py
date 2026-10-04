@@ -23,6 +23,8 @@ VERSION_FILES = (
     "internal/service/native_provider_profiles.go",
     "internal/service/compatible_provider_runtime.go",
     "internal/domain/compatible_provider.go",
+    "internal/domain/compatible_plan.go",
+    "internal/service/compatible_billing_plan.go",
 )
 
 

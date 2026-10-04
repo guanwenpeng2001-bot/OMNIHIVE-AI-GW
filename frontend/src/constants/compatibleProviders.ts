@@ -26,6 +26,30 @@ export interface CompatibleProvider {
   evidence_url: string
   evidence_observed: string
   billing?: CompatibleBilling
+  plans?: CompatiblePlan[]
+}
+
+/** Saved operator product choice; never an entitlement or transport override. */
+export interface CompatiblePlan {
+  id: string
+  label: string
+  label_zh: string
+  query: 'payg' | 'plan'
+}
+
+export function validateCompatibleBillingPlan(provider: CompatibleProvider, value: unknown): void {
+  if (value == null || value === '') return
+  if (typeof value !== 'string' || !provider.plans?.some(plan => plan.id === value)) {
+    throw new Error('Select an available billing plan')
+  }
+}
+
+/** Existing mode/origin checks still apply; malformed plan metadata fails closed. */
+export function paygBalanceAllowed(platform: string, credentials: Record<string, unknown>): boolean {
+  const value = credentials.billing_plan
+  if (value == null || value === '') return true
+  const provider = compatibleProvider(platform)
+  return typeof value === 'string' && provider?.plans?.some(plan => plan.id === value && plan.query === 'payg') === true
 }
 
 /** Vendor information only; never persisted as credential or routing state. */
@@ -63,6 +87,7 @@ export function compatibleAuthLabel(auth: CompatibleEndpoint['auth']): string {
 /** Preserve account overrides and unrelated credentials; presets remain server defaults.
  * In particular, never materialize official per-protocol bases beside a custom base. */
 export function buildCompatibleCredentials(provider: CompatibleProvider, draft: Record<string, unknown>): Record<string, unknown> {
+  validateCompatibleBillingPlan(provider, draft.billing_plan)
   const mode = compatibleMode(provider, draft.account_mode)
   if (!mode) throw new Error('Select an available account mode')
   const protocol = draft.api_protocol == null || draft.api_protocol === '' ? 'adaptive' : draft.api_protocol
@@ -72,7 +97,8 @@ export function buildCompatibleCredentials(provider: CompatibleProvider, draft: 
   if (provider.base_source === 'account' && (typeof draft.base_url !== 'string' || !draft.base_url.trim())) {
     throw new Error('Enter the resource base URL')
   }
-  return { ...draft, account_mode: mode.mode, api_protocol: protocol }
+  // Preserve an explicit tombstone on update; omission means keep the saved plan.
+  return { ...draft, ...(draft.billing_plan === '' ? { billing_plan: null } : {}), account_mode: mode.mode, api_protocol: protocol }
 }
 
 export function compatibleDiscoveryDisabled(provider: CompatibleProvider | undefined, credentials: Record<string, unknown>): boolean {

@@ -44,6 +44,38 @@
       "summary_zh": "供应商提供可续订的周期额度套餐，与钱包余额不同。请在供应商控制台确认适用套餐及密钥。",
       "evidence_url": "https://marketing.fenno.ai/zh/",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "mini",
+        "label": "Mini",
+        "label_zh": "Mini",
+        "query": "plan"
+      },
+      {
+        "id": "solo",
+        "label": "Solo",
+        "label_zh": "Solo",
+        "query": "plan"
+      },
+      {
+        "id": "studio",
+        "label": "Studio",
+        "label_zh": "Studio",
+        "query": "plan"
+      },
+      {
+        "id": "organization",
+        "label": "Organization",
+        "label_zh": "Organization",
+        "query": "plan"
+      },
+      {
+        "id": "wallet",
+        "label": "Wallet",
+        "label_zh": "钱包余额",
+        "query": "payg"
+      }
+    ]
   }
 ]

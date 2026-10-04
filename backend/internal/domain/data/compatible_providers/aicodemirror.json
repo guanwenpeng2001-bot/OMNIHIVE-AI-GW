@@ -40,6 +40,32 @@
       "summary_zh": "供应商提供定期订阅和独立的预充值 PAYGO 余额。请在供应商控制台确认密钥和接口要求；此账号不记录所选计费套餐。",
       "evidence_url": "https://www.aicodemirror.ai/pricing",
       "evidence_observed": "2026-10-04"
-    }
+    },
+    "plans": [
+      {
+        "id": "pro",
+        "label": "PRO",
+        "label_zh": "PRO",
+        "query": "plan"
+      },
+      {
+        "id": "max",
+        "label": "MAX",
+        "label_zh": "MAX",
+        "query": "plan"
+      },
+      {
+        "id": "ultra",
+        "label": "ULTRA",
+        "label_zh": "ULTRA",
+        "query": "plan"
+      },
+      {
+        "id": "paygo",
+        "label": "PAYGO",
+        "label_zh": "按量付费",
+        "query": "payg"
+      }
+    ]
   }
 ]
