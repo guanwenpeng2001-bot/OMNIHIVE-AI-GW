@@ -36,6 +36,14 @@
       }
     ],
     "evidence_url": "https://docs.qwencloud.com/token-plan/personal/token-plan-personal-quickstart",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "token_plan",
+      "summary": "QwenCloud offers Personal and Team Token Plans. Use the plan-issued key and its documented endpoint; Team key and endpoint parity is not established. Do not interchange the MaaS and other regional Token Plan credentials.",
+      "summary_zh": "QwenCloud 提供个人和团队 Token Plan。请使用套餐颁发的密钥和对应文档指定的接口；尚未确认团队版密钥和接口可共用。不要混用 MaaS 与其他区域 Token Plan 的凭据。",
+      "evidence_url": "https://www.qwencloud.com/pricing/token-plan",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

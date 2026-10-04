@@ -27,6 +27,14 @@
       }
     ],
     "evidence_url": "https://portal.nousresearch.com/",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "monthly_credits",
+      "summary": "Nous Portal offers monthly subscription credits and separate top-ups. Portal subscription authentication is distinct from a static API key; use the existing authentication settings and confirm entitlement in the portal.",
+      "summary_zh": "Nous Portal 提供订阅月度额度及独立充值。Portal 订阅鉴权与静态 API Key 不同；请使用现有鉴权设置并在 Portal 确认权限。",
+      "evidence_url": "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/integrations/nous-portal.md",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

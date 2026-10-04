@@ -73,6 +73,8 @@ func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
 		for _, old := range native {
 			require.Contains(test, allowed, old)
 		}
+		// Migration 285 extends the frozen historical set without changing it.
+		allowed = append(allowed, "astron_token", "mimo_token_sg", "mimo_token_eu")
 		rejected := []string{"unknown", "composite", "relaycode", "etok", "A6API", "", "a6api ", " a6api"}
 		if entity.name != "quota" {
 			rejected = append(rejected, "vertex")

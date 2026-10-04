@@ -36,6 +36,16 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/opencodeProviderPresets.ts#L2700",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "token_plan",
+      "summary": "Token Plan requires its dedicated tp- or ttp- key; PAYG keys are not interchangeable. Select the cluster assigned in the supplier console. Key prefixes are guidance only and are not inspected by this form.",
+      "summary_zh": "Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用。请选择供应商控制台分配的集群。密钥前缀仅作提示，此表单不会检查密钥。",
+      "evidence_url": "https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md",
+      "evidence_observed": "2026-10-04",
+      "same_key": false,
+      "same_bases": false
+    }
   }
 ]

@@ -36,6 +36,13 @@ func (a *Account) compatibleMode() (domain.CompatibleProvider, domain.Compatible
 	if !ok || a.Type != AccountTypeAPIKey {
 		return p, domain.CompatibleMode{}, fmt.Errorf("compatible provider requires API key account")
 	}
+	for _, field := range []string{"account_mode", "api_protocol"} {
+		if raw, exists := a.Credentials[field]; exists && raw != nil {
+			if _, valid := raw.(string); !valid {
+				return p, domain.CompatibleMode{}, fmt.Errorf("compatible provider %s must be a string", field)
+			}
+		}
+	}
 	m, ok := p.ResolveMode(strings.TrimSpace(a.GetCredential("account_mode")))
 	if !ok {
 		return p, m, fmt.Errorf("unsupported compatible provider account mode")

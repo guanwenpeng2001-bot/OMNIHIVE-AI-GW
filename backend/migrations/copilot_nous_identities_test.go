@@ -21,7 +21,9 @@ func TestCopilotNousIdentityMigrationFiniteExpansion(test *testing.T) {
 	for _, provider := range domain.CompatibleProviders() {
 		embedded = append(embedded, provider.ID)
 	}
-	require.ElementsMatch(test, ids, embedded)
+	for _, id := range ids {
+		require.Contains(test, embedded, id)
+	}
 	body := compatibleIdentitySQL(test, "284_copilot_nous_identities.sql")
 	prior := compatibleIdentitySQL(test, compatibleIdentityMigration)
 	remaining := regexp.MustCompile(`(?m)--[^\n]*`).ReplaceAllString(body, "")
@@ -36,7 +38,7 @@ func TestCopilotNousIdentityMigrationFiniteExpansion(test *testing.T) {
 			require.Len(test, after, 91)
 			require.NotContains(test, after, "vertex")
 		}
-		for _, id := range domain.ConcretePlatforms() {
+		for _, id := range ids {
 			require.Contains(test, after, id)
 		}
 		drop := `ALTER TABLE ` + constraint.table + `\s+DROP CONSTRAINT IF EXISTS ` + constraint.name + `;`

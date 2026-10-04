@@ -37,6 +37,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L295",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "token_plan",
+      "summary": "The supplier offers monthly Token Plan allowances shared by keys on the account. Its documentation lists differing plan base URLs; confirm the correct endpoint and key requirements with the supplier. Billing priority and automatic PAYG fallback are not established.",
+      "summary_zh": "供应商提供账号内多个密钥共享额度的月度 Token Plan。其文档列出的套餐接口地址不一致，请向供应商确认正确接口和密钥要求。尚未确认扣费优先级或自动按量付费回退。",
+      "evidence_url": "https://lean.shengsuanyun.com/tokens-plan",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

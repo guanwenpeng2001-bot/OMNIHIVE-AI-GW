@@ -32,6 +32,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L230",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription",
+      "summary": "The supplier offers time-limited subscriptions and separate prepaid PAYGO balance. Confirm key and endpoint requirements in the supplier console; this account does not store a selected billing plan.",
+      "summary_zh": "供应商提供定期订阅和独立的预充值 PAYGO 余额。请在供应商控制台确认密钥和接口要求；此账号不记录所选计费套餐。",
+      "evidence_url": "https://www.aicodemirror.ai/pricing",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

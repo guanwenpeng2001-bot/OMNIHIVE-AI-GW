@@ -36,6 +36,16 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L722",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription_first",
+      "summary": "The same API key uses subscription allowance first, then prepaid PAYGO credits automatically. This information does not identify an active subscription on this account.",
+      "summary_zh": "同一 API Key 优先使用订阅额度，之后自动使用预充值 PAYGO 余额。此说明不代表该账号已开通订阅。",
+      "evidence_url": "https://www.ccsub.net/docs/pricing",
+      "evidence_observed": "2026-10-04",
+      "same_key": true,
+      "same_bases": true
+    }
   }
 ]

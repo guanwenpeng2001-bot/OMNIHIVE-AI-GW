@@ -31,6 +31,14 @@
       }
     ],
     "evidence_url": "https://ppio.com/docs/models/reference-llm-create-chat-completion",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "token_plan",
+      "summary": "PPIO offers an enterprise Token Plan subscription and separate top-up packs. Enterprise plan keys and endpoints are not established for this route; obtain the integration requirements from the supplier.",
+      "summary_zh": "PPIO 提供企业 Token Plan 订阅及独立充值包。尚未确认此接入方式的企业套餐密钥与接口，请向供应商获取接入要求。",
+      "evidence_url": "https://resource.ppio.com/token-plan",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

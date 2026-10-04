@@ -32,6 +32,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L315",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "recurring",
+      "summary": "The supplier offers recurring subscriptions and prepaid balance. Confirm current key and endpoint requirements in the supplier console; billing is managed by the supplier.",
+      "summary_zh": "供应商提供周期订阅和预充值余额。请在供应商控制台确认当前密钥和接口要求；计费由供应商管理。",
+      "evidence_url": "https://www.aigocode.net/",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

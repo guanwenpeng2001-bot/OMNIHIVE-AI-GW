@@ -36,6 +36,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/opencodeProviderPresets.ts#L1154",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "coding_plan",
+      "summary": "BytePlus offers Personal and Team Coding Plans with different credential requirements. Personal plans are restricted to supported coding tools; confirm plan eligibility and supplier terms. This route does not establish unrestricted gateway entitlement.",
+      "summary_zh": "BytePlus 提供凭据要求不同的个人和团队 Coding Plan。个人套餐限用于支持的编程工具，请确认套餐权限和供应商条款；此接入方式不代表拥有无限制的网关使用权限。",
+      "evidence_url": "https://docs.byteplus.com/en/docs/modelark/coding-plan-personal-plan-overview",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]
