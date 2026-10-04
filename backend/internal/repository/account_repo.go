@@ -965,11 +965,13 @@ func lockAndMergeAccountProbeExtra(
 // Configuration owns limits and reset schedules; billing/observation paths own
 // counters, observed windows, capability metadata and managed rate limits.
 func mergeAccountRuntimeExtra(incoming, current map[string]any) {
-	for _, suffix := range []string{"daily_used_percent", "daily_reset_at", "5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
-		key := "volcengine_" + suffix
-		delete(incoming, key)
-		if value, ok := current[key]; ok {
-			incoming[key] = value
+	for _, provider := range []string{"volcengine", "byteplus"} {
+		for _, suffix := range []string{"daily_used_percent", "daily_reset_at", "5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
+			key := provider + "_" + suffix
+			delete(incoming, key)
+			if value, ok := current[key]; ok {
+				incoming[key] = value
+			}
 		}
 	}
 	for _, key := range []string{
@@ -4579,7 +4581,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 		"codex_5h_used_percent", "codex_5h_reset_after_seconds", "codex_5h_reset_at", "codex_5h_window_minutes",
 		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_reset_at", "codex_7d_window_minutes",
 	}
-	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode, service.PlatformVolcengine} {
+	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode, service.PlatformVolcengine, "byteplus"} {
 		for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at", "balance", "balance_currency", "balance_available", "balance_updated_at", "balances"} {
 			fields = append(fields, provider+"_"+suffix)
 		}

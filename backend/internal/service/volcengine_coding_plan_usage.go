@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,8 +34,7 @@ func (s *CNProviderQuotaService) queryVolcengineCodingUsage(ctx context.Context,
 		return r
 	}
 	if account.Platform == "byteplus" {
-		r.Unsupported = true
-		return fail("no_verified_query", "BytePlus subscription quota has no verified management query contract")
+		return s.queryArkSeatUsage(ctx, account)
 	}
 	if !volcengineCodingUsageProfile(account) {
 		r.Unsupported = true
@@ -48,6 +46,9 @@ func (s *CNProviderQuotaService) queryVolcengineCodingUsage(ctx context.Context,
 	}
 	if edition != "personal" && edition != "team" {
 		return fail("unsupported_profile", "Unknown Coding Plan edition")
+	}
+	if edition == "team" {
+		return s.queryArkSeatUsage(ctx, account)
 	}
 	r.PlanLevel = edition
 	ak, sk := strings.TrimSpace(account.GetCredential("volcengine_access_key_id")), strings.TrimSpace(account.GetCredential("volcengine_secret_access_key"))
@@ -76,29 +77,8 @@ func (s *CNProviderQuotaService) queryVolcengineCodingUsage(ctx context.Context,
 	}
 	callCtx, cancel := context.WithTimeout(WithHTTPUpstreamRedirectsDisabled(ctx), cnQuotaUpstreamTimeout)
 	defer cancel()
+	// Personal Coding is a reference contract; it has not been verified live.
 	action, payload := "GetCodingPlanUsage", []byte(`{}`)
-	if edition == "team" {
-		seat := strings.TrimSpace(account.GetCredential("volcengine_seat_id"))
-		if seat == "" {
-			body, ok := s.requestVolcengineUsage(callCtx, account, endpoint, proxy, ak, sk, "GetSeatInfo", []byte(`{"Scene":""}`), r)
-			if !ok {
-				return r
-			}
-			value := gjson.GetBytes(body, "Result.SeatID")
-			if value.Type != gjson.String || strings.TrimSpace(value.Str) == "" {
-				return fail("no_seat", "No Coding Plan seat bound to this identity")
-			}
-			seat = value.Str
-		}
-		if len(seat) > 1024 {
-			return fail("invalid_response", "Invalid Coding Plan seat identifier")
-		}
-		payload, _ = json.Marshal(struct {
-			SeatID string
-			Scene  string
-		}{seat, ""})
-		action = "GetSeatInfoUsage"
-	}
 	body, ok := s.requestVolcengineUsage(callCtx, account, endpoint, proxy, ak, sk, action, payload, r)
 	if !ok {
 		return r
@@ -136,7 +116,13 @@ func (s *CNProviderQuotaService) requestVolcengineUsage(ctx context.Context, acc
 		r.Status, r.Error = "upstream_error", "Quota request construction failed"
 		return nil, false
 	}
-	if action == "GetSeatAFPUsage" {
+	if action == "GetSeatInfoUsage" {
+		region := "cn-beijing"
+		if account.Platform == "byteplus" {
+			region = "ap-southeast-1"
+		}
+		signArkSeatUsage(req, payload, ak, sk, region, time.Now())
+	} else if action == "GetSeatAFPUsage" {
 		signVolcengineManagement(req, payload, ak, sk, "cn-beijing", "ark", "application/json; charset=utf-8", time.Now())
 	} else {
 		signVolcengineUsage(req, payload, ak, sk, time.Now())

@@ -251,7 +251,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 	} {
 		delete(account.Extra, field)
 	}
-	for _, provider := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformVolcengine} {
+	for _, provider := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformVolcengine, "byteplus"} {
 		for _, suffix := range []string{cnExtraSuffix5hUsed, cnExtraSuffix5hReset, cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset, cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset, cnExtraSuffixUsageUpdated, cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixAvailable, cnBalanceExtraSuffixUpdated, cnBalanceExtraSuffixBalances} {
 			delete(account.Extra, cnExtraKey(provider, suffix))
 		}
