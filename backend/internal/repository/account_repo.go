@@ -128,7 +128,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	if account != nil && hasVolcengineQuerySecrets(account.Credentials) {
+	if account != nil && hasManagementQuerySecrets(account.Credentials) {
 		return r.CreateWithAccountGroups(ctx, account, nil)
 	}
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
@@ -592,7 +592,7 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
-	if hasVolcengineQuerySecrets(account.Credentials) {
+	if hasManagementQuerySecrets(account.Credentials) {
 		// Return the committed encrypted revision alongside the resolved values,
 		// so the next edit does not submit the pre-rotation reference version.
 		for _, key := range []string{service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey} {
@@ -965,7 +965,7 @@ func lockAndMergeAccountProbeExtra(
 // Configuration owns limits and reset schedules; billing/observation paths own
 // counters, observed windows, capability metadata and managed rate limits.
 func mergeAccountRuntimeExtra(incoming, current map[string]any) {
-	for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
+	for _, suffix := range []string{"daily_used_percent", "daily_reset_at", "5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
 		key := "volcengine_" + suffix
 		delete(incoming, key)
 		if value, ok := current[key]; ok {
@@ -973,6 +973,7 @@ func mergeAccountRuntimeExtra(incoming, current map[string]any) {
 		}
 	}
 	for _, key := range []string{
+		"hunyuan_token_plan", "hunyuan_usage_updated_at",
 		"quota_used", "quota_daily_used", "quota_weekly_used",
 		"quota_daily_start", "quota_weekly_start", "model_rate_limits",
 		"session_window_utilization", "passive_usage_7d_utilization", "passive_usage_7d_reset",
@@ -1040,7 +1041,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
-	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasVolcengineQuerySecrets(credentials) {
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasManagementQuerySecrets(credentials) {
 		var err error
 		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
 		if err != nil {
@@ -1082,7 +1083,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
-			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+volcengineQuotaInvalidationSQL("$1::jsonb")+`,
+			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb")+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
@@ -3255,7 +3256,7 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
-	if hasVolcengineQuerySecrets(updates.Credentials) {
+	if hasManagementQuerySecrets(updates.Credentials) {
 		return 0, service.ErrCredentialSecretInvalid
 	}
 	defer invalidateCatalogAfterWrite(ctx)
@@ -4567,6 +4568,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 		changes = append(changes, proxyChanged)
 	}
 	fields := []string{
+		"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at",
 		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",

@@ -10,15 +10,15 @@ import (
 	"github.com/google/uuid"
 )
 
-const volcengineQuotaSnapshotKeysSQL = "ARRAY['volcengine_5h_used_percent','volcengine_5h_reset_at','volcengine_weekly_used_percent','volcengine_weekly_reset_at','volcengine_monthly_used_percent','volcengine_monthly_reset_at','volcengine_usage_updated_at']::text[]"
+const cloudQuotaSnapshotKeysSQL = "ARRAY['volcengine_5h_used_percent','volcengine_5h_reset_at','volcengine_weekly_used_percent','volcengine_weekly_reset_at','volcengine_monthly_used_percent','volcengine_monthly_reset_at','volcengine_usage_updated_at','volcengine_daily_used_percent','volcengine_daily_reset_at','hunyuan_token_plan','hunyuan_usage_updated_at']::text[]"
 
-func volcengineQuotaInvalidationSQL(credentialsExpression string) string {
-	return "CASE WHEN platform = 'volcengine' AND credentials IS DISTINCT FROM " + credentialsExpression + " THEN " + volcengineQuotaSnapshotKeysSQL + " ELSE ARRAY[]::text[] END"
+func cloudQuotaInvalidationSQL(credentialsExpression string) string {
+	return "CASE WHEN platform IN ('volcengine','hunyuan') AND credentials IS DISTINCT FROM " + credentialsExpression + " THEN " + cloudQuotaSnapshotKeysSQL + " ELSE ARRAY[]::text[] END"
 }
 
-func hasVolcengineQuerySecrets(credentials map[string]any) bool {
+func hasManagementQuerySecrets(credentials map[string]any) bool {
 	for field := range credentials {
-		if service.IsVolcengineQuerySecret(field) {
+		if service.IsManagementQuerySecret(field) {
 			return true
 		}
 	}
@@ -27,10 +27,10 @@ func hasVolcengineQuerySecrets(credentials map[string]any) bool {
 
 // New management keys must never enter inline account JSON, even on legacy
 // accounts that have not opted into referenced inference credentials.
-func createVolcengineQueryReference(ctx context.Context, database credentialSQL, encryptor service.SecretEncryptor, accountID, workspaceID int64, credentials map[string]any) (map[string]any, error) {
+func createManagementQueryReference(ctx context.Context, database credentialSQL, encryptor service.SecretEncryptor, accountID, workspaceID int64, credentials map[string]any) (map[string]any, error) {
 	inline, secrets := service.SplitCredentialSecrets(credentials)
 	for field, value := range secrets {
-		if !service.IsVolcengineQuerySecret(field) {
+		if !service.IsManagementQuerySecret(field) {
 			continue
 		}
 		if value == nil {
@@ -66,7 +66,7 @@ func createVolcengineQueryReference(ctx context.Context, database credentialSQL,
 // Called only within CreateWithAccountGroups' transaction. The initial INSERT
 // contains configuration alone; the secret and reference publish atomically.
 func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, client *dbent.Client, account *service.Account) error {
-	if !hasVolcengineQuerySecrets(account.Credentials) {
+	if !hasManagementQuerySecrets(account.Credentials) {
 		return createAccountRecord(ctx, client, account)
 	}
 	if r.credentialEncryptor == nil {
@@ -79,7 +79,7 @@ func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, c
 	if err := createAccountRecord(ctx, client, account); err != nil {
 		return err
 	}
-	persisted, err := createVolcengineQueryReference(ctx, client, r.credentialEncryptor, account.ID, account.WorkspaceID, credentials)
+	persisted, err := createManagementQueryReference(ctx, client, r.credentialEncryptor, account.ID, account.WorkspaceID, credentials)
 	if err != nil {
 		return err
 	}

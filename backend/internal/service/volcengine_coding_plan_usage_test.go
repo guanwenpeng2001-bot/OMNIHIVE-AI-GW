@@ -125,7 +125,7 @@ func TestVolcengineNoRequestBoundaries(t *testing.T) {
 		{"missing access", "missing_credentials", func(a *Account) { delete(a.Credentials, "volcengine_access_key_id") }},
 		{"missing secret", "missing_credentials", func(a *Account) { delete(a.Credentials, "volcengine_secret_access_key") }},
 		{"payg", "unsupported_profile", func(a *Account) { a.Credentials["account_mode"] = "payg" }},
-		{"agent", "unsupported_profile", func(a *Account) { a.Credentials["base_url"] = "https://ark.cn-beijing.volces.com/api/plan/v3" }},
+		{"agent", "no_verified_query", func(a *Account) { a.Credentials["base_url"] = "https://ark.cn-beijing.volces.com/api/plan/v3" }},
 		{"custom", "unsupported_profile", func(a *Account) { a.Credentials["base_url"] = "https://relay.example/api/coding/v3" }},
 		{"mixed", "unsupported_profile", func(a *Account) {
 			a.Credentials["api_base_urls"] = map[string]any{"anthropic": "https://relay.example/api/coding"}

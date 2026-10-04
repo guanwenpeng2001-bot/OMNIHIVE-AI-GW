@@ -136,7 +136,11 @@ func (s *CNProviderQuotaService) requestVolcengineUsage(ctx context.Context, acc
 		r.Status, r.Error = "upstream_error", "Quota request construction failed"
 		return nil, false
 	}
-	signVolcengineUsage(req, payload, ak, sk, time.Now())
+	if action == "GetSeatAFPUsage" {
+		signVolcengineManagement(req, payload, ak, sk, "cn-beijing", "ark", "application/json; charset=utf-8", time.Now())
+	} else {
+		signVolcengineUsage(req, payload, ak, sk, time.Now())
+	}
 	req.Header.Set("Accept", "application/json")
 	// Never apply inference headers to this control-plane request.
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxy, account.ID, maxInt(account.Concurrency, 1))
