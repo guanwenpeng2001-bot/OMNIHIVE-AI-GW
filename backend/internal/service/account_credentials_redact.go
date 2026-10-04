@@ -1,5 +1,13 @@
 package service
 
+import "strings"
+
+// Quota management credentials are independent of inference API keys. Empty
+// form inputs preserve stored values; an explicit null is the clear operation.
+func IsVolcengineQuerySecret(key string) bool {
+	return key == "volcengine_access_key_id" || key == "volcengine_secret_access_key"
+}
+
 // SensitiveCredentialKeys 列出 Account.Credentials JSON map 中绝不允许返回到前端的子键。
 // dto 层做响应脱敏、service 层做更新合并都引用此清单——新增凭证类型时务必同步。
 var SensitiveCredentialKeys = []string{
@@ -11,6 +19,7 @@ var SensitiveCredentialKeys = []string{
 	"password", "sso_token", "sso", "sso-rw", "clearTextPassword",
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
+	"volcengine_access_key_id", "volcengine_secret_access_key",
 	"service_account_json", "service_account", "private_key",
 }
 
@@ -41,7 +50,12 @@ func MergePreservingSensitiveCreds(existing, incoming map[string]any) map[string
 		out[k] = v
 	}
 	for _, key := range SensitiveCredentialKeys {
-		if _, hasIncoming := incoming[key]; hasIncoming {
+		value, hasIncoming := incoming[key]
+		if text, ok := value.(string); hasIncoming && IsVolcengineQuerySecret(key) && ok && strings.TrimSpace(text) == "" {
+			delete(out, key)
+			hasIncoming = false
+		}
+		if hasIncoming {
 			continue
 		}
 		if existingVal, ok := existing[key]; ok {

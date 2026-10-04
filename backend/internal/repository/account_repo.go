@@ -128,6 +128,9 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
+	if account != nil && hasVolcengineQuerySecrets(account.Credentials) {
+		return r.CreateWithAccountGroups(ctx, account, nil)
+	}
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
 		client := transaction.Client()
 		if err := createAccountRecord(ctx, client, account); err != nil {
@@ -284,7 +287,7 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 		return err
 	}
 
-	if err := createAccountRecord(ctx, txClient, account); err != nil {
+	if err := r.createAccountWithQuerySecrets(ctx, txClient, account); err != nil {
 		return err
 	}
 	if err := validateHostedGroupBindings(ctx, txClient, []int64{account.ID}, groupIDs); err != nil {
@@ -589,6 +592,15 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
+	if hasVolcengineQuerySecrets(account.Credentials) {
+		// Return the committed encrypted revision alongside the resolved values,
+		// so the next edit does not submit the pre-rotation reference version.
+		for _, key := range []string{service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey} {
+			if value, ok := updated.Credentials[key]; ok {
+				account.Credentials[key] = value
+			}
+		}
+	}
 	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	if contextTx == nil {
@@ -645,8 +657,15 @@ func (r *accountRepository) updateLockedAccount(
 	}
 	account.Extra = extra
 	service.NormalizeAccountModelSelectionUpdate(accountEntityToService(current), account)
+	persistedCredentials, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, account.ID, current.WorkspaceID, current.Credentials, account.Credentials)
+	if err != nil {
+		return nil, err
+	}
 	beforeRuntime := accountEntityToService(current)
 	incomingRuntime := *account
+	// The encrypted reference version, including a just-rotated management
+	// secret, is part of the runtime identity used to invalidate old snapshots.
+	incomingRuntime.Credentials = persistedCredentials
 	incomingRuntime.Proxy = nil
 	runtimeIdentityChanged := service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime)
 	clearOpenCodeQuotaCooldown := runtimeIdentityChanged && openCodeQuotaOwnedPause(beforeRuntime)
@@ -666,10 +685,6 @@ func (r *accountRepository) updateLockedAccount(
 		schedulable = false
 	}
 
-	persistedCredentials, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, account.ID, current.WorkspaceID, current.Credentials, account.Credentials)
-	if err != nil {
-		return nil, err
-	}
 	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetTpmLimit(account.TPMLimit).
@@ -950,6 +965,13 @@ func lockAndMergeAccountProbeExtra(
 // Configuration owns limits and reset schedules; billing/observation paths own
 // counters, observed windows, capability metadata and managed rate limits.
 func mergeAccountRuntimeExtra(incoming, current map[string]any) {
+	for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
+		key := "volcengine_" + suffix
+		delete(incoming, key)
+		if value, ok := current[key]; ok {
+			incoming[key] = value
+		}
+	}
 	for _, key := range []string{
 		"quota_used", "quota_daily_used", "quota_weekly_used",
 		"quota_daily_start", "quota_weekly_start", "model_rate_limits",
@@ -1018,7 +1040,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
-	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" {
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasVolcengineQuerySecrets(credentials) {
 		var err error
 		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
 		if err != nil {
@@ -1036,7 +1058,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = COALESCE((CASE
+			extra = (COALESCE((CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
 				WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
@@ -1060,7 +1082,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
-			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`,
+			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+volcengineQuotaInvalidationSQL("$1::jsonb")+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
@@ -3231,6 +3253,11 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	// Management secrets require the per-account encrypted/reference write path;
+	// the generic bulk JSONB merge must never persist them inline.
+	if hasVolcengineQuerySecrets(updates.Credentials) {
+		return 0, service.ErrCredentialSecretInvalid
+	}
 	defer invalidateCatalogAfterWrite(ctx)
 	if len(ids) == 0 {
 		return 0, nil
@@ -4550,7 +4577,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 		"codex_5h_used_percent", "codex_5h_reset_after_seconds", "codex_5h_reset_at", "codex_5h_window_minutes",
 		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_reset_at", "codex_7d_window_minutes",
 	}
-	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode} {
+	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode, service.PlatformVolcengine} {
 		for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at", "balance", "balance_currency", "balance_available", "balance_updated_at", "balances"} {
 			fields = append(fields, provider+"_"+suffix)
 		}
