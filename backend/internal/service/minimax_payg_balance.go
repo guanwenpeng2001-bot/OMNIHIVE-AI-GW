@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"math"
+	"math/big"
 	"strconv"
 	"strings"
 
@@ -62,8 +63,26 @@ func parseMiniMaxPayGBalance(body []byte) (CNProviderBalanceEntry, error) {
 	if amount.Type != gjson.String {
 		return CNProviderBalanceEntry{}, invalid
 	}
-	balance, err := strconv.ParseFloat(amount.String(), 64)
-	if err != nil || math.IsNaN(balance) || math.IsInf(balance, 0) {
+	text := amount.String()
+	// Bound exact decimal work before allocating big numbers from upstream input.
+	if len(text) > 128 || !gjson.Valid(text) || gjson.Parse(text).Type != gjson.Number {
+		return CNProviderBalanceEntry{}, invalid
+	}
+	if exponentIndex := strings.IndexAny(text, "eE"); exponentIndex >= 0 {
+		exponent, err := strconv.ParseInt(text[exponentIndex+1:], 10, 32)
+		if err != nil || exponent < -400 || exponent > 400 {
+			return CNProviderBalanceEntry{}, invalid
+		}
+	}
+	balance, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(balance) || math.IsInf(balance, 0) || math.Abs(balance) > 9007199254740991 {
+		return CNProviderBalanceEntry{}, invalid
+	}
+	// Preserve the numeric JSON contract without silently rounding the supplier's
+	// decimal value. Trailing zeros are insignificant; additional precision is not.
+	original, valid := new(big.Rat).SetString(text)
+	roundTrip, roundTripValid := new(big.Rat).SetString(strconv.FormatFloat(balance, 'g', -1, 64))
+	if !valid || !roundTripValid || original.Cmp(roundTrip) != 0 {
 		return CNProviderBalanceEntry{}, invalid
 	}
 	return CNProviderBalanceEntry{Balance: balance}, nil

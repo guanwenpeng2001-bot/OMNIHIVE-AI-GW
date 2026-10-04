@@ -260,3 +260,31 @@ func TestMiniMaxPayGStaleAccountDoesNotPublish(test *testing.T) {
 	require.Nil(test, result)
 	require.Empty(test, repo.extraWrites)
 }
+
+func TestMiniMaxPayGBalanceDecimalRoundTrip(test *testing.T) {
+	for _, scenario := range []struct {
+		amount string
+		valid  bool
+	}{
+		{"98.00", true}, {"1234.56789", true}, {"0.1", true}, {"-0.25", true}, {"0.00", true},
+		{"9007199254740991", true}, {"-9007199254740991", true}, {"1e-20", true},
+		{"9007199254740992", false}, {"9007199254740993", false}, {"-9007199254740992", false},
+		{"9007199254740991.1", false}, {"1.00000000000000001", false}, {"1234.567890123456789", false},
+		{"1e-400", false}, {"1e-999999999", false}, {"1e999999999", false},
+		{strings.Repeat("0", 129), false}, {"0x1p2", false}, {"1/2", false},
+	} {
+		test.Run(scenario.amount, func(test *testing.T) {
+			repo := &cnBalanceProbeRepo{account: miniMaxPayGAccount("https://api.minimax.cn")}
+			upstream := &miniMaxBalanceTransport{status: 200, body: fmt.Sprintf(`{"available_amount":%q,"base_resp":{"status_code":0}}`, scenario.amount)}
+			result, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryBalance(context.Background(), 42)
+			require.NoError(test, err)
+			require.Equal(test, scenario.valid, result.Success)
+			if scenario.valid {
+				require.Len(test, repo.extraWrites, 1)
+			} else {
+				require.Empty(test, repo.extraWrites)
+				require.Empty(test, result.Balances)
+			}
+		})
+	}
+}
