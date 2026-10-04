@@ -1061,17 +1061,20 @@ describe('compatible mode preview transitions', () => {
 
 describe('model discovery failure classification', () => {
   it.each([
-    ['endpoint_not_found', 'syncUpstreamModelsEndpointNotFound'],
-    ['discovery_unconfirmed', 'syncUpstreamModelsDiscoveryUnconfirmed'],
-    ['permission', 'syncUpstreamModelsPermission'],
-    ['network', 'syncUpstreamModelsNetwork'],
-  ])('keeps exact IDs and aliases after %s', async (reason, key) => {
-    syncUpstreamModelsPreview.mockRejectedValueOnce({ response: { status: 400, data: { reason: `upstream_model_sync_${reason}` } } })
+    ['endpoint_not_found', 'syncUpstreamModelsEndpointNotFound', 400],
+    ['discovery_unconfirmed', 'syncUpstreamModelsDiscoveryUnconfirmed', 400],
+    ['permission', 'syncUpstreamModelsPermission', 502],
+    ['rate_limited', 'syncUpstreamModelsRateLimited', 502],
+    ['network', 'syncUpstreamModelsNetwork', 502],
+  ])('keeps exact IDs and aliases after %s', async (reason, key, status) => {
+    syncUpstreamModelsPreview.mockRejectedValueOnce({ response: { status, data: { reason: `upstream_model_sync_${reason}` } } })
     const wrapper = mountSelector({ modelValue: ['kept'], modelMappings: [{ from: 'alias', to: 'target' }], syncCredentials: { platform: 'openai', type: 'apikey', api_key: 'fixture' } })
     await flushPromises()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain(`admin.accounts.${key}`)
+    expect(['failed', 'stale']).toContain(wrapper.getComponent(ModelCatalogDetails).props('statusOverride'))
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
     expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('kept')
     expect(wrapper.get('[data-testid="selected-models"]').text()).toContain('alias')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()

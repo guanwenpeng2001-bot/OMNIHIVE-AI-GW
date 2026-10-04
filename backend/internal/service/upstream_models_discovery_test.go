@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -79,7 +80,11 @@ func TestDiscoveryPartialPreviewPreservesEvidence(test *testing.T) {
 			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 			account := &Account{Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://relay.example/v1"}}
 			catalog, err := service.PreviewAccountModelCatalog(context.Background(), account)
-			require.NoError(test, err)
+			require.Nil(test, catalog)
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			catalog = failure.PartialCatalog
+			require.NotNil(test, catalog)
 			require.False(test, catalog.DiscoveryComplete)
 			require.False(test, catalog.Complete)
 			require.Contains(test, catalog.DiscoveredModels, "first")
@@ -102,7 +107,12 @@ func TestDiscoveryOfficialCandidateFallback(test *testing.T) {
 				account.Credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
 			}
 			catalog, err := service.PreviewAccountModelCatalog(context.Background(), account)
-			require.NoError(test, err)
+			require.Nil(test, catalog)
+			var failure *UpstreamModelSyncError
+			require.ErrorAs(test, err, &failure)
+			catalog = failure.PartialCatalog
+			require.NotNil(test, catalog)
+			require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
 			require.Equal(test, "platform-candidates", catalog.CatalogSource)
 			require.NotEmpty(test, catalog.CandidateModels)
 			require.Empty(test, catalog.DiscoveredModels)
@@ -157,7 +167,11 @@ func TestDiscoveryPartialHTTPFailureDoesNotRevoke(test *testing.T) {
 	}}
 	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var syncFailure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &syncFailure)
+	preview = syncFailure.PartialCatalog
+	require.NotNil(test, preview)
 	require.Equal(test, []string{"first"}, preview.DiscoveredModels)
 	require.Nil(test, preview.Review)
 	require.EqualValues(test, 7, account.GetUpstreamModelCatalog().Revision)
@@ -223,7 +237,11 @@ func TestDiscoveryEmptyPageWithContinuationIsPartial(test *testing.T) {
 	}}
 	account := &Account{Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var failure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &failure)
+	preview = failure.PartialCatalog
+	require.NotNil(test, preview)
 	require.False(test, preview.DiscoveryComplete)
 	require.Empty(test, preview.DiscoveredModels)
 	require.Nil(test, preview.Review)
@@ -293,7 +311,12 @@ func TestReviewOfficialPlatformCandidatesStayIncomplete(test *testing.T) {
 			account.Credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
 		}
 		preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-		require.NoError(test, err)
+		require.Nil(test, preview)
+		var failure *UpstreamModelSyncError
+		require.ErrorAs(test, err, &failure)
+		preview = failure.PartialCatalog
+		require.NotNil(test, preview)
+		require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
 		require.Equal(test, "platform-candidates", preview.CatalogSource)
 		require.NotEmpty(test, preview.CandidateModels, platform)
 		require.Empty(test, preview.DiscoveredModels)
@@ -462,5 +485,58 @@ func TestModelDiscoveryExplicitAuthentication403(test *testing.T) {
 				require.NotContains(test, err.Error(), "private-secret")
 			}
 		})
+	}
+}
+
+func TestModelPreviewPartialPagesRetainFailureReason(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	for _, discovery := range []struct{ name, platform, firstPage string }{
+		{"generic", PlatformOpenAI, `{"data":[{"id":"first-page"}],"has_more":true,"last_id":"first-page"}`},
+		{"qianwen native", PlatformQianwen, `{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"first-page"}]}}`},
+	} {
+		for _, failure := range []struct {
+			name   string
+			status int
+			kind   UpstreamModelSyncErrorKind
+		}{
+			{"rate limited", 429, UpstreamModelSyncErrorRateLimited},
+			{"permission", 403, UpstreamModelSyncErrorPermission},
+			{"network read", 200, UpstreamModelSyncErrorNetwork},
+		} {
+			test.Run(discovery.name+"/"+failure.name, func(test *testing.T) {
+				failedResponse := catalogFixtureResponse(`{"error":"private-secret"}`)
+				failedResponse.StatusCode = failure.status
+				if failure.kind == UpstreamModelSyncErrorNetwork {
+					failedResponse.Body = passthroughErrReadCloser{err: io.ErrUnexpectedEOF}
+				}
+				upstream := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(discovery.firstPage), failedResponse}}
+				account := &Account{ID: 73, Platform: discovery.platform, Type: AccountTypeAPIKey,
+					Credentials: map[string]any{"api_key": "private-secret", "model_mapping": map[string]any{"kept": "kept", "alias": "target"}},
+					Extra:       map[string]any{UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"kept"}, EligibleModels: []AccountCatalogModel{{ID: "kept"}}}},
+				}
+				before, err := json.Marshal(account)
+				require.NoError(test, err)
+				syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+				preview, err := syncService.PreviewAccountModelCatalog(context.Background(), account)
+				require.Nil(test, preview)
+				var syncFailure *UpstreamModelSyncError
+				require.ErrorAs(test, err, &syncFailure)
+				require.Equal(test, failure.kind, syncFailure.Kind)
+				if failure.kind != UpstreamModelSyncErrorNetwork {
+					require.Equal(test, failure.status, syncFailure.StatusCode)
+				}
+				require.NotNil(test, syncFailure.PartialCatalog)
+				require.Equal(test, []string{"first-page"}, syncFailure.PartialCatalog.DiscoveredModels)
+				require.False(test, syncFailure.PartialCatalog.DiscoveryComplete)
+				require.False(test, syncFailure.PartialCatalog.Complete)
+				require.Empty(test, syncFailure.PartialCatalog.EligibleModels)
+				require.Nil(test, syncFailure.PartialCatalog.Review)
+				require.Len(test, upstream.requests, 2)
+				require.NotContains(test, syncFailure.SafeMessage(), "private-secret")
+				after, err := json.Marshal(account)
+				require.NoError(test, err)
+				require.JSONEq(test, string(before), string(after))
+			})
+		}
 	}
 }

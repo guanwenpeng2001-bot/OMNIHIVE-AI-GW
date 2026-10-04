@@ -34,7 +34,12 @@ func TestQianwenPartialDiscoveryPreservesValidatedPages(test *testing.T) {
 		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 		account := &Account{Platform: PlatformQianwen, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 		preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-		require.NoError(test, err)
+		require.Nil(test, preview)
+		var failure *UpstreamModelSyncError
+		require.ErrorAs(test, err, &failure)
+		preview = failure.PartialCatalog
+		require.NotNil(test, preview)
+		require.Equal(test, UpstreamModelSyncErrorUpstream, failure.Kind)
 		require.Equal(test, []string{"first"}, preview.DiscoveredModels)
 		require.False(test, preview.DiscoveryComplete)
 		require.Nil(test, preview.Review)
@@ -46,7 +51,12 @@ func TestQianwenUnknownContinuationIsPartial(test *testing.T) {
 	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 	account := &Account{Platform: PlatformQianwen, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var failure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &failure)
+	preview = failure.PartialCatalog
+	require.NotNil(test, preview)
+	require.Equal(test, UpstreamModelSyncErrorUpstream, failure.Kind)
 	require.Equal(test, []string{"first"}, preview.DiscoveredModels)
 	require.False(test, preview.DiscoveryComplete)
 	require.Nil(test, preview.Review)

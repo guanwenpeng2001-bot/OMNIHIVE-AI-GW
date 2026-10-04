@@ -32,13 +32,18 @@ func TestAccountModelCatalogAntigravityAPIKeyGemini(test *testing.T) {
 			before, err := json.Marshal(account)
 			require.NoError(test, err)
 			preview, err := service.PreviewAccountModelCatalog(context.Background(), &account)
-			require.NoError(test, err)
 			if partial {
+				require.Nil(test, preview)
+				var failure *UpstreamModelSyncError
+				require.ErrorAs(test, err, &failure)
+				preview = failure.PartialCatalog
+				require.NotNil(test, preview)
 				require.False(test, preview.Complete)
 				require.Nil(test, preview.Review)
 				require.Empty(test, preview.Models)
 				require.Equal(test, []string{"claude-fixture"}, preview.DiscoveredModels)
 			} else {
+				require.NoError(test, err)
 				require.True(test, preview.Complete)
 				require.NotNil(test, preview.Review)
 				require.ElementsMatch(test, []string{"claude-fixture", "gemini-fixture"}, preview.DiscoveredModels)

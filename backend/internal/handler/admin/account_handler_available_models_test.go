@@ -80,11 +80,12 @@ type syncUpstreamHTTPUpstream struct {
 	resp      *http.Response
 	responses []*http.Response
 	err       error
+	errAfter  int
 }
 
 func (u *syncUpstreamHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
 	u.requests = append(u.requests, req)
-	if u.err != nil {
+	if u.err != nil && len(u.requests) > u.errAfter {
 		return nil, u.err
 	}
 	if len(u.responses) > 0 {
@@ -692,12 +693,11 @@ func TestAccountModelCatalogQianwenCatalogDoesNotPersistIncompletePages(t *testi
 	}}
 	w := httptest.NewRecorder()
 	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
-	require.Equal(t, 200, w.Code, w.Body.String())
-	require.Equal(t, `["first"]`, gjson.Get(w.Body.String(), "data.discovered_models").Raw)
-	require.Equal(t, `["first"]`, gjson.Get(w.Body.String(), "data.candidate_models").Raw)
-	require.Equal(t, `[]`, gjson.Get(w.Body.String(), "data.eligible_models").Raw)
-	require.False(t, gjson.Get(w.Body.String(), "data.discovery_complete").Bool())
-	require.Equal(t, "incomplete", gjson.Get(w.Body.String(), "data.capability_status").String())
+	require.Equal(t, http.StatusBadGateway, w.Code, w.Body.String())
+	require.Equal(t, "upstream_model_sync_upstream", gjson.Get(w.Body.String(), "reason").String())
+	require.NotContains(t, w.Body.String(), "first")
+	require.NotContains(t, w.Body.String(), "discovered_models")
+	require.NotContains(t, w.Body.String(), "candidate_models")
 	require.False(t, gjson.Get(w.Body.String(), "data.review").Exists())
 	require.Zero(t, svc.commitCalls)
 	require.Zero(t, svc.updateAccountCalls)
@@ -806,4 +806,111 @@ func TestSyncPreviewNetworkError(test *testing.T) {
 	require.Equal(test, 502, recorder.Code)
 	require.Equal(test, "upstream_model_sync_network", gjson.Get(recorder.Body.String(), "reason").String())
 	require.NotContains(test, recorder.Body.String(), "private-secret")
+}
+
+func TestSyncPreviewPartialFailureReachesAdmin(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	for _, discovery := range []struct{ name, platform, firstPage, cursor string }{
+		{"qianwen native", service.PlatformQianwen, `{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"private-first-page"}]}}`, "page_no"},
+		{"generic", service.PlatformOpenAI, `{"data":[{"id":"private-first-page"}],"has_more":true,"last_id":"private-first-page"}`, "after"},
+	} {
+		for _, failure := range []struct {
+			name, reason, body string
+			status             int
+			network            bool
+		}{
+			{"rate limited", "rate_limited", `{"error":"private-upstream-body"}`, 429, false},
+			{"permission", "permission", `{"error":"private-upstream-body"}`, 403, false},
+			{"network", "network", "", 0, true},
+			{"malformed page", "upstream", `private-upstream-body`, 200, false},
+		} {
+			for _, saved := range []bool{false, true} {
+				test.Run(fmt.Sprintf("%s/%s/saved=%t", discovery.name, failure.name, saved), func(test *testing.T) {
+					mapping := map[string]any{"kept": "kept", "alias": "private-selected-target"}
+					old := service.AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"kept"}, EligibleModels: []service.AccountCatalogModel{{ID: "kept"}}}
+					adminService := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+						ID: 19, Platform: discovery.platform, Type: service.AccountTypeAPIKey, Status: service.StatusActive,
+						Credentials: map[string]any{"api_key": "private-secret", "model_mapping": mapping},
+						Extra:       map[string]any{service.UpstreamModelCatalogExtraKey: old},
+					}}
+					before, err := json.Marshal(adminService.account)
+					require.NoError(test, err)
+					upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+						{StatusCode: 200, Body: io.NopCloser(strings.NewReader(discovery.firstPage))},
+						{StatusCode: failure.status, Body: io.NopCloser(strings.NewReader(failure.body))},
+					}}
+					if failure.network {
+						upstream.err, upstream.errAfter = fmt.Errorf("private-secret: %w", context.DeadlineExceeded), 1
+					}
+					path := "/api/v1/admin/accounts/19/models/sync-upstream"
+					body := []byte{}
+					if !saved {
+						path = "/api/v1/admin/accounts/models/sync-upstream-preview"
+						body, err = json.Marshal(map[string]any{"platform": discovery.platform, "type": "apikey", "credentials": adminService.account.Credentials})
+						require.NoError(test, err)
+					}
+					request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
+					request.Header.Set("Content-Type", "application/json")
+					recorder := httptest.NewRecorder()
+					setupSyncUpstreamModelsRouter(adminService, upstream).ServeHTTP(recorder, request)
+					require.Equal(test, http.StatusBadGateway, recorder.Code, recorder.Body.String())
+					require.Equal(test, "upstream_model_sync_"+failure.reason, gjson.Get(recorder.Body.String(), "reason").String())
+					require.Len(test, upstream.requests, 2)
+					require.NotEmpty(test, upstream.requests[1].URL.Query().Get(discovery.cursor))
+					for _, private := range []string{"private-first-page", "private-selected-target", "private-upstream-body", "private-secret", "candidate_models", "discovered_models", "eligible_models"} {
+						require.NotContains(test, recorder.Body.String(), private)
+					}
+					require.False(test, gjson.Get(recorder.Body.String(), "data.review").Exists())
+					after, err := json.Marshal(adminService.account)
+					require.NoError(test, err)
+					require.JSONEq(test, string(before), string(after), "preview must preserve prior snapshot, selection and state")
+					require.Zero(test, adminService.commitCalls)
+					require.Zero(test, adminService.mergeCalls)
+					require.Zero(test, adminService.updateAccountCalls)
+				})
+			}
+		}
+	}
+}
+
+func TestSyncPreviewCandidatesReturnUnconfirmed(test *testing.T) {
+	for _, platform := range []string{service.PlatformVolcengine, service.PlatformHunyuan} {
+		for _, saved := range []bool{false, true} {
+			test.Run(fmt.Sprintf("%s/saved=%t", platform, saved), func(test *testing.T) {
+				credentials := map[string]any{"api_key": "private-secret", "model_mapping": map[string]any{"kept": "kept"}}
+				if platform == service.PlatformHunyuan {
+					credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
+				}
+				adminService := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: platform, Type: service.AccountTypeAPIKey, Credentials: credentials,
+					Extra: map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"kept"}}},
+				}}
+				before, err := json.Marshal(adminService.account)
+				require.NoError(test, err)
+				path := "/api/v1/admin/accounts/19/models/sync-upstream"
+				body := []byte{}
+				if !saved {
+					path = "/api/v1/admin/accounts/models/sync-upstream-preview"
+					body, err = json.Marshal(map[string]any{"platform": platform, "type": "apikey", "credentials": credentials})
+					require.NoError(test, err)
+				}
+				upstream := &syncUpstreamHTTPUpstream{}
+				recorder := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(string(body)))
+				request.Header.Set("Content-Type", "application/json")
+				setupSyncUpstreamModelsRouter(adminService, upstream).ServeHTTP(recorder, request)
+				require.Equal(test, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+				require.Equal(test, "upstream_model_sync_discovery_unconfirmed", gjson.Get(recorder.Body.String(), "reason").String())
+				require.Empty(test, upstream.requests)
+				for _, private := range []string{"private-secret", "kept", "candidate_models", "discovered_models", "eligible_models"} {
+					require.NotContains(test, recorder.Body.String(), private)
+				}
+				require.False(test, gjson.Get(recorder.Body.String(), "data").Exists())
+				after, err := json.Marshal(adminService.account)
+				require.NoError(test, err)
+				require.JSONEq(test, string(before), string(after))
+				require.Zero(test, adminService.commitCalls)
+				require.Zero(test, adminService.updateAccountCalls)
+			})
+		}
+	}
 }
