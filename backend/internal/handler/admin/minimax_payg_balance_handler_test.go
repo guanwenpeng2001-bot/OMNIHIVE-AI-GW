@@ -156,29 +156,64 @@ func TestMiniMaxProjectionPreservesDeepSeekAvailability(test *testing.T) {
 	}
 }
 
-func TestMiniMaxProjectionPreservesDeepSeekPersistenceBehavior(test *testing.T) {
+func TestNativeBalanceIdentityAdminRoute(test *testing.T) {
 	gin.SetMode(gin.TestMode)
-	repo := &miniMaxHandlerRepo{persistErr: service.ErrAccountRuntimeIdentityChanged,
-		account: &service.Account{ID: 42, Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey,
-			Credentials: map[string]any{"account_mode": "payg", "base_url": "https://api.deepseek.com", "api_key": "sk-fixture"}}}
-	upstream := &miniMaxHandlerUpstream{body: `{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"98"}]}`}
-	handler := NewCNProviderHandler(nil, service.NewCNProviderBalanceService(repo, nil, upstream, nil))
-	router := gin.New()
-	router.GET("/admin/cn-providers/accounts/:id/balance", handler.QueryBalance)
-	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/cn-providers/accounts/42/balance", nil))
-	require.Equal(test, http.StatusOK, recorder.Code)
-	require.Equal(test, 1, upstream.calls)
-	require.Zero(test, repo.writes)
-	var envelope struct {
-		Data map[string]json.RawMessage `json:"data"`
+	for _, provider := range []string{service.PlatformDeepseek, service.PlatformKimi} {
+		for name, persistErr := range map[string]error{
+			"success":              nil,
+			"identity":             service.ErrAccountRuntimeIdentityChanged,
+			"wrapped identity":     fmt.Errorf("private store details: %w", service.ErrAccountRuntimeIdentityChanged),
+			"ordinary store error": errors.New("store unavailable"),
+		} {
+			test.Run(provider+"/"+name, func(test *testing.T) {
+				root := "https://api.deepseek.com"
+				body := `{"is_available":false,"balance_infos":[{"currency":"CNY","total_balance":"98"},{"currency":"USD","total_balance":"3.5"}]}`
+				balances := `[{"currency":"CNY","balance":98},{"currency":"USD","balance":3.5}]`
+				if provider == service.PlatformKimi {
+					root = "https://api.moonshot.cn/v1"
+					body = `{"code":0,"data":{"available_balance":98}}`
+					balances = `[{"currency":"CNY","balance":98}]`
+				}
+				repo := &miniMaxHandlerRepo{persistErr: persistErr, account: &service.Account{ID: 42, Platform: provider, Type: service.AccountTypeAPIKey,
+					Credentials: map[string]any{"account_mode": "payg", "base_url": root, "api_key": "sk-fixture"}}}
+				upstream := &miniMaxHandlerUpstream{body: body}
+				handler := NewCNProviderHandler(nil, service.NewCNProviderBalanceService(repo, nil, upstream, nil))
+				router := gin.New()
+				router.GET("/admin/cn-providers/accounts/:id/balance", handler.QueryBalance)
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/cn-providers/accounts/42/balance", nil))
+				require.Equal(test, http.StatusOK, recorder.Code)
+				require.Equal(test, 1, upstream.calls)
+				var envelope struct {
+					Data map[string]json.RawMessage `json:"data"`
+				}
+				require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+				require.JSONEq(test, fmt.Sprint(persistErr == nil), string(envelope.Data["persisted"]))
+				if persistErr == nil {
+					require.Equal(test, 1, repo.writes)
+				} else {
+					require.Zero(test, repo.writes)
+				}
+				if errors.Is(persistErr, service.ErrAccountRuntimeIdentityChanged) {
+					require.JSONEq(test, "false", string(envelope.Data["success"]))
+					require.JSONEq(test, `"identity_changed"`, string(envelope.Data["reason"]))
+					require.JSONEq(test, `"wallet_balance"`, string(envelope.Data["kind"]))
+					require.JSONEq(test, fmt.Sprintf("%q", provider), string(envelope.Data["provider"]))
+					require.JSONEq(test, `"Account configuration changed; query again."`, string(envelope.Data["error"]))
+					for _, field := range []string{"balance", "balances", "currency", "used", "credits", "project_budget", "available"} {
+						require.NotContains(test, envelope.Data, field)
+					}
+					require.NotContains(test, recorder.Body.String(), "private store details")
+					return
+				}
+				require.JSONEq(test, "true", string(envelope.Data["success"]))
+				require.JSONEq(test, fmt.Sprint(provider == service.PlatformKimi), string(envelope.Data["available"]))
+				require.JSONEq(test, "98", string(envelope.Data["balance"]))
+				require.JSONEq(test, `"CNY"`, string(envelope.Data["currency"]))
+				require.JSONEq(test, balances, string(envelope.Data["balances"]))
+				require.NotContains(test, envelope.Data, "reason")
+				require.NotContains(test, envelope.Data, "kind", "successful native response keeps its original shape")
+			})
+		}
 	}
-	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
-	// The existing DeepSeek native path keeps a successful read on store errors.
-	// MiniMax's public identity projection must not change that contract.
-	require.JSONEq(test, "true", string(envelope.Data["success"]))
-	require.JSONEq(test, "true", string(envelope.Data["available"]))
-	require.JSONEq(test, "false", string(envelope.Data["persisted"]))
-	require.JSONEq(test, "98", string(envelope.Data["balance"]))
-	require.NotContains(test, envelope.Data, "reason")
 }

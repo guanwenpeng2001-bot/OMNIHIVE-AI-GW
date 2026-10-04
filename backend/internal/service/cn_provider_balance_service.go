@@ -279,7 +279,7 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		delete(updates, cnExtraKey(provider, cnBalanceExtraSuffixLow))
 	}
 	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
-		if provider == PlatformMiniMax && errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+		if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
 			return nil, err
 		}
 		slog.Warn("cn_balance_persist_failed", "account_id", account.ID, "provider", provider, "error", err)

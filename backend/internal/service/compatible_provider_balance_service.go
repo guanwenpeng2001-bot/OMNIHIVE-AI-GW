@@ -52,7 +52,7 @@ func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context
 	if _, compatible := domain.LookupCompatibleProvider(account.Platform); !compatible {
 		result, err := service.QueryBalanceForAccount(ctx, account)
 		if err != nil {
-			if account.Platform == PlatformMiniMax && errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+			if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
 				publicResult := &CompatibleBalanceResult{
 					Kind: "wallet_balance", Provider: account.Platform, FetchedAt: time.Now().UTC().Unix(),
 				}

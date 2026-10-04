@@ -263,3 +263,22 @@ it('clears MiniMax wallet history on HTTP 200 identity rejection through the rea
  expect(balance()).toBe('admin.accounts.cnProviders.balance')
  wrapper.unmount()
 })
+
+it.each(['deepseek', 'kimi'])('clears %s native wallet history on HTTP 200 identity rejection through the real client', async platform => {
+ const initial = { ...account(platform), extra: { [`${platform}_balance`]: 12.5, [`${platform}_balance_currency`]: 'CNY' } }
+ const wrapper = mount(AccountUsageCell, { props: { account: initial } }); await flushPromises()
+ const balance = () => wrapper.get('[data-test="cn-provider-balance-value"]').text()
+ expect(balance()).toBe('CNY 12.50')
+ respond({ provider: platform, success: true, balance: 98, currency: 'CNY', available: true, persisted: false })
+ await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+ expect(balance()).toBe('CNY 98.00')
+ respond({ provider: platform, kind: 'wallet_balance', success: false, reason: 'identity_changed', persisted: false, error: 'Account configuration changed; query again.' })
+ await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+ expect(urls).toHaveLength(2)
+ expect(urls.every(url => new URL(url, 'https://local.example').pathname.endsWith('/456/balance'))).toBe(true)
+ expect(balance()).toBe('admin.accounts.cnProviders.balance')
+ expect(wrapper.text()).toContain('Account configuration changed; query again.')
+ await wrapper.setProps({ account: { ...initial, updated_at: '2099-01-01' } }); await flushPromises()
+ expect(balance()).toBe('admin.accounts.cnProviders.balance')
+ wrapper.unmount()
+})
