@@ -12,11 +12,35 @@ recertify every historical platform claim or deployment.
 
 ## Existing concrete platforms
 
-The table below covers the 19 existing concrete platforms. The provider expansion
-adds 72 distinct compatible supplier IDs; their exact mode, base, authentication,
-discovery and declared conversion contracts are listed in the
-[administrator provider reference](provider-configuration.md). The 72 IDs are
-not additional native media adapters. Copilot and Nous are included as manual-credential subsets, without automatic OAuth or refresh. Regional roots, auth defaults, unknown metadata and the six manual balance contracts are documented in that reference. The original 19-platform table below retains its historical scope; migration 283 likewise retains its historical 70 compatible IDs. Neither count replaces the current 72-ID registry.
+The table below retains its historical concrete-platform scope. Compatible
+suppliers, regional products, modes and selectable plans are defined by the
+[current registry](../backend/internal/domain/data/compatible_providers/index.json),
+not a frozen ID count. Their exact bases, authentication, discovery and declared
+bridges are in the [administrator provider reference](provider-configuration.md).
+Supplier-family cards can group multiple route IDs without migrating accounts.
+A registry entry is not an additional native media adapter. Copilot and Nous use
+manual credentials without automatic OAuth or refresh; migration 283 is a
+historical migration, not the current registry inventory.
+
+`credentials.billing_plan` stores an operator-selected product, not proof of a
+purchase, quota or model entitlement. Omitted updates retain it; null/empty clears
+it. Independent transport modes (AtlasCloud Coding and Qiniu subscription) keep
+their own endpoint/key contracts. Plan selections gate PAYG queries without
+changing inference transport. See [plan configuration](provider-configuration.md#套餐选择保存与清除).
+
+Manual administrator queries distinguish `wallet_balance`, `project_budget`,
+`consumed_usage` and `unsupported`. AtlasCloud PAYG reads account balance;
+Shengsuanyun enterprise returns project budget with period and unlimited state;
+Qiniu PAYG returns consumed usage for an explicit day-granularity window (at most
+31 days), preserving units such as kToken. Neither plan-only selections nor
+AtlasCloud Coding/Qiniu subscription inherit these PAYG query permissions.
+Missing readings are not zero. Local ledger usage, upstream wallet and upstream
+plan quota are separate. These admin routes use administrator authentication:
+`GET /api/v1/admin/cn-providers/accounts/:id/balance` and
+`GET /api/v1/admin/cn-providers/accounts/:id/usage`; they are not public inference
+endpoints. See [query contracts and errors](provider-configuration.md#手工余额查询).
+Direct URL + key configuration and CC Switch client-side mapping are independent;
+model discovery does not prove an inference action is authorized.
 
 | Compatible ID / auth mode | Upstream / discovery | Public gateway behavior and limits |
 | --- | --- | --- |

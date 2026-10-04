@@ -2,26 +2,59 @@
 
 本文面向配置上游账号的管理员；用户调用本站请阅读[API 使用手册](usage-guide.md)。**本站公开 Base URL 是 `https://omnihive2.com/v1`**。下文供应商地址仅用于后台账号配置，不能替换用户客户端中的本站地址；本站 Key 与供应商 Key 分别签发、分别管理。
 
-核对日期：2026-10-04。本文描述发行版本的配置合同；供应商资料观察日期为 2026-10-03。目录包含 **72 个新增兼容供应商 ID、73 个路由模式（Copilot / Nous 另有 3 种认证选择）**，下方完整归一化表覆盖 **113 个原始名称项**。名称数、供应商 ID 数、模式数与账号数不是同一概念。
+核对日期：2026-10-04。本文按当前源码注册目录核对；各供应商的资料观察日期见对应条目。可选供应商、地区、产品与套餐以当前后台目录为准，账号可用模型以实际授权和分组为准。名称、供应商路由 ID、接入模式、套餐和账号不是同一概念；供应商系列入口会合并展示地区/产品选项，原路由 ID 与账号关联仍保留。
 
 ## 目录
 
 - [配置步骤](#配置步骤)
+- [套餐选择、保存与清除](#套餐选择保存与清除)
 - [证据与能力的读法](#证据与能力的读法)
 - [完整名称归一化](#完整名称归一化)
-- [新增供应商合同](#新增供应商合同72-个-id)
+- [新增供应商合同](#新增供应商合同)
 - [既有平台的区域、套餐和认证配置](#既有平台的区域套餐和认证配置)
 - [手工余额查询](#手工余额查询)
+  - [项目预算、时间窗口用量与本站账本](#项目预算时间窗口用量与本站账本)
 - [特定账号限制与未知项](#特定账号限制与未知项)
 - [媒体与公开入口](#媒体与公开入口)
 
 ## 配置步骤
 
 1. 在供应商控制台确认账号所属站点、区域、套餐和实际 API 授权，再取得该合同对应的凭据。消费者订阅、桌面会员和 API 额度不能互相推定。
-2. 在本站后台选择正确供应商及模式。PAYG、Coding、Token Plan 不共用默认密钥范围；同名模型也不证明同一能力或价格。Azure 使用资源地址和部署名称；KAT-Coder 需要按实际路由区分 Endpoint ID 与模型 ID。
+2. 在本站后台选择供应商系列及地区/产品，按表单顺序核对认证方式、套餐类型和协议。认证方式回答“用什么凭据”，套餐类型回答“账号购买了什么产品”；独立接入模式还会决定地址与协议。PAYG、Coding、Token Plan 不共用默认密钥范围；同名模型也不证明同一能力或价格。Azure 使用资源地址和部署名称；KAT-Coder 需要按实际路由区分 Endpoint ID 与模型 ID。
 3. 按下面合同核对协议和 base。普通新供应商 base 是最终操作路径之前的前缀；Copilot / Nous 使用下文专用地址规则，尤其不能由 Chat base 推导 Copilot 目录。Messages 追加 `/messages`，Chat 追加 `/chat/completions`，Responses 追加 `/responses`。保留 `/codex/v1`、`/api/coding/v3` 等完整前缀。已保存的自定义地址、代理和协议覆盖应逐项核对，不自动改写到另一个官方域名。
 4. 维护该账号已确认的模型与映射，挂入允许的组，按本站销售规则配置价格；再用该组签发的本站 Key 查看 `/v1/models` 与 `/v1/models/catalog`。模型显示名不能替代请求 ID；目录可见不保证此刻有可调度账号。
 5. 按授权条件分别验证非流式、流式、工具、推理、缓存及所需媒体动作。保留脱敏的模型、协议、状态、时间和 request ID。本文没有使用真实供应商凭据执行推理调用，不声称这些配置均在线实测成功。
+
+## 套餐选择、保存与清除
+
+有套餐目录的账号使用真实套餐选择卡片。请选择供应商控制台已购买的产品；例如 AICodeMirror 可选 PRO、MAX、ULTRA、按量付费，CCSub 可选月度订阅或按量付费。未选择保持未设置，不代表自动购买或默认按量付费。切换供应商后重新核对可选产品；不把上一家的套餐名称移植过来。
+
+- 保存字段为 `credentials.billing_plan`，是非敏感产品 ID。创建、编辑回显、安全读取和导出保留它；清除按钮移除选择。它不证明已经购买、不增加额度、不改模型权限，也不自行改变传输地址或协议。
+- 管理 API 局部更新省略该字段会保留旧值；显式 `null` 或空字符串清除，仅删除套餐字段。批量更新遵循同一规则。未知 ID、大小写不匹配、错误类型或无套餐目录供应商的非空选择会被拒绝。
+- 具有独立接入模式的 AtlasCloud、七牛继续用模式选择。AtlasCloud 普通 API Key 与 Coding 专用 Key 地址可能相同，但权限不同；七牛订阅需要专用 Key 和套餐内模型，不能把耗尽自动视作转为 PAYG。参阅 [AtlasCloud 套餐接入](https://www.atlascloud.ai/docs/coding-plan/api)、[七牛订阅说明](https://developer.qiniu.com/aitokenapi/13330/subscription-introduction)。
+- 下表是保存值的参考。`payg` 查询分类仅允许继续检查已实现的钱包/用量查询，**不保证存在查询接口**；`plan` 阻止误用 PAYG 查询。产品名称带 PayGo 也不改变这个分类。未选择仍需通过模式、协议、官方地址、凭据与代理检查。
+
+| 供应商路由 ID | 可保存的套餐 ID（显示名称；查询分类） |
+| --- | --- |
+| `aicodemirror` | `pro`（PRO；`plan`）；`max`（MAX；`plan`）；`ultra`（ULTRA；`plan`）；`paygo`（按量付费；`payg`） |
+| `aigocode` | `pro`（Pro；`plan`）；`max`（Max；`plan`）；`ultra`（Ultra；`plan`）；`payg`（按量付费；`payg`） |
+| `astron_token` | `standard`（Standard；`plan`）；`advanced`（Advanced；`plan`）；`premium`（Premium；`plan`） |
+| `byteplus` | `personal`（Personal；`plan`）；`team`（Team；`plan`） |
+| `ccsub` | `subscription`（月度订阅；`plan`）；`paygo`（按量付费；`payg`） |
+| `fennoai` | `mini`（Mini；`plan`）；`solo`（Solo；`plan`）；`studio`（Studio；`plan`）；`organization`（Organization；`plan`）；`wallet`（钱包余额；`payg`） |
+| `github_copilot` | `free`（Free；`plan`）；`pro`（Pro；`plan`）；`pro_plus`（Pro+；`plan`）；`business`（Business；`plan`）；`enterprise`（Enterprise；`plan`） |
+| `jiekou` | `enterprise_basic`（Enterprise Basic；`plan`）；`enterprise_pro`（Enterprise Pro；`plan`）；`enterprise`（Enterprise；`plan`）；`pack_lite`（Lite pack；`plan`）；`pack_pro`（Pro pack；`plan`）；`pack_max`（Max pack；`plan`） |
+| `mimo_token_cn` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `mimo_token_eu` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `mimo_token_sg` | `personal`（个人；`plan`）；`team`（团队；`plan`） |
+| `nous_research` | `plus`（Plus；`plan`）；`super`（Super；`plan`）；`ultra`（Ultra；`plan`） |
+| `novita` | `payg`（按量付费；`payg`）；`coding_plan`（Coding Plan；`plan`） |
+| `ppio` | `payg`（按量付费；`payg`）；`token_plan`（Token Plan；`plan`）；`addon_pack`（加量包；`plan`） |
+| `qwencloud_maas_token` | `personal`（Personal；`plan`）；`team_standard`（Team Standard；`plan`）；`team_pro`（Team Pro；`plan`）；`team_max`（Team Max；`plan`） |
+| `relaxycode` | `codex_package`（Codex Package；`plan`）；`codex_pro_max`（Codex Pro Max；`plan`）；`claude_paygo`（Claude PayGo；`plan`） |
+| `shengsuanyun` | `payg`（按量付费；`payg`）；`lite`（Lite；`plan`）；`pro`（Pro；`plan`）；`enterprise`（Enterprise；`plan`） |
+
+此表与 [供应商注册目录](../backend/internal/domain/data/compatible_providers/index.json)、[套餐校验](../backend/internal/domain/compatible_plan.go)对应；供应商未来新增套餐应先进入当前目录，再在后台选择，不能仅凭文档自行提交未知 ID。
 
 ## 证据与能力的读法
 
@@ -34,7 +67,7 @@
 
 ## 完整名称归一化
 
-“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。Copilot 与 Nous 的手工凭据接入计入 72 个新增 ID；RelayCode 未解决，ETok.ai 仅历史记录。
+“既有平台配置”指同一平台内的地区、套餐、认证或模型选择，不新增供应商 ID；既有配置的详细来源见后文。Copilot 与 Nous 的手工凭据接入已列入当前目录；RelayCode 未解决，ETok.ai 仅历史记录。
 
 | 请求名称 | 本站 ID / 状态 | 范围说明 | 主要来源 |
 | --- | --- | --- | --- |
@@ -151,12 +184,15 @@
 | BaiLing | [`bailing`](#provider-bailing) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1549) |
 | Xiaomi MiMo | [`mimo`](#provider-mimo) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1793) |
 | Xiaomi MiMo Token Plan China | [`mimo_token_cn`](#provider-mimo_token_cn) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1811) |
+| 讯飞 Astron Token Plan | [`astron_token`](#provider-astron_token) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://www.xfyun.cn/doc/spark/TokenPlan.html) |
+| 小米 MiMo Token Plan（欧洲） | [`mimo_token_eu`](#provider-mimo_token_eu) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md) |
+| 小米 MiMo Token Plan（新加坡） | [`mimo_token_sg`](#provider-mimo_token_sg) | 独立产品/集群；使用供应商分配的套餐 Key。 | [供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md) |
 
 ### 为独立合同增设的 ID
 
 原始名称之外，以下区别必须保留：`dmxapi_com`（.com）、`dmxapi_ssvip`（SSVIP）不同于 `dmxapi`（.cn）；`crazyrouter_intl` 不同于 `crazyrouter`；`teamorouter_com` 不同于 `teamorouter`；`qwencloud`（MaaS）与固定预设名称 QwenCloud 对应的 `qianwen`（国际 DashScope）不同；`qwencloud_maas_token` 与 `qwencloud_token` 不同。具体主机、协议与证据在下方逐项列出，不推定密钥互通。
 
-## 新增供应商合同（72 个 ID）
+## 新增供应商合同
 
 表内 `Authorization: Bearer`、`x-api-key`、`api-key` 是**上游**鉴权，不改变用户访问本站时的鉴权格式。Messages 还使用运行时配置的 Anthropic 版本头。默认模式与默认协议来自供应商合同；显式选择协议可能改变转换路线。转换名表示“公开入口 → 原生目标”，不是额外供应商 URL。
 
@@ -313,6 +349,21 @@
 
 `coding`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
+<a id="provider-astron_token"></a>
+
+### 讯飞 Astron Token Plan — `astron_token`
+
+默认模式：`coding`。来源：[供应商文档](https://www.xfyun.cn/doc/spark/TokenPlan.html)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://maas-token-api.cn-huabei-1.xf-yun.com/v2` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `anthropic` | `https://maas-token-api.cn-huabei-1.xf-yun.com/anthropic/v1` | `Authorization: Bearer` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要独立套餐 API Key 和专用接口，与 Astron Coding Plan 不同。请从供应商控制台选择有权限的模型。
+
 <a id="provider-atlascloud"></a>
 
 ### AtlasCloud — `atlascloud`
@@ -324,10 +375,14 @@
 | `payg` / `chat_completions` | `chat_completions` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `responses` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `anthropic` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `chat_completions` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
+| `coding` / `chat_completions` | `anthropic` | `https://api.atlascloud.ai/v1` | `Authorization: Bearer` |
 
 `payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
 操作级来源：[供应商文档 1](https://www.atlascloud.ai/docs/public-api)；[供应商文档 2](https://www.atlascloud.ai/docs/faq)；[供应商文档 3](https://www.atlascloud.ai/docs/en/models/llm)。
+
+模式边界：Coding Plan 使用专用套餐密钥，与普通 API Key 不同，但共用 API 地址。套餐文档确认 Chat Completions 和 Messages；尚未确认 Responses 权限。独立预充值包不等于订阅，系统不检查密钥，选择密钥接入方式不代表开通订阅。独立模式的模型发现均未接入；按已确认映射调用。
 
 <a id="provider-azure_openai"></a>
 
@@ -736,6 +791,38 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1811)；[固定配置 2](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L2924)。
 
+<a id="provider-mimo_token_eu"></a>
+
+### 小米 MiMo Token Plan（欧洲） — `mimo_token_eu`
+
+默认模式：`coding`。来源：[供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://token-plan-ams.xiaomimimo.com/v1` | `api-key` |
+| `coding` / `chat_completions` | `anthropic` | `https://token-plan-ams.xiaomimimo.com/anthropic/v1` | `api-key` |
+| `coding` / `chat_completions` | `responses` | `https://token-plan-ams.xiaomimimo.com/v1` | `api-key` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用。请选择供应商控制台分配的集群。密钥前缀仅作提示，此表单不会检查密钥。
+
+<a id="provider-mimo_token_sg"></a>
+
+### 小米 MiMo Token Plan（新加坡） — `mimo_token_sg`
+
+默认模式：`coding`。来源：[供应商文档](https://mimo.mi.com/static/docs/tokenplan/Token%20Plan/quick-access.md)（观察日期 2026-10-04）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `coding` / `chat_completions` | `chat_completions` | `https://token-plan-sgp.xiaomimimo.com/v1` | `api-key` |
+| `coding` / `chat_completions` | `anthropic` | `https://token-plan-sgp.xiaomimimo.com/anthropic/v1` | `api-key` |
+| `coding` / `chat_completions` | `responses` | `https://token-plan-sgp.xiaomimimo.com/v1` | `api-key` |
+
+模型发现 `none`（未接入不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用。请选择供应商控制台分配的集群。密钥前缀仅作提示，此表单不会检查密钥。
+
 <a id="provider-modelscope"></a>
 
 ### ModelScope — `modelscope`
@@ -849,10 +936,13 @@ Vanchin Endpoint ID 是路由模板字段，不是新供应商。固定预设中
 | `payg` / `chat_completions` | `chat_completions` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `anthropic` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 | `payg` / `chat_completions` | `responses` | `https://api.qnaigc.com/bypass/openai/v1` | `Authorization: Bearer` |
+| `subscription` / `chat_completions` | `chat_completions` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 
 `payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
 操作级来源：[供应商文档 1](https://developer.qiniu.com/aitokenapi/kb/13462/aitoken-use-faq)；[供应商文档 2](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api)。
+
+模式边界：订阅调用需要订阅专用 API Key，且模型必须在套餐内。额度耗尽不会自动转为预充值按量计费：供应商要求另用按量付费密钥。系统不检查密钥，选择密钥接入方式不代表开通订阅。独立模式的模型发现均未接入；按已确认映射调用。
 
 <a id="provider-qwencloud"></a>
 
@@ -1320,6 +1410,8 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 
 ### 固定客户端配置来源
 
+此表描述 CC Switch 写入客户端的地址和协议映射。直接 URL + Key 调用应使用前文的本站公开入口或管理员上游合同，不需要安装 CC Switch；使用 CC Switch 时须确认它最终发送的协议与本地转换开关。配置转换成功不等于上游模型调用成功。
+
 下面保留所有原始客户端配置链接，作为配置来源溯源；它不是本站默认根表。客户端 SDK 可能追加 `/v1`，本地 Chat 转换也不代表供应商缺少已由官方文档确认的原生 Responses。运行配置请以上表为准，不直接把客户端 base 覆盖到已有账号。
 
 | 名称 / 既有平台 | 客户端 | 原始客户端 base | 上游协议 / 本地转换 | 凭据语义 | 来源 |
@@ -1427,7 +1519,7 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 
 ## 手工余额查询
 
-以下六个兼容 ID 支持管理员显式查询，不自动轮询。仅已支持的 API-key、PAYG、协议和精确官方 base 可用；请求均为 GET，以账号推理 key 作 `Authorization: Bearer`，保留同源/地区校验与出口策略。余额是带单位和时间的显示快照，不修改本站财务账本。
+以下查询由管理员在账号列表显式触发，不自动轮询。仅已支持的 API-key、PAYG、协议和精确官方 base 可用；请求均为 GET，以账号推理 key 作 `Authorization: Bearer`，保留同源/地区校验与出口策略。结果区分钱包余额、项目预算和已消耗用量，不修改本站财务账本。已保存的 `plan` 套餐不误走 PAYG 查询；未设置或 `payg` 选择仍须满足上述检查。
 
 | ID | 查询 URL | 成功字段 / 条件 | 单位与换算 | 官方来源 |
 | --- | --- | --- | --- | --- |
@@ -1437,12 +1529,29 @@ Chat / Responses 默认 `Authorization: Bearer`。已识别配置的 Messages �
 | `siliconflow_global` | `https://api.siliconflow.com/v1/user/info` | `data.totalBalance`；`code=20000` 且 `status=true` | USD；不缩放 | [字段](https://docs.siliconflow.com/en/api-reference/userinfo/get-user-info)、[账户美元账本](https://www.siliconflow.com/blog/siliconflow-summer-rush%E4%B8%A8glm-5.2-week-the-more-glm-5.2-you-run-the-more-you-win) |
 | `shengsuanyun` | `https://router.shengsuanyun.com/api/v1/balance` | `data.account_balance_cny`；`success=true` 且 `gateway_type=common` | CNY；不缩放 | [余额合同](https://lean.shengsuanyun.com/apidocs/api/balance-api) |
 | `soleapi` | `https://soleapi.com/v1/usage` | `remaining`；明确 `unit=Credits` | Credits；不折算现金 | [账单字段](https://soleapi.com/ru/docs/guides/billing)、[客户端示例](https://soleapi.com/ja/docs/config/ccswitch) |
+| `atlascloud`（PAYG） | `https://api.atlascloud.ai/public/v1/balance` | `object=balance`、`scope=account`、`available.value` 和 `available.currency` | 账户可用余额；保留返回币种，不重复加 cash/bonus/credit | [余额合同](https://www.atlascloud.ai/docs/public-api/balance) |
 
 Novita / PPIO 的 availableBalance 不替换成 cashBalance，也不再加 creditLimit。SiliconFlow 的 totalBalance 不重复加充值/赠送项；接口本身没有币种字段，CNY / USD 标签来自相应站点账户财务资料，不跨区套用。SoleAPI 不把 used/total 当剩余余额。
 
 真实数值零是成功结果；缺失、无效、失败或不支持不表示零。失败保留先前快照与时间，不覆盖为零；账号身份变化清除旧快照。自定义/跨域/跨区 base、Coding、未知模式或协议、OAuth 账号不调用这些接口。胜算云企业项目预算（包括无限预算）不当成个人余额。
 
-AtlasCloud 的账户管理权限、OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
+AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，403 表示权限不足，不是零余额；Coding 模式不查询该钱包，模型用量接口未接入。OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
+
+### 项目预算、时间窗口用量与本站账本
+
+| 查询 | 实际含义 | 边界 |
+| --- | --- | --- |
+| 胜算云同一 `/api/v1/balance` 返回 `gateway_type=enterprise` | `kind=project_budget`，`scope=account_in_project`；项目内账号的日/月预算与消耗，CNY | 显式保留周期起止、`consumed`、`limit`、`unlimited`；无限预算的 limit 为空，不写成钱包零值。保存为 plan 套餐时仍会被 PAYG 查询门禁阻止。 |
+| 七牛 PAYG `GET https://api.qnaigc.com/v3/stat/usage` | `kind=consumed_usage`；当前 Key 在所选时间窗口内各模型/计费项的已消耗量 | 普通 `sk-` / `tk-` Key，Bearer；本站只接入 day 粒度，不能查询订阅剩余额度。 |
+| 本站用量记录 | 当前本站用户/Key/分组经本站记账的请求消耗与费用 | 不覆盖绕过本站的上游调用，不等于上游钱包、套餐余额或项目预算。 |
+
+七牛查询在后台选择今天、近 7 天或近 30 天；请求使用 `granularity=day`、带明确时区偏移的 RFC3339 `start` / `end`，结束必须晚于开始，跨度至多 31 天，`timezone` 默认 `Asia/Shanghai`。保留 `usage.models[].items[]` 的名称、`unit` 与 `total`，例如 kToken 不改成 Token，不把不同单位相加。非法窗口返回校验错误；上游数据可能延迟，不推断时间边界的包含关系。按量消耗不作为钱包快照保存。来源：[七牛用量 API](https://developer.qiniu.com/aitokenapi/13382/new-usage-api)、[胜算云余额与企业预算](https://lean.shengsuanyun.com/apidocs/api/balance-api)。
+
+本站管理接口为 `GET /api/v1/admin/cn-providers/accounts/:id/balance` 和 `GET /api/v1/admin/cn-providers/accounts/:id/usage`（后一项带上述窗口参数），需本站管理员认证；它们不是公开模型接口，不能用普通用户模型 Key 调用。上游 Key 从保存的账号读取，遵循账号/分组的代理绑定，不允许调用方传任意查询 URL。
+
+兼容结果先检查 `success`、`unsupported`、`kind`、`reason` 与 `fetched_at`，再读取对应数据。`wallet_balance` 看余额与币种，`project_budget` 看预算对象，`consumed_usage` 看窗口与模型项；原生平台保持各自响应合同。`no_verified_query` 表示尚无已接入查询，`mode_unsupported` 表示当前模式/套餐不可查，`custom_origin` 表示自定义地址不匹配；`invalid_credentials`、`permission_denied`、`proxy_unavailable`、`rate_limited`、`upstream_error`、`invalid_response` 分别排查密钥、权限、代理、频率、上游和响应格式。HTTP 成功不替代业务 success 检查，失败和不支持都不能显示为零。
+
+查询显示的是带时间的读数；旧钱包快照须结合时间判断。七牛有进程级限流并明确返回限流状态，不自动重试，多实例共享出口还要遵守供应商每 IP 限制。不支持的账号显示原因，不提供误导性的查询按钮。实现依据：[查询门禁与余额解析](../backend/internal/service/compatible_provider_balance_service.go)、[预算解析](../backend/internal/service/compatible_provider_query.go)、[窗口用量](../backend/internal/service/compatible_provider_usage_service.go)、[前端查询能力](../frontend/src/components/account/compatibleBalance.ts)。
 
 ## 特定账号限制与未知项
 

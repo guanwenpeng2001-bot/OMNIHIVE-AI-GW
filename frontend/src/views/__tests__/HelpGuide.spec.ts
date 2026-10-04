@@ -91,6 +91,7 @@ describe('configuration manual', () => {
     const { wrapper } = mountGuide(locale)
     const supplierSection = wrapper.get('section#suppliers')
     expect(supplierSection.findAll('tbody tr')).toHaveLength(5)
+    expect(supplierSection.text()).not.toMatch(/72 (?:个|distinct)/)
     expect(supplierSection.text()).toContain('https://omnihive2.com/v1')
     for (const endpoint of ['/v1/models', '/v1/models/catalog', '/v1beta/models/']) {
       expect(supplierSection.text()).toContain(endpoint)
@@ -98,7 +99,7 @@ describe('configuration manual', () => {
     for (const supplierName of ['Copilot', 'Nous', 'RelayCode', 'RelaxyCode', 'ETok.ai']) {
       expect(supplierSection.text()).toContain(supplierName)
     }
-    for (const contract of ['72', 'fine_grained_pat', 'invocation_token', 'official_proxy',
+    for (const contract of ['billing_plan', 'AICodeMirror', 'CCSub', 'AtlasCloud', 'kToken', 'project_budget', 'consumed_usage', 'Asia/Shanghai', 'fine_grained_pat', 'invocation_token', 'official_proxy',
       'Copilot-Integration-Id: omnihive', '/models', '/v1/chat/completions',
       'Tencent Intl', 'Novita', 'PPIO', 'SiliconFlow', 'SoleAPI', '10000', 'Credits']) {
       expect(supplierSection.text()).toContain(contract)
