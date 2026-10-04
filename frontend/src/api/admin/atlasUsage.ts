@@ -40,6 +40,9 @@ export interface AtlasUsageResult {
 }
 
 export async function queryAtlasUsage(id: number, params: AtlasUsageWindow): Promise<AtlasUsageResult> {
-  const { data } = await apiClient.get<AtlasUsageResult>(`/admin/cn-providers/accounts/${id}/usage`, { params })
+  const { data } = await apiClient.get<AtlasUsageResult>(`/admin/cn-providers/accounts/${id}/usage`, {
+    // Atlas accepts UTC dates only. Skip the shared GET timezone default; Axios omits undefined.
+    params: { ...params, timezone: undefined }
+  })
   return data
 }
