@@ -32,7 +32,15 @@ func allowCompatibleUsageFixture(test *testing.T) {
 func TestCompatibleUsageCapabilityAllRegisteredModes(test *testing.T) {
 	providers := domain.CompatibleProviders()
 	require.Len(test, providers, 75)
-	wallets := map[string]bool{"novita": true, "ppio": true, "siliconflow_cn": true, "siliconflow_global": true, "soleapi": true, "shengsuanyun": true, "atlascloud": true}
+	// Keep expected support independent of the endpoint authorizers. This tests
+	// target routing; TheRouter's management response is separately account_credits.
+	wallets := map[string]bool{
+		"novita": true, "ppio": true, "siliconflow_cn": true, "siliconflow_global": true,
+		"soleapi": true, "shengsuanyun": true, "atlascloud": true,
+		"stepfun_api": true, "stepfun_api_intl": true,
+		"teamorouter": true, "teamorouter_com": true, "sudocode_chat": true,
+		"aihubmix": true, "dmxapi": true, "crazyrouter": true, "crazyrouter_intl": true, "therouter": true,
+	}
 	for _, provider := range providers {
 		for _, mode := range provider.Modes {
 			for _, endpoint := range mode.Endpoints {
