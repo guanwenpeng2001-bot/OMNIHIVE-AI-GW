@@ -112,7 +112,7 @@ func TestNativeProfileRequestAuthAndDiscovery(t *testing.T) {
 }
 
 func TestNativeProfileUnknownProbesDoNotSend(t *testing.T) {
-	a := nativeProfileAccount(PlatformMiniMax, AccountModeCoding, "https://api.minimax.cn/v1")
+	a := nativeProfileAccount(PlatformMiniMax, AccountModeCoding, "https://api.minimax.cn/v1/custom")
 	quota := &CNProviderQuotaService{}
 	_, err := quota.queryUsageForAccount(context.Background(), a)
 	require.ErrorContains(t, err, "no supported quota endpoint")
