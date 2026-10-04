@@ -90,7 +90,7 @@ func (handler *CNProviderHandler) QueryUsage(ctx *gin.Context) {
 		response.BadRequest(ctx, "cn provider usage service is not enabled")
 		return
 	}
-	result, err := handler.balanceService.QueryProviderUsage(ctx.Request.Context(), accountID, query)
+	result, err := handler.balanceService.QueryBillingUsage(ctx.Request.Context(), accountID, query)
 	if err != nil {
 		response.ErrorFrom(ctx, err)
 		return
