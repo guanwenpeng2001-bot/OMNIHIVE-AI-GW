@@ -135,7 +135,8 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	if account.IsCommandCode() {
 		return s.queryCommandCodeUsage(ctx, account)
 	}
-	if isNativeProfilePlatform(account.Platform) && account.IsCodingPlan() && nativeProfileProbeURL(account, true) == "" {
+	miniMaxTokenPlan := isMiniMaxCNTokenPlan(account)
+	if !miniMaxTokenPlan && isNativeProfilePlatform(account.Platform) && account.IsCodingPlan() && nativeProfileProbeURL(account, true) == "" {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_UNSUPPORTED_PROFILE", "Quota is unknown: this regional/plan profile has no supported quota endpoint")
 	}
 	provider := account.GetCodingPlanProvider()
@@ -146,6 +147,9 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	apiKey := strings.TrimSpace(account.GetCNAPIKey())
 	if apiKey == "" {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NO_APIKEY", "account api_key is empty")
+	}
+	if miniMaxTokenPlan && strings.HasPrefix(apiKey, "sk-api-") {
+		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_UNSUPPORTED_PROFILE", "MiniMax pay-as-you-go keys cannot query token plan quota")
 	}
 
 	baseURL := account.GetOpenAIBaseURL()
@@ -176,7 +180,9 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		authHeader = "Bearer " + apiKey
 	}
 
-	if isNativeProfilePlatform(account.Platform) {
+	if miniMaxTokenPlan {
+		targetURL = miniMaxTokenPlanURL
+	} else if isNativeProfilePlatform(account.Platform) {
 		targetURL = nativeProfileProbeURL(account, true)
 		if targetURL == "" {
 			return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_UNSUPPORTED_PROFILE", "Quota is unknown: this regional/plan profile has no supported quota endpoint")
@@ -218,6 +224,9 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	}
 	// 探测与真实转发保持同一套账号级请求头覆写，避免探测通过但转发失败。
 	account.ApplyHeaderOverrides(req.Header)
+	if miniMaxTokenPlan {
+		req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+	}
 
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
 	if err != nil {
@@ -279,7 +288,16 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 			result.Error = fmt.Sprintf("API error (%d): %s", status.Int(), msg)
 			return result, nil
 		}
-		tiers = parseMiniMaxUsageTiers(bodyBytes)
+		if miniMaxTokenPlan {
+			tiers = parseMiniMaxTokenPlanTiers(bodyBytes)
+			if len(tiers) == 0 {
+				result.CredentialValid = true
+				result.Error = "MiniMax token plan quota is unknown: no observed coding windows"
+				return result, nil
+			}
+		} else {
+			tiers = parseMiniMaxUsageTiers(bodyBytes)
+		}
 		result.PlanLevel = strings.TrimSpace(gjson.GetBytes(bodyBytes, "current_subscribe_title").String())
 	}
 	result.Tiers = tiers
@@ -291,6 +309,15 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	}
 
 	updates := cnQuotaExtraUpdates(provider, tiers, now)
+	if miniMaxTokenPlan {
+		// A successful partial observation must not revive stale/missing windows.
+		for _, suffix := range []string{cnExtraSuffix5hUsed, cnExtraSuffix5hReset, cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset} {
+			key := cnExtraKey(provider, suffix)
+			if _, observed := updates[key]; !observed {
+				updates[key] = nil
+			}
+		}
+	}
 	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
 		slog.Warn("cn_quota_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
