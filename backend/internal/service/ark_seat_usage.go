@@ -139,7 +139,7 @@ func parseArkSeatUsage(body []byte, seat string) ([]CNQuotaTier, string) {
 			merged[field] = nestedValue
 		}
 	}
-	if id := merged["SeatID"]; id.Exists() && (id.Type != gjson.String || id.Str != seat) {
+	if id := merged["SeatID"]; id.Exists() && id.Type != gjson.String {
 		return invalid()
 	}
 	tiers := []CNQuotaTier{}
@@ -171,6 +171,9 @@ func parseArkSeatUsage(body []byte, seat string) ([]CNQuotaTier, string) {
 	}
 	if len(tiers) == 0 {
 		return invalid()
+	}
+	if id := merged["SeatID"]; id.Exists() && id.Str != seat {
+		return nil, "no_seat"
 	}
 	return tiers, "ok"
 }

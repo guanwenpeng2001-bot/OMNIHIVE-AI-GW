@@ -58,15 +58,18 @@ func TestArkSeatParser(test *testing.T) {
 		})
 	}
 	for name, fields := range map[string]string{
-		"empty seat":        `"SeatID":"","ShortTermUsage":1`,
+		"seat type":         `"SeatID":1,"ShortTermUsage":1`,
+		"seat null":         `"SeatID":null,"ShortTermUsage":1`,
 		"metadata conflict": `"ShortTermUsage":1,"ProjectName":"a","SeatInfoUsage":{"ProjectName":"b"}`,
 		"large exponent":    `"ShortTermUsage":1e-999999999`,
 		"empty":             ``, "legacy": `"QuotaUsage":[{"Level":"session","Percent":2,"ResetTimestamp":-1}]`,
-		"conflict":          `"ShortTermUsage":1,"SeatInfoUsage":{"ShortTermUsage":2}`,
-		"reset conflict":    `"ShortTermUsage":1,"WeeklyResetMilestone":123,"SeatInfoUsage":{"WeeklyResetMilestone":124}`,
-		"wrong seat":        `"SeatID":"other","ShortTermUsage":1`,
-		"nested wrong seat": `"ShortTermUsage":1,"SeatInfoUsage":{"SeatID":"other"}`,
-		"negative":          `"ShortTermUsage":-1`, "null usage": `"ShortTermUsage":null`,
+		"conflict":              `"ShortTermUsage":1,"SeatInfoUsage":{"ShortTermUsage":2}`,
+		"reset conflict":        `"ShortTermUsage":1,"WeeklyResetMilestone":123,"SeatInfoUsage":{"WeeklyResetMilestone":124}`,
+		"wrong seat bad window": `"SeatID":"other","ShortTermUsage":-1`,
+		"wrong seat bad reset":  `"SeatID":"other","ShortTermUsage":1,"ShortTermResetMilestone":"bad"`,
+		"wrong seat conflict":   `"SeatID":"other","ShortTermUsage":1,"SeatInfoUsage":{"ShortTermUsage":2}`,
+		"wrong seat no windows": `"SeatID":"other"`,
+		"negative":              `"ShortTermUsage":-1`, "null usage": `"ShortTermUsage":null`,
 		"string": `"ShortTermUsage":"3"`, "overflow": `"ShortTermUsage":1e999`,
 		"reset fractional":        `"ShortTermUsage":3,"ShortTermResetMilestone":1.2`,
 		"reset int64 overflow":    `"ShortTermUsage":3,"ShortTermResetMilestone":9223372036854775808`,
@@ -85,6 +88,41 @@ func TestArkSeatParser(test *testing.T) {
 	tiers, status = parseArkSeatUsage([]byte(`{"Result":{"WeeklyUsage":5,"WeeklyResetMilestone":1000}}`), "seat-1")
 	require.Equal(test, "ok", status)
 	require.Equal(test, "1970-01-01T00:00:01Z", tiers[0].ResetAt)
+}
+
+func TestArkSeatResponseMissingRequestedSeat(test *testing.T) {
+	for _, fields := range []string{
+		`"SeatID":"","ShortTermUsage":1`,
+		`"SeatID":"other","ShortTermUsage":1`,
+		`"ShortTermUsage":1,"SeatInfoUsage":{"SeatID":"other"}`,
+	} {
+		tiers, status := parseArkSeatUsage([]byte(`{"Result":{`+fields+`}}`), "seat-1")
+		require.Equal(test, "no_seat", status)
+		require.Empty(test, tiers)
+	}
+}
+
+func TestArkSeatMissingRequestedSeatService(test *testing.T) {
+	for _, provider := range []string{"byteplus", "volcengine"} {
+		test.Run(provider, func(test *testing.T) {
+			account := arkTeamAccount(provider)
+			repo := &compatibleBalanceRepo{account: account}
+			calls := 0
+			upstream := compatibleBalanceHTTP{send: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+				calls++
+				require.Equal(test, "GetSeatInfoUsage", req.URL.Query().Get("Action"))
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(strings.ReplaceAll(arkSeatFixture, "seat-1", "other")))}, nil
+			}}
+			result, err := NewCNProviderQuotaService(repo, nil, upstream, nil).QueryUsageForAccount(context.Background(), account)
+			require.NoError(test, err)
+			require.Equal(test, "no_seat", result.Status)
+			require.False(test, result.Success)
+			require.False(test, result.Persisted)
+			require.Empty(test, result.Tiers)
+			require.Empty(test, repo.writes)
+			require.Equal(test, 1, calls)
+		})
+	}
 }
 
 func TestArkSeatRequestAndPartialSnapshot(test *testing.T) {

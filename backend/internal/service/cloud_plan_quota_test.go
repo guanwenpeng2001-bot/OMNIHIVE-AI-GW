@@ -280,8 +280,8 @@ func TestCloudQuotaMonitorDoesNotInventAvailability(t *testing.T) {
 
 func TestVolcengineAgentWindowSemantics(t *testing.T) {
 	fixture := `{"Result":{"SeatAFPUsages":[{"SeatID":"seat","AFPFiveHour":{"Quota":10,"Used":0},"AFPDaily":{"Quota":10,"Used":20},"AFPWeekly":{"Quota":10,"Used":3},"AFPMonthly":{"Quota":10,"Used":4}}]}}`
-	tiers, _, ok := parseVolcengineAgentUsage([]byte(fixture), "seat")
-	require.True(t, ok)
+	tiers, _, status := parseVolcengineAgentUsage([]byte(fixture), "seat")
+	require.Equal(t, "ok", status)
 	require.Equal(t, []CNQuotaTier{{Window: "5h", UsedPercent: 0}, {Window: "daily", UsedPercent: 200}, {Window: "weekly", UsedPercent: 30}, {Window: "monthly", UsedPercent: 40}}, tiers)
 	for name, fixture := range map[string]string{
 		"duplicate":     `{"Result":{"SeatAFPUsages":[{"SeatID":"seat"},{"SeatID":"seat"}]}}`,
@@ -290,14 +290,55 @@ func TestVolcengineAgentWindowSemantics(t *testing.T) {
 		"bad reset":     `{"Result":{"SeatAFPUsages":[{"SeatID":"seat","AFPDaily":{"Quota":10,"Used":3,"ResetTime":1.5}}]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, ok := parseVolcengineAgentUsage([]byte(fixture), "seat")
-			require.False(t, ok)
+			_, _, status := parseVolcengineAgentUsage([]byte(fixture), "seat")
+			require.Equal(t, "invalid_response", status)
 		})
 	}
 	for _, amounts := range []string{`"Quota":0,"Used":50`, `"Quota":-1,"Used":50`, `"Quota":100`, `"Used":0`} {
-		tiers, _, ok := parseVolcengineAgentUsage([]byte(`{"Result":{"SeatAFPUsages":[{"SeatID":"seat","AFPDaily":{`+amounts+`}}]}}`), "seat")
-		require.True(t, ok)
+		tiers, _, status := parseVolcengineAgentUsage([]byte(`{"Result":{"SeatAFPUsages":[{"SeatID":"seat","AFPDaily":{`+amounts+`}}]}}`), "seat")
+		require.Equal(t, "ok", status)
 		require.Empty(t, tiers)
+	}
+}
+
+func TestVolcengineAgentSeatClassification(t *testing.T) {
+	for _, scenario := range []struct{ name, items, status string }{
+		{"empty", `[]`, "no_seat"},
+		{"other seat", `[{"SeatID":"other","AFPDaily":{"Quota":10,"Used":2}}]`, "no_seat"},
+		{"empty seat", `[{"SeatID":""}]`, "no_seat"},
+		{"duplicate", `[{"SeatID":"seat"},{"SeatID":"seat"}]`, "invalid_response"},
+		{"object instead of array", `{}`, "invalid_response"},
+		{"non object", `[null]`, "invalid_response"},
+		{"missing seat", `[{}]`, "invalid_response"},
+		{"non string seat", `[{"SeatID":42}]`, "invalid_response"},
+		{"malformed window", `[{"SeatID":"other","AFPDaily":[]}]`, "invalid_response"},
+		{"bad amount", `[{"SeatID":"other","AFPDaily":{"Quota":10,"Used":"2"}}]`, "invalid_response"},
+		{"bad reset", `[{"SeatID":"other","AFPDaily":{"Quota":10,"Used":2,"ResetTime":"bad"}}]`, "invalid_response"},
+		{"valid followed by malformed", `[{"SeatID":"seat","AFPDaily":{"Quota":10,"Used":2}},null]`, "invalid_response"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			account := agentQuotaAccount()
+			repo := &compatibleBalanceRepo{account: account}
+			calls := 0
+			body := `{"Result":{"SeatAFPUsages":` + scenario.items + `}}`
+			tiers, plan, status := parseVolcengineAgentUsage([]byte(body), "seat")
+			require.Equal(t, scenario.status, status)
+			require.Empty(t, tiers)
+			require.Empty(t, plan)
+			upstream := compatibleBalanceHTTP{send: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+				calls++
+				require.Equal(t, "GetSeatAFPUsage", req.URL.Query().Get("Action"))
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+			}}
+			result, err := NewCNProviderQuotaService(repo, nil, upstream, nil).QueryUsageForAccount(context.Background(), account)
+			require.NoError(t, err)
+			require.Equal(t, scenario.status, result.Status)
+			require.False(t, result.Success)
+			require.False(t, result.Persisted)
+			require.Empty(t, result.Tiers)
+			require.Empty(t, repo.writes)
+			require.Equal(t, 1, calls)
+		})
 	}
 }
 

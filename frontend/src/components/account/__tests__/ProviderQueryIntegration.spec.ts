@@ -243,3 +243,23 @@ it('does not expose a MiniMax wallet for non-API-key accounts', async () => {
  expect(urls).toEqual([])
  wrapper.unmount()
 })
+
+it('clears MiniMax wallet history on HTTP 200 identity rejection through the real client', async () => {
+ const initial = { ...account('minimax', { base_url: 'https://api.minimax.cn/v1' }), extra: { minimax_balance: 1234.56789, minimax_balance_currency: '' } }
+ const wrapper = mount(AccountUsageCell, { props: { account: initial } }); await flushPromises()
+ const balance = () => wrapper.get('[data-test="cn-provider-balance-value"]').text()
+ expect(balance()).toBe('1234.56789')
+ respond({ provider: 'minimax', kind: 'wallet_balance', success: true, balance: 98, persisted: false })
+ await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+ expect(balance()).toBe('98')
+ respond({ provider: 'minimax', kind: 'wallet_balance', success: false, reason: 'identity_changed', persisted: false, error: 'Account configuration changed; query again.' })
+ await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+ expect(urls).toHaveLength(2)
+ expect(urls.every(url => new URL(url, 'https://local.example').pathname.endsWith('/456/balance'))).toBe(true)
+ expect(balance()).toBe('admin.accounts.cnProviders.balance')
+ expect(wrapper.text()).toContain('Account configuration changed; query again.')
+ expect(wrapper.text()).not.toContain('1234.56789')
+ await wrapper.setProps({ account: { ...initial, updated_at: '2099-01-01' } }); await flushPromises()
+ expect(balance()).toBe('admin.accounts.cnProviders.balance')
+ wrapper.unmount()
+})
