@@ -142,7 +142,7 @@ func TestCompatibleMarketplacePlatformSelectors(t *testing.T) {
 		{"novita", EndpointBridge, EndpointBridge, false, false, true},
 		{"nvidia", EndpointBridge, EndpointBridge, false, false, true},
 		{"ppio", EndpointNative, EndpointBridge, true, false, false},
-		{"qiniu", EndpointNative, EndpointNative, true, true, false},
+		{"qiniu", EndpointNative, EndpointNative, true, true, true},
 		{"siliconflow_cn", EndpointNative, EndpointBridge, true, false, true},
 		{"siliconflow_global", EndpointNative, EndpointBridge, true, false, true},
 		{"together", EndpointBridge, EndpointBridge, false, false, true},
