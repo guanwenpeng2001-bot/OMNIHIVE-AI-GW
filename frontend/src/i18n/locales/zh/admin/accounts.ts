@@ -3,6 +3,33 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      compatibleUsage: {
+        project: '项目', member: '成员',
+        reasons: {
+          no_verified_query: '此供应商及套餐尚无已验证的上游用量查询，请查看供应商控制台。',
+          mode_unsupported: '此套餐尚无已验证的上游用量查询，请查看供应商控制台。',
+          custom_origin: '自定义端点或中继暂不支持此上游查询。',
+          invalid_credentials: '请检查此供应商及套餐对应的凭据与协议。',
+          proxy_unavailable: '配置的查询代理暂不可用。',
+          permission_denied: '此凭据没有读取上游用量的权限。',
+          upstream_error: '上游查询暂时失败，请重试。',
+          invalid_response: '无法读取上游响应，未替换已有数值。',
+          rate_limited: '供应商限制了查询频率，请稍后重试。'
+        },
+        localLedger: '网关统计是独立的本站账本，不代表供应商余额或配额。',
+        keyConsumption: '已消耗用量 · 当前 API 密钥',
+        qiniuHint: '使用七牛按量付费推理密钥（sk- / tk-），此查询不提供订阅剩余点数。',
+        accountBalance: '账户总余额 · 需要余额读取权限，不代表当前密钥的消费上限。',
+        projectBudget: '企业项目内成员预算 · 非现金余额',
+        consumed: '已消耗', limit: '额度上限', unlimited: '不限额', daily: '每日周期', monthly: '每月周期',
+        stale: '历史快照 · 非当前读数',
+        window: '请求的按日时间窗口', start: '起始日', end: '最后一天（查询结束于次日零点）',
+        preset1: '今天', preset7: '7 天', preset30: '30 天',
+        invalidWindow: '请选择有效且先后有序的日期，范围最多 31 天。',
+        noItems: '此时间窗口未返回用量项目。',
+        delayed: '当天用量可能存在延迟。'
+      },
+
       supplier: {
         authenticationMethod: '认证方式',
         planType: '套餐类型',

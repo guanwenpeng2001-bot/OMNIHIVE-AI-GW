@@ -1,7 +1,14 @@
 <template>
   <div v-if="visible" class="space-y-1">
     <!-- Balance value row: static display (snapshot or probe result) -->
-    <div class="flex flex-wrap items-center gap-1.5">
+    <div v-if="budget" data-test="project-budget" class="text-xs" aria-live="polite">
+      <div>{{ t('admin.accounts.compatibleUsage.projectBudget') }}</div>
+      <div v-if="budget.project_id != null && budget.ram_user_id != null">{{ t('admin.accounts.compatibleUsage.project') }}: {{ budget.project_id }} · {{ t('admin.accounts.compatibleUsage.member') }}: {{ budget.ram_user_id }}</div>
+      <div>{{ t('admin.accounts.compatibleUsage.consumed') }}: {{ budget.consumed }} {{ budget.currency }}</div>
+      <div>{{ t('admin.accounts.compatibleUsage.limit') }}: {{ budget.unlimited ? t('admin.accounts.compatibleUsage.unlimited') : budget.limit == null ? '—' : `${budget.limit} ${budget.currency}` }}</div>
+      <div>{{ t(`admin.accounts.compatibleUsage.${budget.period_kind}`) }}: {{ budget.period_start }} – {{ budget.period_end }}</div>
+    </div>
+    <div v-else class="flex flex-wrap items-center gap-1.5">
       <span
         data-test="cn-provider-balance-value"
         :class="['text-[10px] font-medium leading-4', platformTextClass(account.platform)]"
@@ -19,6 +26,8 @@
       </span>
     </div>
 
+    <div v-if="account.platform === 'atlascloud'" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
+    <div v-if="stale" class="text-[10px] text-amber-600">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): the old chip doubled as the data display and a hidden click
          target, which users could not discover. The verb label makes the
@@ -50,7 +59,7 @@
       </button>
     </div>
 
-    <div v-if="error" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
+    <div v-if="error" role="alert" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
       {{ truncatedError }}
     </div>
   </div>
@@ -59,14 +68,15 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
 
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
 import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
-import { compatibleBalanceVisible } from './compatibleBalance'
+import { compatibleBalanceVisible, compatibleFailureReason } from './compatibleBalance'
+import { compatibleProvider } from '@/constants/compatibleProviders'
 
 const props = defineProps<{
   account: Account
@@ -85,6 +95,8 @@ const visible = computed(() => cnBalanceCellVisible(props.account.platform, read
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderBalanceResult | null>(null)
+const budget = computed(() => data.value?.kind === 'project_budget' ? data.value.project_budget : undefined)
+const stale = computed(() => !!compatibleProvider(props.account.platform) && (budget.value || currentEntries.value.length > 0) && (loading.value || !!error.value || !data.value))
 let requestGeneration = 0
 
 const extraKey = (suffix: string) => `${props.account.platform}_${suffix}`
@@ -127,7 +139,7 @@ const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
 
 const formatEntry = (entry: CNProviderBalanceEntry): string => {
   const fixed = entry.balance >= 100 ? entry.balance.toFixed(0) : entry.balance.toFixed(2)
-  return `${entry.currency || '¥'} ${fixed}`
+  return `${entry.currency || (compatibleProvider(props.account.platform) ? '' : '¥')} ${fixed}`.trim()
 }
 
 const balanceLabel = computed(() => {
@@ -158,18 +170,22 @@ const handleProbe = async () => {
     if (result.success) {
       data.value = result
     } else {
-      error.value = result.error || t('common.error')
+      error.value = compatibleProvider(props.account.platform)
+        ? t(`admin.accounts.compatibleUsage.reasons.${compatibleFailureReason(result)}`)
+        : result.error || t('common.error')
     }
   } catch (e) {
     if (generation !== requestGeneration) return
-    error.value = extractErrorMessage(e)
+    error.value = compatibleProvider(props.account.platform)
+      ? t(`admin.accounts.compatibleUsage.reasons.${compatibleFailureReason({ status_code: (e as { response?: { status?: number } })?.response?.status })}`)
+      : extractErrorMessage(e)
   } finally {
     if (generation === requestGeneration) loading.value = false
   }
 }
 
 watch(
-  () => [props.account.id, props.account.platform, JSON.stringify(props.account.credentials)],
+  () => [props.account.id, props.account.platform, props.account.type, JSON.stringify(props.account.credentials), props.account.credentials_status?.has_api_key, props.account.extra?.custom_base_url_enabled],
   () => {
     requestGeneration++
     data.value = null
@@ -177,4 +193,5 @@ watch(
     loading.value = false
   }
 )
+onBeforeUnmount(() => { requestGeneration++ })
 </script>
