@@ -4,7 +4,9 @@ export default {
 
     accounts: {
       supplier: {
-        credentialPlan: 'Credential plan',
+        authenticationMethod: 'Authentication method',
+        planType: 'Plan type',
+        planDescriptions: { payg: 'Use the supplier’s usage-based API service.', subscription: 'Use credentials and endpoints for the selected plan; availability depends on your subscription.' },
         planKeyHint: 'Use the credential issued for the selected product or plan.',
         protocolDescriptions: { adaptive: 'Prefer the native endpoint matching each request.', chat_completions: 'Use the provider’s OpenAI-compatible chat endpoint.', anthropic: 'Use the provider’s Messages endpoint for Claude-compatible clients.', responses: 'Use the provider’s Responses endpoint for Codex-compatible clients.' },
         names: { astron: 'Astron', stepfun: 'StepFun', mimo: 'Xiaomi MiMo', compshare: 'Compshare', siliconflow: 'SiliconFlow', qwencloud: 'QwenCloud', dmxapi: 'DMXAPI', teamorouter: 'TeamoRouter', crazyrouter: 'CrazyRouter' },

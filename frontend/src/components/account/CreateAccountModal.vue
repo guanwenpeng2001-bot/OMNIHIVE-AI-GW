@@ -95,8 +95,8 @@
       </div>
       <!-- Account Type Selection (Cursor): 三张一级卡先于协议与凭据，直接决定实际请求类型 -->
       <div v-if="form.platform === 'cursor'">
-        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             data-testid="cursor-key-mode-auto"
@@ -187,8 +187,8 @@
       </div>
       <!-- Account Type (后加平台)：后端只声明 API Key 一种账号类型，用与 Anthropic / Cursor 一致的卡片结构渲染 -->
       <div v-if="declaredProtocolPlatform" data-testid="late-platform-account-type">
-        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <p class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</p>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             data-testid="late-platform-account-type-apikey"
@@ -218,13 +218,13 @@
         </div>
       </div>
       <div v-if="showsAccountTypeSummary" data-testid="account-type-summary">
-        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
-        <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
+        <AccountChoiceCards :label="t('admin.accounts.supplier.authenticationMethod')" model-value="apikey" :columns="3"
+          :options="[{ value: 'apikey', label: t('admin.accounts.apiKey'), icon: 'key', description: t('admin.accounts.platformDetails.apiKeyOnlyAccountTypeDescription') }]" />
       </div>
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
-        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -353,8 +353,8 @@
 
       <!-- Account Type Selection (OpenAI) -->
       <div v-if="form.platform === 'openai'">
-        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -412,8 +412,8 @@
 
       <!-- Account Type Selection (Grok) -->
       <div v-if="form.platform === 'grok'">
-        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -471,8 +471,8 @@
 
       <!-- OpenCode Zen vs Go：该平台唯一的一级账号入口 -->
       <div v-if="isOpenCodeGoPlatform" data-tour="account-form-type">
-        <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="openCodeAccountMode = 'zen'"
@@ -525,8 +525,8 @@
       <!-- Account Mode Selection (国产多协议供应商 + 后加四家)：账号一级入口；DeepSeek / Mistral 保留单项按量付费卡，
            千问没有套餐端点不显示此卡。后加平台的 API Key 类型卡另有一个锚点（见 cnModeTourAnchor） -->
       <div v-if="accountModeCardVisible">
-        <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" :data-tour="cnModeTourAnchor" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" :data-tour="cnModeTourAnchor" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
           <!-- Pay-as-you-go (token balance) -->
           <button
             type="button"
@@ -667,7 +667,7 @@
       <!-- Account Type Selection (Gemini) -->
       <div v-if="form.platform === 'gemini'">
         <div class="flex items-center justify-between">
-          <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+          <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
           <button
             type="button"
             @click="showGeminiHelpDialog = true"
@@ -1089,8 +1089,8 @@
 
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
-        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+        <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
+        <div class="mt-2 grid grid-cols-2 gap-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="antigravityAccountType = 'oauth'"
@@ -3427,6 +3427,7 @@ import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountW
 
 import AccountPlatformSelector from './AccountPlatformSelector.vue'
 import SupplierVariantCards from './SupplierVariantCards.vue'
+import AccountChoiceCards from './AccountChoiceCards.vue'
 import { supplierOf, resolveMember, type SupplierFamily, type SupplierSelection } from '@/constants/supplierFamilies'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'

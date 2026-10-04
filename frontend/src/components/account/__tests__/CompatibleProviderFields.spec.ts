@@ -53,7 +53,7 @@ describe('shared compatible provider forms', () => {
   })
   it('offers native choices only, shows auth without a secret, and isolates coding defaults', async () => {
     const wrapper = mountFields()
-    expect(wrapper.get('[data-testid="compatible-mode"] [role="radiogroup"]').attributes('aria-label')).toBe('admin.accounts.supplier.credentialPlan')
+    expect(wrapper.get('[data-testid="compatible-mode"] [role="radiogroup"]').attributes('aria-label')).toBe('admin.accounts.supplier.planType')
     expect(wrapper.get('[data-testid="compatible-protocol"]').text()).toContain('admin.accounts.supplier.protocolDescriptions.adaptive')
     expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('[role="radio"]').map(option => option.attributes('data-choice'))).toEqual(['adaptive', 'chat_completions', 'anthropic'])
     expect(wrapper.text()).toContain('Authorization: Bearer …')
@@ -91,7 +91,8 @@ it.each(['en', 'zh'])('uses explicit vendor mode names in %s including future su
   const provider = { ...compatibleFixture, modes: [compatibleFixture.modes[0], { ...compatibleFixture.modes[1], mode: 'subscription', label: 'Token subscription', label_zh: 'Token 订阅套餐' }] } as unknown as typeof compatibleFixture
   const wrapper = mountFields(provider)
   const subscription = wrapper.get('[data-testid="compatible-mode"] [data-choice="subscription"]')
-  expect(subscription.text()).toBe(language === 'zh' ? 'Token 订阅套餐' : 'Token subscription')
+  expect(subscription.text()).toContain(language === 'zh' ? 'Token 订阅套餐' : 'Token subscription')
+  expect(subscription.text()).toContain('admin.accounts.supplier.planDescriptions.subscription')
   await subscription.trigger('click')
   expect(wrapper.props('modelValue').account_mode).toBe('subscription')
   expect(wrapper.get('[data-testid="compatible-protocol"] [data-choice="adaptive"]').attributes('aria-checked')).toBe('true')
