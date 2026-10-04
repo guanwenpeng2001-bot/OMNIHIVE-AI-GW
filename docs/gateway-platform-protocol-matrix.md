@@ -85,6 +85,36 @@ of a native Messages or Responses URL does not by itself reject an implemented
 public bridge. Unsupported actions are rejected; error envelopes follow the
 public protocol and the selected handler rather than one universal body shape.
 
+## Coding quota and model synchronization
+
+Domestic Ark Coding personal/team uses the existing administrator route
+`GET /api/v1/admin/cn-providers/accounts/:id/quota`. Query credentials are
+`volcengine_access_key_id` and `volcengine_secret_access_key`, independent of the
+inference key and never echoed back. Omitted updates preserve them; explicit null
+clears them. `volcengine_plan_edition` is personal/team (default personal), and
+`volcengine_seat_id` is optional for team access. Only the domestic Coding profile
+is eligible; BytePlus and Ark Agent Plan query contracts remain unverified.
+
+Returned 5h/weekly/monthly windows contain used percentages and optional reset
+times, not absolute used/total or cash. Missing windows and failed queries are not
+zero; failures retain the last successful snapshot with its original time. Check
+success and status, including missing_credentials, invalid_credentials,
+permission_denied, unsupported_profile, no_verified_query, not_subscribed, no_seat,
+invalid_response, upstream_error and url_rejected; HTTP 200 alone is insufficient.
+The control-plane host is fixed and signed with query AK/SK; it does not receive
+inference credentials or inherit inference header overrides. See the
+[configuration and status contract](provider-configuration.md#火山-ark-coding-套餐用量).
+
+Model synchronization distinguishes configuration, credentials, account type,
+unadapted platform, unconfirmed discovery, 404 endpoint, 405 method, 403 permission,
+429 rate limit, network, upstream and internal errors. A disabled discovery mode
+is unconfirmed unless explicit supplier evidence establishes absence; no model
+endpoint is guessed. Failure preserves saved mappings, whitelist, selection and
+last successful catalog. Only actual discovered_models are discovery evidence;
+candidate_models and platform presets remain candidates, and selecting one is
+manual configuration, not discovery success. Candidates cannot alone establish a
+ready catalog or populate eligible_models. See [model synchronization](provider-configuration.md#模型同步候选与失败处理).
+
 ## Core endpoint contracts
 
 | Method | Path / aliases | Effective qualification | Nonstream, stream and tools |

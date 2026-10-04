@@ -8,12 +8,14 @@
 
 - [配置步骤](#配置步骤)
 - [套餐选择、保存与清除](#套餐选择保存与清除)
+- [模型同步、候选与失败处理](#模型同步候选与失败处理)
 - [证据与能力的读法](#证据与能力的读法)
 - [完整名称归一化](#完整名称归一化)
 - [新增供应商合同](#新增供应商合同)
 - [既有平台的区域、套餐和认证配置](#既有平台的区域套餐和认证配置)
 - [手工余额查询](#手工余额查询)
   - [项目预算、时间窗口用量与本站账本](#项目预算时间窗口用量与本站账本)
+  - [火山 Ark Coding 套餐用量](#火山-ark-coding-套餐用量)
 - [特定账号限制与未知项](#特定账号限制与未知项)
 - [媒体与公开入口](#媒体与公开入口)
 
@@ -55,6 +57,40 @@
 | `shengsuanyun` | `payg`（按量付费；`payg`）；`lite`（Lite；`plan`）；`pro`（Pro；`plan`）；`enterprise`（Enterprise；`plan`） |
 
 此表与 [供应商注册目录](../backend/internal/domain/data/compatible_providers/index.json)、[套餐校验](../backend/internal/domain/compatible_plan.go)对应；供应商未来新增套餐应先进入当前目录，再在后台选择，不能仅凭文档自行提交未知 ID。
+
+## 模型同步、候选与失败处理
+
+“同步上游模型”是管理员获取账号目录的操作，不等于开通全部模型、改变本站分组权限或执行一次推理。直接模型 ID 与别名映射都属于账号配置；预览不改已保存账号，同步或保存失败不清空原有白名单、映射、选中项或上次成功目录。保存失败后保留草稿，核对错误后再保存，不通过重新提交空配置修复同步错误。
+
+| 模型来源/状态 | 正确读法 |
+| --- | --- |
+| 上游实际返回的 `discovered_models` | 才能标为原生已发现；仍需核对模型动作、分组与可调度账号 |
+| 平台预设或 `candidate_models` | 只是平台候选，不证明当前账号可用；候选本身不能使目录变成 ready 或写入 eligible_models |
+| 手工选择候选、填写 ID 或别名映射 | 属于手工配置；保存时可能提示 `not_discovered`，不因此变成发现成功 |
+| 失败/过期目录 | 显示 failed/stale 或对应状态，保留配置和已有读数，不将旧目录标成刚刚同步成功 |
+
+`discovery=none` 或关闭发现的原生档案默认表示“尚未确认该配置的发现接口”，不等于“官方确认没有接口”。未适配、尚未确认和官方明确无列表接口是不同事实；确认无接口必须有该地区/套餐/认证方式的官方依据。关闭状态不尝试猜测 `/models`，也不向另一区域发送凭据；管理员仍可填写已确认可调用的模型 ID。新增查询凭据或套餐选择不自动开通发现。已有发现配置沿其原有地址与认证查询。
+
+管理端使用 `POST /api/v1/admin/accounts/models/sync-upstream-preview` 预览、`POST /api/v1/admin/accounts/:id/models/sync-upstream` 同步已保存账号、`GET /api/v1/admin/accounts/:id/models/catalog` 读取账号目录；均需管理员认证。它们与普通用户使用本站 Key 查询 `/v1/models` 的公开列表不同。路由依据：[管理路由](../backend/internal/server/routes/admin.go)，同步与保存边界依据：[账号目录服务](../backend/internal/service/account_model_catalog.go)。
+
+管理错误码采用 `upstream_model_sync_` 前缀，后缀与排查方向如下；HTTP 状态指上游原始结果时已明确标注，不能仅凭本站返回码猜根因：
+
+| 后缀 | 原因与处理 |
+| --- | --- |
+| `configuration` | 缺密钥、地址不合法或服务未配置；先修配置 |
+| `credentials` | 上游 401，或明确认证错误码；核对密钥有效性，保留原模型配置 |
+| `account_type` | 该平台的账号类型本身没有列表流程；不要把所有失败都归为此类 |
+| `not_adapted` | 尚无该平台的列表适配；使用已确认的手工模型配置 |
+| `discovery_unconfirmed` | 当前档案发现合同尚未确认，保持发现关闭；不是确认无接口 |
+| `endpoint_not_found` | 上游 404 路径未找到；核对当前地区/产品的模型列表路径 |
+| `method_not_allowed` | 上游 405 方法不允许；核对接口方法，不能据此认定账号类型不支持 |
+| `permission` | 上游 403 且无明确认证错误码；核对目录访问权限，不直接认定 Key 失效 |
+| `rate_limited` | 上游 429 限流；降低频率并稍后重试 |
+| `network` | 超时、连接重置或网络失败；检查代理与出口 |
+| `upstream` | 上游服务错误、无效列表或分页问题；已校验的部分目录不冒充完整成功目录 |
+| `internal` | 本地保存或服务状态失败；保留配置并排查服务 |
+
+未知原因使用通用同步失败提示，不回退成“账号类型不支持”。错误响应不回传上游原文、密钥或候选/已发现模型列表。修复发现问题后重新查询目录，再用同一分组的本站 Key 验证具体调用；一次同步成功不证明流式、工具、推理档位或媒体动作都可用。
 
 ## 证据与能力的读法
 
@@ -1552,6 +1588,39 @@ AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，40
 兼容结果先检查 `success`、`unsupported`、`kind`、`reason` 与 `fetched_at`，再读取对应数据。`wallet_balance` 看余额与币种，`project_budget` 看预算对象，`consumed_usage` 看窗口与模型项；原生平台保持各自响应合同。`no_verified_query` 表示尚无已接入查询，`mode_unsupported` 表示当前模式/套餐不可查，`custom_origin` 表示自定义地址不匹配；`invalid_credentials`、`permission_denied`、`proxy_unavailable`、`rate_limited`、`upstream_error`、`invalid_response` 分别排查密钥、权限、代理、频率、上游和响应格式。HTTP 成功不替代业务 success 检查，失败和不支持都不能显示为零。
 
 查询显示的是带时间的读数；旧钱包快照须结合时间判断。七牛有进程级限流并明确返回限流状态，不自动重试，多实例共享出口还要遵守供应商每 IP 限制。不支持的账号显示原因，不提供误导性的查询按钮。实现依据：[查询门禁与余额解析](../backend/internal/service/compatible_provider_balance_service.go)、[预算解析](../backend/internal/service/compatible_provider_query.go)、[窗口用量](../backend/internal/service/compatible_provider_usage_service.go)、[前端查询能力](../frontend/src/components/account/compatibleBalance.ts)。
+
+### 火山 Ark Coding 套餐用量
+
+在管理员账号表单选择国内 **Ark Coding** 档案与 `coding` 模式，配置推理 Key 后，另在用量查询区域填写火山访问凭据。个人与团队均可查询；未填写查询凭据不妨碍按原配置推理。只覆盖 Chat/Responses 根 `https://ark.cn-beijing.volces.com/api/coding/v3`、Messages 根 `https://ark.cn-beijing.volces.com/api/coding` 对应的档案；PAYG、自定义中转、其他地区/套餐不借用此查询。
+
+| 保存字段（credentials 内） | 填写与编辑规则 |
+| --- | --- |
+| `volcengine_access_key_id` | 火山 AccessKey ID，用量查询认证；不回显原值 |
+| `volcengine_secret_access_key` | 对应 SecretKey，用量查询签名；不回显原值 |
+| `volcengine_plan_edition` | `personal` 或 `team`；旧账号缺省 `personal`，不是购买套餐操作 |
+| `volcengine_seat_id` | 团队可选席位 ID；未设置时查询当前身份绑定席位，不枚举其他成员 |
+
+AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key 字段。编辑时留空/省略查询密钥字段保留已保存值；明确清除通过 `null` 删除对应字段，不能用脱敏占位符替换原值。保存新的查询凭据也不更换推理 Key。查询密钥缺失、被拒或权限不足只说明本次查询状态，不能直接认定推理账号不可用。认证依据：[火山官方认证说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-auth/references/auth-modes.md)。
+
+在账号用量单元格发起查询，继续使用既有管理接口 `GET /api/v1/admin/cn-providers/accounts/:id/quota`（前端 API 客户端中的相对路径为 `/admin/cn-providers/accounts/:id/quota`），需本站管理员认证。后台使用保存的 AK/SK 签名访问固定火山控制面 `https://open.volcengineapi.com/`，不把推理 Key 或推理自定义请求头发送过去。个人查询 `GetCodingPlanUsage`；团队有席位时查询 `GetSeatInfoUsage`，无已保存席位时先 `GetSeatInfo`，没有绑定席位就停止。团队 Coding 的 `Scene` 为空字符串；无需用户手写请求或复用 CLI 输出。
+
+结果 `provider=volcengine`、`source=coding_plan`、`plan_level=personal|team`。窗口 `5h`、`weekly`、`monthly` 分别表示 5 小时、周、月；只显示上游提供的已用百分比及重置时间，不填造 used/total、Token 数或现金余额。某窗口缺失表示该窗口没有本次读数，不补零；重置时间也可能缺失，且不是订阅到期日期。百分比不能用来推算绝对剩余次数。查询失败不覆盖上次成功快照，旧读数必须结合其更新时间和当前错误判断。来源：[官方套餐用量说明](https://github.com/volcengine/ark-cli/blob/main/skills/arkcli-usage/references/arkcli-usage-plan.md)。
+
+| status | 含义与下一步 |
+| --- | --- |
+| `ok` | 查询成功，读取返回窗口、时间及是否成功保存快照；不等于所有窗口都存在 |
+| `missing_credentials` | 缺少查询 AK 或 SK；补充查询凭据，不能用推理 Key 替代 |
+| `invalid_credentials` | 查询凭据格式或认证失败；核对/更换查询凭据 |
+| `permission_denied` | 查询身份无权限；核对火山账号权限，不把结果视作零用量 |
+| `unsupported_profile` | 当前地区、模式或套餐档案不属于支持范围；核对 Ark Coding 档案 |
+| `no_verified_query` | 尚无已核实查询合同；不能推导供应商没有该接口 |
+| `not_subscribed` | 没有有效套餐读数；未订阅不显示为已用 0% |
+| `no_seat` | 团队身份没有可用绑定席位；核对席位配置/身份，不继续查询用量 |
+| `invalid_response` | 上游结构或字段无法识别；保留历史读数并排查响应合同 |
+| `upstream_error` | 上游、传输或代理查询失败；检查服务/出口后重试 |
+| `url_rejected` | 控制面主机被本站出站 URL 策略拒绝；由管理员核对策略，不能关闭校验绕过 |
+
+先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 用量签名主机和 Ark Agent Plan 原始用量字段尚未核实，本功能不覆盖二者**。Agent 的用量动作已有公开说明，但不能因动作名称已知就声称本站已完成查询；BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
 
 ## 特定账号限制与未知项
 
