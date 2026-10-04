@@ -5,6 +5,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
@@ -194,4 +195,68 @@ func TestQueryCredentialsRollbackPostgres(t *testing.T) {
 			require.Equal(t, before, counts(), "failed create must roll back account, secret, audit, group and outbox writes")
 		})
 	}
+}
+
+func TestCompatibleBalanceBulkIsolationPostgres(t *testing.T) {
+	fixture := newCredentialSecretFixture(t)
+	ctx := domain.WithWorkspaceScope(fixture.ctx, domain.DefaultWorkspaceID)
+	credentials := map[string]any{"api_key": "fixture-inference", "usage_query_token": "fixture-management", "usage_query_user_id": "original-user", "base_url": "https://www.dmxapi.cn"}
+	selected := fixture.createAccount(t, ctx, uniqueName("balance-selected"), "dmxapi", service.AccountTypeAPIKey, maps.Clone(credentials))
+	unselected := fixture.createAccount(t, ctx, uniqueName("balance-unselected"), "dmxapi", service.AccountTypeAPIKey, maps.Clone(credentials))
+	foreignCtx := domain.WithWorkspaceScope(fixture.ctx, fixture.createWorkspace(t, uniqueName("balance-foreign")))
+	foreign := fixture.createAccount(t, foreignCtx, uniqueName("balance-foreign"), "dmxapi", service.AccountTypeAPIKey, maps.Clone(credentials))
+	observations := map[string]any{"quota_used": float64(17), "configuration": "keep"}
+	for _, key := range service.CompatibleBalanceObservationKeys() {
+		observations[key] = "old observation"
+	}
+	for _, account := range []*service.Account{selected, unselected, foreign} {
+		accountCtx := domain.WithWorkspaceScope(fixture.ctx, account.WorkspaceID)
+		loaded, err := fixture.accounts.GetByID(accountCtx, account.ID)
+		require.NoError(t, err)
+		require.NoError(t, fixture.accounts.UpdateAccountRuntimeSnapshot(accountCtx, loaded, observations, nil))
+	}
+	row := func(accountID int64) string {
+		t.Helper()
+		var encoded string
+		require.NoError(t, fixture.db.QueryRowContext(fixture.ctx, `SELECT to_jsonb(accounts)::text FROM accounts WHERE id=$1`, accountID).Scan(&encoded))
+		return encoded
+	}
+	unselectedBefore, foreignBefore := row(unselected.ID), row(foreign.ID)
+	before, err := fixture.accounts.GetByID(ctx, selected.ID)
+	require.NoError(t, err)
+	// An unchanged identity retains successful observations and valid settings.
+	count, err := fixture.accounts.BulkUpdate(ctx, []int64{selected.ID, foreign.ID}, service.AccountBulkUpdate{
+		Credentials: map[string]any{"usage_query_user_id": "original-user"}, Extra: map[string]any{"note": "ordinary update"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	unchanged, err := fixture.accounts.GetByID(ctx, selected.ID)
+	require.NoError(t, err)
+	for key, value := range observations {
+		require.Equal(t, value, unchanged.Extra[key])
+	}
+	require.Equal(t, service.AccountRuntimeIdentityKey(before), service.AccountRuntimeIdentityKey(unchanged))
+	// Replayed observation keys in the SAME extra patch must be removed after
+	// merging, while ordinary patch values and the stored non-observations stay.
+	patch := maps.Clone(observations)
+	patch["note"] = "new identity update"
+	count, err = fixture.accounts.BulkUpdate(ctx, []int64{selected.ID, foreign.ID}, service.AccountBulkUpdate{
+		Credentials: map[string]any{"usage_query_user_id": "new-user"}, Extra: patch,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count)
+	after, err := fixture.accounts.GetByID(ctx, selected.ID)
+	require.NoError(t, err)
+	for _, key := range service.CompatibleBalanceObservationKeys() {
+		require.NotContains(t, after.Extra, key)
+	}
+	require.Equal(t, float64(17), after.Extra["quota_used"])
+	require.Equal(t, "keep", after.Extra["configuration"])
+	require.Equal(t, "new identity update", after.Extra["note"])
+	expectedCredentials := maps.Clone(before.Credentials)
+	expectedCredentials["usage_query_user_id"] = "new-user"
+	require.Equal(t, expectedCredentials, after.Credentials, "inference/query secrets, version, reference and other config survive")
+	require.NotEqual(t, service.AccountRuntimeIdentityKey(before), service.AccountRuntimeIdentityKey(after))
+	require.Equal(t, unselectedBefore, row(unselected.ID), "unselected account remains unchanged")
+	require.Equal(t, foreignBefore, row(foreign.ID), "explicitly requested foreign-workspace account remains unchanged")
 }
