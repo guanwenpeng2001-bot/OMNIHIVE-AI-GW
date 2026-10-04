@@ -6,7 +6,9 @@ export interface CompatibleEndpoint {
   auth: 'bearer' | 'x_api_key' | 'api_key_header'
 }
 export interface CompatibleMode {
-  mode: 'payg' | 'coding'
+  mode: 'payg' | 'coding' | 'subscription'
+  label?: string
+  label_zh?: string
   default_protocol: CompatibleProtocol
   endpoints: CompatibleEndpoint[]
   bridges: string[]
@@ -19,8 +21,21 @@ export interface CompatibleProvider {
   label: string
   label_zh: string
   base_source: 'preset' | 'account'
-  default_mode: 'payg' | 'coding'
+  default_mode: CompatibleMode['mode']
   modes: CompatibleMode[]
+  evidence_url: string
+  evidence_observed: string
+  billing?: CompatibleBilling
+}
+
+/** Vendor information only; never persisted as credential or routing state. */
+export interface CompatibleBilling {
+  selection: 'described'
+  behavior: 'subscription_first' | 'subscription' | 'recurring' | 'monthly_credits' | 'coding_plan' | 'token_plan' | 'prepaid_credits'
+  same_key?: boolean
+  same_bases?: boolean
+  summary: string
+  summary_zh: string
   evidence_url: string
   evidence_observed: string
 }

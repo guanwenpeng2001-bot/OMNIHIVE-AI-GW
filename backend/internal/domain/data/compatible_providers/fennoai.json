@@ -36,6 +36,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L263",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "recurring",
+      "summary": "The supplier offers renewable subscriptions with periodic allowances, distinct from wallet credits. Confirm the applicable plan and key in the supplier console.",
+      "summary_zh": "供应商提供可续订的周期额度套餐，与钱包余额不同。请在供应商控制台确认适用套餐及密钥。",
+      "evidence_url": "https://marketing.fenno.ai/zh/",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

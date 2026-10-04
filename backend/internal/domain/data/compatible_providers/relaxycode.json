@@ -32,6 +32,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1601",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription",
+      "summary": "The supplier offers fixed-term Codex packages with periodic allowances, distinct from Claude PayGo credit packs. Plan key and endpoint compatibility is not established for this route; confirm details with the supplier.",
+      "summary_zh": "供应商提供含周期额度的定期 Codex 套餐，与 Claude PayGo 充值包不同。尚未确认套餐密钥和接口与此接入方式的兼容性，请向供应商确认。",
+      "evidence_url": "https://www.relaxycode.com/",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

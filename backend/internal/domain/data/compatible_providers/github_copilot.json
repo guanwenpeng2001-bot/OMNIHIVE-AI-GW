@@ -27,6 +27,14 @@
       }
     ],
     "evidence_url": "https://docs.github.com/en/copilot",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription",
+      "summary": "GitHub Copilot offers personal and organization subscriptions. Entitlement is managed by GitHub and uses the existing dedicated authentication flow; a plan choice cannot replace authentication or grant access.",
+      "summary_zh": "GitHub Copilot 提供个人及组织订阅。权限由 GitHub 管理，并使用现有专用鉴权流程；选择套餐不能替代鉴权或授予访问权限。",
+      "evidence_url": "https://github.com/features/copilot/plans",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

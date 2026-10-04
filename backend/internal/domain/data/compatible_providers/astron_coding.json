@@ -36,6 +36,14 @@
       }
     ],
     "evidence_url": "https://www.xfyun.cn/doc/spark/CodingPlan.html",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "coding_plan",
+      "summary": "This is the Astron Coding Plan route. Astron also offers a separate Token Plan with its own package key and endpoint; choose the Token Plan product under this supplier when creating that account. Existing Coding Plan credentials are not moved.",
+      "summary_zh": "此处为 Astron Coding Plan 接入。Astron 还提供使用独立套餐密钥和接口的 Token Plan；创建该类账号时请选择此供应商下的 Token Plan 产品。现有 Coding Plan 凭据不会迁移。",
+      "evidence_url": "https://www.xfyun.cn/doc/spark/TokenPlan.html",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

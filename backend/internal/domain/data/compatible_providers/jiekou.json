@@ -32,6 +32,14 @@
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1897",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription",
+      "summary": "The supplier offers monthly enterprise subscriptions and separate one-time top-up packs. Subscription key and endpoint compatibility with this route is not established; confirm integration details in the supplier console.",
+      "summary_zh": "供应商提供企业月度订阅和独立的一次性充值包。尚未确认订阅密钥及接口与此接入方式的兼容性，请在供应商控制台确认接入要求。",
+      "evidence_url": "https://jiekou.ai/resource-pack/enterprise",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]

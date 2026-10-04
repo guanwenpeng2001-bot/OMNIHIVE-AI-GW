@@ -33,9 +33,44 @@
         ],
         "discovery": "none",
         "capability_profile": "atlascloud_payg"
+      },
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.atlascloud.ai/v1",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://api.atlascloud.ai/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "atlascloud_coding",
+        "label": "Coding Plan key",
+        "label_zh": "Coding Plan 专用密钥"
       }
     ],
     "evidence_url": "https://www.atlascloud.ai/docs/llm-protocols",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "coding_plan",
+      "summary": "Coding Plan requires a dedicated plan key, separate from the standard API key, on the same API bases. Plan documentation covers Chat Completions and Messages; Responses entitlement is not established. Separate prepaid packs are not subscriptions. The key is not inspected; choosing a key contract does not grant a subscription.",
+      "summary_zh": "Coding Plan 使用专用套餐密钥，与普通 API Key 不同，但共用 API 地址。套餐文档确认 Chat Completions 和 Messages；尚未确认 Responses 权限。独立预充值包不等于订阅，系统不检查密钥，选择密钥接入方式不代表开通订阅。",
+      "evidence_url": "https://www.atlascloud.ai/docs/coding-plan/api",
+      "evidence_observed": "2026-10-04",
+      "same_key": false,
+      "same_bases": true
+    }
   }
 ]

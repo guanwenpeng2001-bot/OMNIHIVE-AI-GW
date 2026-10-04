@@ -1,0 +1,46 @@
+[
+  {
+    "id": "astron_token",
+    "label": "Astron Token Plan",
+    "label_zh": "讯飞 Astron Token Plan",
+    "base_source": "preset",
+    "default_mode": "coding",
+    "modes": [
+      {
+        "mode": "coding",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://maas-token-api.cn-huabei-1.xf-yun.com/v2",
+            "auth": "bearer"
+          },
+          {
+            "protocol": "anthropic",
+            "base_url": "https://maas-token-api.cn-huabei-1.xf-yun.com/anthropic/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "astron_token"
+      }
+    ],
+    "evidence_url": "https://www.xfyun.cn/doc/spark/TokenPlan.html",
+    "evidence_observed": "2026-10-04",
+    "billing": {
+      "selection": "described",
+      "behavior": "token_plan",
+      "summary": "Token Plan requires its own package API key and dedicated endpoint, distinct from Astron Coding Plan. Choose an entitled model from the supplier console.",
+      "summary_zh": "Token Plan 需要独立套餐 API Key 和专用接口，与 Astron Coding Plan 不同。请从供应商控制台选择有权限的模型。",
+      "evidence_url": "https://www.xfyun.cn/doc/spark/TokenPlan.html",
+      "evidence_observed": "2026-10-04",
+      "same_key": false,
+      "same_bases": false
+    }
+  }
+]

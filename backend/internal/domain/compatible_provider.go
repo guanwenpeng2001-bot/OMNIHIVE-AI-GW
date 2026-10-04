@@ -30,6 +30,8 @@ type CompatibleEndpoint struct {
 // Bridges name public gateway conversions, never additional vendor endpoints.
 type CompatibleMode struct {
 	Mode              string               `json:"mode"`
+	Label             string               `json:"label,omitempty"`
+	LabelZh           string               `json:"label_zh,omitempty"`
 	DefaultProtocol   string               `json:"default_protocol"`
 	Endpoints         []CompatibleEndpoint `json:"endpoints"`
 	Bridges           []string             `json:"bridges"`
@@ -41,14 +43,52 @@ type CompatibleMode struct {
 // CompatibleProvider retains its own platform/budget identity. It cannot confer
 // first-party credentials, model entitlement, pricing, quota or active probes.
 type CompatibleProvider struct {
-	ID               string           `json:"id"`
-	Label            string           `json:"label"`
-	LabelZh          string           `json:"label_zh"`
-	BaseSource       string           `json:"base_source"`
-	DefaultMode      string           `json:"default_mode"`
-	Modes            []CompatibleMode `json:"modes"`
-	EvidenceURL      string           `json:"evidence_url"`
-	EvidenceObserved string           `json:"evidence_observed"`
+	ID               string             `json:"id"`
+	Label            string             `json:"label"`
+	LabelZh          string             `json:"label_zh"`
+	BaseSource       string             `json:"base_source"`
+	DefaultMode      string             `json:"default_mode"`
+	Modes            []CompatibleMode   `json:"modes"`
+	EvidenceURL      string             `json:"evidence_url"`
+	EvidenceObserved string             `json:"evidence_observed"`
+	Billing          *CompatibleBilling `json:"billing,omitempty"`
+}
+
+// CompatibleBilling is vendor commercial information, never an account mode or
+// an assertion about the entitlement of a stored credential. Nil means unknown.
+type CompatibleBilling struct {
+	Selection        string `json:"selection"`
+	Behavior         string `json:"behavior"`
+	SameKey          *bool  `json:"same_key,omitempty"`
+	SameBases        *bool  `json:"same_bases,omitempty"`
+	Summary          string `json:"summary"`
+	SummaryZh        string `json:"summary_zh"`
+	EvidenceURL      string `json:"evidence_url"`
+	EvidenceObserved string `json:"evidence_observed"`
+}
+
+func validateCompatibleBilling(billing *CompatibleBilling) error {
+	if billing == nil {
+		return nil
+	}
+	if billing.Selection != "described" {
+		return fmt.Errorf("invalid billing selection")
+	}
+	switch billing.Behavior {
+	case "subscription_first", "subscription", "recurring", "monthly_credits", "coding_plan", "token_plan", "prepaid_credits":
+	default:
+		return fmt.Errorf("invalid billing behavior")
+	}
+	if strings.TrimSpace(billing.Summary) == "" || strings.TrimSpace(billing.SummaryZh) == "" {
+		return fmt.Errorf("billing summaries are required")
+	}
+	if !validCompatibleHTTPS(billing.EvidenceURL, true) {
+		return fmt.Errorf("invalid billing evidence_url")
+	}
+	if _, err := time.Parse("2006-01-02", billing.EvidenceObserved); err != nil {
+		return fmt.Errorf("invalid billing evidence_observed")
+	}
+	return nil
 }
 
 const (
@@ -135,6 +175,9 @@ func ValidateCompatibleProviders(rows []CompatibleProvider) error {
 			return fmt.Errorf("invalid, reserved or duplicate provider id %q", provider.ID)
 		}
 		seen[provider.ID] = true
+		if err := validateCompatibleBilling(provider.Billing); err != nil {
+			return fmt.Errorf("%s: %w", provider.ID, err)
+		}
 		if strings.TrimSpace(provider.Label) == "" || strings.TrimSpace(provider.LabelZh) == "" {
 			return fmt.Errorf("%s: labels are required", provider.ID)
 		}
@@ -149,7 +192,7 @@ func ValidateCompatibleProviders(rows []CompatibleProvider) error {
 		}
 		modes := map[string]bool{}
 		for _, mode := range provider.Modes {
-			if (mode.Mode != "payg" && mode.Mode != "coding") || modes[mode.Mode] {
+			if (mode.Mode != "payg" && mode.Mode != "coding" && mode.Mode != "subscription") || modes[mode.Mode] {
 				return fmt.Errorf("%s: invalid or duplicate mode %q", provider.ID, mode.Mode)
 			}
 			modes[mode.Mode] = true
@@ -189,6 +232,9 @@ func foreignCompatibleProfile(profile string) bool {
 }
 
 func validateCompatibleMode(baseSource string, mode CompatibleMode) error {
+	if (mode.Label != "" || mode.LabelZh != "") && (strings.TrimSpace(mode.Label) == "" || strings.TrimSpace(mode.LabelZh) == "") {
+		return fmt.Errorf("mode labels require both languages")
+	}
 	if !compatibleName.MatchString(mode.CapabilityProfile) || foreignCompatibleProfile(mode.CapabilityProfile) {
 		return fmt.Errorf("invalid or foreign capability_profile %q", mode.CapabilityProfile)
 	}
@@ -260,6 +306,16 @@ func validCompatibleHTTPS(raw string, evidence bool) bool {
 	if !evidence && (parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(raw, "#")) {
 		return false
 	}
+	// Documentation may contain percent-encoded spaces (for example MiMo's
+	// "Token Plan" directory). This exception never applies to request bases.
+	if evidence {
+		for _, character := range parsed.Path {
+			if character < 0x20 || character == 0x7f || character == '\\' {
+				return false
+			}
+		}
+		return true
+	}
 	return parsed.Path == "" || validCompatiblePath(parsed.EscapedPath())
 }
 
@@ -290,6 +346,18 @@ func copyCompatibleMode(mode CompatibleMode) CompatibleMode {
 }
 
 func copyCompatibleProvider(provider CompatibleProvider) CompatibleProvider {
+	if provider.Billing != nil {
+		billing := *provider.Billing
+		if billing.SameKey != nil {
+			value := *billing.SameKey
+			billing.SameKey = &value
+		}
+		if billing.SameBases != nil {
+			value := *billing.SameBases
+			billing.SameBases = &value
+		}
+		provider.Billing = &billing
+	}
 	provider.Modes = append([]CompatibleMode(nil), provider.Modes...)
 	for index := range provider.Modes {
 		provider.Modes[index] = copyCompatibleMode(provider.Modes[index])

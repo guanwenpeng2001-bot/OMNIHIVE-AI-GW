@@ -33,9 +33,38 @@
         ],
         "discovery": "none",
         "capability_profile": "qiniu_payg"
+      },
+      {
+        "mode": "subscription",
+        "default_protocol": "chat_completions",
+        "endpoints": [
+          {
+            "protocol": "chat_completions",
+            "base_url": "https://api.qnaigc.com/v1",
+            "auth": "bearer"
+          }
+        ],
+        "bridges": [
+          "messages_to_chat",
+          "responses_to_chat",
+          "gemini_to_chat"
+        ],
+        "discovery": "none",
+        "capability_profile": "qiniu_subscription",
+        "label": "Subscription key",
+        "label_zh": "订阅专用密钥"
       }
     ],
     "evidence_url": "https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L523",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "subscription",
+      "summary": "Subscription access requires a dedicated subscription API key and an included model. Exhausted quota does not automatically fall back to prepaid usage: the supplier instructs using a separate PAYG key. The key is not inspected; choosing a key contract does not grant a subscription.",
+      "summary_zh": "订阅调用需要订阅专用 API Key，且模型必须在套餐内。额度耗尽不会自动转为预充值按量计费：供应商要求另用按量付费密钥。系统不检查密钥，选择密钥接入方式不代表开通订阅。",
+      "evidence_url": "https://developer.qiniu.com/aitokenapi/13330/subscription-introduction",
+      "evidence_observed": "2026-10-04",
+      "same_key": false
+    }
   }
 ]

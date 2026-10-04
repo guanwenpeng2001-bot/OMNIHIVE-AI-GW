@@ -27,6 +27,14 @@
       }
     ],
     "evidence_url": "https://docs.novita.ai/api-reference/model-apis-llm-create-chat-completion",
-    "evidence_observed": "2026-10-03"
+    "evidence_observed": "2026-10-03",
+    "billing": {
+      "selection": "described",
+      "behavior": "coding_plan",
+      "summary": "Novita offers a monthly Coding Plan. Plan-specific keys, endpoints and protocol support are not established for this route; confirm them with the supplier before using a plan credential.",
+      "summary_zh": "Novita 提供按月订阅的 Coding Plan。尚未确认此接入方式的套餐专用密钥、接口及协议支持；使用套餐凭据前请向供应商确认。",
+      "evidence_url": "https://novita.ai/coding-plan",
+      "evidence_observed": "2026-10-04"
+    }
   }
 ]
