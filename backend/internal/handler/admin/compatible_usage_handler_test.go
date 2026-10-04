@@ -16,12 +16,56 @@ import (
 
 type compatibleUsageHandlerHTTP struct {
 	service.HTTPUpstream
-	calls int
+	calls   int
+	body    string
+	request *http.Request
 }
 
 func (upstream *compatibleUsageHandlerHTTP) Do(request *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
 	upstream.calls++
+	upstream.request = request
+	if upstream.body != "" {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(upstream.body))}, nil
+	}
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"status":true,"data":[{"id":"model","name":"Model","items":[{"name":"Input","unit":"kToken","total":0}]}]}`))}, nil
+}
+
+func TestAtlasUsageAdminProviderDispatch(test *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, scenario := range []struct {
+		name, platform, query string
+		status, calls         int
+	}{
+		{"atlas", "atlascloud", "start_date=2026-05-01&end_date=2026-05-02", 200, 1},
+		{"atlas missing dates", "atlascloud", "", 400, 0},
+		{"atlas rejects qiniu dates", "atlascloud", "granularity=day&start=2026-05-01T00:00:00Z&end=2026-05-02T00:00:00Z", 400, 0},
+		{"qiniu rejects atlas dates", "qiniu", "start_date=2026-05-01&end_date=2026-05-02", 400, 0},
+		{"atlas rejects scope", "atlascloud", "start_date=2026-05-01&end_date=2026-05-02&scope=account", 400, 0},
+		{"atlas rejects duplicate", "atlascloud", "start_date=2026-05-01&start_date=2026-05-01&end_date=2026-05-02", 400, 0},
+		{"atlas rejects excessive span", "atlascloud", "start_date=2026-01-01&end_date=2026-07-01", 400, 0},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			repo := compatibleBalanceHandlerRepo{account: &service.Account{ID: 12, Platform: scenario.platform, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"account_mode": "payg", "api_key": "apikey-fixture-only"}}}
+			upstream := &compatibleUsageHandlerHTTP{body: `{"object":"list","scope":"self","data":[],"has_more":false,"next_page":null}`}
+			handler := NewCNProviderHandler(nil, service.NewCNProviderBalanceService(repo, nil, upstream, nil))
+			router := gin.New()
+			router.GET("/admin/cn-providers/accounts/:id/usage", handler.QueryUsage)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/cn-providers/accounts/12/usage?"+scenario.query, nil))
+			require.Equal(test, scenario.status, recorder.Code)
+			require.Equal(test, scenario.calls, upstream.calls)
+			if scenario.calls > 0 {
+				require.Equal(test, "/public/v1/model-usage", upstream.request.URL.Path)
+				require.NotContains(test, recorder.Body.String(), "apikey-fixture-only")
+				var envelope struct {
+					Data service.AtlasUsageResult `json:"data"`
+				}
+				require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+				require.True(test, envelope.Data.Success)
+				require.Equal(test, "self", envelope.Data.Usage.Scope)
+			}
+		})
+	}
 }
 
 func TestCompatibleUsageAdminHandler(test *testing.T) {
