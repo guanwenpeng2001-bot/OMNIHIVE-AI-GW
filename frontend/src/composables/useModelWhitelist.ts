@@ -189,6 +189,14 @@ export function modelSyncErrorKey(error: unknown): string {
   if (reasons.includes(reason)) return `modelSync.reasons.${reason}`
   const keys: Record<string, string> = {
     upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
+    upstream_model_sync_account_type: 'syncUpstreamModelsAccountType',
+    upstream_model_sync_not_adapted: 'syncUpstreamModelsNotAdapted',
+    upstream_model_sync_discovery_unconfirmed: 'syncUpstreamModelsDiscoveryUnconfirmed',
+    upstream_model_sync_endpoint_not_found: 'syncUpstreamModelsEndpointNotFound',
+    upstream_model_sync_method_not_allowed: 'syncUpstreamModelsMethodNotAllowed',
+    upstream_model_sync_permission: 'syncUpstreamModelsPermission',
+    upstream_model_sync_rate_limited: 'syncUpstreamModelsRateLimited',
+    upstream_model_sync_network: 'syncUpstreamModelsNetwork',
     upstream_model_sync_credentials: 'syncUpstreamModelsCredentials',
     upstream_model_sync_unsupported: 'syncUpstreamModelsUnsupported',
     upstream_model_sync_upstream: 'syncUpstreamModelsUnavailable',

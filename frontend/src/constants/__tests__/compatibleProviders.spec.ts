@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCompatibleCredentials, compatibleMode, type CompatibleProvider } from '@/constants/compatibleProviders'
+import { buildCompatibleCredentials, compatibleMode, compatibleProvider, compatibleDiscoveryDisabled, type CompatibleProvider } from '@/constants/compatibleProviders'
 
 const provider: CompatibleProvider = {
   id: 'example-cloud', label: 'Example Cloud', label_zh: '示例云', base_source: 'preset', default_mode: 'coding',
@@ -27,4 +27,16 @@ describe('compatible account credentials', () => {
     expect(() => buildCompatibleCredentials(resource, {})).toThrow()
     expect(buildCompatibleCredentials(resource, { base_url: 'https://resource.example.com', model_mapping: { public: 'deployment-name' } })).toEqual({ base_url: 'https://resource.example.com', model_mapping: { public: 'deployment-name' }, account_mode: 'coding', api_protocol: 'adaptive' })
   })
+})
+
+
+it.each(['qiniu', 'dmxapi', 'aihubmix'])('enables only the documented authenticated list for %s payg', id => {
+ const provider = compatibleProvider(id)!
+ const mode = compatibleMode(provider, 'payg')!
+ expect(mode.discovery).toBe('openai_models')
+ expect(mode.discovery_protocol).toBe('chat_completions')
+ expect(compatibleDiscoveryDisabled(provider, { account_mode: 'payg' })).toBe(false)
+})
+it.each([['qiniu', 'subscription'], ['dmxapi_com', 'payg'], ['dmxapi_ssvip', 'payg'], ['atlascloud', 'payg'], ['atlascloud', 'coding'], ['a6api', 'payg']])('keeps discovery closed for %s %s', (id, mode) => {
+ expect(compatibleDiscoveryDisabled(compatibleProvider(id)!, { account_mode: mode })).toBe(true)
 })

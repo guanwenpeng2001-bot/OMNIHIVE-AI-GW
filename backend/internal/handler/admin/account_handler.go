@@ -3372,7 +3372,9 @@ func writeUpstreamModelSyncError(c *gin.Context, err error) {
 	if errors.As(err, &syncErr) {
 		kind, message = syncErr.Kind, syncErr.SafeMessage()
 		switch kind {
-		case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported, service.UpstreamModelSyncErrorCredentials:
+		case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported, service.UpstreamModelSyncErrorCredentials,
+			service.UpstreamModelSyncErrorAccountType, service.UpstreamModelSyncErrorNotAdapted, service.UpstreamModelSyncErrorDiscoveryUnconfirmed,
+			service.UpstreamModelSyncErrorEndpointNotFound, service.UpstreamModelSyncErrorMethodNotAllowed:
 			status = http.StatusBadRequest
 		case service.UpstreamModelSyncErrorInternal:
 			status = http.StatusInternalServerError

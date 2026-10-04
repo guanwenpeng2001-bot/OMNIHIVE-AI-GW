@@ -209,29 +209,29 @@ func applyCompatibleRequestAuth(account *Account, request *http.Request) error {
 func buildCompatibleModelsRequest(ctx context.Context, account *Account, validate func(string) (string, error)) (*http.Request, error) {
 	if isCopilotNous(account) {
 		if _, _, err := account.compatibleMode(); err != nil {
-			return nil, err
+			return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 		}
 		config, err := compatibleSpecialAuthConfig(account)
 		if err != nil {
-			return nil, err
+			return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 		}
 		endpoints, err := ResolveCopilotNousEndpoints(config)
 		if err != nil {
-			return nil, err
+			return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 		}
 		for _, destination := range []string{endpoints.ChatBaseURL, endpoints.ModelsURL} {
 			if _, err := validate(destination); err != nil {
-				return nil, err
+				return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 			}
 		}
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoints.ModelsURL, nil)
 		if err != nil {
-			return nil, err
+			return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 		}
 		request.Header.Set("Accept", "application/json")
 		account.ApplyHeaderOverrides(request.Header)
 		if err := applyCompatibleSpecialAuth(account, request); err != nil {
-			return nil, err
+			return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 		}
 		return request, nil
 	}
@@ -240,27 +240,27 @@ func buildCompatibleModelsRequest(ctx context.Context, account *Account, validat
 		return nil, newUpstreamModelSyncConfigError(err.Error(), err)
 	}
 	if mode.Discovery != "openai_models" {
-		return nil, newUpstreamModelSyncUnsupportedError("Model discovery is unsupported for this account mode; declare models manually", nil)
+		return nil, newUpstreamModelSyncDiscoveryUnconfirmedError("Model discovery has not been confirmed for this account mode; declare models manually", nil)
 	}
 	endpoint, ok := mode.LookupEndpoint(mode.DiscoveryProtocol)
 	if !ok {
-		return nil, newUpstreamModelSyncUnsupportedError("No discovery endpoint; declare models manually", nil)
+		return nil, newUpstreamModelSyncConfigError("Discovery endpoint is not configured; declare models manually", nil)
 	}
 	if strings.TrimSpace(account.GetCredential("base_url")) == "" {
 		if bases, ok := account.Credentials["api_base_urls"].(map[string]any); ok && len(bases) > 0 {
 			selected, _ := bases[endpoint.Protocol].(string)
 			if strings.TrimSpace(selected) == "" {
-				return nil, newUpstreamModelSyncUnsupportedError("Custom endpoint has no matching discovery override; declare models manually", nil)
+				return nil, newUpstreamModelSyncConfigError("Custom endpoint has no matching discovery override; declare models manually", nil)
 			}
 		}
 	}
 	base, err := account.compatibleBase(endpoint)
 	if err != nil {
-		return nil, err
+		return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 	}
 	base, err = validate(base)
 	if err != nil {
-		return nil, err
+		return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 	}
 	key := strings.TrimSpace(account.GetCredential("api_key"))
 	if key == "" {
@@ -268,7 +268,7 @@ func buildCompatibleModelsRequest(ctx context.Context, account *Account, validat
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/models", nil)
 	if err != nil {
-		return nil, err
+		return nil, newUpstreamModelSyncConfigError("Invalid model discovery configuration", err)
 	}
 	account.ApplyHeaderOverrides(req.Header)
 	setCompatibleAuth(req.Header, endpoint.Auth, key)

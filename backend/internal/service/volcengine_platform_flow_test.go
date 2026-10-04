@@ -43,11 +43,16 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	discoveryTransport := &httpUpstreamRecorder{}
 	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
 	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
-	require.ErrorContains(test, discoveryErr, "no documented model discovery endpoint")
+	require.ErrorContains(test, discoveryErr, "has not been confirmed")
 	require.Nil(test, discoveryRequest)
-	// Official accounts expose candidates without treating them as discovered availability.
+	// Candidate evidence stays internal; the preview must report unconfirmed discovery.
 	preview, discoveryErr := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, discoveryErr)
+	require.Nil(test, preview)
+	var failure *UpstreamModelSyncError
+	require.ErrorAs(test, discoveryErr, &failure)
+	require.Equal(test, UpstreamModelSyncErrorDiscoveryUnconfirmed, failure.Kind)
+	preview = failure.PartialCatalog
+	require.NotNil(test, preview)
 	require.Equal(test, "platform-candidates", preview.CatalogSource)
 	require.Empty(test, preview.DiscoveredModels)
 	require.Empty(test, preview.EligibleModels)

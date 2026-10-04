@@ -48,7 +48,11 @@ func TestAccountModelCatalogPartialDiscoveryPreservesCompleteSnapshot(test *test
 	before, err := json.Marshal(account)
 	require.NoError(test, err)
 	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
-	require.NoError(test, err)
+	require.Nil(test, preview)
+	var failure *UpstreamModelSyncError
+	require.ErrorAs(test, err, &failure)
+	preview = failure.PartialCatalog
+	require.NotNil(test, preview)
 	require.False(test, preview.DiscoveryComplete)
 	require.Equal(test, "incomplete", preview.CapabilityStatus)
 	require.Equal(test, []string{"claude-fixture"}, preview.DiscoveredModels)
