@@ -3,14 +3,17 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, platformFamily, type PlatformFamily } from '@/constants/platforms'
+import { getPlatformLabel, platformFamily, type PlatformFamily } from '@/constants/platforms'
+
+import { supplierPlatformOptions, supplierOf } from '@/constants/supplierFamilies'
 
 const props = defineProps<{ modelValue: string }>()
-const emit = defineEmits<{ select: [platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value'] | 'vertex'] }>()
+const emit = defineEmits<{ select: [platform: string] }>()
 const { t } = useI18n()
 const search = ref('')
 const family = ref<'all' | PlatformFamily>('all')
-const options = computed(() => [...CONCRETE_PLATFORM_OPTIONS, { value: 'vertex' as const, label: 'Vertex AI' }])
+const options = computed(supplierPlatformOptions)
+const selected = computed(() => supplierOf(props.modelValue)?.members[0].platform ?? props.modelValue)
 // 族名走 i18n；分类按真实协议族（见 platformFamily），因此那一栏叫
 // “OpenAI 兼容 / 其它”而不是把所有成员都称作 OpenAI。
 const FAMILY_OPTIONS: ReadonlyArray<'all' | PlatformFamily> = ['all', 'anthropic', 'google', 'openaiCompatible']
@@ -20,7 +23,7 @@ const families = computed(() => FAMILY_OPTIONS.map(value => ({
 })))
 const visible = computed(() => options.value.filter(option => {
   const belongs = family.value === 'all' || platformFamily(option.value) === family.value
-  return belongs && `${option.label} ${option.value} ${getPlatformLabel(option.value, t)}`.toLowerCase().includes(search.value.trim().toLowerCase())
+  return belongs && `${option.label} ${option.search} ${option.value} ${getPlatformLabel(option.value, t)}`.toLowerCase().includes(search.value.trim().toLowerCase())
 }))
 function navigate(event: KeyboardEvent, index: number) {
   const offset = ['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : ['ArrowLeft', 'ArrowUp'].includes(event.key) ? -1 : 0
@@ -43,11 +46,11 @@ function navigate(event: KeyboardEvent, index: number) {
     </div>
     <div role="radiogroup" :aria-label="t('admin.accounts.platform')" class="flex max-h-80 flex-wrap gap-1 overflow-y-auto rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
       <button v-for="(option, index) in visible" :key="option.value" type="button" role="radio"
-        :aria-checked="props.modelValue === option.value" :data-testid="`${option.value}-platform`"
-        :tabindex="props.modelValue === option.value || (!visible.some(item => item.value === props.modelValue) && index === 0) ? 0 : -1"
-        :class="['flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', props.modelValue === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-300']"
+        :aria-checked="selected === option.value" :data-testid="`${option.value}-platform`"
+        :tabindex="selected === option.value || (!visible.some(item => item.value === selected) && index === 0) ? 0 : -1"
+        :class="['flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', selected === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-300']"
         @click="emit('select', option.value)" @keydown="navigate($event, index)">
-        <PlatformIcon :platform="option.value === 'vertex' ? 'gemini' : option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
+        <PlatformIcon :platform="option.value === 'vertex' ? 'gemini' : option.value" size="sm" />{{ option.supplier ? t(`admin.accounts.supplier.names.${option.supplier.id}`) : getPlatformLabel(option.value, t) }}
       </button>
     </div>
     <p v-if="!visible.length" role="status" class="input-hint">{{ t('common.noData') }}</p>

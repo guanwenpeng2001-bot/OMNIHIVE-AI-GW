@@ -1,4 +1,5 @@
-import { CHAT_PLATFORM_BASE_URLS, CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { supplierPlatformOptions } from '@/constants/supplierFamilies'
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -343,18 +344,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(group.attributes('data-tour')).toBe('account-form-platform')
     expect(group.classes()).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'rounded-lg', 'p-1', 'bg-gray-100']))
     const radios = group.findAll('[role="radio"]')
-    expect(radios).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length + 1)
+    expect(radios).toHaveLength(supplierPlatformOptions().length)
     expect(group.find('[data-testid="vertex-platform"]').exists()).toBe(true)
-    CONCRETE_PLATFORM_OPTIONS.forEach((option, index) => {
+    supplierPlatformOptions().forEach((option, index) => {
       const radio = radios[index]!
       expect(radio.attributes('data-testid')).toBe(`${option.value}-platform`)
       expect(radio.attributes('type')).toBe('button')
       expect(radio.attributes('aria-checked')).toBe(String(index === 0))
       expect(radio.attributes('tabindex')).toBe(index === 0 ? '0' : '-1')
-      expect(radio.getComponent(PlatformIcon).props('platform')).toBe(option.value)
+      expect(radio.getComponent(PlatformIcon).props('platform')).toBe(option.value === 'vertex' ? 'gemini' : option.value)
       expect(radio.get('svg').attributes('aria-hidden')).toBe('true')
       expect(radio.classes()).toContain('focus-visible:ring-2')
-      expect(radio.text()).toBe(option.value === 'commandcode' ? `CC${option.label}` : option.label)
+      expect(radio.text()).toBe(option.supplier ? `admin.accounts.supplier.names.${option.supplier.id}` : option.value === 'commandcode' ? `CC${option.label}` : option.label)
     })
     expect(radios[0]!.classes()).toEqual(expect.arrayContaining(['bg-white', 'text-primary-600', 'shadow-sm']))
     wrapper.unmount()
@@ -365,7 +366,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     document.body.append(host)
     const wrapper = mountModal([], false, host)
     try {
-      const entrypoints = [...CONCRETE_PLATFORM_OPTIONS, { value: 'vertex' }]
+      const entrypoints = supplierPlatformOptions()
       const radio = (index: number) => wrapper.get(`[data-testid="${entrypoints[index]!.value}-platform"]`)
       const last = entrypoints.length - 1
       for (const [from, key, to] of [
@@ -1905,8 +1906,8 @@ it('creates a named compatible API-key account with mode-specific endpoints and 
   expect(state.form.type).toBe('apikey')
   expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
   expect(wrapper.find('[data-testid="account-protocol-choices"]').exists()).toBe(false)
-  await wrapper.get('[data-testid="compatible-mode"]').setValue('coding')
-  expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('option').map(option => option.attributes('value'))).toEqual(['adaptive', 'anthropic'])
+  await wrapper.get('[data-testid=\"compatible-mode\"] [data-choice=\"coding\"]').trigger('click')
+  expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('[role="radio"]').map(option => option.attributes('data-choice'))).toEqual(['adaptive', 'anthropic'])
   await wrapper.get('[data-testid="compatible-base"]').setValue('https://relay.example.com')
   await wrapper.get('[data-testid="compatible-base-anthropic"]').setValue('https://relay.example.com/messages')
   await wrapper.get('[data-account-field="apiKeyValue"]').setValue('fixture-key')
@@ -1955,4 +1956,81 @@ it('creates a keyless Nous official proxy through the actual account review flow
   expect(createAccountMock).toHaveBeenCalledOnce()
   expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform: 'nous_research', type: 'apikey', credentials: { auth_mode: 'official_proxy', account_mode: 'payg', base_url: 'https://operator.example/v1', api_key: '' } })
   wrapper.unmount()
+})
+
+
+describe('supplier family create flow', () => {
+  it.each([
+    ['stepfun_api', 'china', 'stepPlan', 'stepfun_plan', 'coding'],
+    ['stepfun_api', 'international', 'api', 'stepfun_api_intl', 'payg'],
+    ['qwencloud', '', 'tokenPlan', 'qwencloud_token', 'coding']
+  ])('resolves %s / %s / %s to the exact routing ID', async (chip, region, product, platform, mode) => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 410, platform, type: 'apikey' })
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${chip}-platform"]`).trigger('click')
+    expect(wrapper.find('[data-testid="compatible-provider-fields"]').exists()).toBe(false)
+    if (region) await wrapper.get(`[data-testid="supplier-region"] [data-choice="${region}"]`).trigger('click')
+    await wrapper.get(`[data-testid="supplier-product"] [data-choice="${product}"]`).trigger('click')
+    await flushPromises()
+    if (platform === 'qwencloud_token') expect(wrapper.find('[data-testid="compatible-protocol"] [data-choice="chat_completions"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('new-variant-key')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform, type: 'apikey', credentials: { account_mode: mode, api_key: 'new-variant-key' } })
+    wrapper.unmount()
+  })
+
+  it('blocks incomplete selections even for programmatic form submission', async () => {
+    createAccountMock.mockReset()
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="stepfun_api-platform"]').trigger('click')
+    await wrapper.get('[data-choice="china"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Partial account')
+    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="account-review"]').exists()).toBe(false)
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('clears keys, custom transport and model selections when switching independent variants', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 411, platform: 'stepfun_api_intl', type: 'apikey' })
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="stepfun_api-platform"]').trigger('click')
+    await wrapper.get('[data-choice="china"]').trigger('click')
+    await wrapper.get('[data-choice="api"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="compatible-base"]').setValue('https://api.stepfun.com/v1')
+    await wrapper.get('[data-testid="compatible-base-chat_completions"]').setValue('https://old-proxy.example/v1')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('china-only-key')
+    const state = wrapper.vm as unknown as { allowedModels: string[]; modelMappings: { from: string; to: string }[]; form: { credentials: Record<string, unknown> }; headerOverrideEnabled: boolean; headerOverrideRows: unknown[] }
+    state.form.credentials = { api_key: 'prior-preview-key', provider_profile: 'old-profile' }
+    state.headerOverrideEnabled = true
+    state.headerOverrideRows = [{ name: 'X-Old-Host', value: 'old' }]
+    state.allowedModels = ['old-model']
+    state.modelMappings = [{ from: 'alias', to: 'old-model' }]
+    await wrapper.get('[data-choice="international"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-account-field="apiKeyValue"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-testid="compatible-base"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-testid="compatible-base-chat_completions"]').element).toHaveProperty('value', '')
+    expect(state.form.credentials).toEqual({})
+    expect(state.headerOverrideEnabled).toBe(false)
+    expect(state.headerOverrideRows).toEqual([])
+    expect(state.allowedModels).toEqual([])
+    expect(state.modelMappings).toEqual([])
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('international-key')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    const payload = createAccountMock.mock.calls[0][0]
+    expect(payload.platform).toBe('stepfun_api_intl')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_base_urls).toBeUndefined()
+    expect(JSON.stringify(payload)).not.toContain('china-only-key')
+    expect(JSON.stringify(payload)).not.toContain('old-model')
+    wrapper.unmount()
+  })
 })

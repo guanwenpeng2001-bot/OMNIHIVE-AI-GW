@@ -1,10 +1,11 @@
+import { supplierPlatformOptions } from '@/constants/supplierFamilies'
 import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { describe, expect, it } from 'vitest'
 
 import AccountPlatformSelector from '../AccountPlatformSelector.vue'
-import { CONCRETE_PLATFORM_OPTIONS, platformFamily } from '@/constants/platforms'
+import { platformFamily } from '@/constants/platforms'
 import enCommon from '@/i18n/locales/en/common'
 import enAccounts from '@/i18n/locales/en/admin/accounts'
 import zhCommon from '@/i18n/locales/zh/common'
@@ -71,7 +72,7 @@ describe('AccountPlatformSelector platform families', () => {
   it('keeps every platform button reachable through exactly one family', () => {
     const wrapper = mountSelector('en')
     const rendered = wrapper.findAll('[data-testid$="-platform"]').map(button => button.attributes('data-testid')!.replace('-platform', ''))
-    expect(rendered.sort()).toEqual([...CONCRETE_PLATFORM_OPTIONS.map(option => option.value), 'vertex'].sort())
+    expect(rendered.sort()).toEqual(supplierPlatformOptions().map(option => option.value).sort())
 
     const grouped: Record<string, string[]> = { anthropic: [], google: [], openaiCompatible: [] }
     for (const platform of rendered) grouped[platformFamily(platform)].push(platform)

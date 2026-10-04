@@ -3,6 +3,17 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      supplier: {
+        credentialPlan: '凭据套餐',
+        planKeyHint: '请使用所选产品或套餐对应的凭据。',
+        protocolDescriptions: { adaptive: '优先使用与请求协议匹配的原生端点。', chat_completions: '使用供应商的 OpenAI 兼容聊天端点。', anthropic: '使用供应商的 Messages 端点，适配 Claude 兼容客户端。', responses: '使用供应商的 Responses 端点，适配 Codex 兼容客户端。' },
+        names: { astron: '讯飞星辰', stepfun: '阶跃星辰', mimo: '小米 MiMo', compshare: '优刻得 Compshare', siliconflow: '硅基流动', qwencloud: 'QwenCloud', dmxapi: 'DMXAPI', teamorouter: 'TeamoRouter', crazyrouter: 'CrazyRouter' },
+        region: '地区', product: '产品 / 套餐', site: '服务站点',
+        locked: '此账号的地区、产品和服务站点不可更改。如需其他选项，请新建账号。',
+        chooseVariant: '请完成各项选择后配置账号。',
+        choices: { tokenPlanSingapore: 'Token Plan（新加坡）', tokenPlanEurope: 'Token Plan（欧洲）', china: '中国', international: '国际', global: '全球', api: 'API', stepPlan: 'Step Plan', tokenPlanChina: 'Token Plan（中国）', codingPlan: 'Coding Plan', maas: 'MaaS', maasTokenPlan: 'MaaS Token Plan', tokenPlan: 'Token Plan', cnSite: '.cn', comSite: '.com', ssvip: 'SSVIP' }
+      },
+
       specialCompatibleAuth: {
         authMode: '认证方式',
         selectAuthMode: '请选择认证方式',

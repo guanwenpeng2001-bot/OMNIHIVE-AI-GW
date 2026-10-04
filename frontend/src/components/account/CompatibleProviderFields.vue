@@ -1,16 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AccountChoiceCards from './AccountChoiceCards.vue'
 import CompatibleSpecialAuthFields from './CompatibleSpecialAuthFields.vue'
 import { isSpecialCompatibleProvider } from './compatibleSpecialAuth'
 import { useI18n } from 'vue-i18n'
 import { compatibleMode, compatibleProtocolLabel, compatibleAuthLabel, type CompatibleProvider } from '@/constants/compatibleProviders'
 const props = defineProps<{ provider: CompatibleProvider; modelValue: Record<string, unknown> }>()
 const emit = defineEmits<{ 'update:modelValue': [value: Record<string, unknown>]; 'reset-secret': [] }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const mode = computed(() => compatibleMode(props.provider, props.modelValue.account_mode))
 const protocol = computed(() => String(props.modelValue.api_protocol || 'adaptive'))
 const bases = computed(() => (props.modelValue.api_base_urls || {}) as Record<string, string>)
 const endpoints = computed(() => mode.value?.endpoints.filter(endpoint => protocol.value === 'adaptive' || endpoint.protocol === protocol.value) ?? [])
+const protocolIcons = { adaptive: 'swap', chat_completions: 'chat', anthropic: 'sparkles', responses: 'terminal' } as const
+const protocolOptions = computed(() => ['adaptive', ...(mode.value?.endpoints.map(endpoint => endpoint.protocol) ?? [])].map(value => ({
+  value,
+  label: value === 'adaptive' ? t('admin.accounts.cnProviders.apiProtocol.adaptive') : compatibleProtocolLabel(value),
+  description: t(`admin.accounts.supplier.protocolDescriptions.${value}`),
+  icon: protocolIcons[value as keyof typeof protocolIcons]
+})))
+function modeLabel(entry: { mode: string; label?: string; label_zh?: string }) {
+  return (locale?.value.startsWith('zh') ? entry.label_zh || entry.label : entry.label) || t(`admin.accounts.cnProviders.accountMode.${entry.mode}`)
+}
 function update(key: string, value: unknown) { emit('update:modelValue', { ...props.modelValue, [key]: value }) }
 function changeMode(value: string) {
   const next = compatibleMode(props.provider, value)
@@ -28,21 +39,17 @@ function updateBase(protocol: string, value: string) {
 
 <template>
   <div class="space-y-4" data-testid="compatible-provider-fields">
+    <slot name="billing" :provider="provider" />
     <CompatibleSpecialAuthFields v-if="isSpecialCompatibleProvider(provider.id)" :platform="provider.id" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" @reset-secret="emit('reset-secret')" />
     <template v-else>
-      <label class="block">
-        <span class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</span>
-        <select class="input" data-testid="compatible-mode" :value="mode?.mode ?? modelValue.account_mode" @change="changeMode(($event.target as HTMLSelectElement).value)">
-          <option v-for="entry in provider.modes" :key="entry.mode" :value="entry.mode">{{ t(`admin.accounts.cnProviders.accountMode.${entry.mode}`) }}</option>
-        </select>
-      </label>
-      <label class="block">
-        <span class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</span>
-        <select class="input" data-testid="compatible-protocol" :value="protocol" @change="update('api_protocol', ($event.target as HTMLSelectElement).value)">
-          <option value="adaptive">{{ t('admin.accounts.cnProviders.apiProtocol.adaptive') }}</option>
-          <option v-for="endpoint in mode?.endpoints" :key="endpoint.protocol" :value="endpoint.protocol">{{ compatibleProtocolLabel(endpoint.protocol) }}</option>
-        </select>
-      </label>
+      <AccountChoiceCards v-if="provider.modes.length > 1" data-testid="compatible-mode"
+        :label="t('admin.accounts.supplier.credentialPlan')" :model-value="mode?.mode"
+        :options="provider.modes.map(entry => ({ value: entry.mode, label: modeLabel(entry) }))"
+        @update:model-value="changeMode" />
+      <p v-if="provider.modes.length > 1" class="input-hint">{{ t('admin.accounts.supplier.planKeyHint') }}</p>
+      <AccountChoiceCards data-testid="compatible-protocol" :label="t('admin.accounts.cnProviders.apiProtocol.title')" :model-value="protocol"
+        :options="protocolOptions"
+        @update:model-value="update('api_protocol', $event)" />
       <p class="input-hint">{{ t('admin.accounts.compatible.protocolHint') }}</p>
       <label class="block">
         <span class="input-label">{{ t('admin.accounts.baseUrl') }}</span>
