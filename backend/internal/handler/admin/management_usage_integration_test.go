@@ -75,3 +75,48 @@ func TestManagementUsageStoredPlatformDispatch(test *testing.T) {
 		}
 	}
 }
+
+func TestByteplusSeatQuotaHandler(test *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, scenario := range []string{"configured", "missing seat", "missing key", "personal"} {
+		test.Run(scenario, func(test *testing.T) {
+			credentials := map[string]any{"account_mode": "coding", "billing_plan": "team", "api_key": "inference-fixture", "byteplus_access_key_id": "cloud-id", "byteplus_secret_access_key": "cloud-secret", "byteplus_seat_id": "seat-fixture"}
+			expectedStatus, calls := "ok", 1
+			switch scenario {
+			case "missing seat":
+				delete(credentials, "byteplus_seat_id")
+				expectedStatus = "no_seat"
+				calls = 0
+			case "missing key":
+				delete(credentials, "byteplus_secret_access_key")
+				expectedStatus = "missing_credentials"
+				calls = 0
+			case "personal":
+				credentials["billing_plan"] = "personal"
+				expectedStatus = "no_verified_query"
+				calls = 0
+			}
+			repo := compatibleBalanceHandlerRepo{account: &service.Account{ID: 12, Platform: "byteplus", Type: service.AccountTypeAPIKey, Credentials: credentials}}
+			upstream := &compatibleUsageHandlerHTTP{body: `{"Result":{"SeatInfoUsage":{"SeatID":"seat-fixture","ShortTermUsage":12,"WeeklyUsage":34}}}`}
+			handler := NewCNProviderHandler(service.NewCNProviderQuotaService(repo, nil, upstream, nil), nil)
+			router := gin.New()
+			router.GET("/accounts/:id/quota", handler.QueryQuota)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/accounts/12/quota", nil))
+			require.Equal(test, 200, recorder.Code, recorder.Body.String())
+			require.Equal(test, calls, upstream.calls)
+			var envelope struct {
+				Data service.CNProviderQuotaProbeResult `json:"data"`
+			}
+			require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+			require.Equal(test, expectedStatus, envelope.Data.Status)
+			require.Equal(test, scenario == "configured", envelope.Data.Success)
+			require.NotContains(test, recorder.Body.String(), "cloud-secret")
+			require.NotContains(test, recorder.Body.String(), "inference-fixture")
+			if calls > 0 {
+				require.Equal(test, "ark.ap-southeast-1.byteplusapi.com", upstream.request.URL.Host)
+				require.Len(test, envelope.Data.Tiers, 2)
+			}
+		})
+	}
+}

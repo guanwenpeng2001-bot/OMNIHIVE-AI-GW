@@ -150,6 +150,7 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			require.Equal(t, operation != "clear", projected.CredentialsStatus["has_usage_query_token"])
 
 			for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
+				require.Equal(t, operation != "clear", projected.CredentialsStatus["has_"+field])
 				require.NotContains(t, out, field)
 				switch operation {
 				case "clear":

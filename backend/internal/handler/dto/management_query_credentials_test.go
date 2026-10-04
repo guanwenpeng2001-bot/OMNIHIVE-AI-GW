@@ -45,8 +45,8 @@ func TestManagementQueryCredentialsRedactPreserveAndClear(t *testing.T) {
 }
 
 func TestIntegratedAdminDTOQuerySecretsAndModelMapping(t *testing.T) {
-	fields := []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"}
-	for _, platform := range []string{"volcengine", "hunyuan", "azure_openai", "github_copilot", "antigravity"} {
+	fields := []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"}
+	for _, platform := range []string{"volcengine", "hunyuan", "azure_openai", "github_copilot", "antigravity", "byteplus"} {
 		t.Run(platform, func(t *testing.T) {
 			account := &service.Account{ID: 17, Platform: platform, Type: "apikey", Credentials: map[string]any{"model_mapping": map[string]any{"alias": "exact-model", "exact-model": "exact-model"}, "usage_query_subscription_id": "subscription", "usage_query_region": "eastus", "usage_query_username": "octocat"}}
 			for _, field := range fields {
