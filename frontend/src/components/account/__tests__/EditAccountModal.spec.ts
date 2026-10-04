@@ -3069,3 +3069,65 @@ it('allows kat_coder same-ID coding mode edits without rebinding its masked secr
   expect(account.platform).toBe('kat_coder')
   wrapper.unmount()
 })
+
+describe('Volcengine query credential editing', () => {
+  const quotaAccount = () => ({ ...buildAccount(), platform: 'volcengine', credentials_status: {
+    has_api_key: true, has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true
+  }, credentials: { account_mode: 'coding', api_protocol: 'chat_completions', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3', volcengine_plan_edition: 'team', volcengine_seat_id: 'synthetic-seat' } })
+  it('restores edition and seat while leaving saved secrets blank, and preserves them on submit', async () => {
+    const account = quotaAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect(wrapper.get('[data-test="accessKeyId"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="secretAccessKey"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="quota-edition"]').element).toHaveProperty('value', 'team')
+    expect(wrapper.get('[data-test="quota-seat"]').element).toHaveProperty('value', 'synthetic-seat')
+    expect(wrapper.get('[data-test="volcengine-quota-fields"]').text()).toContain('volcengineQuota.saved')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials).not.toHaveProperty('volcengine_access_key_id')
+    expect(credentials).not.toHaveProperty('volcengine_secret_access_key')
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).toMatchObject({ volcengine_plan_edition: 'team', volcengine_seat_id: 'synthetic-seat' })
+    wrapper.unmount()
+  })
+  it.each(['replace', 'clear'])('supports explicit %s without changing inference credentials', async action => {
+    const account = quotaAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    if (action === 'clear') {
+      await wrapper.get('[data-test="clearAccessKeyId"]').setValue(true)
+      await wrapper.get('[data-test="clearSecretAccessKey"]').setValue(true)
+      expect(wrapper.get('[data-test="accessKeyId"]').attributes('disabled')).toBeDefined()
+    } else {
+      await wrapper.get('[data-test="accessKeyId"]').setValue('new-synthetic-access')
+      await wrapper.get('[data-test="secretAccessKey"]').setValue('new-synthetic-secret')
+    }
+    await wrapper.get('[data-test="quota-edition"]').setValue('personal')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials.volcengine_access_key_id).toBe(action === 'clear' ? null : 'new-synthetic-access')
+    expect(credentials.volcengine_secret_access_key).toBe(action === 'clear' ? null : 'new-synthetic-secret')
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('volcengine_seat_id')
+    wrapper.unmount()
+  })
+  it('never echoes legacy secrets and resets draft secrets when switching accounts', async () => {
+    const account = quotaAccount()
+    const legacy = { ...account, credentials: { ...account.credentials, volcengine_access_key_id: 'legacy-synthetic-access', volcengine_secret_access_key: 'legacy-synthetic-secret' } }
+    const wrapper = mountModal(legacy)
+    await flushPromises()
+    expect(wrapper.html()).not.toContain('legacy-synthetic-')
+    await wrapper.get('[data-test="secretAccessKey"]').setValue('new-synthetic-secret')
+    await wrapper.setProps({ account: { ...account, id: 5699 } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="secretAccessKey"]').element).toHaveProperty('value', '')
+    wrapper.unmount()
+  })
+})

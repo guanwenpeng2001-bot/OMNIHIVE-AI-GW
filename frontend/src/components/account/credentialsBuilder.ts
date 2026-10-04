@@ -830,7 +830,67 @@ export function defaultCNAdaptiveBaseUrls(
 // CNProviderQuotaCell / CNProviderBalanceCell 与 AccountUsageCell 的占位符判定
 // 共用，避免多处复制条件后一处改另一处漏改。
 
-export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
+/** Separate control-plane query fields from the inference API key. */
+export interface VolcengineQuotaDraft {
+  accessKeyId: string
+  secretAccessKey: string
+  edition: 'personal' | 'team'
+  seatId: string
+  clearAccessKeyId: boolean
+  clearSecretAccessKey: boolean
+}
+
+/** Secrets are never restored into inputs, including legacy unredacted DTOs. */
+export function volcengineQuotaDraft(credentials: Record<string, unknown> = {}): VolcengineQuotaDraft {
+  return {
+    accessKeyId: '', secretAccessKey: '',
+    edition: credentials.volcengine_plan_edition === 'team' ? 'team' : 'personal',
+    seatId: typeof credentials.volcengine_seat_id === 'string' ? credentials.volcengine_seat_id : '',
+    clearAccessKeyId: false, clearSecretAccessKey: false
+  }
+}
+
+export function applyVolcengineQuotaCredentials(credentials: Record<string, unknown>, draft: VolcengineQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['volcengine_access_key_id', draft.accessKeyId, draft.clearAccessKeyId],
+    ['volcengine_secret_access_key', draft.secretAccessKey, draft.clearSecretAccessKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.volcengine_plan_edition = draft.edition
+  if (draft.edition === 'team' && draft.seatId.trim()) credentials.volcengine_seat_id = draft.seatId.trim()
+  else delete credentials.volcengine_seat_id
+}
+
+/** Match the saved Ark product without sending control-plane requests for relays. */
+export function volcengineQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): 'coding' | 'agent' | 'custom' | 'payg' {
+  if (credentials.account_mode !== 'coding') return 'payg'
+  if (customBaseUrlEnabled != null && customBaseUrlEnabled !== false) return 'custom'
+  const protocol = credentials.api_protocol || 'chat_completions'
+  if (!['adaptive', 'chat_completions', 'responses', 'anthropic'].includes(protocol as string)) return 'custom'
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return 'custom'
+  const entries: [string, unknown][] = [['base_url', credentials.base_url], ...Object.entries(bases || {})]
+  let product: 'coding' | 'agent' | undefined
+  for (const [key, value] of entries) {
+    if (key !== 'base_url' && !['chat_completions', 'responses', 'anthropic'].includes(key)) return 'custom'
+    if (value == null || value === '') continue
+    if (typeof value !== 'string') return 'custom'
+    const match = /^https:\/\/ark\.cn-beijing\.volces\.com\/api\/(coding|plan)(\/v3)?\/*$/.exec(value.trim())
+    if (!match) return 'custom'
+    const selected = key === 'base_url' ? protocol : key
+    if (selected !== 'adaptive' && (selected === 'anthropic') === Boolean(match[2])) return 'custom'
+    const current = match[1] === 'coding' ? 'coding' : 'agent'
+    if (product && product !== current) return 'custom'
+    product = current
+  }
+  return product || 'coding'
+}
+
+export function cnQuotaCellVisible(platform: string, accountMode: string, credentials?: Record<string, unknown>, customBaseUrlEnabled?: unknown): boolean {
+  if (platform === 'volcengine') return volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled) === 'coding'
   if (platform === 'commandcode') return true
   if (platform === 'opencode_go') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'

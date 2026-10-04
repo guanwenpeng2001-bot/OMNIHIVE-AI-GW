@@ -6,9 +6,9 @@
   >
     <!-- Tier rows: 5h + weekly utilization bars (snapshot renders on mount).
          复用账号页 UsageProgressBar：同阈值配色、同倒计时格式。 -->
-    <div v-if="data?.success && data.tiers?.length" class="space-y-1">
+    <div v-if="data?.success && observedTiers.length" class="space-y-1">
       <UsageProgressBar
-        v-for="tier in data.tiers"
+        v-for="tier in observedTiers"
         :key="tier.window"
         data-test="cn-provider-quota-tier"
         :label="windowLabel(tier.window)"
@@ -17,6 +17,12 @@
         :resets-at="tier.reset_at"
       />
     </div>
+
+    <template v-if="account.platform === 'volcengine'">
+      <p data-test="quota-source" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.source') }}</p>
+      <p v-if="observationTime" data-test="quota-observed-at" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.observedAt') }}: {{ observationTime }}</p>
+      <p v-if="!observedTiers.length && !loading" data-test="quota-unknown" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.usageUnknown') }}</p>
+    </template>
 
     <template v-if="account.platform === 'commandcode'">
       <p v-if="data?.success" class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}<span v-if="observationTime"> · {{ observationTime }}</span></p>
@@ -39,6 +45,7 @@
         data-test="cn-provider-quota-probe"
         class="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium leading-4 text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
         :disabled="loading"
+        :aria-busy="loading"
         :title="t('admin.accounts.cnProviders.probeTooltip')"
         @click="handleProbe()"
       >
@@ -62,6 +69,7 @@
 
     <div
       v-if="error"
+      role="status"
       class="truncate text-[10px] leading-4 text-red-600 dark:text-red-400"
       :title="error"
     >
@@ -97,11 +105,13 @@ const readMode = (): string => {
   return typeof mode === 'string' ? mode : ''
 }
 
-const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode()))
+const visible = computed(() => cnQuotaCellVisible(props.account.platform, readMode(), props.account.credentials, props.account.extra?.custom_base_url_enabled))
 
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderQuotaProbeResult | null>(null)
+const observedTiers = computed(() => (data.value?.tiers || []).filter(tier =>
+  ['5h', 'weekly', 'monthly'].includes(tier.window) && typeof tier.used_percent === 'number' && Number.isFinite(tier.used_percent)))
 
 // 后端周期任务/手动探测写入的 extra 快照键（<provider>_ 前缀，与后端
 // cnQuotaExtraUpdates 对齐）。页面加载即有数据，无需等待探测。
@@ -192,11 +202,14 @@ const planName = computed(() => {
   const names: Record<string, string> = { 'individual-goat': 'GOAT', 'individual-pro': 'Pro', 'individual-go': 'Go', 'individual-max': 'Max' }
   return names[id] || id
 })
-const observationTime = computed(() => data.value?.fetched_at
-  ? new Date(data.value.fetched_at * 1000).toLocaleString() : '')
+const observationTime = computed(() => {
+  const fetchedAt = data.value?.fetched_at
+  return fetchedAt && Number.isFinite(fetchedAt) && !Number.isNaN(new Date(fetchedAt * 1000).getTime())
+    ? new Date(fetchedAt * 1000).toLocaleString() : ''
+})
 let observationGeneration = 0
 const handleProbe = async () => {
-  if (loading.value) return
+  if (loading.value || !visible.value) return
   const generation = observationGeneration
   const accountID = props.account.id
   loading.value = true
@@ -209,7 +222,10 @@ const handleProbe = async () => {
       data.value = result
     } else {
       if (props.account.platform === 'commandcode') data.value = null
-      error.value = result.unsupported ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
+      error.value = props.account.platform === 'volcengine' && result.status && result.status !== 'ok'
+        ? t(`admin.accounts.cnProviders.volcengineQuota.status.${result.status}`)
+        : result.unsupported && props.account.platform === 'commandcode'
+        ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
     }
   } catch (e) {
     if (generation !== observationGeneration) return
@@ -221,8 +237,9 @@ const handleProbe = async () => {
 }
 
 watch(
-  [() => props.account.id, () => props.account.credentials?.api_key,
-    () => props.account.credentials?.base_url, () => snapshotData.value],
+  [() => props.account.id, () => JSON.stringify([props.account.credentials, props.account.credentials_status,
+    props.account.extra?.custom_base_url_enabled, props.account.platform === 'volcengine' ? props.account.updated_at : null]),
+    () => props.account.platform, () => snapshotData.value],
   (current, previous) => {
     observationGeneration++
     const identityChanged = current.slice(0, 3).some((value, index) => value !== previous[index])

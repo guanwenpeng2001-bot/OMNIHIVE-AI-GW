@@ -241,3 +241,100 @@ it('clears the rendered plan when the server invalidates the credential snapshot
   expect(wrapper.text()).not.toContain('GOAT')
   expect(wrapper.text()).not.toContain('57.00')
 })
+
+// Synthetic observations exercise the frozen contract; these are not upstream captures.
+describe('Volcengine upstream usage observations', () => {
+  const codingAccount = (id: number, extra: Record<string, unknown> = {}) => ({
+    ...account, id, platform: 'volcengine', credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }, extra
+  } as Account)
+  beforeEach(() => {
+    queryQuota.mockReset()
+    translate.mockReset().mockImplementation((key: string) => key)
+  })
+  it('shows genuine zero, overage, and each window reset with query source and time', async () => {
+    const tiers = [
+      { window: '5h', used_percent: 0, reset_at: '2099-10-04T15:00:00Z' },
+      { window: 'weekly', used_percent: 123, reset_at: '2099-10-11T00:00:00Z' },
+      { window: 'monthly', used_percent: 44, reset_at: '2099-11-01T00:00:00Z' }
+    ]
+    queryQuota.mockResolvedValue({ success: true, status: 'ok', source: 'coding_plan', fetched_at: 1791120000, tiers })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5101) } })
+    await flushPromises()
+    const bars = wrapper.findAllComponents(UsageProgressBar)
+    expect(bars).toHaveLength(3)
+    tiers.forEach((tier, index) => {
+      expect(bars[index].props('utilization')).toBe(tier.used_percent)
+      expect(bars[index].props('resetsAt')).toBe(tier.reset_at)
+    })
+    expect(wrapper.text()).toContain('123%')
+    expect(wrapper.get('[data-test="quota-source"]').text()).toContain('volcengineQuota.source')
+    expect(wrapper.get('[data-test="quota-observed-at"]').text()).not.toContain('Invalid Date')
+    wrapper.unmount()
+  })
+  it.each(['missing_credentials', 'invalid_credentials', 'permission_denied', 'not_subscribed', 'no_seat', 'invalid_response', 'url_rejected'])('shows %s as unknown without manufacturing zero', async status => {
+    queryQuota.mockResolvedValue({ success: false, status })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5200 + status.length) } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.text()).toContain('usageUnknown')
+    expect(wrapper.text()).toContain(`volcengineQuota.status.${status}`)
+    expect(wrapper.text()).not.toContain('0%')
+    wrapper.unmount()
+  })
+  it('keeps the successful snapshot and its timestamp on failure, then replaces missing windows on recovery', async () => {
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5301, {
+      volcengine_5h_used_percent: 18, volcengine_weekly_used_percent: 0,
+      volcengine_usage_updated_at: new Date().toISOString()
+    }) } })
+    await flushPromises()
+    const previousTime = wrapper.get('[data-test="quota-observed-at"]').text()
+    queryQuota.mockResolvedValueOnce({ success: false, status: 'permission_denied' })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(2)
+    expect(wrapper.get('[data-test="quota-observed-at"]').text()).toBe(previousTime)
+    expect(wrapper.text()).toContain('permission_denied')
+    queryQuota.mockResolvedValueOnce({ success: true, fetched_at: 1791120000, tiers: [{ window: 'monthly', used_percent: 0 }] })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('permission_denied')
+    wrapper.unmount()
+  })
+  it('does not render malformed percentages as zero or invent missing windows', async () => {
+    queryQuota.mockResolvedValue({ success: true, tiers: [{ window: '5h', used_percent: null }, { window: 'weekly', used_percent: NaN }, { window: 'monthly', used_percent: 0 }] })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: codingAccount(5401) } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    expect(wrapper.findComponent(UsageProgressBar).props('label')).toContain('windowMonthly')
+    wrapper.unmount()
+  })
+  it.each(['version', 'edition', 'seat'])('discards in-flight results after the %s changes', async change => {
+    let finish!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const initial = codingAccount(5450 + change.length, { volcengine_5h_used_percent: 18, volcengine_usage_updated_at: new Date().toISOString() })
+    initial.updated_at = '2026-10-04T10:00:00Z'
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    await wrapper.get('button').trigger('click')
+    const updated = { ...initial, ...(change === 'version' ? { updated_at: '2026-10-04T10:01:00Z' } : {
+      credentials: { ...initial.credentials, ...(change === 'edition' ? { volcengine_plan_edition: 'team' } : { volcengine_seat_id: 'another-synthetic-seat' }) }
+    }) }
+    await wrapper.setProps({ account: updated })
+    finish({ success: true, tiers: [{ window: '5h', used_percent: 88 }] })
+    await flushPromises()
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('88%')
+    expect(wrapper.text()).toContain('usageUnknown')
+    wrapper.unmount()
+  })
+  it.each(['https://ark.cn-beijing.volces.com/api/plan/v3', 'https://relay.example/api/coding/v3'])('never probes an unverified profile %s', async base_url => {
+    const original = codingAccount(5501)
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...original, credentials: { ...original.credentials, base_url } } } })
+    await flushPromises()
+    expect(queryQuota).not.toHaveBeenCalled()
+    expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})

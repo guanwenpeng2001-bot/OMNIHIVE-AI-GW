@@ -461,7 +461,7 @@
     </template>
 
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
-    <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go'">
+    <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go' || account.platform === 'volcengine'">
       <!-- 挂在 CN 平台下的 Ollama Cloud 账号（资格由后端下发 eligible）：用量由
            Ollama 用量窗口负责。这类账号不是国产厂商订阅，CN 的额度/余额探测端点由
            base_url 衍生，对 ollama.com 会被后端出站 URL 白名单拒绝，渲染出来只会
@@ -616,7 +616,7 @@
         v-if="hasNoUpstreamUsageApi"
         data-testid="local-usage-explanation"
         class="max-w-[240px] whitespace-normal text-[10px] leading-relaxed text-gray-500 dark:text-gray-400"
-      >{{ t('admin.accounts.usageWindow.noUpstreamUsageApi') }}</p>
+      >{{ t(localUsageExplanation) }}</p>
       <!-- Today stats row (requests, tokens, cost, user_cost) -->
       <div
         v-if="todayStats"
@@ -701,7 +701,7 @@ import { compatibleUsageCapability } from './compatibleBalance'
 import { compatibleProvider } from '@/constants/compatibleProviders'
 import CompatibleConsumedUsage from './CompatibleConsumedUsage.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
-import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn } from './credentialsBuilder'
+import { cnQuotaCellVisible as cnQuotaCellVisibleFn, cnBalanceCellVisible as cnBalanceCellVisibleFn, volcengineQuotaProfile } from './credentialsBuilder'
 
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -759,16 +759,14 @@ let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
-// These providers expose no public upstream quota/usage endpoint.
-// qianwen plus the four chat-only platforms (qianfan/hunyuan/mistral/volcengine):
-// the CN quota/balance services cover only kimi/zhipu/deepseek/minimax/opencode_go,
-// so their all-zero row is local statistics rather than an upstream reading.
+// Providers without a verified query for the selected account configuration.
 const PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT = ['qianwen', 'qianfan', 'hunyuan', 'mistral', 'volcengine']
 
 const compatibleCapability = computed(() => compatibleUsageCapability(props.account))
 const hasNoUpstreamUsageApi = computed(() => {
   if (compatibleProvider(props.account.platform)) return compatibleCapability.value.kind === 'unsupported'
   if (props.account.ollama_cloud_usage?.eligible) return false
+  if (props.account.platform === 'volcengine' && cnQuotaCellVisible.value) return false
   if (PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT.includes(props.account.platform)) return true
   return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
     && !cnQuotaCellVisible.value && !cnBalanceCellVisible.value
@@ -791,7 +789,8 @@ const showUsageWindows = computed(() => {
     props.account.platform === 'zhipu' ||
     props.account.platform === 'deepseek' ||
     props.account.platform === 'minimax' ||
-    props.account.platform === 'opencode_go'
+    props.account.platform === 'opencode_go' ||
+    props.account.platform === 'volcengine'
   ) {
     // Eligible Ollama accounts share the local statistics and configured quota row.
     return !props.account.ollama_cloud_usage?.eligible
@@ -826,8 +825,16 @@ const cnAccountMode = computed(() => {
   const mode = props.account.credentials?.account_mode
   return typeof mode === 'string' ? mode : ''
 })
-const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account.platform, cnAccountMode.value))
+const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account.platform, cnAccountMode.value, props.account.credentials, props.account.extra?.custom_base_url_enabled))
 const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account.platform, cnAccountMode.value))
+const localUsageExplanation = computed(() => {
+  if (props.account.platform === 'volcengine') {
+    const profile = volcengineQuotaProfile(props.account.credentials, props.account.extra?.custom_base_url_enabled)
+    if (profile === 'agent') return 'admin.accounts.cnProviders.volcengineQuota.agentUnverified'
+    if (profile === 'custom') return 'admin.accounts.compatibleUsage.reasons.custom_origin'
+  }
+  return 'admin.accounts.usageWindow.noUpstreamUsageApi'
+})
 
 const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
 
