@@ -322,7 +322,7 @@ func (r *managementIdentityRepo) GetByID(context.Context, int64) (*Account, erro
 }
 func (r *managementIdentityRepo) UpdateAccountRuntimeSnapshot(_ context.Context, expected *Account, updates map[string]any, _ *time.Time) error {
 	if AccountRuntimeIdentityKey(expected) != AccountRuntimeIdentityKey(r.current) {
-		return errors.New("changed identity")
+		return ErrAccountRuntimeIdentityChanged
 	}
 	r.writes++
 	for key, value := range updates {
@@ -340,7 +340,7 @@ func TestCompatibleManagementIdentityChanges(test *testing.T) {
 		for key, value := range old.Credentials {
 			current.Credentials[key] = value
 		}
-		current.Extra = map[string]any{}
+		current.Extra = map[string]any{"crazyrouter_balance": 777, "unrelated": true}
 		repo := &managementIdentityRepo{queried: old, current: &current}
 		upstream := compatibleBalanceHTTP{send: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 			if req.URL.Path == "/api/status" {
@@ -356,10 +356,14 @@ func TestCompatibleManagementIdentityChanges(test *testing.T) {
 		value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), old.ID)
 		require.NoError(test, err)
 		result := requireCompatibleBalanceResult(test, value)
-		require.True(test, result.Success)
+		require.False(test, result.Success)
 		require.False(test, result.Persisted)
+		require.Equal(test, "identity_changed", result.Reason)
+		require.Nil(test, result.Balance)
+		require.Nil(test, result.Used)
+		require.Empty(test, result.Balances)
 		require.Zero(test, repo.writes)
-		require.Empty(test, current.Extra)
+		require.Equal(test, map[string]any{"crazyrouter_balance": 777, "unrelated": true}, current.Extra)
 	}
 }
 

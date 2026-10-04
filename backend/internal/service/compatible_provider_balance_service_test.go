@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -258,7 +259,7 @@ func TestCompatibleBalanceSnapshotInvalidation(test *testing.T) {
 }
 
 func TestCompatibleBalancePersistenceFailureRemainsExplicit(test *testing.T) {
-	repo := &compatibleBalanceRepo{account: compatibleBalanceAccount("soleapi"), persistErr: ErrAccountRuntimeIdentityChanged}
+	repo := &compatibleBalanceRepo{account: compatibleBalanceAccount("soleapi"), persistErr: errors.New("store unavailable")}
 	upstream := compatibleBalanceHTTP{send: func(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		require.Equal(test, "https://soleapi.com/v1/usage", request.URL.String())
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"remaining":0,"unit":"Credits"}`))}, nil
@@ -270,6 +271,114 @@ func TestCompatibleBalancePersistenceFailureRemainsExplicit(test *testing.T) {
 	require.False(test, result.Persisted)
 	require.Equal(test, "Credits", result.Currency)
 	require.Zero(test, *result.Balance)
+}
+
+func TestCompatibleBalancePersistenceOutcomes(test *testing.T) {
+	for _, provider := range []string{"soleapi", "aihubmix", "dmxapi", "crazyrouter", "crazyrouter_intl"} {
+		for _, amount := range []int{0, 19} {
+			for _, outcome := range []struct {
+				name            string
+				err             error
+				identityChanged bool
+			}{
+				{"saved", nil, false},
+				{"identity", ErrAccountRuntimeIdentityChanged, true},
+				{"wrapped identity", fmt.Errorf("private-token-and-url: %w", ErrAccountRuntimeIdentityChanged), true},
+				{"store error", errors.New("private-store-error"), false},
+			} {
+				test.Run(fmt.Sprintf("%s/%d/%s", provider, amount, outcome.name), func(test *testing.T) {
+					account := compatibleBalanceAccount(provider)
+					if provider != "soleapi" {
+						account = managementAccount(provider)
+					}
+					account.Extra = map[string]any{provider + "_balance": 777, "unrelated": true}
+					repo := &compatibleBalanceRepo{account: account, persistErr: outcome.err}
+					upstream := compatibleBalanceHTTP{send: func(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+						body := fmt.Sprintf(`{"success":true,"data":{"quota":%d,"used_quota":%d}}`, amount*500000, amount*500000)
+						if provider == "soleapi" {
+							body = fmt.Sprintf(`{"remaining":%d,"unit":"Credits"}`, amount)
+						} else if request.URL.Path == "/api/status" {
+							body = `{"success":true,"data":{"quota_per_unit":500000}}`
+						}
+						return managementResponse(body, 200), nil
+					}}
+					value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), account.ID)
+					require.NoError(test, err)
+					result := requireCompatibleBalanceResult(test, value)
+					require.Len(test, repo.writes, 1)
+					require.Equal(test, map[string]any{provider + "_balance": 777, "unrelated": true}, account.Extra)
+					require.Equal(test, outcome.err == nil, result.Persisted)
+					if outcome.identityChanged {
+						requireCompatibleIdentityChanged(test, result)
+					} else {
+						require.True(test, result.Success)
+						require.Empty(test, result.Reason)
+						require.Empty(test, result.Error)
+						require.NotNil(test, result.Balance)
+						require.Equal(test, float64(amount), *result.Balance)
+						require.Len(test, result.Balances, 1)
+						if provider != "soleapi" && provider != "dmxapi" {
+							require.NotNil(test, result.Used)
+							require.Equal(test, float64(amount), *result.Used)
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
+func requireCompatibleIdentityChanged(test *testing.T, result *CompatibleBalanceResult) {
+	test.Helper()
+	require.False(test, result.Success)
+	require.False(test, result.Persisted)
+	require.False(test, result.Unsupported)
+	require.Equal(test, "identity_changed", result.Reason)
+	require.Equal(test, "Account configuration changed; query again.", result.Error)
+	require.Nil(test, result.Balance)
+	require.Nil(test, result.Balances)
+	require.Nil(test, result.Used)
+	require.Nil(test, result.Credits)
+	require.Nil(test, result.ProjectBudget)
+	require.Empty(test, result.Currency)
+	encoded, err := json.Marshal(result)
+	require.NoError(test, err)
+	for _, field := range []string{"balance", "balances", "used", "credits", "project_budget", "currency"} {
+		require.NotContains(test, string(encoded), `"`+field+`":`)
+	}
+	require.NotContains(test, string(encoded), "private-")
+}
+
+func TestCompatibleBalanceIdentityChangedClearsAllObservations(test *testing.T) {
+	amount := 19.0
+	result := &CompatibleBalanceResult{
+		Provider: "aihubmix", Kind: "wallet_balance", Scope: "account", FetchedAt: 123, StatusCode: 200,
+		Success: true, Persisted: true, Balance: &amount, Used: &amount, Currency: "USD",
+		Balances: []CNProviderBalanceEntry{{Balance: amount, Currency: "USD"}},
+		Credits:  &CompatibleAccountCredits{TotalCredits: amount}, ProjectBudget: &CompatibleProjectBudget{},
+	}
+	result.applyPersistenceOutcome(fmt.Errorf("private-secret: %w", ErrAccountRuntimeIdentityChanged))
+	requireCompatibleIdentityChanged(test, result)
+	require.Equal(test, "aihubmix", result.Provider)
+	require.Equal(test, "wallet_balance", result.Kind)
+	require.Equal(test, "account", result.Scope)
+	require.Equal(test, int64(123), result.FetchedAt)
+	require.Equal(test, 200, result.StatusCode)
+}
+
+func TestCompatibleBalanceTheRouterDoesNotPersist(test *testing.T) {
+	repo := &compatibleBalanceRepo{account: managementAccount("therouter"), persistErr: ErrAccountRuntimeIdentityChanged}
+	upstream := compatibleBalanceHTTP{send: func(*http.Request, string, int64, int) (*http.Response, error) {
+		return managementResponse(`{"data":{"total_credits":0,"total_usage":0}}`, 200), nil
+	}}
+	value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryAccountBalance(context.Background(), repo.account.ID)
+	require.NoError(test, err)
+	result := requireCompatibleBalanceResult(test, value)
+	require.True(test, result.Success)
+	require.False(test, result.Persisted)
+	require.Equal(test, &CompatibleAccountCredits{Unit: "credits"}, result.Credits)
+	require.Nil(test, result.Balance)
+	require.Empty(test, repo.writes)
 }
 
 func TestCompatibleBalanceUsesResolvedGroup(test *testing.T) {

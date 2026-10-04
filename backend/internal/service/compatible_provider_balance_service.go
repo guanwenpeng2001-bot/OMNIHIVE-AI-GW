@@ -292,8 +292,26 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixBalances): entries,
 		cnExtraKey(account.Platform, cnBalanceExtraSuffixUpdated):  time.Unix(result.FetchedAt, 0).UTC().Format(time.RFC3339),
 	}
-	result.Persisted = persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil) == nil
+	result.applyPersistenceOutcome(persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil))
 	return result, nil
+}
+
+// A rejected identity means these observations belong to an obsolete account
+// configuration. Ordinary storage failures do not invalidate the upstream read.
+func (result *CompatibleBalanceResult) applyPersistenceOutcome(err error) {
+	result.Persisted = err == nil
+	if !errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+		return
+	}
+	result.Success = false
+	result.Reason = "identity_changed"
+	result.Error = "Account configuration changed; query again."
+	result.Balance = nil
+	result.Balances = nil
+	result.Used = nil
+	result.Credits = nil
+	result.ProjectBudget = nil
+	result.Currency = ""
 }
 
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
