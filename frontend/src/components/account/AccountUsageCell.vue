@@ -452,16 +452,19 @@
     </template>
 
     <template v-else-if="compatibleProvider(account.platform)">
-      <CNProviderBalanceCell v-if="compatibleCapability.kind === 'wallet_balance'" :account="account" />
+      <CNProviderBalanceCell v-if="['wallet_balance', 'account_credits'].includes(compatibleCapability.kind)" :account="account" />
+      <ProviderManagementUsage v-else-if="managementUsageVisible(account)" :account="account" />
+      <TogetherBillingUsage v-else-if="togetherBillingVisible(account)" :account="account" />
       <CompatibleConsumedUsage v-else-if="compatibleCapability.kind === 'consumed_usage'" :account="account" />
       <div v-else data-test="compatible-usage-unsupported" class="text-xs text-gray-500" role="status">
         {{ t(`admin.accounts.compatibleUsage.reasons.${compatibleCapability.reason}`) }}
       </div>
+      <AtlasModelUsage v-if="account.platform === 'atlascloud'" :account="account" />
       <div class="mt-1 text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.localLedger') }}</div>
     </template>
 
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
-    <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go' || account.platform === 'volcengine'">
+    <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go' || account.platform === 'hunyuan' || account.platform === 'volcengine'">
       <!-- 挂在 CN 平台下的 Ollama Cloud 账号（资格由后端下发 eligible）：用量由
            Ollama 用量窗口负责。这类账号不是国产厂商订阅，CN 的额度/余额探测端点由
            base_url 衍生，对 ollama.com 会被后端出站 URL 白名单拒绝，渲染出来只会
@@ -695,6 +698,11 @@ import CursorUsageWindow from './CursorUsageWindow.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
+import AtlasModelUsage from './AtlasModelUsage.vue'
+import ProviderManagementUsage from './ProviderManagementUsage.vue'
+import TogetherBillingUsage from './TogetherBillingUsage.vue'
+import { managementUsageVisible } from '@/api/admin/managementUsage'
+import { togetherBillingVisible } from '@/api/admin/togetherUsage'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import { compatibleUsageCapability } from './compatibleBalance'
@@ -766,7 +774,7 @@ const compatibleCapability = computed(() => compatibleUsageCapability(props.acco
 const hasNoUpstreamUsageApi = computed(() => {
   if (compatibleProvider(props.account.platform)) return compatibleCapability.value.kind === 'unsupported'
   if (props.account.ollama_cloud_usage?.eligible) return false
-  if (props.account.platform === 'volcengine' && cnQuotaCellVisible.value) return false
+  if (['volcengine', 'hunyuan'].includes(props.account.platform) && cnQuotaCellVisible.value) return false
   if (PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT.includes(props.account.platform)) return true
   return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
     && !cnQuotaCellVisible.value && !cnBalanceCellVisible.value
@@ -790,6 +798,7 @@ const showUsageWindows = computed(() => {
     props.account.platform === 'deepseek' ||
     props.account.platform === 'minimax' ||
     props.account.platform === 'opencode_go' ||
+    props.account.platform === 'hunyuan' ||
     props.account.platform === 'volcengine'
   ) {
     // Eligible Ollama accounts share the local statistics and configured quota row.

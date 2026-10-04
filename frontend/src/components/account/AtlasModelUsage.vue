@@ -45,6 +45,7 @@ import { useI18n } from 'vue-i18n'
 import { atlasTokenFields, queryAtlasUsage, type AtlasUsageResult, type AtlasUsageWindow } from '@/api/admin/atlasUsage'
 import type { CompatibleUsageReason } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
+import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
 import { formatReportDateInput, formatReportDateTime } from '@/utils/format'
 import { compatibleBalanceVisible, compatibleFailureReason } from './compatibleBalance'
 
@@ -100,12 +101,11 @@ async function query() {
     if (request === generation) loading.value = false
   }
 }
-// List DTOs redact the key; updated_at also invalidates a saved-key rotation.
-watch(() => [props.account.id, props.account.updated_at, props.account.platform, props.account.type, JSON.stringify(props.account.credentials), props.account.credentials_status?.has_api_key, props.account.extra?.custom_base_url_enabled, props.account.proxy_id, props.account.proxy_group_id], () => {
+watch(() => accountQueryIdentity(props.account), () => {
   generation++
   loading.value = false
   result.value = null
   failure.value = null
-})
+}, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 </script>

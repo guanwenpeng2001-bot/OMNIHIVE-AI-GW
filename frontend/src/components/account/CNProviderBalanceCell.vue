@@ -79,6 +79,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
+import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
 import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
 import { compatibleBalanceVisible, compatibleFailureReason, compatibleUsageCapability } from './compatibleBalance'
@@ -183,6 +184,12 @@ const handleProbe = async () => {
     if (result.success) {
       data.value = result
     } else {
+      // The server observed a rotation before the refreshed account DTO arrived.
+      // Do not expose an old identity reading, including a persisted snapshot.
+      if (result.reason === 'identity_changed') {
+        data.value = null
+        suppressSnapshot.value = true
+      }
       error.value = compatibleProvider(props.account.platform)
         ? t(`admin.accounts.compatibleUsage.reasons.${compatibleFailureReason(result)}`)
         : result.error || t('common.error')
@@ -198,7 +205,7 @@ const handleProbe = async () => {
 }
 
 watch(
-  () => [props.account.id, props.account.platform, props.account.type, JSON.stringify(props.account.credentials), props.account.credentials_status?.has_api_key, props.account.credentials_status?.has_usage_query_token, props.account.extra?.custom_base_url_enabled],
+  [() => props.account.id, () => accountQueryIdentity(props.account)],
   (current, previous) => {
     // A same-account identity edit can arrive with old extra still attached.
     suppressSnapshot.value = current[0] === previous[0]

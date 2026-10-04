@@ -16,6 +16,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -137,6 +138,17 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			resolved, err := service.ResolveCredentialSecret(context.Background(), enc, metadata, ciphertext)
 			require.NoError(t, err)
 			require.Equal(t, "inference-secret", resolved["api_key"])
+			projected := dto.AccountFromService(&service.Account{ID: 17, Platform: "azure_openai", Type: "apikey", Credentials: resolved})
+			for _, response := range []any{projected, dto.AccountListItemFromAccount(projected)} {
+				encoded, encodeErr := json.Marshal(response)
+				require.NoError(t, encodeErr)
+				require.NotContains(t, string(encoded), "inference-secret")
+				require.NotContains(t, string(encoded), "management-secret")
+				require.NotContains(t, string(encoded), "management-access")
+				require.NotContains(t, string(encoded), "rotated")
+			}
+			require.Equal(t, operation != "clear", projected.CredentialsStatus["has_usage_query_token"])
+
 			for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
 				require.NotContains(t, out, field)
 				switch operation {
@@ -290,6 +302,17 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, "management-secret", resolved[field])
 			require.Equal(t, "inference-secret", resolved["api_key"])
+			projected := dto.AccountFromService(&service.Account{ID: 17, Platform: "azure_openai", Type: "apikey", Credentials: resolved})
+			for _, response := range []any{projected, dto.AccountListItemFromAccount(projected)} {
+				encoded, encodeErr := json.Marshal(response)
+				require.NoError(t, encodeErr)
+				require.NotContains(t, string(encoded), "inference-secret")
+				require.NotContains(t, string(encoded), "management-secret")
+				require.NotContains(t, string(encoded), "management-access")
+				require.NotContains(t, string(encoded), "rotated")
+			}
+			require.True(t, projected.CredentialsStatus["has_"+field])
+
 			require.NoError(t, mock.ExpectationsWereMet())
 			_, err = (&accountRepository{}).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
 			require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)

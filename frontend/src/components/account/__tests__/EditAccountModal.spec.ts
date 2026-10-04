@@ -3152,3 +3152,60 @@ describe('management query editing', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('integrated query credentials and model readback', () => {
+  it.each(['azure_openai', 'github_copilot'])('keeps %s inference save independent of optional query configuration', async platform => {
+    const account = { ...buildAccount(), platform, credentials: { account_mode: 'payg', base_url: platform === 'azure_openai' ? 'https://fixture.openai.azure.com/openai/v1' : '', api_key: 'inference-fixture', usage_query_subscription_id: 'subscription', usage_query_region: 'eastus', usage_query_username: 'octocat' }, credentials_status: { has_api_key: true, has_usage_query_token: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="usage-query-token"]').element).toHaveProperty('value', '')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('usage_query_token')
+    if (platform === 'azure_openai') expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ usage_query_subscription_id: 'subscription', usage_query_region: 'eastus' })
+    else expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ usage_query_username: 'octocat' })
+    await wrapper.get('[data-test="usage-query-clear"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials.usage_query_token).toBeNull()
+    wrapper.unmount()
+  })
+  it('restores Tencent region/team while independently preserving, replacing and clearing cloud secrets', async () => {
+    const account = { ...buildAccount(), platform: 'hunyuan', credentials: { account_mode: 'coding', api_protocol: 'chat_completions', base_url: 'https://tokenhub.tencentmaas.com/plan/v3', tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'team-fixture' }, credentials_status: { has_api_key: true, has_tencent_query_secret_id: true, has_tencent_query_secret_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="secretId"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="region"]').element).toHaveProperty('value', 'ap-shanghai')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'team-fixture' })
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('tencent_query_secret_id')
+    expect(updateAccountMock.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
+    await wrapper.get('[data-test="secretId"]').setValue('replacement-query-id')
+    await wrapper.get('[data-test="clearSecretKey"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials).toMatchObject({ tencent_query_secret_id: 'replacement-query-id', tencent_query_secret_key: null })
+    expect(updateAccountMock.mock.calls[1][1].credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+  it('reopens Antigravity mappings from full account readback without turning aliases into direct IDs', async () => {
+    const mapping = Object.fromEntries(Array.from({ length: 41 }, (_, index) => [`public-alias-${index}`, `upstream-model-${index}`]))
+    const account = { ...buildAntigravityAccount(), credentials: { antigravity_project_id: 'configured-project', model_mapping: mapping } }
+    updateAccountMock.mockReset().mockImplementation(async (_id, payload) => ({ ...account, ...payload }))
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-testid="model-whitelist-value"]').text()).toBe('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    const saved = updateAccountMock.mock.calls[0][1]
+    expect(saved.credentials.model_mapping).toEqual(mapping)
+    wrapper.unmount()
+    const readback = { ...account, ...saved }
+    credentialAccountRead.mockResolvedValue(readback)
+    const reopened = mountModal(readback); await flushPromises()
+    expect(reopened.get('[data-testid="model-whitelist-value"]').text()).toBe('')
+    await reopened.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock.mock.calls[1][1].credentials.model_mapping).toEqual(mapping)
+    expect(Object.entries(updateAccountMock.mock.calls[1][1].credentials.model_mapping).filter(([source, target]) => source === target)).toHaveLength(0)
+    reopened.unmount()
+  })
+})

@@ -890,7 +890,11 @@ export function volcengineQuotaProfile(credentials: Record<string, unknown> = {}
 }
 
 export function cnQuotaCellVisible(platform: string, accountMode: string, credentials?: Record<string, unknown>, customBaseUrlEnabled?: unknown): boolean {
-  if (platform === 'volcengine') return volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled) === 'coding'
+  if (platform === 'hunyuan') return tencentQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
+  if (platform === 'volcengine') {
+    const profile = volcengineQuotaProfile(credentials || { account_mode: accountMode }, customBaseUrlEnabled)
+    return profile === 'coding' || (profile === 'agent' && credentials?.volcengine_plan_edition === 'team' && typeof credentials.volcengine_seat_id === 'string' && !!credentials.volcengine_seat_id.trim())
+  }
   if (platform === 'commandcode') return true
   if (platform === 'opencode_go') return accountMode !== 'zen'
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
@@ -995,22 +999,71 @@ export function applyPlanType(
 }
 
 
-export function supportsUsageQuery(platform: string): boolean {
+export function supportsManagementBalanceQuery(platform: string): boolean {
   return ['aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl', 'therouter'].includes(platform)
+}
+export function supportsUsageQuery(platform: string): boolean {
+  return supportsManagementBalanceQuery(platform) || ['azure_openai', 'github_copilot'].includes(platform)
 }
 export function usageQueryNeedsUserId(platform: string): boolean {
   return ['dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(platform)
 }
-export interface UsageQueryDraft { token: string; userId: string; clearToken: boolean }
+export interface UsageQueryDraft { token: string; userId: string; clearToken: boolean; subscriptionId?: string; region?: string; username?: string }
 export function usageQueryDraft(credentials: Record<string, unknown> = {}): UsageQueryDraft {
   // Passwords are never populated, even from legacy plaintext responses.
-  return { token: '', userId: typeof credentials.usage_query_user_id === 'string' ? credentials.usage_query_user_id : '', clearToken: false }
+  return { token: '', userId: typeof credentials.usage_query_user_id === 'string' ? credentials.usage_query_user_id : '', clearToken: false, subscriptionId: String(credentials.usage_query_subscription_id || ''), region: String(credentials.usage_query_region || ''), username: String(credentials.usage_query_username || '') }
 }
 export function applyUsageQueryCredentials(credentials: Record<string, unknown>, platform: string, draft: UsageQueryDraft): void {
   if (!supportsUsageQuery(platform)) return
   delete credentials.usage_query_token
   delete credentials.usage_query_user_id
+  for (const field of ['usage_query_subscription_id', 'usage_query_region', 'usage_query_username']) delete credentials[field]
+  if (platform === 'azure_openai') {
+    credentials.usage_query_subscription_id = draft.subscriptionId || ''
+    credentials.usage_query_region = draft.region || ''
+  }
+  if (platform === 'github_copilot') credentials.usage_query_username = draft.username || ''
   if (draft.clearToken) credentials.usage_query_token = null
   else if (draft.token !== '') credentials.usage_query_token = draft.token
   if (usageQueryNeedsUserId(platform)) credentials.usage_query_user_id = draft.userId
+}
+
+
+/** Exact domestic enterprise profile; never borrow another region's contract. */
+export function tencentQuotaProfile(credentials: Record<string, unknown> = {}, customBaseUrlEnabled?: unknown): boolean {
+  if (credentials.account_mode !== 'coding' || (customBaseUrlEnabled != null && customBaseUrlEnabled !== false)) return false
+  const protocol = credentials.api_protocol || 'chat_completions'
+  if (!['adaptive', 'chat_completions', 'anthropic'].includes(protocol as string)) return false
+  const bases = credentials.api_base_urls
+  if (bases != null && (typeof bases !== 'object' || Array.isArray(bases))) return false
+  const entries = [['base_url', credentials.base_url], ...Object.entries(bases || {})]
+  let matched = false
+  for (const [key, value] of entries) {
+    if (value == null || value === '') continue
+    const selected = key === 'base_url' ? protocol : key
+    if (!['adaptive', 'chat_completions', 'anthropic'].includes(selected as string) || typeof value !== 'string') return false
+    const root = value.trim().replace(/\/+$/, '')
+    if (!['https://tokenhub.tencentmaas.com/plan/v3', 'https://tokenhub.tencentmaas.com/plan/anthropic'].includes(root)) return false
+    if (selected !== 'adaptive' && (selected === 'anthropic') !== root.endsWith('/anthropic')) return false
+    matched = true
+  }
+  return matched
+}
+export interface TencentQuotaDraft { secretId: string; secretKey: string; clearSecretId: boolean; clearSecretKey: boolean; region: string; teamId: string }
+export function tencentQuotaDraft(credentials: Record<string, unknown> = {}): TencentQuotaDraft {
+  return { secretId: '', secretKey: '', clearSecretId: false, clearSecretKey: false,
+    region: typeof credentials.tencent_query_region === 'string' ? credentials.tencent_query_region : '',
+    teamId: typeof credentials.tencent_query_team_id === 'string' ? credentials.tencent_query_team_id : '' }
+}
+export function applyTencentQuotaCredentials(credentials: Record<string, unknown>, draft: TencentQuotaDraft): void {
+  for (const [field, value, clear] of [
+    ['tencent_query_secret_id', draft.secretId, draft.clearSecretId],
+    ['tencent_query_secret_key', draft.secretKey, draft.clearSecretKey]
+  ] as const) {
+    delete credentials[field]
+    if (clear) credentials[field] = null
+    else if (value.trim()) credentials[field] = value.trim()
+  }
+  credentials.tencent_query_region = draft.region.trim()
+  credentials.tencent_query_team_id = draft.teamId.trim()
 }

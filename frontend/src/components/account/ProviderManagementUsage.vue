@@ -12,6 +12,7 @@
     </div>
     <div v-if="!isAzure && !billingMonth" role="alert">{{ t(`${prefix}.invalidMonth`) }}</div>
     <div v-if="failure" role="alert">{{ t(`${prefix}.reasons.${failure}`) }}</div>
+    <p v-if="result && (loading || failure)" role="status" class="text-amber-600">{{ t('admin.accounts.managementUsage.previousReading') }}</p>
     <div v-if="result?.partial" role="status" class="text-amber-600">{{ t(`${prefix}.partial`) }}</div>
     <div v-if="result?.quota" class="space-y-1" aria-live="polite">
       <div>{{ t(`${prefix}.subscription`) }}: {{ result.quota.subscription_id }} · {{ t(`${prefix}.region`) }}: {{ result.quota.region }}</div>
@@ -53,20 +54,15 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
-import { compatibleMode, compatibleProvider } from '@/constants/compatibleProviders'
-import { githubBillingTextFields, githubBillingNumberFields, managementFailureReason, queryManagementUsage, validManagementUsage, type ManagementBillingMonth, type ManagementUsageReason, type ManagementUsageResult } from '@/api/admin/managementUsage'
+import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
+import { managementUsageVisible, githubBillingTextFields, githubBillingNumberFields, managementFailureReason, queryManagementUsage, validManagementUsage, type ManagementBillingMonth, type ManagementUsageReason, type ManagementUsageResult } from '@/api/admin/managementUsage'
 
 const props = defineProps<{ account: Account }>()
 const { t } = useI18n()
 const prefix = 'admin.accounts.managementUsage'
 const billingFields = [...githubBillingTextFields, ...githubBillingNumberFields]
 const isAzure = computed(() => props.account.platform === 'azure_openai')
-const eligible = computed(() => {
-  const account = props.account
-  if (!['azure_openai', 'github_copilot'].includes(account.platform) || account.type !== 'apikey') return false
-  const provider = compatibleProvider(account.platform)
-  return !!provider && compatibleMode(provider, account.credentials?.account_mode)?.mode === 'payg'
-})
+const eligible = computed(() => managementUsageVisible(props.account))
 const today = new Date()
 const currentMonth = today.toISOString().slice(0, 7)
 const oldestMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 23, 1)).toISOString().slice(0, 7)
@@ -86,20 +82,18 @@ async function query() {
   const request = ++generation
   const requested = isAzure.value ? undefined : billingMonth.value
   const provider = props.account.platform
-  loading.value = true; failure.value = null; result.value = null
+  loading.value = true; failure.value = null
   try {
     const response = await queryManagementUsage(props.account.id, requested)
     if (request !== generation) return
     if (!validManagementUsage(response, provider, requested)) { failure.value = 'invalid_response'; return }
-    result.value = response
+    if (response.success || response.partial) result.value = response
     if (!response.success) failure.value = managementFailureReason(response)
   } catch (error) {
     if (request !== generation) return
     failure.value = managementFailureReason({ status_code: (error as { response?: { status?: number } })?.response?.status })
   } finally { if (request === generation) loading.value = false }
 }
-// Account revisions also include unrelated health updates: don't erase reports
-// on updated_at. The integration owner can add its stable runtime identity here.
-watch(() => JSON.stringify([props.account.id, props.account.platform, props.account.type, props.account.credentials, props.account.credentials_status, props.account.proxy_id, props.account.proxy_group_id, selectedMonth.value]), invalidate, { flush: 'sync' })
+watch(() => JSON.stringify([accountQueryIdentity(props.account), selectedMonth.value]), invalidate, { flush: 'sync' })
 onBeforeUnmount(() => { generation++ })
 </script>

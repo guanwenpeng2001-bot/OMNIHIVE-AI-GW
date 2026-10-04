@@ -635,6 +635,7 @@
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <UsageQueryCredentialFields v-if="supportsUsageQuery(form.platform)" v-model="usageCredentials" :platform="form.platform" class="mt-4" />
+      <TencentQuotaFields v-if="showTencentQuotaFields" v-model="tencentCredentials" class="mt-4" />
       <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" class="mt-4" />
 
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
@@ -3442,6 +3443,8 @@ import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
+import TencentQuotaFields from './TencentQuotaFields.vue'
+import { tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
 import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
@@ -3788,13 +3791,20 @@ const openCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(
   cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
 )
 const usageCredentials = ref(usageQueryDraft())
+const tencentCredentials = ref(tencentQuotaDraft())
 const quotaCredentials = ref(volcengineQuotaDraft())
-const showVolcengineQuotaFields = computed(() => form.platform === 'volcengine' && volcengineQuotaProfile({
+const showVolcengineQuotaFields = computed(() => form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile({
   account_mode: accountMode.value,
   api_protocol: apiProtocol.value,
   base_url: apiKeyBaseUrl.value,
   ...(apiProtocol.value === 'adaptive' ? { api_base_urls: adaptiveBaseUrls.value } : {})
-}) === 'coding')
+})))
+const showTencentQuotaFields = computed(() => form.platform === 'hunyuan' && tencentQuotaProfile({
+  account_mode: accountMode.value,
+  api_protocol: apiProtocol.value,
+  base_url: apiKeyBaseUrl.value,
+  ...(apiProtocol.value === 'adaptive' ? { api_base_urls: adaptiveBaseUrls.value } : {})
+}))
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const zhipuOrganization = ref('')
 const zhipuProject = ref('')
@@ -5084,6 +5094,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 const resetForm = () => {
   usageCredentials.value = usageQueryDraft()
+  tencentCredentials.value = tencentQuotaDraft()
   quotaCredentials.value = volcengineQuotaDraft()
   selectedSupplier.value = undefined
   supplierSelection.value = {}
@@ -5649,8 +5660,9 @@ const handleSubmit = async () => {
     }
   }
 
+  if (form.platform === 'hunyuan' && tencentQuotaProfile(credentials)) applyTencentQuotaCredentials(credentials, tencentCredentials.value)
   applyUsageQueryCredentials(credentials, form.platform, usageCredentials.value)
-  if (form.platform === 'volcengine' && volcengineQuotaProfile(credentials) === 'coding') {
+  if (form.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile(credentials))) {
     applyVolcengineQuotaCredentials(credentials, quotaCredentials.value)
   }
 

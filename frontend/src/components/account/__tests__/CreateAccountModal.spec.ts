@@ -72,7 +72,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], discovered_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
@@ -2129,4 +2129,23 @@ describe('management query creation', () => {
     expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', usage_query_token: 'synthetic-management' })
     wrapper.unmount()
   })
+})
+
+
+it('creates Tencent domestic enterprise query credentials without changing the inference key', async () => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 8801, platform: 'hunyuan', type: 'apikey' })
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string; apiKeyBaseUrl: string }
+  await wrapper.get('[data-testid="hunyuan-platform"]').trigger('click'); await flushPromises()
+  state.accountMode = 'coding'; await flushPromises()
+  state.apiKeyBaseUrl = 'https://tokenhub.tencentmaas.com/plan/v3'; await flushPromises()
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Tencent fixture')
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+  await wrapper.get('[data-test="secretId"]').setValue('synthetic-cloud-id')
+  await wrapper.get('[data-test="secretKey"]').setValue('synthetic-cloud-key')
+  await wrapper.get('[data-test="region"]').setValue('ap-shanghai')
+  await wrapper.get('[data-test="teamId"]').setValue('synthetic-team')
+  await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+  expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', tencent_query_secret_id: 'synthetic-cloud-id', tencent_query_secret_key: 'synthetic-cloud-key', tencent_query_region: 'ap-shanghai', tencent_query_team_id: 'synthetic-team' })
+  wrapper.unmount()
 })

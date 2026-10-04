@@ -43,3 +43,32 @@ func TestManagementQueryCredentialsRedactPreserveAndClear(t *testing.T) {
 	}
 	require.Equal(t, "inference", merged["api_key"])
 }
+
+func TestIntegratedAdminDTOQuerySecretsAndModelMapping(t *testing.T) {
+	fields := []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"}
+	for _, platform := range []string{"volcengine", "hunyuan", "azure_openai", "github_copilot", "antigravity"} {
+		t.Run(platform, func(t *testing.T) {
+			account := &service.Account{ID: 17, Platform: platform, Type: "apikey", Credentials: map[string]any{"model_mapping": map[string]any{"alias": "exact-model", "exact-model": "exact-model"}, "usage_query_subscription_id": "subscription", "usage_query_region": "eastus", "usage_query_username": "octocat"}}
+			for _, field := range fields {
+				account.Credentials[field] = "fixture-" + field
+			}
+			detail := AccountFromService(account)
+			for _, projection := range []any{detail, AccountListItemFromAccount(detail)} {
+				encoded, err := json.Marshal(projection)
+				require.NoError(t, err)
+				for _, field := range fields {
+					require.NotContains(t, string(encoded), "fixture-"+field)
+				}
+				require.Contains(t, string(encoded), `"model_mapping":{"alias":"exact-model","exact-model":"exact-model"}`)
+				require.Contains(t, string(encoded), `"has_usage_query_token":true`)
+			}
+			original := detail.RuntimeIdentity
+			for _, field := range fields {
+				old := account.Credentials[field]
+				account.Credentials[field] = "rotated-" + field
+				require.NotEqual(t, original, AccountFromService(account).RuntimeIdentity)
+				account.Credentials[field] = old
+			}
+		})
+	}
+}

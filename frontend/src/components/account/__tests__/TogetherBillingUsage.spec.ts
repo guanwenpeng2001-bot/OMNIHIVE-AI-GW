@@ -53,14 +53,15 @@ describe('TogetherBillingUsage', () => {
     expect(wrapper.get('[role="alert"]').text()).toContain('invalid_response')
     await query(wrapper); expect(wrapper.get('[role="alert"]').text()).toContain('upstream_error'); expect(wrapper.text()).not.toContain('private-key')
   })
-  it.each(['account', 'month'])('ignores late responses after %s changes', async change => {
+  it.each(['account', 'month', 'runtime'])('ignores late responses after %s changes', async change => {
     let resolve!: (value: TogetherBillingResult) => void
     queryTogetherUsage.mockImplementationOnce(() => new Promise<TogetherBillingResult>(done => { resolve = done }))
     const wrapper = mount(TogetherBillingUsage, { props: { account } })
     await wrapper.get('[data-test="together-query"]').trigger('click')
     expect(wrapper.attributes('aria-busy')).toBe('true')
+    if (change === 'runtime') await wrapper.setProps({ account: { ...account, runtime_identity: 'rotated' } })
     if (change === 'account') await wrapper.setProps({ account: { ...account, id: 13 } })
-    else await wrapper.get('[data-test="together-month"]').setValue('2026-05')
+    if (change === 'month') await wrapper.get('[data-test="together-month"]').setValue('2026-05')
     resolve(response()); await flushPromises()
     expect(wrapper.find('table').exists()).toBe(false); expect(wrapper.attributes('aria-busy')).toBe('false')
   })
@@ -83,4 +84,12 @@ describe('TogetherBillingUsage', () => {
     await wrapper.setProps({ account: { ...account, credentials: { ...account.credentials, base_url: 'https://relay.example/v1' } } })
     expect(wrapper.find('[data-test="together-query"]').exists()).toBe(false)
   })
+  it('retains a successful report when a same-identity refresh fails', async () => {
+    queryTogetherUsage.mockResolvedValueOnce(response()).mockResolvedValueOnce({ success: false, reason: 'permission_denied' })
+    const wrapper = mount(TogetherBillingUsage, { props: { account } }); await query(wrapper); await query(wrapper)
+    expect(wrapper.text()).toContain('9007199254740993.123')
+    expect(wrapper.text()).toContain('permission_denied')
+    expect(wrapper.text()).toContain('previousReading')
+  })
+
 })

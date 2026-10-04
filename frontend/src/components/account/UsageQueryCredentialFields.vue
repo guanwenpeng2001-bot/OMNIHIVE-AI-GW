@@ -20,13 +20,20 @@
       <input data-test="usage-query-user-id" type="text" class="input" :value="modelValue.userId" pattern="[!-~]+"
         @input="update({ userId: ($event.target as HTMLInputElement).value })" />
     </label>
+    <label v-for="field in metadataFields" :key="field" class="block">
+      <span class="input-label">{{ t(`admin.accounts.usageQuery.${field}`) }}</span>
+      <input :data-test="`usage-query-${field}`" type="text" class="input" :value="modelValue[field]"
+        @input="update({ [field]: ($event.target as HTMLInputElement).value })" />
+    </label>
   </fieldset>
 </template>
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usageQueryNeedsUserId, type UsageQueryDraft } from './credentialsBuilder'
 const props = defineProps<{ modelValue: UsageQueryDraft; platform: string; editing?: boolean; hasToken?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: UsageQueryDraft] }>()
 const { t } = useI18n()
+const metadataFields = computed(() => props.platform === 'azure_openai' ? ['subscriptionId', 'region'] as const : props.platform === 'github_copilot' ? ['username'] as const : [])
 const update = (patch: Partial<UsageQueryDraft>) => emit('update:modelValue', { ...props.modelValue, ...patch })
 </script>

@@ -124,7 +124,7 @@ describe('ProviderManagementUsage', () => {
     const wrapper = mount(ProviderManagementUsage, { props: { account: azure } }); await query(wrapper)
     expect(wrapper.text()).toContain('noItems'); await query(wrapper)
     expect(wrapper.text()).toContain('upstream_error'); expect(wrapper.text()).not.toContain('secret-token')
-    expect(wrapper.text()).not.toContain('noItems')
+    expect(wrapper.text()).toContain('noItems') // Same-identity failures retain the last successful report.
   })
   it.each(['number', 'scope', 'month', 'false-success'])('rejects malformed report %s', async change => {
     const result = billing()

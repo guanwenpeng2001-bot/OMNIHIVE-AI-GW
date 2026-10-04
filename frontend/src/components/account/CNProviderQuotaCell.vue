@@ -24,6 +24,24 @@
       <p v-if="!observedTiers.length && !loading" data-test="quota-unknown" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.usageUnknown') }}</p>
     </template>
 
+    <div v-if="data?.success && data.token_plan" data-test="token-plan" class="space-y-1 text-xs">
+      <p>{{ t('admin.accounts.tencentQuota.title') }} · {{ data.token_plan.product_type }} · {{ data.token_plan.unit }}</p>
+      <dl v-if="data.token_plan.package_info" data-test="token-plan-package">
+        <template v-for="(value, field) in data.token_plan.package_info" :key="field">
+          <dt>{{ t(`admin.accounts.tencentQuota.fields.${field}`) }}</dt><dd>{{ value }}</dd>
+        </template>
+      </dl>
+      <template v-if="data.token_plan.token_summary">
+        <dl>
+          <template v-for="field in cycleFields" :key="field">
+            <dt>{{ t(`admin.accounts.tencentQuota.fields.${field}`) }}</dt><dd>{{ data.token_plan.token_summary[field] ?? t('admin.accounts.cnProviders.usageUnknown') }}</dd>
+          </template>
+        </dl>
+        <p v-for="(item, index) in data.token_plan.token_summary.billing_items" :key="index" data-test="token-plan-billing">
+          {{ item.billing_item || t('admin.accounts.cnProviders.usageUnknown') }}: {{ item.total_qty ?? t('admin.accounts.cnProviders.usageUnknown') }}
+        </p>
+      </template>
+    </div>
     <template v-if="account.platform === 'commandcode'">
       <p v-if="data?.success" class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}<span v-if="observationTime"> · {{ observationTime }}</span></p>
       <p v-if="data?.plan_level" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.commandCodePlan') }}: {{ planName }}</p>
@@ -112,7 +130,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderQuotaProbeResult | null>(null)
 const observedTiers = computed(() => (data.value?.tiers || []).filter(tier =>
-  ['5h', 'weekly', 'monthly'].includes(tier.window) && typeof tier.used_percent === 'number' && Number.isFinite(tier.used_percent)))
+  ['5h', 'daily', 'weekly', 'monthly'].includes(tier.window) && typeof tier.used_percent === 'number' && Number.isFinite(tier.used_percent)))
 
 // 后端周期任务/手动探测写入的 extra 快照键（<provider>_ 前缀，与后端
 // cnQuotaExtraUpdates 对齐）。页面加载即有数据，无需等待探测。
@@ -133,16 +151,19 @@ const readExtraString = (key: string): string => {
 }
 
 // Restore independent observations; missing windows do not discard plan or credits.
+const cycleFields = ['cycle_seq', 'cycle_start_time', 'cycle_end_time'] as const
 const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
   const platform = props.account.platform
   if (platform === 'commandcode' && props.account.extra?.commandcode_usage_supported === false) return null
   const used5h = readExtraNumber(`${platform}_5h_used_percent`)
+  const usedDaily = readExtraNumber(`${platform}_daily_used_percent`)
   const usedWeekly = readExtraNumber(`${platform}_weekly_used_percent`)
   const usedMonthly = readExtraNumber(`${platform}_monthly_used_percent`)
   const tiers: CNProviderQuotaProbeResult['tiers'] = []
   if (used5h != null) {
     tiers.push({ window: '5h', used_percent: used5h, reset_at: readExtraString(`${platform}_5h_reset_at`) || undefined })
   }
+  if (usedDaily != null) tiers.push({ window: 'daily', used_percent: usedDaily, reset_at: readExtraString(`${platform}_daily_reset_at`) || undefined })
   if (usedWeekly != null) {
     tiers.push({ window: 'weekly', used_percent: usedWeekly, reset_at: readExtraString(`${platform}_weekly_reset_at`) || undefined })
   }
@@ -157,8 +178,9 @@ const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
     }
   }
   const plan = readExtraString(`${platform}_plan_level`)
-  if (!tiers.length && !Object.keys(credits).length && !plan) return null
-  return { success: true, tiers, credits, plan_level: plan,
+  const tokenPlan = platform === 'hunyuan' ? props.account.extra?.hunyuan_token_plan : undefined
+  if (!tiers.length && !Object.keys(credits).length && !plan && !tokenPlan) return null
+  return { success: true, tiers, credits, plan_level: plan, token_plan: tokenPlan,
     fetched_at: Date.parse(readExtraString(`${platform}_usage_updated_at`)) / 1000 } as CNProviderQuotaProbeResult
 })
 
@@ -193,6 +215,7 @@ const truncatedError = computed(() => {
 })
 
 const windowLabel = (window: string) => {
+  if (window === 'daily') return t('admin.accounts.cnProviders.windowDaily')
   if (window === 'weekly') return t('admin.accounts.cnProviders.windowWeekly')
   if (window === 'monthly') return t('admin.accounts.cnProviders.windowMonthly')
   return t('admin.accounts.cnProviders.window5h')
@@ -223,8 +246,8 @@ const handleProbe = async () => {
       data.value = result
     } else {
       if (props.account.platform === 'commandcode') data.value = null
-      error.value = props.account.platform === 'volcengine' && result.status && result.status !== 'ok'
-        ? t(`admin.accounts.cnProviders.volcengineQuota.status.${result.status}`)
+      error.value = ['volcengine', 'hunyuan'].includes(props.account.platform) && result.status && result.status !== 'ok'
+        ? t(`admin.accounts.${props.account.platform === 'hunyuan' ? 'tencentQuota' : 'cnProviders.volcengineQuota'}.status.${result.status}`)
         : result.unsupported && props.account.platform === 'commandcode'
         ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
     }

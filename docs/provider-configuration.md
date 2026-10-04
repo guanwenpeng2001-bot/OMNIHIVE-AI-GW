@@ -320,7 +320,7 @@
 | `payg` / `anthropic` | `responses` | `https://aihubmix.com/v1` | `Authorization: Bearer` |
 | `payg` / `anthropic` | `chat_completions` | `https://aihubmix.com/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L3205)；[供应商文档 2](https://aihubmix.com/openapi.json)。
 
@@ -651,7 +651,7 @@ Azure 资源地址由管理员提供，没有通用全球 base。请求 `model` 
 | `payg` / `anthropic` | `responses` | `https://www.dmxapi.cn/v1` | `Authorization: Bearer` |
 | `payg` / `anthropic` | `chat_completions` | `https://www.dmxapi.cn/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`gemini_to_messages`, `gemini_to_responses`, `gemini_to_chat`。
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L1180)；[供应商文档 2](https://doc.dmxapi.com/baseurl.html)。
 
@@ -974,11 +974,11 @@ Token Plan 需要专用 tp- 或 ttp- 密钥，不能与按量付费密钥混用�
 | `payg` / `chat_completions` | `responses` | `https://api.qnaigc.com/bypass/openai/v1` | `Authorization: Bearer` |
 | `subscription` / `chat_completions` | `chat_completions` | `https://api.qnaigc.com/v1` | `Authorization: Bearer` |
 
-`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+`payg`：模型发现 `openai_models`（使用已验证的 Chat 列表协议，列表不保证账号权益）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
 操作级来源：[供应商文档 1](https://developer.qiniu.com/aitokenapi/kb/13462/aitoken-use-faq)；[供应商文档 2](https://developer.qiniu.com/aitokenapi/13379/real-time-ai-interface-api)。
 
-模式边界：订阅调用需要订阅专用 API Key，且模型必须在套餐内。额度耗尽不会自动转为预充值按量计费：供应商要求另用按量付费密钥。系统不检查密钥，选择密钥接入方式不代表开通订阅。独立模式的模型发现均未接入；按已确认映射调用。
+模式边界：订阅调用需要订阅专用 API Key，且模型必须在套餐内。额度耗尽不会自动转为预充值按量计费：供应商要求另用按量付费密钥。系统不检查密钥，选择密钥接入方式不代表开通订阅。PAYG 已接入模型列表；订阅发现仍未验证，按已确认映射调用。
 
 <a id="provider-qwencloud"></a>
 
@@ -1571,7 +1571,7 @@ Novita / PPIO 的 availableBalance 不替换成 cashBalance，也不再加 credi
 
 真实数值零是成功结果；缺失、无效、失败或不支持不表示零。失败保留先前快照与时间，不覆盖为零；账号身份变化清除旧快照。自定义/跨域/跨区 base、Coding、未知模式或协议、OAuth 账号不调用这些接口。胜算云企业项目预算（包括无限预算）不当成个人余额。
 
-AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，403 表示权限不足，不是零余额；Coding 模式不查询该钱包，模型用量接口未接入。OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
+AtlasCloud PAYG 余额需要当前推理 Key 具备账户余额读取权限，403 表示权限不足，不是零余额；Coding 模式不查询该钱包；官方 PAYG 同时提供独立的日模型消耗查询。OpenRouter credits 的管理 key、DMXAPI 系统 token/用户头与 CrazyRouter user/self 管理认证不是上述推理 key 合同；不能拿推理 key 猜管理 API。Tencent 管理额度同理。其他兼容供应商余额未知/未接入；原生 Kimi、DeepSeek 等继续使用其独立同站点合同。以上依据官方文档与离线测试，不代表已用真实账号查询成功。
 
 ### 项目预算、时间窗口用量与本站账本
 
@@ -1620,7 +1620,27 @@ AK/SK 与推理 Bearer API Key 独立，不应填入普通客户端的本站 Key
 | `upstream_error` | 上游、传输或代理查询失败；检查服务/出口后重试 |
 | `url_rejected` | 控制面主机被本站出站 URL 策略拒绝；由管理员核对策略，不能关闭校验绕过 |
 
-先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 用量签名主机和 Ark Agent Plan 原始用量字段尚未核实，本功能不覆盖二者**。Agent 的用量动作已有公开说明，但不能因动作名称已知就声称本站已完成查询；BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
+先检查 `success`、`status`、`error` 与 `fetched_at`；HTTP 200 仍可能是业务失败。**BytePlus 与个人 Ark Agent 用量仍未验证**。国内团队 Ark Agent 已接入，需 `volcengine_plan_edition=team` 和明确的 `volcengine_seat_id`，使用同一独立 AK/SK；不自动猜席位。只读取匹配席位的 5h、daily、weekly、monthly 已用百分比及毫秒重置时间，缺失窗口为未知。BytePlus 凭据不得发送到国内火山控制面。上述查询集成与真实账号在线验收分别记录，本指南不承诺每个账号都已在线查询成功。
+
+
+### 独立管理查询与新增套餐
+
+账号编辑中的查询字段均为可选：未配置可保存原推理设置，查询显示缺配置并且后台零出站。查询密钥沿用加密存储、仅显示已保存状态、省略或空白保留、明确清除发送 `null`；不替换推理 `api_key`。普通财务/健康刷新保留成功读数；账号、查询密钥、区域/团队/席位变化清空旧读数，迟到响应不覆盖新身份。同身份查询失败保留历史并显示失败状态，历史值不能当成实时值。
+
+| 查询 | 配置与范围 | 结果语义 |
+| --- | --- | --- |
+| AtlasCloud 官方 PAYG | 原推理 Key；UTC `start_date` / `end_date`，结束不含，1–180 天；独立余额按钮保留 | 当前身份下所有 Key 的每日模型消耗，requests、token 分类、images、video seconds；缺项未知，分页/未完整日有提示，不是钱包余额 |
+| Azure OpenAI | 独立 `usage_query_token`（ARM access token）、`usage_query_subscription_id`、`usage_query_region` | 仅公有 Azure 的订阅×区域配额，保留上游 `currentValue` / `limit` / `unit`；Count 不是 Token、现金或可推算余额；不发送月份/时区 |
+| GitHub Copilot | 独立 `usage_query_token` 和个人 `usage_query_username`，选择近 24 个月内年月 | 个人 premium request / AI credit 两份账单；不含组织/企业代付，部分失败明确标记，不推断币种或合计；不发送时区 |
+| Together 官方 PAYG | 原推理 Key，UTC 月份，day 粒度；组织需开通 billing beta | 整个组织含其他项目/Key 的已发生费用；数量/单价/费用保留十进制字符串；404 为未开通，不是零账单 |
+| 腾讯国内企业 Token 套餐 | `hunyuan` coding 官方 `https://tokenhub.tencentmaas.com/plan/v3` 或 `/plan/anthropic`；独立 `tencent_query_secret_id`、`tencent_query_secret_key`、`tencent_query_region`、`tencent_query_team_id` | `token_plan` 套餐/周期/账单项；enterprise 为 credits、enterprise-auto 为 tokens；`call_count` 仍是次数；所有金额及 `total_qty` 精确字符串，不转浮点、不作为余额/5h 窗口 |
+| MiniMax 新国内 Token Plan | 仅精确 `https://api.minimax.cn/v1` coding profile，原套餐 Key | `/v1/token_plan/remains` 的文本模型 5h/周读数；`remaining_percent` 优先，无百分比时 `usage_count` 表示剩余。旧国内、国际/其他套餐不借用该合同 |
+
+AiHubMix、DMX 中国站、CrazyRouter 国内/国际站通过独立 `usage_query_token` 查询管理余额；DMX 与 CrazyRouter 另需 `usage_query_user_id`。TheRouter 管理查询显示 `account_credits` 的总 credits 与总使用量，不自行相减为余额。StepFun 国内/国际、TeamoRouter 两站、SudoCode 只在各自已验证官方 profile 使用原推理 Key。DMX .com/SSVIP 没有继承中国站管理查询。
+
+依据：[Atlas model usage](https://www.atlascloud.ai/docs/public-api/model-usage)、[Azure regional usage](https://learn.microsoft.com/en-us/rest/api/aiservices/accountmanagement/usages/list?view=rest-aiservices-accountmanagement-2024-10-01)、[GitHub personal billing](https://docs.github.com/en/rest/billing/usage?apiVersion=2026-03-10)、[Together billing beta](https://docs.together.ai/reference/billing-usage)、[腾讯 DescribeTokenPlan](https://cloud.tencent.com/document/api/1823/132270)、[火山 Agent 源合同](https://github.com/volcengine/byted-supabase-cli/blob/main/internal/volcengine/agent_plan.go)。来源与离线边界测试不代表真实账号在线成功；未验证地区、个人 Agent、BytePlus 和未知产品仍保持未知。
+
+模型发现同时更新：AiHubMix、DMX 中国站、Qiniu PAYG 已接入已验证的模型列表协议；DMX .com/SSVIP、Qiniu 订阅及其他 `none` 模式不能据此开放发现。失败保留模型映射；候选列表不等于发现成功或账号可用模型。反重力保存并重新打开仍保留完整别名映射，别名不会冒充直接模型 ID。
 
 ## 特定账号限制与未知项
 

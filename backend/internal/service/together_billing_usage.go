@@ -78,6 +78,9 @@ func (service *CNProviderBalanceService) QueryBillingUsage(ctx context.Context, 
 	if account == nil {
 		return nil, infraerrors.New(http.StatusNotFound, "USAGE_ACCOUNT_NOT_FOUND", "account not found")
 	}
+	if account.Platform == "azure_openai" || account.Platform == "github_copilot" {
+		return service.QueryManagementUsage(ctx, accountID, query)
+	}
 	if account.Platform != "together" {
 		return service.QueryProviderUsage(ctx, accountID, query)
 	}

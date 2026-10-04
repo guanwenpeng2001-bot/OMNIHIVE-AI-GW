@@ -1,4 +1,6 @@
 import { apiClient } from '../client'
+import type { Account } from '@/types'
+import { compatibleMode, compatibleProvider } from '@/constants/compatibleProviders'
 
 export const managementUsageReasons = ['missing_query_credentials', 'invalid_credentials', 'permission_denied', 'rate_limited', 'not_found', 'upstream_error', 'invalid_response', 'mode_unsupported', 'no_verified_query', 'custom_origin', 'url_rejected', 'proxy_unavailable', 'pagination_limit', 'report_failed'] as const
 export type ManagementUsageReason = typeof managementUsageReasons[number]
@@ -83,4 +85,10 @@ export function validManagementUsage(value: unknown, provider: string, requested
       !report.usageItems.every(row => object(row) && githubBillingTextFields.every(field => optionalText(row[field])) && githubBillingNumberFields.every(field => optionalNumber(row[field])))) return false
   }
   return value.success === (successes === 2) && value.partial === (successes === 1)
+}
+
+export function managementUsageVisible(account: Account): boolean {
+  if (!['azure_openai', 'github_copilot'].includes(account.platform) || account.type !== 'apikey') return false
+  const provider = compatibleProvider(account.platform)
+  return !!provider && compatibleMode(provider, account.credentials?.account_mode)?.mode === 'payg'
 }

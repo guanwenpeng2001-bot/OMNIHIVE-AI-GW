@@ -9,6 +9,7 @@
     <p v-if="!validMonth" role="alert">{{ t('admin.accounts.togetherUsage.invalidMonth') }}</p>
     <p v-if="loading" role="status">{{ t('admin.accounts.togetherUsage.loading') }}</p>
     <p v-if="failure" role="alert">{{ t(`admin.accounts.togetherUsage.reasons.${failure}`) }}</p>
+    <p v-if="result && (loading || failure)" role="status" class="text-amber-600">{{ t('admin.accounts.togetherUsage.previousReading') }}</p>
     <div v-if="result?.usage" aria-live="polite" class="space-y-1">
       <p>{{ result.usage.organization_id }} · {{ result.usage.billing_period }} · UTC · USD</p>
       <p v-if="result.usage.partial" class="text-amber-600">{{ t('admin.accounts.togetherUsage.partial') }}</p>
@@ -33,6 +34,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'
+import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
 import { queryTogetherUsage, togetherBillingVisible, validTogetherBillingResult, type TogetherBillingResult } from '@/api/admin/togetherUsage'
 
 const props = defineProps<{ account: Account }>()
@@ -56,7 +58,6 @@ async function query() {
   const requestedMonth = month.value
   loading.value = true
   failure.value = null
-  result.value = null
   try {
     const response = await queryTogetherUsage(props.account.id, requestedMonth)
     if (request !== generation) return
@@ -72,7 +73,7 @@ async function query() {
   }
 }
 // Financial updated_at changes are deliberately not query identity changes.
-watch(() => JSON.stringify([month.value, props.account.id, props.account.platform, props.account.type, props.account.credentials, props.account.credentials_status?.has_api_key, props.account.extra?.custom_base_url_enabled, props.account.proxy_id, props.account.proxy_group_id]), () => {
+watch(() => JSON.stringify([month.value, accountQueryIdentity(props.account)]), () => {
   generation++
   result.value = null
   failure.value = null

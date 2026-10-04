@@ -392,3 +392,20 @@ describe('quota identity and ordinary row refreshes', () => {
     wrapper.unmount()
   })
 })
+
+
+it('renders only reported Agent windows including daily, then clears absent windows', async () => {
+  const agent = { ...account, id: 88342, platform: 'volcengine', credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/plan/v3', volcengine_plan_edition: 'team', volcengine_seat_id: 'seat' }, extra: { volcengine_usage_updated_at: new Date().toISOString() } } as Account
+  const wrapper = mount(CNProviderQuotaCell, { props: { account: agent } })
+  queryQuota.mockResolvedValue({ success: true, tiers: [{ window: 'daily', used_percent: 17 }] })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+  expect(wrapper.getComponent(UsageProgressBar).props('label')).toContain('windowDaily')
+  queryQuota.mockResolvedValue({ success: true, tiers: [] })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+  expect(wrapper.text()).toContain('usageUnknown')
+  await wrapper.setProps({ account: { ...agent, credentials: { ...agent.credentials, volcengine_plan_edition: 'personal' } } })
+  expect(wrapper.find('button').exists()).toBe(false)
+  wrapper.unmount()
+})

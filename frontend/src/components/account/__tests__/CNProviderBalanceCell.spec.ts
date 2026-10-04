@@ -219,8 +219,10 @@ describe('management balance presentation', () => {
     await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
     expect(wrapper.get('[data-test="management-used"]').text()).toContain('0 USD')
     expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('USD 0.00')
+    await wrapper.setProps({ account: { ...managed('aihubmix'), updated_at: '2099-01-01', extra: { total_spend: 50 } } })
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('USD 0.00')
   })
-  it.each(['user', 'tokenVersion', 'hasToken'])('suppresses old snapshots and an in-flight result after %s changes', async change => {
+  it.each(['user', 'tokenVersion', 'hasToken', 'runtime'])('suppresses old snapshots and an in-flight result after %s changes', async change => {
     let resolve!: (value: unknown) => void
     queryBalance.mockReturnValue(new Promise(r => { resolve = r }))
     const candidate = { ...managed('crazyrouter'), extra: { crazyrouter_balances: [{ currency: 'USD', balance: 18 }, { currency: 'CNY', balance: 20 }] } }
@@ -228,6 +230,7 @@ describe('management balance presentation', () => {
     expect(wrapper.text()).toContain('USD 18.00'); expect(wrapper.text()).toContain('CNY 20.00')
     await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
     const next = { ...candidate, credentials: { ...candidate.credentials }, credentials_status: { ...candidate.credentials_status } }
+    if (change === 'runtime') Object.assign(next, { runtime_identity: 'rotated' })
     if (change === 'user') next.credentials.usage_query_user_id = '43'
     if (change === 'tokenVersion') next.credentials.credential_secret_version = 2
     if (change === 'hasToken') next.credentials_status.has_usage_query_token = false
@@ -235,4 +238,17 @@ describe('management balance presentation', () => {
     resolve({ success: true, balance: 999, currency: 'USD' }); await flushPromises()
     expect(wrapper.text()).not.toContain('18.00'); expect(wrapper.text()).not.toContain('20.00'); expect(wrapper.text()).not.toContain('999')
   })
+})
+
+
+it('clears old identity history and snapshot when the server reports rotation before the new DTO arrives', async () => {
+  const candidate = { ...account, platform: 'aihubmix', credentials: { account_mode: 'payg' }, credentials_status: { has_usage_query_token: true }, extra: { aihubmix_balance: 18, aihubmix_balance_currency: 'USD' } } as Account
+  const wrapper = mount(CNProviderBalanceCell, { props: { account: candidate } })
+  queryBalance.mockResolvedValueOnce({ success: true, balance: 25, currency: 'USD' }).mockResolvedValueOnce({ success: false, reason: 'identity_changed', balance: 999, currency: 'USD' })
+  await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('25.00')
+  await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.text()).toContain('identity_changed')
+  for (const amount of ['18.00', '25.00', '999']) expect(wrapper.text()).not.toContain(amount)
+  wrapper.unmount()
 })

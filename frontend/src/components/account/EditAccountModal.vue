@@ -374,6 +374,8 @@
         />
         <UsageQueryCredentialFields v-if="account && supportsUsageQuery(account.platform)" v-model="usageCredentials"
           :platform="account.platform" editing :has-token="account.credentials_status?.has_usage_query_token" class="mt-4" />
+        <TencentQuotaFields v-if="showTencentQuotaFields" v-model="tencentCredentials" editing
+          :has-secret-id="account.credentials_status?.has_tencent_query_secret_id" :has-secret-key="account.credentials_status?.has_tencent_query_secret_key" />
         <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" editing
           :has-access-key-id="account.credentials_status?.has_volcengine_access_key_id ?? Boolean(account.credentials?.volcengine_access_key_id)"
           :has-secret-access-key="account.credentials_status?.has_volcengine_secret_access_key ?? Boolean(account.credentials?.volcengine_secret_access_key)" />
@@ -2498,6 +2500,8 @@ import { supplierOf } from '@/constants/supplierFamilies'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { specialCompatibleKeyOptional, specialCompatibleModeChanged, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
 import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
+import TencentQuotaFields from './TencentQuotaFields.vue'
+import { tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
 import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
@@ -2880,13 +2884,20 @@ function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return props.account?.platform === 'opencode_go' ? editOpenCodeAccountMode.value : editAccountMode.value
 }
 const usageCredentials = ref(usageQueryDraft())
+const tencentCredentials = ref(tencentQuotaDraft())
 const quotaCredentials = ref(volcengineQuotaDraft())
-const showVolcengineQuotaFields = computed(() => props.account?.platform === 'volcengine' && volcengineQuotaProfile({
+const showVolcengineQuotaFields = computed(() => props.account?.platform === 'volcengine' && ['coding', 'agent'].includes(volcengineQuotaProfile({
   account_mode: editAccountMode.value,
   api_protocol: editApiProtocol.value,
   base_url: editBaseUrl.value,
   ...(editApiProtocol.value === 'adaptive' ? { api_base_urls: editAdaptiveBaseUrls.value } : {})
-}, props.account.extra?.custom_base_url_enabled) === 'coding')
+}, props.account.extra?.custom_base_url_enabled)))
+const showTencentQuotaFields = computed(() => props.account?.platform === 'hunyuan' && tencentQuotaProfile({
+  account_mode: editAccountMode.value,
+  api_protocol: editApiProtocol.value,
+  base_url: editBaseUrl.value,
+  ...(editApiProtocol.value === 'adaptive' ? { api_base_urls: editAdaptiveBaseUrls.value } : {})
+}, props.account.extra?.custom_base_url_enabled))
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const editZhipuOrganization = ref('')
 const editZhipuProject = ref('')
@@ -3670,6 +3681,7 @@ const handleModelSelectionSaved = (account: Account) => {
 
 const syncFormFromAccount = (newAccount: Account | null) => {
   usageCredentials.value = usageQueryDraft(newAccount?.credentials)
+  tencentCredentials.value = tencentQuotaDraft(newAccount?.credentials)
   quotaCredentials.value = volcengineQuotaDraft(newAccount?.credentials)
   loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
   if (!newAccount) {
@@ -4734,13 +4746,14 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       }
 
       if (props.account.platform === 'volcengine') {
-        if (volcengineQuotaProfile(newCredentials, props.account.extra?.custom_base_url_enabled) === 'coding') {
+        if (['coding', 'agent'].includes(volcengineQuotaProfile(newCredentials, props.account.extra?.custom_base_url_enabled))) {
           applyVolcengineQuotaCredentials(newCredentials, quotaCredentials.value)
         } else {
           delete newCredentials.volcengine_access_key_id
           delete newCredentials.volcengine_secret_access_key
         }
       }
+      if (props.account.platform === 'hunyuan' && tencentQuotaProfile(newCredentials, props.account.extra?.custom_base_url_enabled)) applyTencentQuotaCredentials(newCredentials, tencentCredentials.value)
       applyUsageQueryCredentials(newCredentials, props.account.platform, usageCredentials.value)
       // Handle API key
       // 后端响应已脱敏：currentCredentials 不会再包含 api_key 原文。

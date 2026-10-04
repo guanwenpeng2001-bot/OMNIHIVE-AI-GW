@@ -1,4 +1,4 @@
-import { supportsUsageQuery, usageQueryNeedsUserId } from './credentialsBuilder'
+import { supportsManagementBalanceQuery, usageQueryNeedsUserId } from './credentialsBuilder'
 import { compatibleMode, compatibleProvider, paygBalanceAllowed } from '@/constants/compatibleProviders'
 import type { Account } from '@/types'
 import type { CompatibleUsageReason } from '@/api/admin/cnProviders'
@@ -23,7 +23,7 @@ export function compatibleUsageCapability(account: Account): CompatibleUsageCapa
   if (account.type !== 'apikey') return unsupported('invalid_credentials')
   const credentials = account.credentials ?? {}
   if (!paygBalanceAllowed(account.platform, credentials)) return unsupported('mode_unsupported')
-  const management = supportsUsageQuery(account.platform)
+  const management = supportsManagementBalanceQuery(account.platform)
   for (const field of ['account_mode', 'api_protocol', 'base_url', 'api_key']) {
     if (management && field === 'api_key') continue
     if (field in credentials && typeof credentials[field] !== 'string') return unsupported('invalid_credentials')

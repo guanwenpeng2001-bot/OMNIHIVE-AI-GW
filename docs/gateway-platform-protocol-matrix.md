@@ -92,8 +92,7 @@ Domestic Ark Coding personal/team uses the existing administrator route
 `volcengine_access_key_id` and `volcengine_secret_access_key`, independent of the
 inference key and never echoed back. Omitted updates preserve them; explicit null
 clears them. `volcengine_plan_edition` is personal/team (default personal), and
-`volcengine_seat_id` is optional for team access. Only the domestic Coding profile
-is eligible; BytePlus and Ark Agent Plan query contracts remain unverified.
+`volcengine_seat_id` is optional for team access. The domestic Coding profile is eligible; BytePlus and personal Ark Agent queries remain unverified. Domestic team Agent requires an explicit seat and separate AK/SK; reported daily/5h/week/month windows remain independent.
 
 Returned 5h/weekly/monthly windows contain used percentages and optional reset
 times, not absolute used/total or cash. Missing windows and failed queries are not
@@ -114,6 +113,12 @@ last successful catalog. Only actual discovered_models are discovery evidence;
 candidate_models and platform presets remain candidates, and selecting one is
 manual configuration, not discovery success. Candidates cannot alone establish a
 ready catalog or populate eligible_models. See [model synchronization](provider-configuration.md#模型同步候选与失败处理).
+
+
+The account query UI also mounts Atlas daily model usage alongside its PAYG wallet, Azure public-cloud subscription/region quotas, GitHub personal billing and Together organization billing. These are separate scopes, never interchangeable wallet balances. Azure/GitHub use optional independent management tokens; missing setup remains saveable and causes zero outbound query traffic. Tencent domestic enterprise Token Plan uses separate cloud Secret ID/Key plus region/team, preserving exact package/cycle/billing strings and raw item units. MiniMax's new CN Token Plan only applies to its exact official profile; no cross-region fallback. See [configuration and evidence](provider-configuration.md#独立管理查询与新增套餐).
+
+AiHubMix, DMX China and Qiniu PAYG now use verified OpenAI-compatible model listing. Other DMX regions and Qiniu subscription remain unconfirmed. Candidate models and manual declarations do not count as discovered or account-eligible models; failed sync/save preserves mappings.
+
 
 ## Core endpoint contracts
 
