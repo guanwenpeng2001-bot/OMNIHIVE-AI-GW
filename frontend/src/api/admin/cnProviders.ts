@@ -14,7 +14,7 @@ export interface CNQuotaTier {
 
 /** Coding Plan 额度探测结果（kimi / zhipu），对齐后端 CNProviderQuotaProbeResult。 */
 export interface CNProviderQuotaProbeResult {
-  status?: 'missing_configuration' | 'invalid_configuration' | 'ok' | 'missing_credentials' | 'invalid_credentials' | 'permission_denied' | 'unsupported_profile' | 'no_verified_query' | 'not_subscribed' | 'no_seat' | 'invalid_response' | 'upstream_error' | 'url_rejected'
+  status?: 'identity_changed' | 'missing_configuration' | 'invalid_configuration' | 'ok' | 'missing_credentials' | 'invalid_credentials' | 'permission_denied' | 'unsupported_profile' | 'no_verified_query' | 'not_subscribed' | 'no_seat' | 'invalid_response' | 'upstream_error' | 'url_rejected'
   unsupported?: boolean
   credits?: Record<string, number>
   provider: string

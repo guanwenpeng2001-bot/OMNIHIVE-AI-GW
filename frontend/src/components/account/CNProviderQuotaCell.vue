@@ -241,6 +241,11 @@ const handleProbe = async () => {
   try {
     const result = await adminAPI.cnProviders.queryQuota(accountID)
     if (generation !== observationGeneration) return
+    if (result.status === 'identity_changed') {
+      data.value = null
+      error.value = t('admin.accounts.compatibleUsage.reasons.identity_changed')
+      return
+    }
     // 失败时保留已渲染的快照条形图（仅显示错误行），成功才覆盖。
     if (result.success) {
       data.value = result

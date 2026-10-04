@@ -125,3 +125,16 @@ it('mounts BytePlus team quota with exact profile, and does not infer a wallet o
   expect(urls).toHaveLength(1)
   wrapper.unmount()
 })
+
+
+it('clears CN quota history on a server identity rejection before the refreshed row arrives', async () => {
+  const quotaAccount = { ...account('minimax', { account_mode: 'coding', base_url: 'https://api.minimax.cn/v1' }), id: 99881, extra: { minimax_5h_used_percent: 18, minimax_usage_updated_at: new Date().toISOString() } }
+  const wrapper = mount(AccountUsageCell, { props: { account: quotaAccount } }); await flushPromises()
+  expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(1)
+  respond({ provider: 'minimax', success: false, status: 'identity_changed', tiers: [{ window: '5h', used_percent: 99 }] })
+  await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click'); await flushPromises()
+  expect(wrapper.findAll('[data-test="cn-provider-quota-tier"]')).toHaveLength(0)
+  expect(wrapper.text()).toContain('identity_changed')
+  expect(wrapper.text()).not.toContain('99%')
+  wrapper.unmount()
+})

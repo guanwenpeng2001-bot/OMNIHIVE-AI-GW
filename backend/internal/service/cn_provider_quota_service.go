@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -330,11 +331,24 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 		}
 	}
 	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
+		result.discardChangedIdentity(err)
 		slog.Warn("cn_quota_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
 		result.Persisted = true
 	}
 	return result, nil
+}
+
+// A rejected runtime identity cannot publish observations from the old account.
+// Ordinary storage failures do not invalidate a successfully read upstream value.
+func (result *CNProviderQuotaProbeResult) discardChangedIdentity(err error) {
+	if !errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+		return
+	}
+	result.Success, result.Persisted = false, false
+	result.Status, result.Error = "identity_changed", "Account configuration changed; query again."
+	result.Tiers, result.Credits, result.TokenPlan = nil, nil, nil
+	result.PlanLevel = ""
 }
 
 func (s *CNProviderQuotaService) persistOpenCodeQuotaProbe(ctx context.Context, account *Account, result *CNProviderQuotaProbeResult) {
@@ -343,6 +357,7 @@ func (s *CNProviderQuotaService) persistOpenCodeQuotaProbe(ctx context.Context, 
 		return
 	}
 	if err := writer.ApplyOpenCodeQuotaProbe(ctx, account, result); err != nil {
+		result.discardChangedIdentity(err)
 		slog.Warn("opencode_quota_persist_failed", "account_id", account.ID, "error", err)
 		return
 	}
