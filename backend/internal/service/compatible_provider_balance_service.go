@@ -343,11 +343,22 @@ func (result *CompatibleBalanceResult) applyPersistenceOutcome(err error) {
 
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
 
-func clearCompatibleBalanceSnapshots(extra map[string]any) {
+// CompatibleBalanceObservationKeys is the bounded set of persisted wallet
+// observations shared by service invalidation and repository JSONB updates.
+// Each call returns its own slice so callers cannot mutate the shared contract.
+func CompatibleBalanceObservationKeys() []string {
+	var keys []string
 	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat", "aihubmix", "dmxapi", "crazyrouter", "crazyrouter_intl", "therouter"} {
 		for _, suffix := range []string{cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixBalances, cnBalanceExtraSuffixUpdated} {
-			delete(extra, cnExtraKey(provider, suffix))
+			keys = append(keys, cnExtraKey(provider, suffix))
 		}
+	}
+	return keys
+}
+
+func clearCompatibleBalanceSnapshots(extra map[string]any) {
+	for _, key := range CompatibleBalanceObservationKeys() {
+		delete(extra, key)
 	}
 }
 

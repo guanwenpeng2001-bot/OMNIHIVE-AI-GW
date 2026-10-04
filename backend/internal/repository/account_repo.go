@@ -4589,6 +4589,7 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 	for _, suffix := range []string{"usage_supported", "usage_checked_at", "monthlyCredits", "purchasedCredits", "freeCredits", "plan_level", "period_basis", "totalCount", "totalTokens", "totalCredits"} {
 		fields = append(fields, service.PlatformCommandCode+"_"+suffix)
 	}
+	fields = append(fields, service.CompatibleBalanceObservationKeys()...)
 	return "CASE WHEN (" + strings.Join(changes, " OR ") + ") THEN (" + incomingExtra + ") - ARRAY['" + strings.Join(fields, "','") + "']::text[] ELSE (" + incomingExtra + ") END"
 }
 

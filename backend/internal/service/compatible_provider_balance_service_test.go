@@ -427,3 +427,22 @@ func TestCompatibleBalanceCallerCancellation(test *testing.T) {
 	require.False(test, requireCompatibleBalanceResult(test, value).Success)
 	require.Empty(test, repo.writes)
 }
+
+func TestCompatibleBalanceObservationKeys(t *testing.T) {
+	providers := []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat", "aihubmix", "dmxapi", "crazyrouter", "crazyrouter_intl", "therouter"}
+	var expected []string
+	extra := map[string]any{"quota_used": 17, "configuration": "keep"}
+	for _, provider := range providers {
+		for _, suffix := range []string{"balance", "balance_currency", "balances", "balance_updated_at"} {
+			key := provider + "_" + suffix
+			expected = append(expected, key)
+			extra[key] = "old observation"
+		}
+	}
+	require.ElementsMatch(t, expected, CompatibleBalanceObservationKeys())
+	clearCompatibleBalanceSnapshots(extra)
+	require.Equal(t, map[string]any{"quota_used": 17, "configuration": "keep"}, extra)
+	keys := CompatibleBalanceObservationKeys()
+	keys[0] = "changed by caller"
+	require.ElementsMatch(t, expected, CompatibleBalanceObservationKeys())
+}

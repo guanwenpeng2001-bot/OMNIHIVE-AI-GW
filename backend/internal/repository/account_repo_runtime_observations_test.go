@@ -80,6 +80,9 @@ func (executor *credentialGuardRecordingExecutor) QueryContext(ctx context.Conte
 }
 
 func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *testing.T) {
+	for _, key := range service.CompatibleBalanceObservationKeys() {
+		require.Contains(t, clearChangedAccountRuntimeObservationsSQL("credentials", "extra", "TRUE"), "'"+key+"'")
+	}
 	t.Run("bulk_credentials", func(t *testing.T) {
 		database, mock, err := sqlmock.New()
 		require.NoError(t, err)
