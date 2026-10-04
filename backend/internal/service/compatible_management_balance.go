@@ -88,7 +88,7 @@ func (service *CNProviderBalanceService) queryManagementBalance(ctx context.Cont
 			cnExtraKey(account.Platform, cnBalanceExtraSuffixBalances): result.Balances,
 			cnExtraKey(account.Platform, cnBalanceExtraSuffixUpdated):  time.Unix(result.FetchedAt, 0).UTC().Format(time.RFC3339),
 		}
-		result.Persisted = persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil) == nil
+		result.applyPersistenceOutcome(persistAccountRuntimeSnapshot(callCtx, service.accountRepo, account, updates, nil))
 	}
 	return result, nil
 }
