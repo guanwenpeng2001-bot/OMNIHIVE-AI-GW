@@ -5,6 +5,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
+  persistentSaveError,
+  persistentSaveSuccess,
   createAccountMock,
   probeUpstreamBillingMock,
   syncUpstreamModelsMock,
@@ -14,6 +16,8 @@ const {
   createOpenAICodexPATMock,
   authIsSimpleMode,
 } = vi.hoisted(() => ({
+  persistentSaveError: vi.fn(),
+  persistentSaveSuccess: vi.fn(),
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
@@ -31,8 +35,8 @@ vi.mock('@/api/client', () => ({ apiClient: {
 
 vi.mock('@/stores/app' , () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError: persistentSaveError,
+    showSuccess: persistentSaveSuccess,
     showWarning: showWarningMock,
     showInfo: showInfoMock,
   }),
@@ -266,6 +270,17 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
     vi.mocked(getPlatformModelPresets).mockResolvedValue([])
   })
+  it('shows persistent encryption setup error without reporting account creation', async () => {
+    persistentSaveError.mockClear()
+    persistentSaveSuccess.mockClear()
+    createAccountMock.mockRejectedValueOnce({ reason: 'encryption_key_required', message: 'fallback' })
+    const wrapper = await submitApiKeyAccount('anthropic')
+    expect(wrapper.get('[role="alert"]').text()).toBe('common.encryptionKeyRequired')
+    expect(persistentSaveSuccess).not.toHaveBeenCalled()
+    expect(wrapper.emitted('created')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it.each(['current', 'legacy'])('opens mixed-channel confirmation for %s conflicts and retries the captured payload', async (format) => {
     const metadata = { group_id: 27, group_name: 'Mixed group', current_platform: 'Anthropic', other_platform: 'Antigravity' }
     createAccountMock.mockRejectedValueOnce(format === 'current'

@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func (credentialTestEncryptor) EncryptionKeyConfigured() bool { return true }
+
 type credentialTestEncryptor struct{}
 
 func (credentialTestEncryptor) Encrypt(plaintext string) (string, error) {

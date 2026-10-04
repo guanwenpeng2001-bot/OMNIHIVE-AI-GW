@@ -28,22 +28,9 @@ func hasManagementQuerySecrets(credentials map[string]any) bool {
 // New management keys must never enter inline account JSON, even on legacy
 // accounts that have not opted into referenced inference credentials.
 func createManagementQueryReference(ctx context.Context, database credentialSQL, encryptor service.SecretEncryptor, accountID, workspaceID int64, credentials map[string]any) (map[string]any, error) {
-	inline, secrets := service.SplitCredentialSecrets(credentials)
-	for field, value := range secrets {
-		if !service.IsManagementQuerySecret(field) {
-			continue
-		}
-		if value == nil {
-			delete(secrets, field)
-			continue
-		}
-		text, ok := value.(string)
-		if !ok {
-			return nil, service.ErrCredentialSecretInvalid
-		}
-		if strings.TrimSpace(text) == "" {
-			delete(secrets, field)
-		}
+	inline, secrets, err := splitManagementQuerySecrets(credentials)
+	if err != nil {
+		return nil, err
 	}
 	if len(secrets) == 0 {
 		return inline, nil
@@ -63,6 +50,28 @@ func createManagementQueryReference(ctx context.Context, database credentialSQL,
 	return inline, nil
 }
 
+// Validate and split before any account INSERT, so rejected secrets cause no writes.
+func splitManagementQuerySecrets(credentials map[string]any) (map[string]any, map[string]any, error) {
+	inline, secrets := service.SplitCredentialSecrets(credentials)
+	for field, value := range secrets {
+		if !service.IsManagementQuerySecret(field) {
+			continue
+		}
+		if value == nil {
+			delete(secrets, field)
+			continue
+		}
+		text, ok := value.(string)
+		if !ok {
+			return nil, nil, service.ErrCredentialSecretInvalid
+		}
+		if strings.TrimSpace(text) == "" {
+			delete(secrets, field)
+		}
+	}
+	return inline, secrets, nil
+}
+
 // Called only within CreateWithAccountGroups' transaction. The initial INSERT
 // contains configuration alone; the secret and reference publish atomically.
 func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, client *dbent.Client, account *service.Account) error {
@@ -73,7 +82,15 @@ func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, c
 		return service.ErrCredentialSecretInvalid
 	}
 	credentials := account.Credentials
-	inline, _ := service.SplitCredentialSecrets(credentials)
+	inline, secrets, err := splitManagementQuerySecrets(credentials)
+	if err != nil {
+		return err
+	}
+	if len(secrets) > 0 {
+		if err := service.RequirePersistentEncryption(r.credentialEncryptor); err != nil {
+			return err
+		}
+	}
 	account.Credentials = inline
 	defer func() { account.Credentials = credentials }()
 	if err := createAccountRecord(ctx, client, account); err != nil {

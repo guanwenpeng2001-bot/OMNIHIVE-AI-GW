@@ -224,6 +224,9 @@ func (s *TotpService) InitiateSetup(ctx context.Context, userID int64, emailCode
 
 // CompleteSetup completes the TOTP setup by verifying the code
 func (s *TotpService) CompleteSetup(ctx context.Context, userID int64, totpCode, setupToken string) error {
+	if err := RequirePersistentEncryption(s.encryptor); err != nil {
+		return err
+	}
 	// Check if TOTP feature is enabled globally
 	if !s.settingService.IsTotpEnabled(ctx) {
 		return ErrTotpNotEnabled

@@ -59,7 +59,7 @@ func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
-	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	var reference, ciphertext, audit string
 	mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
@@ -88,7 +88,7 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			defer db.Close()
-			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			metadata := service.CredentialSecret{Reference: "quota-reference", WorkspaceID: 7, AccountID: 17, Version: 3}
 			_, secrets := service.SplitCredentialSecrets(quotaCredentialMap())
@@ -182,7 +182,7 @@ func TestVolcengineQueryCreateTransactionRollback(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			defer db.Close()
-			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 			repo := newAccountRepositoryWithSQL(client, db, nil)
@@ -221,7 +221,7 @@ func TestVolcengineQueryCreateAtomicSuccess(t *testing.T) {
 			db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(rejectPlainQuotaSecrets{}))
 			require.NoError(t, err)
 			defer db.Close()
-			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 			repo := newAccountRepositoryWithSQL(client, db, nil)
@@ -258,7 +258,7 @@ func TestVolcengineUpdateCredentialsEncryptionFailureRollsBack(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	defer db.Close()
-	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	repo := newAccountRepositoryWithSQL(client, db, nil)
@@ -288,7 +288,7 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 			database, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			defer database.Close()
-			encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+			encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			credentials := map[string]any{"api_key": "inference-secret", field: "management-secret", "usage_query_user_id": "user"}
 			var reference, ciphertext string

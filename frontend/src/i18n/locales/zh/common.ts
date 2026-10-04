@@ -1,5 +1,6 @@
 export default {
   common: {
+    encryptionKeyRequired: '保存加密密钥前，请先设置持久的 TOTP_ENCRYPTION_KEY 环境变量并重启服务。',
     displayTimeZone: '显示时区：{timezone}',
     loading: '加载中...',
     submitting: '提交中...',

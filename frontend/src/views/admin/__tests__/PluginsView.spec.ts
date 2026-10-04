@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PluginsView from '../PluginsView.vue'
 
 const {
+  showError,
+  showSuccess,
   listPlugins,
   uploadPlugin,
   enablePlugin,
@@ -11,6 +13,8 @@ const {
   createUISession,
   stepUpRun,
 } = vi.hoisted(() => ({
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
   listPlugins: vi.fn(),
   uploadPlugin: vi.fn(),
   enablePlugin: vi.fn(),
@@ -37,8 +41,8 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError,
+    showSuccess,
     showInfo: vi.fn(),
   }),
 }))
@@ -136,6 +140,27 @@ describe('管理员插件页二次验证', () => {
       ui_bridge_version: 1,
       expires_at: '2026-08-22T01:00:00Z',
     })
+  })
+
+  it('shows persistent key failure and rejects the plugin bridge save without success', async () => {
+    savePluginConfig.mockRejectedValue({ reason: 'encryption_key_required', message: 'server fallback' })
+    const wrapper = mountView()
+    document.body.appendChild(wrapper.element)
+    await flushPromises()
+    await wrapper.findAll('button').find(item => item.text().includes('admin.plugins.configure'))!.trigger('click')
+    await flushPromises()
+    const frame = wrapper.get('iframe').element as HTMLIFrameElement
+    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage')
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: 'null', source: frame.contentWindow,
+      data: { source: 'sub2api-plugin-ui', bridge_token: 'bridge', type: 'config.save', request_id: 'save-test', config: {} },
+    }))
+    await flushPromises()
+    expect(savePluginConfig).toHaveBeenCalledWith(7, {})
+    expect(showError).toHaveBeenCalledWith('common.encryptionKeyRequired')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ ok: false, error: 'common.encryptionKeyRequired' }), '*')
+    wrapper.unmount()
   })
 
   it('启用插件通过 step-up 控制器执行', async () => {

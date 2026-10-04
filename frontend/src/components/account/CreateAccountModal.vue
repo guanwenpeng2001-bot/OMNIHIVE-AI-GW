@@ -5018,7 +5018,7 @@ async function confirmAccountReview(confirmedPayloads?: AccountWorkflowRequest[]
         if (revision !== JSON.stringify(reviewedRequests.value)) return
         await confirmAccountReview(payloads.map(payload => ({ ...payload, confirm_mixed_channel_risk: true })))
       } })
-    } else reviewError.value = extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))
+    } else reviewError.value = extractApiErrorMessage(error, t('admin.accounts.failedToCreate'), { encryption_key_required: t('common.encryptionKeyRequired') })
   } finally { reviewSubmitting.value = false }
 }
 async function stageCursorAuthorization(draft: AccountCredentialDraft) {
@@ -5091,7 +5091,7 @@ const createWithOptions = async (payload: CreateAccountRequest) => {
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try { await createWithOptions(payload) }
-  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))) }
+  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate'), { encryption_key_required: t('common.encryptionKeyRequired') })) }
   finally { submitting.value = false }
 }
 

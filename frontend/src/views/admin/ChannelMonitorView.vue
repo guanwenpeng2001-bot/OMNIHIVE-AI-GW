@@ -325,7 +325,7 @@ async function toggleEnabled(row: ChannelMonitor) {
     await adminAPI.channelMonitor.update(row.id, { enabled: next })
     row.enabled = next
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    appStore.showError(extractApiErrorMessage(err, t('common.error'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   }
 }
 
@@ -363,7 +363,7 @@ async function handleDuplicate(row: ChannelMonitor) {
     appStore.showSuccess(t('admin.channelMonitor.duplicateSuccess', { name: duplicate.name }))
     await reload()
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.duplicateFailed')))
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.duplicateFailed'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   } finally {
     duplicatingIds.delete(row.id)
   }
@@ -383,7 +383,7 @@ async function confirmDelete() {
     deleting.value = null
     reload()
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    appStore.showError(extractApiErrorMessage(err, t('common.error'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   }
 }
 

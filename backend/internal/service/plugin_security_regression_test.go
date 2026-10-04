@@ -44,6 +44,8 @@ func (r *pluginTokenRepository) GetByID(context.Context, int64) (*PluginInstalla
 
 type pluginTokenEncryptor struct{}
 
+func (pluginTokenEncryptor) EncryptionKeyConfigured() bool { return true }
+
 func (pluginTokenEncryptor) Encrypt(plaintext string) (string, error) {
 	return "ENC:" + plaintext, nil
 }

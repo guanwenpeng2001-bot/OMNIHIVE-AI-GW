@@ -51,6 +51,8 @@ func (r *duplicateChannelMonitorHandlerRepoStub) FindByDuplicateOperationID(_ co
 	return &cloned, nil
 }
 
+func (duplicateChannelMonitorHandlerEncryptor) EncryptionKeyConfigured() bool { return true }
+
 type duplicateChannelMonitorHandlerEncryptor struct{}
 
 func (duplicateChannelMonitorHandlerEncryptor) Encrypt(plaintext string) (string, error) {
