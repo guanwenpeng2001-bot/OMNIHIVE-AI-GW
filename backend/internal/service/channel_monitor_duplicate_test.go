@@ -91,6 +91,8 @@ type duplicateChannelMonitorEncryptor struct {
 	encryptErr error
 }
 
+func (*duplicateChannelMonitorEncryptor) EncryptionKeyConfigured() bool { return true }
+
 func (e *duplicateChannelMonitorEncryptor) Encrypt(plaintext string) (string, error) {
 	if e.encryptErr != nil {
 		return "", e.encryptErr

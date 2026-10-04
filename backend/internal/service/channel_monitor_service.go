@@ -158,6 +158,11 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 	if err := s.validateLinkedAccount(ctx, p.Provider, p.AccountID); err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(p.APIKey) != "" {
+		if err := RequirePersistentEncryption(s.encryptor); err != nil {
+			return nil, err
+		}
+	}
 	checkMode := defaultCheckMode(p.CheckMode)
 	encrypted, err := s.encryptor.Encrypt(p.APIKey)
 	if err != nil {
@@ -223,6 +228,11 @@ func (s *ChannelMonitorService) Duplicate(
 	plainAPIKey, err := s.decryptAPIKeyForDuplicate(source)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(plainAPIKey) != "" {
+		if err := RequirePersistentEncryption(s.encryptor); err != nil {
+			return nil, err
+		}
 	}
 	encryptedAPIKey, err := s.encryptor.Encrypt(plainAPIKey)
 	if err != nil {
@@ -435,6 +445,12 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 	if err != nil {
 		return nil, err
 	}
+	// Validate the key before mutating the loaded monitor.
+	if p.APIKey != nil && strings.TrimSpace(*p.APIKey) != "" {
+		if err := RequirePersistentEncryption(s.encryptor); err != nil {
+			return nil, err
+		}
+	}
 	if err := applyMonitorUpdate(existing, p); err != nil {
 		return nil, err
 	}
@@ -556,6 +572,9 @@ func (s *ChannelMonitorService) revalidateLinkedAccount(ctx context.Context, m *
 func (s *ChannelMonitorService) applyAPIKeyUpdate(existing *ChannelMonitor, raw *string) (plain string, updated bool, err error) {
 	if raw == nil || strings.TrimSpace(*raw) == "" {
 		return "", false, nil
+	}
+	if err := RequirePersistentEncryption(s.encryptor); err != nil {
+		return "", false, err
 	}
 	plain = strings.TrimSpace(*raw)
 	encrypted, encErr := s.encryptor.Encrypt(plain)

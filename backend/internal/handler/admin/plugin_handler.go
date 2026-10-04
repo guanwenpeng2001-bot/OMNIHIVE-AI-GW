@@ -166,7 +166,11 @@ func (h *PluginHandler) SaveConfig(c *gin.Context) {
 	}
 	saved, err := h.manager.SaveConfig(c.Request.Context(), id, raw)
 	if err != nil {
-		response.BadRequest(c, err.Error())
+		if errors.Is(err, service.ErrEncryptionKeyRequired) {
+			response.ErrorFrom(c, err)
+		} else {
+			response.BadRequest(c, err.Error())
+		}
 		return
 	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", saved)

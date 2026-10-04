@@ -1,5 +1,6 @@
 export default {
   common: {
+    encryptionKeyRequired: 'Set a persistent TOTP_ENCRYPTION_KEY environment variable and restart the service before saving encrypted secrets.',
     displayTimeZone: 'Display time zone: {timezone}',
     loading: 'Loading...',
     submitting: 'Submitting...',

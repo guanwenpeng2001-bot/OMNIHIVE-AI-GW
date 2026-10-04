@@ -4542,7 +4542,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: unknown) {
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate'), { encryption_key_required: t('common.encryptionKeyRequired') }))
     return false
   }
 }
@@ -4645,7 +4645,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       })
       return
     }
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   } finally {
     submitting.value = false
   }
@@ -5472,7 +5472,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
 
     await submitUpdateAccount(accountID, updatePayload, reviewedPayload)
   } catch (error: unknown) {
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   }
 }
 

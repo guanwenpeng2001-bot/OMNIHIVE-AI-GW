@@ -8,12 +8,16 @@ import type { ChannelMonitor } from '@/api/admin/channelMonitor'
 import MonitorFormDialog from '@/components/admin/monitor/MonitorFormDialog.vue'
 
 const {
+  showError,
+  showSuccess,
   listTemplates,
   accountsList,
   accountsGetById,
   monitorCreate,
   monitorUpdate,
 } = vi.hoisted(() => ({
+  showError: vi.fn(),
+  showSuccess: vi.fn(),
   listTemplates: vi.fn(),
   accountsList: vi.fn(),
   accountsGetById: vi.fn(),
@@ -59,8 +63,8 @@ vi.mock('@/api/groups', () => ({
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     cachedPublicSettings: null,
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError,
+    showSuccess,
   }),
 }))
 
@@ -171,6 +175,24 @@ describe('MonitorFormDialog linked account selector', () => {
     accountsGetById.mockReset()
     monitorCreate.mockReset().mockResolvedValue({})
     monitorUpdate.mockReset().mockResolvedValue({})
+  })
+
+  it.each(['create', 'update'])('shows persistent encryption failure on %s without closing', async operation => {
+    showError.mockClear()
+    showSuccess.mockClear()
+    const api = operation === 'create' ? monitorCreate : monitorUpdate
+    api.mockRejectedValueOnce({ reason: 'encryption_key_required', message: 'fallback' })
+    const wrapper = mountDialog(operation === 'create' ? null : makeMonitor())
+    await flushPromises()
+    await wrapper.findAll('input[type="text"]')[0].setValue('synthetic monitor')
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('test-model')
+    await wrapper.get('#channel-monitor-form').trigger('submit')
+    await flushPromises()
+    expect(api).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('common.encryptionKeyRequired')
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.emitted('saved')).toBeUndefined()
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   it.each(['active', 'preview', 'deprecated', 'unknown', undefined])('skips a retired first default and retains lifecycle %s', async lifecycle => {

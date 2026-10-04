@@ -153,6 +153,9 @@ func EncryptCredentialSecret(encryptor SecretEncryptor, metadata CredentialSecre
 	if encryptor == nil {
 		return "", ErrCredentialSecretInvalid
 	}
+	if err := RequirePersistentEncryption(encryptor); err != nil {
+		return "", err
+	}
 	payload, err := json.Marshal(credentialSecretEnvelope{metadata.WorkspaceID, metadata.AccountID, metadata.Reference, metadata.Version, credentials})
 	if err != nil {
 		return "", ErrCredentialSecretInvalid

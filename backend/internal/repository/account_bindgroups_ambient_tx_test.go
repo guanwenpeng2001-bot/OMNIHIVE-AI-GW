@@ -305,7 +305,7 @@ func TestBindGroupsStandaloneClearPublishesRemovedGroups(t *testing.T) {
 
 func TestBindGroupsAmbientAccountReadIncludesUncommittedRelations(t *testing.T) {
 	repository, database := bindGroupsTestRepository(t)
-	encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+	encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	repository.credentialEncryptor = encryptor
 	ctx := context.Background()

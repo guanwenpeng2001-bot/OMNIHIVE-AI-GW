@@ -2624,6 +2624,24 @@ it('does not save a late Antigravity catalog into a different account', async ()
 })
 
 describe('Management error contract edit confirmation', () => {
+  it('shows persistent encryption setup error without reporting account update', async () => {
+    const account = buildAccount()
+    account.platform = 'anthropic'
+    account.credentials = { api_key: 'synthetic' }
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockReset().mockRejectedValue({ reason: 'encryption_key_required', message: 'fallback' })
+    showErrorMock.mockClear()
+    showSuccessMock.mockClear()
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(showErrorMock).toHaveBeenCalledWith('common.encryptionKeyRequired')
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
     const account = buildAccount()
     account.platform = 'anthropic'

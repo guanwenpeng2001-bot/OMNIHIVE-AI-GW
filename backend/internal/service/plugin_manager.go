@@ -689,6 +689,9 @@ func (m *PluginManager) GetConfig(ctx context.Context, id int64) (json.RawMessag
 }
 
 func (m *PluginManager) SaveConfig(ctx context.Context, id int64, raw json.RawMessage) (json.RawMessage, error) {
+	if err := RequirePersistentEncryption(m.encryptor); err != nil {
+		return nil, err
+	}
 	m.operationMu.Lock()
 	defer m.operationMu.Unlock()
 	if len(raw) == 0 || len(raw) > pluginConfigMaxBytes || !json.Valid(raw) {

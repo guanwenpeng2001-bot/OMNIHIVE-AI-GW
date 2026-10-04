@@ -340,6 +340,7 @@ import {
   type PluginInstallation,
   type PluginUISession,
 } from "@/api/admin";
+import { extractApiErrorMessage } from "@/utils/apiError";
 import { useAppStore } from "@/stores";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import BaseDialog from "@/components/common/BaseDialog.vue";
@@ -382,12 +383,9 @@ const pluginFrameLoaded = ref(false);
 const pendingBridgeRequests = new Map<string, number>();
 
 function errorMessage(error: unknown): string {
-  if (typeof error === "object" && error !== null && "message" in error) {
-    return String(
-      (error as { message?: unknown }).message || t("common.unknownError"),
-    );
-  }
-  return t("common.unknownError");
+  return extractApiErrorMessage(error, t("common.unknownError"), {
+    encryption_key_required: t("common.encryptionKeyRequired"),
+  });
 }
 
 function reportSensitiveActionError(error: unknown): void {
@@ -677,6 +675,8 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
     }
   } catch (error: unknown) {
     if (isStepUpBlocked(error)) reportSensitiveActionError(error);
+    else if (message.type === "config.save" && !isStepUpCancelled(error))
+      appStore.showError(errorMessage(error));
     postBridgeResult(message, {
       ok: false,
       error: isStepUpCancelled(error) ? t("common.cancel") : errorMessage(error),

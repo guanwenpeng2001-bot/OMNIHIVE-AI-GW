@@ -906,7 +906,7 @@ async function handleSubmit() {
     emit('saved')
     emit('close')
   } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('common.error')))
+    appStore.showError(extractApiErrorMessage(err, t('common.error'), { encryption_key_required: t('common.encryptionKeyRequired') }))
   } finally {
     submitting.value = false
   }

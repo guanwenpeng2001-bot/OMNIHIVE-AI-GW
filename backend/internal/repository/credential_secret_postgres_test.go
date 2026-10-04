@@ -48,7 +48,7 @@ func newCredentialSecretFixture(t *testing.T) *credentialSecretFixture {
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
 	require.NoError(t, applyMigrationsFS(ctx, db, migrations.FS))
-	encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+	encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	t.Cleanup(func() { _ = client.Close() })
