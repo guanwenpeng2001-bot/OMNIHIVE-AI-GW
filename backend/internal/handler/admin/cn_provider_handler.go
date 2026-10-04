@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/url"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -66,4 +67,46 @@ func (h *CNProviderHandler) QueryBalance(c *gin.Context) {
 		return
 	}
 	response.Success(c, result)
+}
+
+// QueryUsage is a manual, windowed consumed-usage query. Native quota and
+// balance endpoints keep their existing behavior.
+func (handler *CNProviderHandler) QueryUsage(ctx *gin.Context) {
+	accountID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(ctx, "Invalid account ID")
+		return
+	}
+	if len(ctx.Request.URL.RawQuery) > 2048 {
+		response.BadRequest(ctx, "Invalid usage query parameters")
+		return
+	}
+	query, err := url.ParseQuery(ctx.Request.URL.RawQuery)
+	if err != nil {
+		response.BadRequest(ctx, "Invalid usage query parameters")
+		return
+	}
+	for key, values := range query {
+		if (key != "granularity" && key != "start" && key != "end" && key != "timezone") || len(values) != 1 {
+			response.BadRequest(ctx, "Invalid usage query parameters")
+			return
+		}
+	}
+	window, err := service.ValidateCompatibleUsageWindow(service.CompatibleUsageWindow{
+		Granularity: query.Get("granularity"), Start: query.Get("start"), End: query.Get("end"), Timezone: query.Get("timezone"),
+	})
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	if handler == nil || handler.balanceService == nil {
+		response.BadRequest(ctx, "cn provider usage service is not enabled")
+		return
+	}
+	result, err := handler.balanceService.QueryAccountUsage(ctx.Request.Context(), accountID, window)
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	response.Success(ctx, result)
 }
