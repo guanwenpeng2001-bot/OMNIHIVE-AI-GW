@@ -15,7 +15,7 @@ const endpoints = computed(() => mode.value?.endpoints.filter(endpoint => protoc
 const protocolIcons = { adaptive: 'swap', chat_completions: 'chat', anthropic: 'sparkles', responses: 'terminal' } as const
 const protocolOptions = computed(() => ['adaptive', ...(mode.value?.endpoints.map(endpoint => endpoint.protocol) ?? [])].map(value => ({
   value,
-  label: value === 'adaptive' ? t('admin.accounts.cnProviders.apiProtocol.adaptive') : compatibleProtocolLabel(value),
+  label: t(`admin.accounts.cnProviders.apiProtocol.${value === 'chat_completions' ? 'chatCompletions' : value}`),
   description: t(`admin.accounts.supplier.protocolDescriptions.${value}`),
   icon: protocolIcons[value as keyof typeof protocolIcons]
 })))
@@ -43,12 +43,12 @@ function updateBase(protocol: string, value: string) {
     <CompatibleSpecialAuthFields v-if="isSpecialCompatibleProvider(provider.id)" :platform="provider.id" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" @reset-secret="emit('reset-secret')" />
     <template v-else>
       <AccountChoiceCards v-if="provider.modes.length > 1" data-testid="compatible-mode"
-        :label="t('admin.accounts.supplier.credentialPlan')" :model-value="mode?.mode"
-        :options="provider.modes.map(entry => ({ value: entry.mode, label: modeLabel(entry) }))"
+        :label="t('admin.accounts.supplier.planType')" :model-value="mode?.mode"
+        :options="provider.modes.map(entry => ({ value: entry.mode, label: modeLabel(entry), icon: entry.mode === 'payg' ? 'creditCard' : 'bolt', description: t(`admin.accounts.supplier.planDescriptions.${entry.mode === 'payg' ? 'payg' : 'subscription'}`) }))"
         @update:model-value="changeMode" />
       <p v-if="provider.modes.length > 1" class="input-hint">{{ t('admin.accounts.supplier.planKeyHint') }}</p>
       <AccountChoiceCards data-testid="compatible-protocol" :label="t('admin.accounts.cnProviders.apiProtocol.title')" :model-value="protocol"
-        :options="protocolOptions"
+        :options="protocolOptions" :columns="3"
         @update:model-value="update('api_protocol', $event)" />
       <p class="input-hint">{{ t('admin.accounts.compatible.protocolHint') }}</p>
       <label class="block">

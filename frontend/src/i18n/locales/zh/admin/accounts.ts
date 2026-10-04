@@ -4,7 +4,9 @@ export default {
 
     accounts: {
       supplier: {
-        credentialPlan: '凭据套餐',
+        authenticationMethod: '认证方式',
+        planType: '套餐类型',
+        planDescriptions: { payg: '使用供应商按用量计费的 API 服务。', subscription: '使用所选套餐对应的凭据与端点，可用范围以订阅为准。' },
         planKeyHint: '请使用所选产品或套餐对应的凭据。',
         protocolDescriptions: { adaptive: '优先使用与请求协议匹配的原生端点。', chat_completions: '使用供应商的 OpenAI 兼容聊天端点。', anthropic: '使用供应商的 Messages 端点，适配 Claude 兼容客户端。', responses: '使用供应商的 Responses 端点，适配 Codex 兼容客户端。' },
         names: { astron: '讯飞星辰', stepfun: '阶跃星辰', mimo: '小米 MiMo', compshare: '优刻得 Compshare', siliconflow: '硅基流动', qwencloud: 'QwenCloud', dmxapi: 'DMXAPI', teamorouter: 'TeamoRouter', crazyrouter: 'CrazyRouter' },

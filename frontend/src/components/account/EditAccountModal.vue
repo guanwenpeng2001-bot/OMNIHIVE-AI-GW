@@ -143,7 +143,7 @@
       </div>
       <!-- Cursor 一级账号类型：本页类型由已有 account.type 回填，卡片只读，不得借重排允许账号类型互转。 -->
       <div v-if="account.platform === 'cursor'">
-        <span id="edit-cursor-key-mode-label" class="input-label">{{ t('admin.accounts.accountType') }}</span>
+        <span id="edit-cursor-key-mode-label" class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</span>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-labelledby="edit-cursor-key-mode-label" data-testid="cursor-key-mode">
           <button
             v-for="option in cursorAccountTypeOptions"
@@ -254,8 +254,8 @@
         </div>
         <!-- OpenCode Zen vs GO -->
         <div v-if="isProtocolApiKeyAccount && account.platform === 'opencode_go'">
-          <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
+          <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
             <button
               type="button"
               @click="editOpenCodeAccountMode = 'zen'"
@@ -306,8 +306,8 @@
         </div>
         <!-- Account Mode Selection (CN providers) -->
         <div v-if="showsAccountModeCard(account.platform)">
-          <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
+          <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
             <button
               v-for="opt in cnAccountModeOptions"
               :key="opt.value"
