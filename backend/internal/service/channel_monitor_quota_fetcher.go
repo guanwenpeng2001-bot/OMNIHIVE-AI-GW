@@ -250,6 +250,11 @@ func (f *ChannelMonitorQuotaFetcher) fetchUncached(ctx context.Context, accountI
 	// （GetUsageForAccount / QueryUsageForAccount / QueryBalanceForAccount），
 	// 下游服务不再各自 GetByID（每次含 proxies/groups 联查）。
 	switch account.Platform {
+	case domain.PlatformVolcengine:
+		if account.IsCodingPlan() {
+			return f.fetchCNQuota(ctx, account, now)
+		}
+		return cnPayGBalanceUnsupportedSnapshot(account.Platform, now)
 	case domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax:
 		if account.IsCodingPlan() {
 			return f.fetchCNQuota(ctx, account, now)
@@ -448,7 +453,11 @@ func (f *ChannelMonitorQuotaFetcher) fetchCNQuota(ctx context.Context, account *
 	// 只有 401/403 判凭据失效（与 fetchCNBalance 口径一致）：CN quota 服务的
 	// CredentialValid 仅在成功路径置 true，若按 `!Success && !CredentialValid`
 	// 推导，500/429/智谱业务错误全会被误判为 failed。
-	if !result.Success && !result.Unsupported && (result.StatusCode == 401 || result.StatusCode == 403) {
+	if account.Platform == PlatformVolcengine {
+		// Management AK/SK failure does not invalidate the inference credential.
+		snapshot.Unsupported = result.Unsupported
+		snapshot.CredentialInvalid = false
+	} else if !result.Success && !result.Unsupported && (result.StatusCode == 401 || result.StatusCode == 403) {
 		snapshot.CredentialInvalid = true
 	}
 	if len(result.Tiers) > 0 {

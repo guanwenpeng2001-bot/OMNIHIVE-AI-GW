@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -147,7 +148,7 @@ func writeReferencedAccount(ctx context.Context, database credentialSQL, account
 		return err
 	}
 	_, err = database.ExecContext(ctx, `UPDATE accounts SET credentials=$2::jsonb, updated_at=NOW(),
-		extra=COALESCE(extra,'{}'::jsonb)-'upstream_billing_probe'-'ollama_cloud_usage_snapshot'
+		extra=COALESCE(extra,'{}'::jsonb)-'upstream_billing_probe'-'ollama_cloud_usage_snapshot' - `+volcengineQuotaInvalidationSQL("$2::jsonb")+`
 		WHERE id=$1`+workspaceClause(ctx, "workspace_id"), accountID, string(payload))
 	if err != nil {
 		return err
@@ -202,6 +203,19 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 		for field, value := range incoming {
 			if !service.IsSensitiveCredentialKey(field) {
 				return nil, service.ErrCredentialSecretInvalid
+			}
+			if service.IsVolcengineQuerySecret(field) {
+				if value == nil {
+					delete(secrets, field)
+					continue
+				}
+				text, ok := value.(string)
+				if !ok {
+					return nil, service.ErrCredentialSecretInvalid
+				}
+				if strings.TrimSpace(text) == "" {
+					continue
+				}
 			}
 			secrets[field] = value
 		}
@@ -268,6 +282,9 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 		if incomingReferenced {
 			return nil, service.ErrCredentialSecretInvalid
 		}
+		if hasVolcengineQuerySecrets(incoming) {
+			return createVolcengineQueryReference(ctx, database, encryptor, accountID, workspaceID, incoming)
+		}
 		return incoming, nil
 	}
 	if incomingReferenced && reference != incomingReference {
@@ -287,6 +304,22 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 	inline, incomingSecrets := service.SplitCredentialSecrets(incoming)
 	changed := map[string]any{}
 	for field, value := range incomingSecrets {
+		if service.IsVolcengineQuerySecret(field) {
+			if value == nil {
+				if _, exists := secrets[field]; exists {
+					changed[field] = nil
+					delete(secrets, field)
+				}
+				continue
+			}
+			text, ok := value.(string)
+			if !ok {
+				return nil, service.ErrCredentialSecretInvalid
+			}
+			if strings.TrimSpace(text) == "" {
+				continue
+			}
+		}
 		if !reflect.DeepEqual(secrets[field], value) {
 			changed[field] = value
 			secrets[field] = value

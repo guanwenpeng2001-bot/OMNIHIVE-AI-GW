@@ -52,12 +52,13 @@ type CNQuotaTier struct {
 
 // CNProviderQuotaProbeResult 是 Coding Plan 额度探测的返回结构（管理端 + UI 消费）。
 type CNProviderQuotaProbeResult struct {
+	Status          string             `json:"status,omitempty"`
 	Unsupported     bool               `json:"unsupported,omitempty"`
 	Credits         map[string]float64 `json:"credits,omitempty"`
 	Provider        string             `json:"provider"`
 	Source          string             `json:"source"`
 	Success         bool               `json:"success"`
-	CredentialValid bool               `json:"credential_valid"` // false = 401/403 鉴权失败
+	CredentialValid bool               `json:"credential_valid"` // Query credential validity; control-plane permission errors need not invalidate it.
 	Tiers           []CNQuotaTier      `json:"tiers,omitempty"`
 	PlanLevel       string             `json:"plan_level,omitempty"` // 智谱套餐等级
 	StatusCode      int                `json:"status_code,omitempty"`
@@ -132,6 +133,9 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 }
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
+	if account.Platform == PlatformVolcengine || account.Platform == "byteplus" {
+		return s.queryVolcengineCodingUsage(ctx, account), nil
+	}
 	if account.IsCommandCode() {
 		return s.queryCommandCodeUsage(ctx, account)
 	}
@@ -327,6 +331,9 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 func validateCodingPlanAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if (account.Platform == PlatformVolcengine || account.Platform == "byteplus") && account.Type == AccountTypeAPIKey {
+		return nil
 	}
 	if account.IsCommandCode() && account.Type == AccountTypeAPIKey {
 		return nil
