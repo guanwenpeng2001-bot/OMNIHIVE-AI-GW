@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,7 +96,7 @@ func QianwenAudioSpeechBody(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("model is required")
 	}
 	if request.ResponseFormat != "" && request.ResponseFormat != "wav" {
-		return nil, fmt.Errorf("Qwen synchronous speech supports response_format wav only")
+		return nil, fmt.Errorf("Qwen synchronous speech supports response_format wav only") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	}
 	// Validate the speech shape here; only the selected account can resolve
 	// the requested alias to the native model validated during forwarding.
@@ -193,10 +194,6 @@ func (s *OpenAIGatewayService) ForwardQianwenAudioCompat(ctx context.Context, c 
 	return result, nil
 }
 
-func downloadQianwenSpeech(ctx context.Context, rawURL string) ([]byte, error) {
-	return downloadQianwenSpeechForAccount(ctx, nil, rawURL)
-}
-
 func downloadQianwenSpeechForAccount(ctx context.Context, account *Account, rawURL string) ([]byte, error) {
 	// Official TTS responses can contain HTTP links. Upgrade them to HTTPS;
 	// the shared video downloader enforces provider hosts and forbids redirects.
@@ -213,7 +210,11 @@ func downloadQianwenSpeechForAccount(ctx context.Context, account *Account, rawU
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	if response.ContentLength > qianwenAudioMaxDownloadBytes {
 		return nil, fmt.Errorf("audio result exceeds size limit")
 	}

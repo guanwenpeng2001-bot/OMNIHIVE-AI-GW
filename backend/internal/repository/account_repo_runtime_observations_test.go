@@ -71,12 +71,12 @@ func TestReviewCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 }
 
 type credentialGuardRecordingExecutor struct {
-	recordingSQLExecutor
-	database *sql.DB
+	*sql.DB
+	recording recordingSQLExecutor
 }
 
-func (executor *credentialGuardRecordingExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return executor.database.QueryContext(ctx, query, args...)
+func (executor *credentialGuardRecordingExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return executor.recording.ExecContext(ctx, query, args...)
 }
 
 func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *testing.T) {
@@ -86,15 +86,18 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 	t.Run("bulk_credentials", func(t *testing.T) {
 		database, mock, err := sqlmock.New()
 		require.NoError(t, err)
-		defer database.Close()
+		defer func() {
+			mock.ExpectClose()
+			require.NoError(t, database.Close())
+		}()
 		mock.ExpectQuery(`SELECT platform, credentials FROM accounts`).WillReturnRows(sqlmock.NewRows([]string{"platform", "credentials"}))
-		exec := &credentialGuardRecordingExecutor{recordingSQLExecutor: recordingSQLExecutor{result: rowsAffectedResult(1)}, database: database}
+		exec := &credentialGuardRecordingExecutor{recording: recordingSQLExecutor{result: rowsAffectedResult(1)}, DB: database}
 		repository := newAccountRepositoryWithSQL(nil, exec, nil)
 		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), count)
-		require.NotEmpty(t, exec.execQueries)
-		query := normalizeSQLWhitespace(exec.execQueries[0])
+		require.NotEmpty(t, exec.recording.execQueries)
+		query := normalizeSQLWhitespace(exec.recording.execQueries[0])
 		require.Contains(t, query, "cursor_usage_snapshot")
 		require.Contains(t, query, "credentials IS DISTINCT FROM")
 		extraIndex := strings.Index(query, "extra =")

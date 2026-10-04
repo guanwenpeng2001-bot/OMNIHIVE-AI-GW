@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"io"
 	"net/http"
 	"net/url"
@@ -64,7 +65,7 @@ func TestAtlasUsageRequestAndCounters(test *testing.T) {
 		}}
 		value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryProviderUsage(context.Background(), account.ID, atlasQueryWindow())
 		require.NoError(test, err)
-		result := value.(*AtlasUsageResult)
+		result := testassert.Type[*AtlasUsageResult](test, value)
 		require.True(test, result.Success)
 		require.Equal(test, "self", result.Usage.Scope)
 		require.Equal(test, float64(999), result.Usage.Data[0].Results[0].Usage.Tokens["total"])
@@ -112,7 +113,7 @@ func TestAtlasUsageWindowAndGuards(test *testing.T) {
 			}
 			value, err := NewCNProviderBalanceService(&compatibleBalanceRepo{account: account}, nil, upstream, cfg).QueryProviderUsage(context.Background(), account.ID, query)
 			if err == nil {
-				result := value.(*AtlasUsageResult)
+				result := testassert.Type[*AtlasUsageResult](test, value)
 				require.False(test, result.Success)
 				require.Nil(test, result.Usage)
 			}
@@ -145,9 +146,9 @@ func TestAtlasUsageParser(test *testing.T) {
 	require.Equal(test, float64(5), page.Data[0].Results[0].Usage.Video.Seconds)
 	var raw map[string]any
 	require.NoError(test, json.Unmarshal([]byte(body), &raw))
-	bucket := raw["data"].([]any)[0].(map[string]any)
+	bucket := testassert.Type[map[string]any](test, testassert.Type[[]any](test, raw["data"])[0])
 	bucket["partial"], bucket["covered_until"] = true, "2026-05-01T12:00:00Z"
-	bucket["results"].([]any)[0].(map[string]any)["usage"].(map[string]any)["tokens"] = nil
+	testassert.Type[map[string]any](test, testassert.Type[map[string]any](test, testassert.Type[[]any](test, bucket["results"])[0])["usage"])["tokens"] = nil
 	encoded, _ := json.Marshal(raw)
 	page, err = parseAtlasUsagePage(encoded, window)
 	require.NoError(test, err)
@@ -212,7 +213,7 @@ func TestAtlasUsagePaginationAndFailures(test *testing.T) {
 			}}
 			value, err := NewCNProviderBalanceService(&compatibleBalanceRepo{account: account}, nil, upstream, nil).QueryProviderUsage(context.Background(), account.ID, atlasQueryWindow())
 			require.NoError(test, err)
-			result := value.(*AtlasUsageResult)
+			result := testassert.Type[*AtlasUsageResult](test, value)
 			switch scenario {
 			case "two pages":
 				require.True(test, result.Success)
@@ -251,7 +252,7 @@ func TestAtlasUsageCancellationAndEmptyBucket(test *testing.T) {
 	require.ErrorIs(test, err, context.Canceled)
 	var raw map[string]any
 	require.NoError(test, json.Unmarshal([]byte(atlasUsageFixture), &raw))
-	raw["data"].([]any)[0].(map[string]any)["results"] = []any{}
+	testassert.Type[map[string]any](test, testassert.Type[[]any](test, raw["data"])[0])["results"] = []any{}
 	encoded, err := json.Marshal(raw)
 	require.NoError(test, err)
 	page, err := parseAtlasUsagePage(encoded, AtlasUsageWindow{StartDate: "2026-05-01", EndDate: "2026-05-08"})

@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"log/slog"
 	"math"
 	"mime"
 	"mime/multipart"
@@ -242,7 +243,7 @@ func (gateway *OpenAIGatewayService) ForwardOpenRouterMedia(ctx context.Context,
 	}
 	model := resolveOpenAIForwardModel(account, original, "")
 	SetOpsUpstreamModel(request, model)
-	outbound := body
+	var outbound []byte
 	if action == "audio.stt" {
 		outbound, contentType, err = replaceMistralMultipartModel(body, contentType, model)
 	} else {
@@ -266,7 +267,11 @@ func (gateway *OpenAIGatewayService) ForwardOpenRouterMedia(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return gateway.handleMistralActionHTTPError(ctx, request, account, response, model)
 	}

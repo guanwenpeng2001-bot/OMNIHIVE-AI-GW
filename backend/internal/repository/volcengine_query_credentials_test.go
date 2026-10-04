@@ -58,7 +58,10 @@ func quotaCredentialMap() map[string]any {
 func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() {
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+	}()
 	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	var reference, ciphertext, audit string
@@ -87,7 +90,10 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, db.Close())
+			}()
 			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			metadata := service.CredentialSecret{Reference: "quota-reference", WorkspaceID: 7, AccountID: 17, Version: 3}
@@ -161,12 +167,13 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 					require.Equal(t, quotaCredentialMap()[field], resolved[field])
 				}
 			}
-			if operation == "clear" {
+			switch operation {
+			case "clear":
 				require.NotContains(t, resolved, "volcengine_secret_access_key")
 				require.NotContains(t, resolved, "volcengine_access_key_id")
-			} else if operation == "rotate" {
+			case "rotate":
 				require.Equal(t, "rotated", resolved["volcengine_secret_access_key"])
-			} else {
+			default:
 				require.Equal(t, "management-secret", resolved["volcengine_secret_access_key"])
 			}
 			require.NoError(t, mock.ExpectationsWereMet())
@@ -181,7 +188,10 @@ func TestVolcengineQueryCreateTransactionRollback(t *testing.T) {
 		t.Run(map[bool]string{false: "Create", true: "CreateWithGroups"}[withGroups], func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, db.Close())
+			}()
 			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -220,7 +230,10 @@ func TestVolcengineQueryCreateAtomicSuccess(t *testing.T) {
 		t.Run(fmt.Sprint(withGroups), func(t *testing.T) {
 			db, mock, err := sqlmock.New(sqlmock.ValueConverterOption(rejectPlainQuotaSecrets{}))
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, db.Close())
+			}()
 			enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -257,7 +270,10 @@ func TestVolcengineQueryCreateAtomicSuccess(t *testing.T) {
 func TestVolcengineUpdateCredentialsEncryptionFailureRollsBack(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() {
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+	}()
 	enc, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 	require.NoError(t, err)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
@@ -287,7 +303,10 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			database, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer database.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, database.Close())
+			}()
 			encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32), EncryptionKeyConfigured: true}})
 			require.NoError(t, err)
 			credentials := map[string]any{"api_key": "inference-secret", field: "management-secret", "usage_query_user_id": "user"}

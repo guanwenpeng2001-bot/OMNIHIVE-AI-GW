@@ -37,7 +37,10 @@ import (
 
 // Register once, but resolve each identity against the current domain registry.
 func init() {
-	bindingValidator := binding.Validator.Engine().(*validator.Validate)
+	bindingValidator, ok := binding.Validator.Engine().(*validator.Validate)
+	if !ok {
+		panic("admin validation requires validator.Validate")
+	}
 	if err := bindingValidator.RegisterValidation("concrete_platform", func(field validator.FieldLevel) bool {
 		return domain.IsConcretePlatform(field.Field().String())
 	}); err != nil {
@@ -49,7 +52,10 @@ func init() {
 		panic(err)
 	}
 	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
-		req := validation.Current().Interface().(CreateAccountRequest)
+		req, ok := validation.Current().Interface().(CreateAccountRequest)
+		if !ok {
+			panic("unexpected admin validation request type")
+		}
 		if err := validateCompatibleAccountIdentity(req.Platform, req.Type, req.Credentials); err != nil {
 			validation.ReportError(req.Platform, "Platform", "platform", "compatible_identity", "")
 		}

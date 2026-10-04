@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,6 +16,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type grokImportProbeSchedulerTestSnapshot struct {
+	queued     int
+	workers    int
+	maxWorkers int
+}
+
+func snapshotGrokImportProbeScheduler(s *grokImportProbeScheduler) grokImportProbeSchedulerTestSnapshot {
+	if s == nil {
+		return grokImportProbeSchedulerTestSnapshot{}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return grokImportProbeSchedulerTestSnapshot{
+		queued:     len(s.queue),
+		workers:    s.workers,
+		maxWorkers: s.maxWorkers,
+	}
+}
 
 type backgroundCatalogAdmin struct {
 	*stubAdminService
@@ -141,12 +161,13 @@ func TestModelCatalogBackgroundSaveDoesNotWaitForDiscovery(t *testing.T) {
 			case commit := <-repo.committed:
 				require.EqualValues(t, 2, commit.workspace)
 				require.Nil(t, commit.snapshot, "failed discovery must only patch state")
-				require.Equal(t, "unsupported", commit.state.Result, "Apply must use the freshly loaded platform")
+				require.Equal(t, "failed", commit.state.Result)
+				require.Equal(t, "upstream_model_sync_not_adapted", commit.state.Error, "Apply must use the freshly loaded platform")
 			case <-time.After(time.Second):
 				t.Fatal("discovery did not record failure")
 			}
 			require.Equal(t, "Private-ID", admin.account.GetModelMapping()["alias"])
-			require.Equal(t, []string{"Private-ID"}, admin.account.Extra[service.UpstreamModelAllowlistExtraKey].(service.AccountModelAllowlist).Models)
+			require.Equal(t, []string{"Private-ID"}, testassert.Type[service.AccountModelAllowlist](t, admin.account.Extra[service.UpstreamModelAllowlistExtraKey]).Models)
 			require.Eventually(t, func() bool { scheduler.mu.Lock(); defer scheduler.mu.Unlock(); return scheduler.workers == 0 }, time.Second, time.Millisecond)
 		})
 	}

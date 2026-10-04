@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"maps"
 	"testing"
 
@@ -82,7 +83,7 @@ func TestQueryCredentialsLifecyclePostgres(t *testing.T) {
 							encoded, encodeErr := json.Marshal(projection)
 							require.NoError(t, encodeErr)
 							for _, field := range append([]string{"api_key"}, scenario.fields...) {
-								for _, secret := range []string{credentials[field].(string), "fixture-rotated-secret"} {
+								for _, secret := range []string{testassert.Type[string](t, credentials[field]), "fixture-rotated-secret"} {
 									require.NotContains(t, string(encoded), secret)
 									require.NotContains(t, audit, secret)
 									require.NotContains(t, ciphertext, secret)

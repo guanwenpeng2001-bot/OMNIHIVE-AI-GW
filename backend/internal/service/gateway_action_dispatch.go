@@ -615,7 +615,6 @@ func parseGatewayInputRequirement(body []byte) GatewayInputRequirement {
 	}
 	return requirement
 }
-func (r GatewayInputRequirement) empty() bool { return r == (GatewayInputRequirement{}) }
 func (r GatewayInputRequirement) SupportedBy(metadata UpstreamModelMetadata) bool {
 	for _, feature := range []struct {
 		required bool

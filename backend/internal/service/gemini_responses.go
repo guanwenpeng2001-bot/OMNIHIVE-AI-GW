@@ -21,7 +21,7 @@ func validateGeminiTextReply(reply map[string]any) error {
 	}
 	for _, part := range extractGeminiParts(reply) {
 		if part["inlineData"] != nil || part["fileData"] != nil || part["executableCode"] != nil || part["codeExecutionResult"] != nil {
-			return fmt.Errorf("Gemini returned a content part that this text bridge cannot represent")
+			return fmt.Errorf("Gemini returned a content part that this text bridge cannot represent") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 		}
 		if part["text"] == nil && part["functionCall"] == nil {
 			return fmt.Errorf("unsupported Gemini response part")
@@ -50,7 +50,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(ctx context.Context, c 
 	}
 	for _, tool := range request.Tools {
 		if tool.Type != "function" {
-			err = fmt.Errorf("Responses tool %q cannot be represented by the Gemini text bridge", tool.Type)
+			err = fmt.Errorf("Responses tool %q cannot be represented by the Gemini text bridge", tool.Type) //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 			writeResponsesError(c, 400, "invalid_request_error", err.Error())
 			return nil, err
 		}
@@ -121,8 +121,7 @@ func validateGeminiResponsesInput(body []byte) error {
 			return fmt.Errorf("%s requires upstream Responses state and cannot be represented by Gemini", key)
 		}
 	}
-	var checkParts func(any, bool) error
-	checkParts = func(content any, toolResult bool) error {
+	checkParts := func(content any, toolResult bool) error {
 		if _, ok := content.(string); ok {
 			return nil
 		}
@@ -146,7 +145,7 @@ func validateGeminiResponsesInput(body []byte) error {
 				}
 				url, _ := part["image_url"].(string)
 				if !strings.HasPrefix(url, "data:image/") {
-					return fmt.Errorf("Gemini bridge requires an inline data image")
+					return fmt.Errorf("Gemini bridge requires an inline data image") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 				}
 			default:
 				return fmt.Errorf("unsupported Responses content part %v", part["type"])
@@ -173,7 +172,7 @@ func validateGeminiResponsesInput(body []byte) error {
 					}
 				}
 			case "reasoning":
-				return fmt.Errorf("Responses reasoning replay cannot be represented by Gemini")
+				return fmt.Errorf("Responses reasoning replay cannot be represented by Gemini") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 			default:
 				return fmt.Errorf("unsupported Responses input item %v", item["type"])
 			}
@@ -288,9 +287,10 @@ func (w *geminiResponsesWriter) fail(message string) error {
 	w.Header().Del("Content-Length")
 	w.ResponseWriter.WriteHeader(status)
 	code := "upstream_error"
-	if status == http.StatusBadRequest {
+	switch status {
+	case http.StatusBadRequest:
 		code = "invalid_request_error"
-	} else if status == http.StatusTooManyRequests {
+	case http.StatusTooManyRequests:
 		code = "rate_limit_error"
 	}
 	data, _ := json.Marshal(map[string]any{"error": map[string]any{"code": code, "message": message}})
@@ -314,7 +314,7 @@ func (w *geminiResponsesWriter) finish(forwardErr error) error {
 	}
 	if w.stream {
 		if !w.state.CompletedSent {
-			err := fmt.Errorf("Upstream stream ended without a terminal event")
+			err := fmt.Errorf("Upstream stream ended without a terminal event") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 			_ = w.fail(err.Error())
 			return err
 		}

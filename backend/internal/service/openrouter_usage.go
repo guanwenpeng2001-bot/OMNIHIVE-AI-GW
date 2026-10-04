@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -99,7 +100,11 @@ func (s *AccountUsageService) getOpenRouterUsage(ctx context.Context, account *A
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 256*1024+1))
 	if err != nil || len(body) > 256*1024 {
 		return nil, fmt.Errorf("invalid OpenRouter usage response")

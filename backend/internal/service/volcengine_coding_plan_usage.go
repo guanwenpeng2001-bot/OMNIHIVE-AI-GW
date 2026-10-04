@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/url"
@@ -116,15 +117,16 @@ func (s *CNProviderQuotaService) requestVolcengineUsage(ctx context.Context, acc
 		r.Status, r.Error = "upstream_error", "Quota request construction failed"
 		return nil, false
 	}
-	if action == "GetSeatInfoUsage" {
+	switch action {
+	case "GetSeatInfoUsage":
 		region := "cn-beijing"
 		if account.Platform == "byteplus" {
 			region = "ap-southeast-1"
 		}
 		signArkSeatUsage(req, payload, ak, sk, region, time.Now())
-	} else if action == "GetSeatAFPUsage" {
+	case "GetSeatAFPUsage":
 		signVolcengineManagement(req, payload, ak, sk, "cn-beijing", "ark", "application/json; charset=utf-8", time.Now())
-	} else {
+	default:
 		signVolcengineUsage(req, payload, ak, sk, time.Now())
 	}
 	req.Header.Set("Accept", "application/json")
@@ -138,7 +140,11 @@ func (s *CNProviderQuotaService) requestVolcengineUsage(ctx context.Context, acc
 		r.Status, r.Error = "invalid_response", "Empty quota response"
 		return nil, false
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	r.StatusCode = resp.StatusCode
 	body, err := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes+1))
 	if err != nil || len(body) > cnQuotaMaxBodyBytes {

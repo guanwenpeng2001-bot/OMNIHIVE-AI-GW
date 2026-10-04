@@ -139,18 +139,18 @@ func TestQianwenSpeechDownloadBoundaries(t *testing.T) {
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"http://127.0.0.1/private"}}, Body: io.NopCloser(strings.NewReader(""))}, nil
 	})
 	for _, address := range []string{"file:///etc/passwd", "https://localhost/audio.wav", "http://127.0.0.1/audio.wav", "https://dashscope-result-bj.aliyuncs.com.evil.test/a", "https://user@dashscope-result-bj.aliyuncs.com/a", "https://dashscope-result-bj.aliyuncs.com:8443/a"} {
-		_, err := downloadQianwenSpeech(context.Background(), address)
+		_, err := downloadQianwenSpeechForAccount(context.Background(), nil, address)
 		require.Error(t, err)
 	}
 	require.Zero(t, calls)
-	_, err := downloadQianwenSpeech(context.Background(), "https://dashscope-result-bj.aliyuncs.com/a")
+	_, err := downloadQianwenSpeechForAccount(context.Background(), nil, "https://dashscope-result-bj.aliyuncs.com/a")
 	require.Error(t, err)
 	require.Equal(t, 1, calls, "redirect must not be followed")
 	for _, payload := range []string{`{"error":"not audio"}`, "RIFF"} {
 		qianwenVideoContentTransport = qianwenSpeechRoundTripper(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 200, Header: make(http.Header), ContentLength: int64(len(payload)), Body: io.NopCloser(strings.NewReader(payload))}, nil
 		})
-		_, err := downloadQianwenSpeech(context.Background(), "https://dashscope-result-bj.aliyuncs.com/a")
+		_, err := downloadQianwenSpeechForAccount(context.Background(), nil, "https://dashscope-result-bj.aliyuncs.com/a")
 		require.Error(t, err)
 	}
 }

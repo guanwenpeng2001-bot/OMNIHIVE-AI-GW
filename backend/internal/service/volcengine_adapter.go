@@ -80,7 +80,7 @@ func (service *OpenAIGatewayService) prepareVolcengineChatRequest(account *Accou
 	switch strings.TrimRight(parsedURL.Path, "/") {
 	case "/api/plan/v3", "/api/plan/v3/chat/completions":
 		if parsedURL.Scheme != "https" || parsedURL.Host != "ark.cn-beijing.volces.com" {
-			return nil, fmt.Errorf("Ark Agent Plan requires its documented regional endpoint")
+			return nil, fmt.Errorf("Ark Agent Plan requires its documented regional endpoint") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 		}
 	case "/api/v3", "/api/v3/chat/completions", volcengineCodingChatBasePath, volcengineCodingChatBasePath + "/chat/completions":
 	default:

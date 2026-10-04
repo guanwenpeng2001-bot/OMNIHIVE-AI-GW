@@ -137,7 +137,7 @@ func readQianwenAudioMultipart(c *gin.Context) ([]byte, error) {
 		_ = part.Close()
 	}
 	if fields["response_format"] != "" && fields["response_format"] != "json" {
-		return nil, fmt.Errorf("Qwen transcription supports response_format json only")
+		return nil, fmt.Errorf("Qwen transcription supports response_format json only") //nolint:staticcheck // ST1005: preserve the existing user-visible provider error text.
 	}
 	return service.QianwenAudioTranscriptionBody(fields["model"], mediaType, audio)
 }

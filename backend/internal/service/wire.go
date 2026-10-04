@@ -1137,6 +1137,10 @@ func ProvideAdminServiceWithEgress(cfg *config.Config,
 	cursorSessions CursorSessionCache,
 	runtimeInvalidator *AccountRuntimeInvalidator, runtime *ProxyGroupRuntime) AdminService {
 	svc := NewAdminService(cfg, userRepo, usageLogRepo, groupRepo, accountRepo, proxyRepo, apiKeyRepo, redeemCodeRepo, userGroupRateRepo, userRPMCache, billingCacheService, proxyProber, proxyLatencyCache, authCacheInvalidator, entClient, settingService, defaultSubAssigner, userSubRepo, privacyClientFactory, runtimeBlocker, affiliateService, compositeRouteRepo, compositeResolver, channelCacheInvalidator, cursorSessions, runtimeInvalidator)
-	svc.(*adminServiceImpl).egressRuntime = runtime
+	implementation, ok := svc.(*adminServiceImpl)
+	if !ok {
+		panic("admin service constructor returned an unexpected type")
+	}
+	implementation.egressRuntime = runtime
 	return svc
 }

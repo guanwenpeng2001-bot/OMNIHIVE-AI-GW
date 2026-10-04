@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
@@ -11,7 +12,7 @@ import (
 // Runs inside BulkUpdate's transaction before its first write. Lock all target
 // special-auth rows, including inline ones, to serialize concurrent conversion
 // to a reference or auth-mode changes with the subsequent JSONB merge.
-func validateBulkCopilotNousCredentials(ctx context.Context, database credentialSQL, ids []int64, incoming map[string]any) error {
+func validateBulkCopilotNousCredentials(ctx context.Context, database credentialSQL, ids []int64, incoming map[string]any) (resultErr error) {
 	_, relevant := incoming["auth_mode"]
 	for key := range incoming {
 		relevant = relevant || service.IsSensitiveCredentialKey(key)
@@ -24,7 +25,7 @@ func validateBulkCopilotNousCredentials(ctx context.Context, database credential
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	for rows.Next() {
 		account := &service.Account{}
 		var raw []byte

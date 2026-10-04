@@ -156,7 +156,7 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	if job == nil || job.UserID <= 0 || job.APIKeyID <= 0 || job.AccountID <= 0 || submit == nil {
 		return nil, errors.New("invalid job submission")
 	}
-	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && !(job.Platform == PlatformOpenRouter && job.Family == "video") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
+	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && (job.Platform != PlatformOpenRouter || job.Family != "video") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
 		return nil, ErrUpstreamJobTariff
 	}
 	if len(accounts) > 0 {

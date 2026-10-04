@@ -255,11 +255,13 @@ func TestTencentSignatureFixedCanonicalVector(t *testing.T) {
 	key := []byte("TC3cloud-secret")
 	for _, part := range []string{"2024-07-03", "tokenhub", "tc3_request"} {
 		digest := hmac.New(sha256.New, key)
-		digest.Write([]byte(part))
+		_, writeErr := digest.Write([]byte(part))
+		require.NoError(t, writeErr)
 		key = digest.Sum(nil)
 	}
 	digest := hmac.New(sha256.New, key)
-	digest.Write([]byte("TC3-HMAC-SHA256\n1720000000\n2024-07-03/tokenhub/tc3_request\n" + hex.EncodeToString(canonicalDigest[:])))
+	_, writeErr := digest.Write([]byte("TC3-HMAC-SHA256\n1720000000\n2024-07-03/tokenhub/tc3_request\n" + hex.EncodeToString(canonicalDigest[:])))
+	require.NoError(t, writeErr)
 	require.Equal(t, "TC3-HMAC-SHA256 Credential=cloud-access/2024-07-03/tokenhub/tc3_request, SignedHeaders=content-type;host, Signature="+hex.EncodeToString(digest.Sum(nil)), request.Header.Get("Authorization"))
 }
 

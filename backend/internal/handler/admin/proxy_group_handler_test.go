@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -341,20 +342,20 @@ func TestProxyGroupBindingObservationTTLAndCASReset(t *testing.T) {
 	code, data, _ := f.request(t, "GET", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)
 	require.Equal(t, float64(3), data["total"])
-	items := data["items"].([]any)
-	bound := items[0].(map[string]any)
+	items := testassert.Type[[]any](t, data["items"])
+	bound := testassert.Type[map[string]any](t, items[0])
 	require.Equal(t, true, bound["eligible"])
 	require.Equal(t, float64(211), bound["proxy_id"])
-	expires, err := time.Parse(time.RFC3339Nano, bound["expires_at"].(string))
+	expires, err := time.Parse(time.RFC3339Nano, testassert.Type[string](t, bound["expires_at"]))
 	require.NoError(t, err)
 	require.WithinDuration(t, before.Add(90*time.Second), expires, 2*time.Second)
-	require.Nil(t, items[1].(map[string]any)["proxy_id"])
-	require.Nil(t, items[2].(map[string]any)["proxy_id"])
+	require.Nil(t, testassert.Type[map[string]any](t, items[1])["proxy_id"])
+	require.Nil(t, testassert.Type[map[string]any](t, items[2])["proxy_id"])
 	f.repo.group.Status = "inactive"
 	f.repo.group.FallbackMode = service.FallbackModeDirect
 	code, data, _ = f.request(t, "GET", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)
-	require.Equal(t, false, data["items"].([]any)[0].(map[string]any)["eligible"])
+	require.Equal(t, false, testassert.Type[map[string]any](t, testassert.Type[[]any](t, data["items"])[0])["eligible"])
 	f.cache.concurrentWinner = 212
 	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)
@@ -364,7 +365,7 @@ func TestProxyGroupBindingObservationTTLAndCASReset(t *testing.T) {
 	f.cache.ttls[221] = 0
 	code, data, _ = f.request(t, "GET", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)
-	require.Nil(t, data["items"].([]any)[0].(map[string]any)["expires_at"])
+	require.Nil(t, testassert.Type[map[string]any](t, testassert.Type[[]any](t, data["items"])[0])["expires_at"])
 }
 
 func TestProxyGroupProbeRecoveryRequiresReachability(t *testing.T) {
@@ -416,15 +417,15 @@ func TestProxyGroupShadowBindingsUseCanonicalOwner(t *testing.T) {
 	require.Equal(t, 4, f.cache.reads, "two consistency reads per distinct bound owner")
 	require.NotContains(t, raw, "parent_account_id")
 	require.NotContains(t, raw, "credential-secret")
-	items := data["items"].([]any)
+	items := testassert.Type[[]any](t, data["items"])
 	require.Len(t, items, 4)
 	for i, account := range f.repo.accounts {
-		item := items[i].(map[string]any)
+		item := testassert.Type[map[string]any](t, items[i])
 		require.Equal(t, float64(account.ID), item["account_id"])
 		require.Equal(t, account.Name, item["account_name"])
 		require.Equal(t, float64(211), item["proxy_id"])
 		require.Equal(t, true, item["eligible"])
-		expires, err := time.Parse(time.RFC3339Nano, item["expires_at"].(string))
+		expires, err := time.Parse(time.RFC3339Nano, testassert.Type[string](t, item["expires_at"]))
 		require.NoError(t, err)
 		ttl := 45 * time.Second
 		if account.ID == 224 {
@@ -432,7 +433,7 @@ func TestProxyGroupShadowBindingsUseCanonicalOwner(t *testing.T) {
 		}
 		require.WithinDuration(t, before.Add(ttl), expires, 2*time.Second)
 	}
-	require.Equal(t, items[0].(map[string]any)["expires_at"], items[2].(map[string]any)["expires_at"])
+	require.Equal(t, testassert.Type[map[string]any](t, items[0])["expires_at"], testassert.Type[map[string]any](t, items[2])["expires_at"])
 	f.cache.concurrentWinner = 212
 	f.cache.reads = 0
 	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
@@ -489,9 +490,9 @@ func TestProxyGroupExplicitBackupBindingEligibility(t *testing.T) {
 			}
 			code, data, _ := fixture.request(t, "GET", "proxy-groups/201/bindings", "")
 			require.Equal(t, 200, code)
-			items := data["items"].([]any)
+			items := testassert.Type[[]any](t, data["items"])
 			require.Len(t, items, 1)
-			observation := items[0].(map[string]any)
+			observation := testassert.Type[map[string]any](t, items[0])
 			require.Equal(t, testCase.eligible, observation["eligible"])
 			if testCase.eligible {
 				require.Equal(t, float64(backupID), observation["proxy_id"])
@@ -514,11 +515,11 @@ func TestProxyGroupNonpositiveParentFallsBackAndMissingOwnerIsDeduplicated(t *te
 	code, data, _ := f.request(t, "GET", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)
 	require.Equal(t, 5, f.cache.reads)
-	items := data["items"].([]any)
-	require.Equal(t, float64(211), items[0].(map[string]any)["proxy_id"])
-	require.Equal(t, float64(211), items[1].(map[string]any)["proxy_id"])
-	require.Nil(t, items[2].(map[string]any)["proxy_id"])
-	require.Nil(t, items[3].(map[string]any)["expires_at"])
+	items := testassert.Type[[]any](t, data["items"])
+	require.Equal(t, float64(211), testassert.Type[map[string]any](t, items[0])["proxy_id"])
+	require.Equal(t, float64(211), testassert.Type[map[string]any](t, items[1])["proxy_id"])
+	require.Nil(t, testassert.Type[map[string]any](t, items[2])["proxy_id"])
+	require.Nil(t, testassert.Type[map[string]any](t, items[3])["expires_at"])
 	f.cache.reads = 0
 	code, data, _ = f.request(t, "DELETE", "proxy-groups/201/bindings", "")
 	require.Equal(t, 200, code)

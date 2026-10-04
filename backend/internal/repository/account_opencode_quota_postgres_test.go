@@ -169,7 +169,8 @@ func TestOpenCodeQuotaPostgresRecoveryAndIdentity(t *testing.T) {
 					require.Nil(t, current.TempUnschedulableUntil)
 					require.Empty(t, current.TempUnschedulableReason)
 				}
-				limits := current.Extra["model_rate_limits"].(map[string]any)
+				limits, ok := current.Extra["model_rate_limits"].(map[string]any)
+				require.True(t, ok)
 				require.NotContains(t, limits, "kimi-k3")
 				require.Contains(t, limits, "private-model")
 			})
@@ -206,8 +207,11 @@ func TestOpenCodeQuotaPostgresRecoveryAndIdentity(t *testing.T) {
 		require.NoError(t, repo.SetOpenCodeModelQuotaLimit(ctx, account, "kimi-k3", time.Now().Add(20*time.Minute), "opencode_payment_required"))
 		current, err := repo.GetByID(ctx, account.ID)
 		require.NoError(t, err)
-		limits := current.Extra["model_rate_limits"].(map[string]any)
-		require.Equal(t, later.Format(time.RFC3339), limits["kimi-k3"].(map[string]any)["rate_limit_reset_at"])
+		limits, ok := current.Extra["model_rate_limits"].(map[string]any)
+		require.True(t, ok)
+		modelLimit, ok := limits["kimi-k3"].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, later.Format(time.RFC3339), modelLimit["rate_limit_reset_at"])
 		current.Credentials["api_key"] = "replacement-test-only"
 		require.NoError(t, repo.Update(ctx, current))
 		require.ErrorIs(t, repo.SetOpenCodeModelQuotaLimit(ctx, account, "kimi-k3", later, "opencode_payment_required"), service.ErrAccountRuntimeIdentityChanged)

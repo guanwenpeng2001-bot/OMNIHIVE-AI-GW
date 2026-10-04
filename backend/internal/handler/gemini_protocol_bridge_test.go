@@ -85,7 +85,10 @@ func TestGeminiProtocolBridgeStreamsBeforeUpstreamCompletes(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				fmt.Fprint(w, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n")
 				fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"first\"}}\n\n")
-				w.(http.Flusher).Flush()
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("flush fixture response: %v", err)
+					return
+				}
 				select {
 				case <-continueStream:
 				case <-r.Context().Done():
@@ -102,7 +105,7 @@ func TestGeminiProtocolBridgeStreamsBeforeUpstreamCompletes(t *testing.T) {
 					c.AbortWithStatus(502)
 					return
 				}
-				defer response.Body.Close()
+				defer func() { require.NoError(t, response.Body.Close()) }()
 				c.Header("Content-Type", response.Header.Get("Content-Type"))
 				scanner := bufio.NewReader(response.Body)
 				for {
@@ -123,7 +126,7 @@ func TestGeminiProtocolBridgeStreamsBeforeUpstreamCompletes(t *testing.T) {
 			request, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/v1beta/models/public:streamGenerateContent?alt="+alt, strings.NewReader(`{"contents":[{"parts":[{"text":"hi"}]}]}`))
 			response, err := http.DefaultClient.Do(request)
 			require.NoError(t, err)
-			defer response.Body.Close()
+			defer func() { require.NoError(t, response.Body.Close()) }()
 			buffer := make([]byte, 2048)
 			n, err := response.Body.Read(buffer)
 			require.NoError(t, err)

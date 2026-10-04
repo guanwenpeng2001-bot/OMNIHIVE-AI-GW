@@ -25,8 +25,6 @@ type catalogScopeFixture struct {
 }
 
 func (f catalogScopeFixture) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	// #nosec G701 -- the test executes the production query verbatim against a
-	// read-only jsonb_to_recordset CTE fixture; no user input reaches the SQL.
 	// The ordinary query has four parameters; the authorized-groups query has
 	// five; access/generation reads have zero or one. Append the fixture after
 	// every shape without replacing any argument or leaving parameter gaps.
@@ -47,6 +45,7 @@ model_access_rules AS (
 model_access_groups AS (
  SELECT NULL::bigint AS id, NULL::bigint AS workspace_id, NULL::jsonb AS models WHERE FALSE)
 `, len(args)+1)
+	// #nosec G701 -- Only repository-generated SELECTs reach this read-only CTE fixture; account data is bound as JSON, and the sole formatted value is an integer parameter index.
 	return f.DB.QueryContext(ctx, fixtureSQL+query, append(args, f.accounts)...)
 }
 

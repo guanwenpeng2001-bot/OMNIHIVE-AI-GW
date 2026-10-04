@@ -14,11 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func openCodeQuotaAccount() *Account {
-	return &Account{ID: 55, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey,
-		Status: StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "test-only"}, Extra: map[string]any{}}
-}
-
 func TestOpenCodePaymentClassification(t *testing.T) {
 	for _, status := range []int{402, 401} {
 		t.Run(http.StatusText(status), func(t *testing.T) {

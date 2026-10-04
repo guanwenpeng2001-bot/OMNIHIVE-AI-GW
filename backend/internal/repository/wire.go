@@ -60,7 +60,10 @@ func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config, runtime *servi
 			writeChunkSize = cfg.Gateway.Scheduling.SnapshotWriteChunkSize
 		}
 	}
-	cache := newSchedulerCacheWithChunkSizes(rdb, mgetChunkSize, writeChunkSize).(*schedulerCache)
+	cache, ok := newSchedulerCacheWithChunkSizes(rdb, mgetChunkSize, writeChunkSize).(*schedulerCache)
+	if !ok {
+		panic("scheduler cache constructor returned an unexpected type")
+	}
 	cache.egressRuntime = runtime
 	return cache
 }

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,7 @@ func TestProxyLatencySeparatesWarmRequestFromConnectionSetup(t *testing.T) {
 	}))
 	defer server.Close()
 	client := server.Client()
-	transport := client.Transport.(*http.Transport)
+	transport := testassert.Type[*http.Transport](t, client.Transport)
 	var connections atomic.Int32
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		connections.Add(1)
@@ -104,7 +105,7 @@ func TestProxyLatencyRejectsRedirectWithoutChangingClient(t *testing.T) {
 	require.Zero(t, redirected.Load())
 	resp, err := client.Get(server.URL)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	require.EqualValues(t, 1, redirected.Load(), "the original client's redirect policy must remain unchanged")
 }
 

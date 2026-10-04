@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,7 +50,7 @@ func TestCommandCodeCreditFailoverRecognition(t *testing.T) {
 			require.False(t, requestContext.Writer.Written())
 			require.True(t, account.Schedulable)
 			require.Equal(t, StatusActive, account.Status)
-			events := requestContext.MustGet(OpsUpstreamErrorsKey).([]*OpsUpstreamErrorEvent)
+			events := testassert.Type[[]*OpsUpstreamErrorEvent](t, requestContext.MustGet(OpsUpstreamErrorsKey))
 			require.Len(t, events, 1)
 			require.Equal(t, 400, events[0].UpstreamStatusCode)
 			require.Equal(t, int64(47), events[0].AccountID)

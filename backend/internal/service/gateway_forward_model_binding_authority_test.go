@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,7 +40,7 @@ func TestForwardModelBindingUsesSelectedWireFamily(t *testing.T) {
 			delete(account.Extra, UpstreamModelCatalogStateExtraKey)
 			// Existing snapshots from before this fix must work without discovery.
 			stored := catalogEvidenceAccount(account.ID, account.Platform, scenario.model)
-			stale := stored.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			stale := testassert.Type[*AccountModelCatalogSnapshot](t, stored.Extra[UpstreamModelCatalogExtraKey])
 			stale.EligibleModels[0].Endpoints = nil
 			account.Extra = stored.Extra
 			require.NoError(t, validateAccountForwardModelBinding(ctx, nil, account, options))
@@ -75,7 +76,7 @@ func TestForwardModelBindingFixedProtocolStillRejectsOtherWireFamilies(t *testin
 func TestForwardModelBindingCursorStoredResponsesDeclarationUsesChat(t *testing.T) {
 	account := catalogEvidenceAccount(50, PlatformCursor, "composer-2.5")
 	account.Type = AccountTypeOAuth
-	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot := testassert.Type[*AccountModelCatalogSnapshot](t, account.Extra[UpstreamModelCatalogExtraKey])
 	snapshot.EligibleModels[0].Endpoints = []string{"responses"}
 	ctx := context.Background()
 	require.Equal(t, "chat_completions", gatewaySelectionCatalogEndpoint(ctx, &account))
@@ -110,7 +111,7 @@ func TestForwardModelBindingSavedCatalogWithoutMappingUsesWireFamily(t *testing.
 			if scenario.platform != PlatformGrok {
 				account.Credentials["api_protocol"] = APIProtocolAdaptive
 			}
-			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot := testassert.Type[*AccountModelCatalogSnapshot](t, account.Extra[UpstreamModelCatalogExtraKey])
 			snapshot.EligibleModels[0].Endpoints = scenario.stored
 			options := AccountModelBindingOptions{Endpoint: scenario.endpoint, FinalModel: scenario.model}
 			require.True(t, AccountSupportsResolvedModel(context.Background(), &account, scenario.model, options))

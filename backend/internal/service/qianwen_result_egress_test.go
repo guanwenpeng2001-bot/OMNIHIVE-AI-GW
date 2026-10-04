@@ -276,7 +276,7 @@ func TestQianwenTranscriptDownloadRetainsBodyLimitsAndLegacyRoute(t *testing.T) 
 		calls++
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"https://" + qianwenTranscriptTestHost + "/other"}}, Body: io.NopCloser(strings.NewReader("redirect"))}, nil
 	})
-	_, err := fetchQianwenTranscript(context.Background(), "https://"+qianwenTranscriptTestHost+"/transcript")
+	_, err := fetchQianwenTranscriptForAccount(context.Background(), nil, "https://"+qianwenTranscriptTestHost+"/transcript")
 	require.EqualError(t, err, "ASR result HTTP 302")
 	require.Equal(t, 1, calls)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"io"
 	"net"
 	"net/http"
@@ -39,7 +40,11 @@ func TestProductionQianwenRealtimeUsageCompletion(test *testing.T) {
 				if err != nil {
 					return
 				}
-				defer connection.CloseNow()
+				defer func() {
+					if err := connection.CloseNow(); !errors.Is(err, net.ErrClosed) {
+						require.NoError(test, err)
+					}
+				}()
 				_ = connection.Write(ctx, ws.MessageText, []byte(`{"type":"session.created","session":{"id":"fixture-session","model":"`+wireModel+`"}}`))
 				if _, _, err = connection.Read(ctx); err != nil {
 					return
@@ -63,13 +68,13 @@ func TestProductionQianwenRealtimeUsageCompletion(test *testing.T) {
 			}))
 			defer provider.Close()
 			original := http.DefaultTransport
-			transport := original.(*http.Transport).Clone()
+			transport := testassert.Type[*http.Transport](test, original).Clone()
 			transport.Proxy = nil
 			transport.DialTLSContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
 				if address != "dashscope.aliyuncs.com:443" {
 					return nil, errors.New("unexpected external destination")
 				}
-				dialer := tls.Dialer{Config: provider.Client().Transport.(*http.Transport).TLSClientConfig}
+				dialer := tls.Dialer{Config: testassert.Type[*http.Transport](test, provider.Client().Transport).TLSClientConfig}
 				return dialer.DialContext(dialContext, network, provider.Listener.Addr().String())
 			}
 			http.DefaultTransport = transport
@@ -87,7 +92,11 @@ func TestProductionQianwenRealtimeUsageCompletion(test *testing.T) {
 				test.Fatalf("upgrade: %v %s", err, body)
 			}
 			require.NoError(test, err)
-			defer client.CloseNow()
+			defer func() {
+				if err := client.CloseNow(); !errors.Is(err, net.ErrClosed) {
+					require.NoError(test, err)
+				}
+			}()
 			read := func() string {
 				_, body, readErr := client.Read(ctx)
 				require.NoError(test, readErr)

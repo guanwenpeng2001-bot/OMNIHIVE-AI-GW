@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -187,7 +188,11 @@ func (gateway *OpenAIGatewayService) SubmitOpenRouterVideo(ctx context.Context, 
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
 	if err != nil || len(raw) > 1<<20 {
 		return UpstreamJobUpdate{}, fmt.Errorf("invalid video submission response")
@@ -217,7 +222,11 @@ func (gateway *OpenAIGatewayService) PollOpenRouterVideo(ctx context.Context, jo
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
 	if err != nil || len(raw) > 1<<20 {
 		return UpstreamJobUpdate{}, fmt.Errorf("invalid video poll response")
@@ -241,7 +250,9 @@ func (gateway *OpenAIGatewayService) OpenOpenRouterVideoContent(ctx context.Cont
 		return nil, err
 	}
 	if response.StatusCode != 200 || !strings.HasPrefix(response.Header.Get("Content-Type"), "video/") || response.ContentLength > GatewayResourceDownloadLimit {
-		response.Body.Close()
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
 		return nil, fmt.Errorf("invalid OpenRouter video content")
 	}
 	response.Body = struct {

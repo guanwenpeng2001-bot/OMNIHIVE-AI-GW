@@ -478,9 +478,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 账号槽位/等待计数需要在超时或断开时安全回收
 			accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
-			forwardBody, forwardModel := body, reqModel
+			forwardBody := body
 			if selection.CompositeTarget != nil {
-				forwardModel = service.CompositeTargetForwardModel(c.Request.Context(), selection.CompositeTarget, channelMapping, reqModel)
+				forwardModel := service.CompositeTargetForwardModel(c.Request.Context(), selection.CompositeTarget, channelMapping, reqModel)
 				if forwardModel != reqModel {
 					forwardBody = h.gatewayService.ReplaceModelInBody(body, forwardModel)
 				}
@@ -1243,53 +1243,6 @@ func (h *GatewayHandler) codexModelIDsForGroupChecked(ctx context.Context, group
 	return view.Models, err
 }
 
-func (h *GatewayHandler) compositeAvailableModelsChecked(ctx context.Context, groupID *int64) ([]string, error) {
-	if h == nil || h.gatewayService == nil {
-		return nil, nil
-	}
-	seen := make(map[string]struct{})
-	models := make([]string, 0)
-	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range service.ConcretePlatforms() {
-		platformModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
-		if err != nil {
-			return nil, err
-		}
-		if len(platformModels) == 0 {
-			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
-			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
-			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
-				platformModels = defaultModelIDsForPlatform(platform)
-			}
-		}
-		for _, model := range platformModels {
-			model = strings.TrimSpace(model)
-			if model == "" {
-				continue
-			}
-			if _, ok := seen[model]; ok {
-				continue
-			}
-			seen[model] = struct{}{}
-			models = append(models, model)
-		}
-	}
-	return models, nil
-}
-
-// modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）
-// 与平台默认列表（fallbackModels）。账号映射为空时回落默认列表；Anthropic
-// 平台两者取并集，其余平台以账号映射键为准。
-func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
-	if len(availableModels) == 0 {
-		return fallbackModels
-	}
-	if platform == service.PlatformAnthropic {
-		return mergeModelIDs(availableModels, fallbackModels)
-	}
-	return availableModels
-}
-
 func defaultCodexModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case service.PlatformDeepseek:
@@ -1306,25 +1259,6 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return nil
 	}
 	return service.DefaultModelIDsForPlatform(platform)
-}
-
-func mergeModelIDs(primary, secondary []string) []string {
-	seen := make(map[string]struct{}, len(primary)+len(secondary))
-	merged := make([]string, 0, len(primary)+len(secondary))
-	for _, models := range [][]string{primary, secondary} {
-		for _, model := range models {
-			model = strings.TrimSpace(model)
-			if model == "" {
-				continue
-			}
-			if _, ok := seen[model]; ok {
-				continue
-			}
-			seen[model] = struct{}{}
-			merged = append(merged, model)
-		}
-	}
-	return merged
 }
 
 // AntigravityModels 返回 Antigravity 支持的全部模型

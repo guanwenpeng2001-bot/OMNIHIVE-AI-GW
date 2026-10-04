@@ -403,16 +403,17 @@ func TestAccountModelCatalogExclusionReasons(t *testing.T) {
 			account := &Account{Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": tc.baseURL}, Extra: map[string]any{UpstreamModelAllowlistExtraKey: tc.allowlist}}
 			catalog := &UpstreamModelCatalog{Models: []string{"native"}, Metadata: map[string]UpstreamModelMetadata{"native": tc.metadata}}
 			snapshot := projectAccountModelCatalog(account, catalog)
-			if tc.reason == CatalogReasonAccountRestricted {
+			switch tc.reason {
+			case CatalogReasonAccountRestricted:
 				require.Len(t, snapshot.EligibleModels, 1)
 				require.Empty(t, catalog.ExcludedModels)
 				account.Extra[UpstreamModelCatalogExtraKey] = snapshot
 				require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels)
-			} else if tc.reason == "" {
+			case "":
 				require.Len(t, snapshot.EligibleModels, 1)
 				require.Contains(t, snapshot.EligibleModels[0].Endpoints, CompositeRouteEndpointChatCompletions)
 				require.Empty(t, catalog.ExcludedModels)
-			} else {
+			default:
 				require.Empty(t, snapshot.EligibleModels)
 				require.Equal(t, []ExcludedCatalogModel{{ID: "native", Reason: tc.reason}}, catalog.ExcludedModels)
 			}
