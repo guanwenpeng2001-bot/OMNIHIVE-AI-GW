@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import {
+  applyVolcengineQuotaCredentials,
+  volcengineQuotaDraft,
+  volcengineQuotaProfile,
   ANTIGRAVITY_PROJECT_ID_CREDENTIAL_KEY,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
@@ -27,6 +30,41 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('Volcengine query credentials and profile', () => {
+  it('never echoes secrets and preserves inference credentials when query fields are blank or cleared', () => {
+    const existing = { api_key: 'synthetic-inference', volcengine_access_key_id: 'synthetic-access', volcengine_secret_access_key: 'synthetic-secret', volcengine_plan_edition: 'team', volcengine_seat_id: 'seat' }
+    const draft = volcengineQuotaDraft(existing)
+    expect(draft).toMatchObject({ accessKeyId: '', secretAccessKey: '', edition: 'team', seatId: 'seat' })
+    const saved: Record<string, unknown> = { ...existing }
+    applyVolcengineQuotaCredentials(saved, draft)
+    expect(saved).not.toHaveProperty('volcengine_access_key_id')
+    expect(saved).not.toHaveProperty('volcengine_secret_access_key')
+    applyVolcengineQuotaCredentials(saved, { ...draft, clearAccessKeyId: true, clearSecretAccessKey: true })
+    expect(saved).toMatchObject({ api_key: 'synthetic-inference', volcengine_access_key_id: null, volcengine_secret_access_key: null })
+    applyVolcengineQuotaCredentials(saved, { ...draft, accessKeyId: ' replacement ', secretAccessKey: ' new-secret ', edition: 'personal' })
+    expect(saved).toMatchObject({ volcengine_access_key_id: 'replacement', volcengine_secret_access_key: 'new-secret', volcengine_plan_edition: 'personal' })
+    expect(saved).not.toHaveProperty('volcengine_seat_id')
+  })
+  it.each([
+    ['https://ark.cn-beijing.volces.com/api/coding/v3', 'coding'],
+    ['https://ark.cn-beijing.volces.com/api/plan/v3', 'agent'],
+    ['https://relay.example/api/coding/v3', 'custom'],
+    ['https://ark.ap-southeast.bytepluses.com/api/coding/v3', 'custom'],
+    ['https://ark.cn-beijing.volces.com:443/api/coding/v3', 'custom'],
+    ['https://ark.cn-beijing.volces.com/api/coding/../coding/v3', 'custom'],
+  ])('classifies %s as %s without inventing a query host', (base_url, expected) => {
+    expect(volcengineQuotaProfile({ account_mode: 'coding', base_url })).toBe(expected)
+  })
+  it('rejects mixed products, wrong protocol roots, and custom origin overrides', () => {
+    const credentials = { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' }
+    expect(volcengineQuotaProfile({ ...credentials, api_base_urls: { anthropic: 'https://ark.cn-beijing.volces.com/api/plan' } })).toBe('custom')
+    expect(volcengineQuotaProfile({ ...credentials, api_protocol: 'anthropic' })).toBe('custom')
+    expect(volcengineQuotaProfile(credentials, true)).toBe('custom')
+    expect(cnQuotaCellVisible('volcengine', 'coding', credentials)).toBe(true)
+    expect(cnQuotaCellVisible('volcengine', 'payg')).toBe(false)
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {

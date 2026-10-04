@@ -634,6 +634,8 @@
       </div>
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
+      <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" class="mt-4" />
+
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
         <div class="flex items-center">
@@ -3438,7 +3440,8 @@ import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
-import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -3781,6 +3784,13 @@ const apiProtocol = ref<CnApiProtocol>('adaptive')
 const openCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(
   cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
 )
+const quotaCredentials = ref(volcengineQuotaDraft())
+const showVolcengineQuotaFields = computed(() => form.platform === 'volcengine' && volcengineQuotaProfile({
+  account_mode: accountMode.value,
+  api_protocol: apiProtocol.value,
+  base_url: apiKeyBaseUrl.value,
+  ...(apiProtocol.value === 'adaptive' ? { api_base_urls: adaptiveBaseUrls.value } : {})
+}) === 'coding')
 // 智谱团队版 Coding Plan：组织/项目 ID，写入 credentials 供额度探测切换团队端点
 const zhipuOrganization = ref('')
 const zhipuProject = ref('')
@@ -5069,6 +5079,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 }
 
 const resetForm = () => {
+  quotaCredentials.value = volcengineQuotaDraft()
   selectedSupplier.value = undefined
   supplierSelection.value = {}
   createdCatalogAccounts.value = []
@@ -5631,6 +5642,10 @@ const handleSubmit = async () => {
     if (form.platform === 'opencode_go' || form.platform === 'commandcode') {
       applyOpenCodeGoProtocolRules(credentials, openCodeGoProtocolRules.value, 'create')
     }
+  }
+
+  if (form.platform === 'volcengine' && volcengineQuotaProfile(credentials) === 'coding') {
+    applyVolcengineQuotaCredentials(credentials, quotaCredentials.value)
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）

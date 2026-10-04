@@ -2065,3 +2065,50 @@ describe('supplier family create flow', () => {
     wrapper.unmount()
   })
 })
+
+// Synthetic query credentials: never a production key or an upstream capture.
+describe('Volcengine usage query create fields', () => {
+  it.each(['personal', 'team'])('submits %s query credentials separately from the inference key', async edition => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5601, platform: 'volcengine', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string }
+    await wrapper.get('[data-testid="volcengine-platform"]').trigger('click')
+    await flushPromises()
+    state.accountMode = 'coding'
+    await flushPromises()
+    expect(wrapper.find('[data-test="volcengine-quota-fields"]').exists()).toBe(true)
+    await wrapper.get('[data-test="accessKeyId"]').setValue('synthetic-access')
+    await wrapper.get('[data-test="secretAccessKey"]').setValue('synthetic-secret')
+    await wrapper.get('[data-test="quota-edition"]').setValue(edition)
+    if (edition === 'team') await wrapper.get('[data-test="quota-seat"]').setValue('synthetic-seat')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Volcengine synthetic')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', volcengine_access_key_id: 'synthetic-access', volcengine_secret_access_key: 'synthetic-secret', volcengine_plan_edition: edition })
+    if (edition === 'team') expect(createAccountMock.mock.calls[0][0].credentials.volcengine_seat_id).toBe('synthetic-seat')
+    wrapper.unmount()
+  })
+  it('allows inference without query credentials and hides fields for PAYG', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5602, platform: 'volcengine', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string }; accountMode: string }
+    await wrapper.get('[data-testid="volcengine-platform"]').trigger('click')
+    await flushPromises()
+    state.accountMode = 'payg'
+    await flushPromises()
+    expect(wrapper.find('[data-test="volcengine-quota-fields"]').exists()).toBe(false)
+    state.accountMode = 'coding'
+    await flushPromises()
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Volcengine without query key')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0].credentials).not.toHaveProperty('volcengine_secret_access_key')
+    wrapper.unmount()
+  })
+})
