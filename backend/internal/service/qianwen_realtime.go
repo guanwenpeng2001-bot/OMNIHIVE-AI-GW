@@ -570,7 +570,7 @@ func (s *qianwenRealtimeState) audioClient(event gjson.Result) error {
 			}
 			return true
 		})
-		if value := session.Get("input_audio_format"); value.Exists() && value.String() != "pcm" && !(s.family == "omni" && value.String() == "pcm16") {
+		if value := session.Get("input_audio_format"); value.Exists() && value.String() != "pcm" && (s.family != "omni" || value.String() != "pcm16") {
 			valid = false
 		}
 		if rate := session.Get("sample_rate"); rate.Exists() {

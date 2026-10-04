@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net/http/httptest"
 	"testing"
 
@@ -98,7 +99,7 @@ func TestPublicReasoningSetsPreserveUncertaintyAndSources(t *testing.T) {
 func TestModelDiscoveryExtensionsThroughHandlers(t *testing.T) {
 	account := publicMetadataAccount()
 	yes := true
-	snapshot := account.Extra[service.UpstreamModelMetadataExtraKey].(service.UpstreamModelMetadataSnapshot)
+	snapshot := testassert.Type[service.UpstreamModelMetadataSnapshot](t, account.Extra[service.UpstreamModelMetadataExtraKey])
 	metadata := snapshot.Models["gpt-native"]
 	metadata.Reasoning = &yes
 	metadata.SupportedReasoningLevels = []string{"low", "high"}

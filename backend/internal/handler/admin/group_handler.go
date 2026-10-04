@@ -25,15 +25,24 @@ import (
 )
 
 func init() {
-	bindingValidator := binding.Validator.Engine().(*validator.Validate)
+	bindingValidator, ok := binding.Validator.Engine().(*validator.Validate)
+	if !ok {
+		panic("admin validation requires validator.Validate")
+	}
 	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
-		req := validation.Current().Interface().(CreateGroupRequest)
+		req, ok := validation.Current().Interface().(CreateGroupRequest)
+		if !ok {
+			panic("unexpected admin validation request type")
+		}
 		if domain.ValidateHostedRestriction(service.NormalizeGroupPlatform(req.Platform), req.AccountType) != nil {
 			validation.ReportError(req.AccountType, "AccountType", "account_type", "hosted_restriction", "")
 		}
 	}, CreateGroupRequest{})
 	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
-		req := validation.Current().Interface().(UpdateGroupRequest)
+		req, ok := validation.Current().Interface().(UpdateGroupRequest)
+		if !ok {
+			panic("unexpected admin validation request type")
+		}
 		// Omitted platform/type require the persisted group; the service validates
 		// that resulting identity. Validate fully supplied pairs at binding too.
 		if req.Platform != "" && req.AccountType != nil && domain.ValidateHostedRestriction(req.Platform, *req.AccountType) != nil {
@@ -41,7 +50,10 @@ func init() {
 		}
 	}, UpdateGroupRequest{})
 	bindingValidator.RegisterStructValidation(func(validation validator.StructLevel) {
-		req := validation.Current().Interface().(CompositeRouteRequest)
+		req, ok := validation.Current().Interface().(CompositeRouteRequest)
+		if !ok {
+			panic("unexpected admin validation request type")
+		}
 		if req.AccountType != nil && domain.ValidateHostedRestriction(req.TargetPlatform, *req.AccountType) != nil {
 			validation.ReportError(*req.AccountType, "AccountType", "account_type", "hosted_restriction", "")
 		}

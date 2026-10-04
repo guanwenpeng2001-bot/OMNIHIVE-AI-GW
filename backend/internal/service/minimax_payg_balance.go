@@ -51,7 +51,7 @@ func miniMaxPayGBalanceURL(account *Account) string {
 // the existing numeric balance contract and leave currency unknown. The other
 // wallet components are not additive to available_amount.
 func parseMiniMaxPayGBalance(body []byte) (CNProviderBalanceEntry, error) {
-	invalid := errors.New("Invalid MiniMax balance response")
+	invalid := errors.New("Invalid MiniMax balance response") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	if !gjson.ValidBytes(body) {
 		return CNProviderBalanceEntry{}, invalid
 	}

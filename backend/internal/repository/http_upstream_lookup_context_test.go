@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net"
 	"net/http"
 	"testing"
@@ -17,7 +18,7 @@ import (
 func TestHTTPUpstreamRequestLookupDefersOnlyToGuardedClient(t *testing.T) {
 	for _, fingerprint := range []bool{false, true} {
 		for _, answer := range []string{"public", "mixed_private", "invalid"} {
-			s := NewHTTPUpstream(nil).(*httpUpstreamService)
+			s := testassert.Type[*httpUpstreamService](t, NewHTTPUpstream(nil))
 			profile := &tlsfingerprint.Profile{Name: "synthetic"}
 			var entry *upstreamClientEntry
 			var err error
@@ -68,7 +69,7 @@ func TestHTTPUpstreamRequestLookupDefersOnlyToGuardedClient(t *testing.T) {
 }
 
 func TestHTTPUpstreamLookupOverrideKeepsDefaultSelectionAndLiteralGuards(t *testing.T) {
-	s := NewHTTPUpstream(nil).(*httpUpstreamService)
+	s := testassert.Type[*httpUpstreamService](t, NewHTTPUpstream(nil))
 	entry, err := s.getClientEntry("", 7, 1, service.HTTPUpstreamProfileDefault, false, false)
 	require.NoError(t, err)
 	defer entry.client.CloseIdleConnections()

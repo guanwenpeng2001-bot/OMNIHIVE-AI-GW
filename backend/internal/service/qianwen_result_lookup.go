@@ -71,7 +71,7 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 		return nil, err
 	}
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("Qianwen result DNS returned no addresses")
+		return nil, fmt.Errorf("Qianwen result DNS returned no addresses") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	}
 	fake := false
 	for _, ip := range ips {
@@ -81,14 +81,14 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 		}
 		// A FakeIP must never excuse a separate private/invalid DNS answer.
 		if ip == nil || urlvalidator.IsBlockedHost(ip.String()) {
-			return nil, fmt.Errorf("Qianwen result DNS contains a blocked address")
+			return nil, fmt.Errorf("Qianwen result DNS contains a blocked address") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 		}
 	}
 	if !fake {
 		return ips, nil
 	}
 	if net.ParseIP(host) != nil || !isQianwenVideoResultHost(host) {
-		return nil, fmt.Errorf("Qianwen result DNS fallback is not allowed for this host")
+		return nil, fmt.Errorf("Qianwen result DNS fallback is not allowed for this host") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	}
 	var resolved []net.IP
 	remainingBytes := 16 << 10
@@ -115,7 +115,7 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 			return nil, readErr
 		}
 		if response.StatusCode != http.StatusOK || len(body) > remainingBytes {
-			return nil, fmt.Errorf("Qianwen result DNS response unavailable or oversized")
+			return nil, fmt.Errorf("Qianwen result DNS response unavailable or oversized") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 		}
 		remainingBytes -= len(body)
 		var answer struct {
@@ -127,7 +127,7 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 			}
 		}
 		if json.Unmarshal(body, &answer) != nil || answer.Status == nil || *answer.Status != 0 || answer.TC {
-			return nil, fmt.Errorf("Qianwen result DNS response invalid")
+			return nil, fmt.Errorf("Qianwen result DNS response invalid") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 		}
 		for _, record := range answer.Answer {
 			if record.Type != 1 && record.Type != 28 {
@@ -135,7 +135,7 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 			}
 			ip := net.ParseIP(record.Data)
 			if ip == nil || !ip.IsGlobalUnicast() || (record.Type == 1) != (ip.To4() != nil) || isQianwenResultFakeIP(ip) || urlvalidator.IsBlockedHost(ip.String()) {
-				return nil, fmt.Errorf("Qianwen result DNS returned a blocked address")
+				return nil, fmt.Errorf("Qianwen result DNS returned a blocked address") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 			}
 			resolved = append(resolved, ip)
 		}
@@ -144,7 +144,7 @@ func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP,
 		return nil, err
 	}
 	if len(resolved) == 0 {
-		return nil, fmt.Errorf("Qianwen result DNS returned no addresses")
+		return nil, fmt.Errorf("Qianwen result DNS returned no addresses") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	}
 	return resolved, nil
 }

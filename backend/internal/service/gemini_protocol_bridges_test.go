@@ -189,8 +189,8 @@ func TestGeminiResponsesForwardJSONToolUsageAndCallerModel(t *testing.T) {
 
 func TestGeminiResponsesStreamIsIncremental(t *testing.T) {
 	reader, writer := io.Pipe()
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { require.NoError(t, reader.Close()) }()
+	defer func() { require.NoError(t, writer.Close()) }()
 	svc, _, account := geminiResponsesFixture(t, reader, true)
 	firstConsumed := make(chan struct{})
 	result := make(chan error, 1)
@@ -205,20 +205,22 @@ func TestGeminiResponsesStreamIsIncremental(t *testing.T) {
 		fmt.Fprint(writer, "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"first\"}]}}]}\n\n")
 		<-firstConsumed
 		fmt.Fprint(writer, "data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":1}}\n\n")
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			t.Errorf("close stream writer: %v", err)
+		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request, _ := http.NewRequestWithContext(ctx, "POST", server.URL+"/v1/responses", nil)
 	response, err := http.DefaultClient.Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { require.NoError(t, response.Body.Close()) }()
 	lines := bufio.NewReader(response.Body)
 	var output strings.Builder
 	for {
 		line, err := lines.ReadString('\n')
 		require.NoError(t, err)
-		output.WriteString(line)
+		_, _ = output.WriteString(line) // strings.Builder writes cannot fail.
 		if strings.Contains(line, `"delta":"first"`) {
 			break
 		}
@@ -226,7 +228,7 @@ func TestGeminiResponsesStreamIsIncremental(t *testing.T) {
 	close(firstConsumed)
 	rest, err := io.ReadAll(lines)
 	require.NoError(t, err)
-	output.Write(rest)
+	_, _ = output.Write(rest) // strings.Builder writes cannot fail.
 	require.NoError(t, <-result)
 	require.Contains(t, output.String(), "response.completed")
 	require.Contains(t, output.String(), `"model":"caller-alias"`)

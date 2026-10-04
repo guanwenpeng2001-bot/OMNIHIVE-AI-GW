@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var identityReachedSQL = errors.New("identity validation reached SQL driver")
+var errIdentityReachedSQL = errors.New("identity validation reached SQL driver")
 
 // Stop at the SQL boundary, after the actual generated Save path validates.
 // No database, account, credential, or service is contacted by these tests.
@@ -29,15 +29,15 @@ func (driver *identityRecordingDriver) Dialect() string { return dialect.Postgre
 func (driver *identityRecordingDriver) Close() error    { return nil }
 func (driver *identityRecordingDriver) Exec(context.Context, string, any, any) error {
 	driver.calls++
-	return identityReachedSQL
+	return errIdentityReachedSQL
 }
 func (driver *identityRecordingDriver) Query(context.Context, string, any, any) error {
 	driver.calls++
-	return identityReachedSQL
+	return errIdentityReachedSQL
 }
 func (driver *identityRecordingDriver) Tx(context.Context) (dialect.Tx, error) {
 	driver.calls++
-	return nil, identityReachedSQL
+	return nil, errIdentityReachedSQL
 }
 
 func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
@@ -84,7 +84,7 @@ func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
 				test.Run(entity.name+"/"+operation+"/"+id, func(test *testing.T) {
 					driver := &identityRecordingDriver{}
 					client := ent.NewClient(ent.Driver(driver))
-					defer client.Close()
+					defer func() { require.NoError(test, client.Close()) }()
 					ctx := context.Background()
 					var err error
 					switch entity.name {
@@ -123,7 +123,7 @@ func TestCompatibleProviderGeneratedWriteValidation(test *testing.T) {
 						valid = valid || accepted == id
 					}
 					if valid {
-						require.ErrorIs(test, err, identityReachedSQL)
+						require.ErrorIs(test, err, errIdentityReachedSQL)
 						require.Positive(test, driver.calls, "valid identity must reach generated SQL path")
 					} else {
 						var validation *ent.ValidationError

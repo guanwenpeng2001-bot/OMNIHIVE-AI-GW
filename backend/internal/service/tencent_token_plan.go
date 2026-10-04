@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -104,7 +105,11 @@ func (s *CNProviderQuotaService) queryTencentTokenPlan(ctx context.Context, acco
 		result.Status, result.Error = "invalid_response", "Empty Tencent quota response"
 		return result
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	result.StatusCode = resp.StatusCode
 	body, err := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes+1))
 	if err != nil || len(body) > cnQuotaMaxBodyBytes {

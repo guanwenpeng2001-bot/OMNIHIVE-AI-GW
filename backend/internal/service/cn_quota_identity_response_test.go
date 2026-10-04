@@ -12,6 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func openCodeQuotaAccount() *Account {
+	return &Account{ID: 55, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "test-only"}, Extra: map[string]any{}}
+}
+
 type quotaIdentityOutcomeRepo struct {
 	AccountRepository
 	outcome error

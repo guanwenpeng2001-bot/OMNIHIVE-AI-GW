@@ -280,7 +280,7 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 }
 
 // ListUserPendingSettlement projects unresolved receipts without creating usage rows.
-func (r *usageSettlementReceiptRepository) ListUserPendingSettlement(ctx context.Context, userID int64, filter usagestats.UsageLogFilters, cursor service.UserPendingSettlementCursor) (*service.UserPendingSettlementPage, error) {
+func (r *usageSettlementReceiptRepository) ListUserPendingSettlement(ctx context.Context, userID int64, filter usagestats.UsageLogFilters, cursor service.UserPendingSettlementCursor) (_ *service.UserPendingSettlementPage, resultErr error) {
 	if userID <= 0 {
 		return nil, service.ErrUsageLogNotFound
 	}
@@ -325,7 +325,7 @@ func (r *usageSettlementReceiptRepository) ListUserPendingSettlement(ctx context
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	for rows.Next() {
 		var receipt *service.UserPendingSettlementItem
 		var err error

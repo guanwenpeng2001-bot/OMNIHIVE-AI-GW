@@ -35,16 +35,15 @@ func (u *groupAccountUpstream) DoWithTLS(req *http.Request, proxyURL string, acc
 	})
 }
 
-func (u *groupAccountUpstream) do(req *http.Request, proxyURL string, send func(*http.Request, string) (*http.Response, error)) (*http.Response, error) {
-	resolved, err := u.account.EgressProxyURL(req.Context())
-	if err != nil {
+func (u *groupAccountUpstream) do(req *http.Request, _ string, send func(*http.Request, string) (*http.Response, error)) (*http.Response, error) {
+	if _, err := u.account.EgressProxyURL(req.Context()); err != nil {
 		return nil, err
 	}
 	state := u.account.egress
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	resolved = state.target.URL
-	proxyURL = resolved
+	resolved := state.target.URL
+	proxyURL := resolved
 	if resolved != "" && u.account.IsCustomBaseURLEnabled() && req.URL.Query().Get("proxy") == resolved {
 		proxyURL = ""
 	}

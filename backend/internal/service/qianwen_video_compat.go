@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -125,7 +126,11 @@ func (s *OpenAIGatewayService) CancelQianwenVideo(ctx context.Context, job *Upst
 	if err != nil {
 		return http.StatusBadGateway, errors.New("video cancellation outcome unknown; polling continues")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
 	if err != nil || len(raw) > 64<<10 {
 		return http.StatusBadGateway, errors.New("video cancellation outcome unknown; polling continues")

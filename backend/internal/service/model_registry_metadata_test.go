@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"os"
 	"path/filepath"
 	"testing"
@@ -217,7 +218,7 @@ func TestVisibleRealtimeFamilyPreservesAPIAndCodexCredentialBoundaries(test *tes
 			account := catalogEvidenceAccount(1, PlatformOpenAI, "native")
 			account.Type = accountType
 			account.Credentials["model_mapping"] = map[string]any{"public": "native"}
-			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot := testassert.Type[*AccountModelCatalogSnapshot](test, account.Extra[UpstreamModelCatalogExtraKey])
 			snapshot.EligibleModels[0].Endpoints = []string{"realtime"}
 			gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}, generation: 10}}
 			view, err := gateway.VisibleModels(context.Background(), nil, PlatformOpenAI)

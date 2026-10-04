@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"net/http/httptest"
 	"slices"
 	"testing"
@@ -347,7 +348,7 @@ func TestPublicModelMetadataCatalogMixedAccountSources(t *testing.T) {
 			accounts := []service.Account{publicMetadataAccount(), publicMetadataAccount()}
 			for index := range accounts {
 				accounts[index].ID += int64(index)
-				snapshot := accounts[index].Extra[service.UpstreamModelMetadataExtraKey].(service.UpstreamModelMetadataSnapshot)
+				snapshot := testassert.Type[service.UpstreamModelMetadataSnapshot](t, accounts[index].Extra[service.UpstreamModelMetadataExtraKey])
 				metadata := snapshot.Models["gpt-native"]
 				metadata.ContextWindow += int64(index) * 72000
 				metadata = publicMetadataWithEvidence(metadata, sources[index])

@@ -174,7 +174,7 @@ func TestQianwenAsyncSubmitTransport(t *testing.T) {
 		require.Equal(t, path, upstream.lastReq.URL.Path)
 	}
 	for _, origin := range []string{"http://127.0.0.1/x", "https://example.com/x", "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com.attacker.test/x", "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com:444/x"} {
-		_, err := fetchQianwenTranscript(context.Background(), origin)
+		_, err := fetchQianwenTranscriptForAccount(context.Background(), nil, origin)
 		require.ErrorContains(t, err, "origin")
 	}
 }

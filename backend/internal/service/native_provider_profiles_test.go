@@ -151,7 +151,7 @@ func TestNativeProfileLoopbackRequests(t *testing.T) {
 		req.URL.Scheme, req.URL.Host = local.Scheme, local.Host
 		response, err := server.Client().Do(req)
 		require.NoError(t, err, p.Label)
-		response.Body.Close()
+		require.NoError(t, response.Body.Close())
 		actual := <-got
 		require.Equal(t, expectedHost, actual.host, p.Label)
 		require.Equal(t, expectedPath, actual.path, p.Label)

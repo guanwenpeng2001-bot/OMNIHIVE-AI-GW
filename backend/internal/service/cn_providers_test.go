@@ -342,14 +342,15 @@ func TestGetCodingPlanProvider_MiniMax(t *testing.T) {
 // TestCNBalanceURL Kimi 固定端点；DeepSeek 基于 base_url 拼接。
 func TestCNBalanceURL(t *testing.T) {
 	t.Parallel()
-	kimi := &Account{Platform: PlatformKimi}
-	require.Equal(t, "https://api.moonshot.cn/v1/users/me/balance", cnBalanceURL(kimi))
+	kimi := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey}
+	require.Equal(t, "https://api.moonshot.cn/v1/users/me/balance", nativeProfileProbeURL(kimi, false))
 
 	deepseek := &Account{
 		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
 		Credentials: map[string]any{"base_url": "https://api.deepseek.com"},
 	}
-	require.Equal(t, "https://api.deepseek.com/user/balance", cnBalanceURL(deepseek))
+	require.Equal(t, "https://api.deepseek.com/user/balance", nativeProfileProbeURL(deepseek, false))
 }
 
 // TestCNProviderThresholdCandidates 从 Extra 快照读取 5h / weekly 候选。

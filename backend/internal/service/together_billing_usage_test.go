@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	"io"
 	"net/http"
 	"net/url"
@@ -64,7 +65,7 @@ func TestTogetherBillingRequest(test *testing.T) {
 		}}
 		value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryBillingUsage(context.Background(), account.ID, togetherFixtureQuery())
 		require.NoError(test, err)
-		result := value.(*TogetherBillingResult)
+		result := testassert.Type[*TogetherBillingResult](test, value)
 		require.True(test, result.Success)
 		require.Equal(test, "organization", result.Usage.Scope)
 		require.Equal(test, "0.1234567890123456789", result.Usage.Data[0].LineItems[0].Cost)
@@ -90,7 +91,7 @@ func TestTogetherBillingParser(test *testing.T) {
 	for _, field := range []string{"product_name", "quantity", "unit_price", "cost", "pricing_dimensions", "attributes"} {
 		for _, replacement := range []any{nil, 12} {
 			body := togetherFixtureBody(func(root map[string]any) {
-				line := root["data"].([]any)[0].(map[string]any)["line_items"].([]any)[0].(map[string]any)
+				line := testassert.Type[map[string]any](test, testassert.Type[[]any](test, testassert.Type[map[string]any](test, testassert.Type[[]any](test, root["data"])[0])["line_items"])[0])
 				if replacement == nil {
 					delete(line, field)
 				} else {
@@ -165,7 +166,7 @@ func TestTogetherBillingPaginationFailures(test *testing.T) {
 			repo := &compatibleBalanceRepo{account: account}
 			value, err := NewCNProviderBalanceService(repo, nil, upstream, nil).QueryBillingUsage(context.Background(), account.ID, togetherFixtureQuery())
 			require.NoError(test, err)
-			result := value.(*TogetherBillingResult)
+			result := testassert.Type[*TogetherBillingResult](test, value)
 			switch scenario {
 			case "two pages":
 				require.True(test, result.Success)
@@ -239,7 +240,7 @@ func TestTogetherBillingGuards(test *testing.T) {
 			}}
 			value, err := NewCNProviderBalanceService(&compatibleBalanceRepo{account: account}, nil, upstream, cfg).QueryBillingUsage(ctx, account.ID, query)
 			if err == nil {
-				result := value.(*TogetherBillingResult)
+				result := testassert.Type[*TogetherBillingResult](test, value)
 				require.False(test, result.Success)
 				require.Nil(test, result.Usage)
 			}
@@ -263,7 +264,7 @@ func TestTogetherBillingIgnoresSupplierInternalMetadata(test *testing.T) {
 	for _, field := range []string{"date", "start_time", "end_time", "line_items"} {
 		for _, replacement := range []any{nil, 12} {
 			body = togetherFixtureBody(func(root map[string]any) {
-				window := root["data"].([]any)[0].(map[string]any)
+				window := testassert.Type[map[string]any](test, testassert.Type[[]any](test, root["data"])[0])
 				if replacement == nil {
 					delete(window, field)
 				} else {

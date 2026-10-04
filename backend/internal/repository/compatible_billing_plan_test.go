@@ -40,7 +40,10 @@ func TestCompatibleBillingPlanBulkSQL(t *testing.T) {
 			})
 			database, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(matcher))
 			require.NoError(t, err)
-			defer database.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, database.Close())
+			}()
 			// A zero-row result avoids scheduler side effects; this test inspects the
 			// actual repository query and parameter binding without executing writes.
 			mock.ExpectExec("update").WithArgs(sqlmock.AnyArg(), pq.Array([]int64{12})).WillReturnResult(sqlmock.NewResult(0, 0))

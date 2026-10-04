@@ -27,9 +27,9 @@ var (
 	ErrCopilotNousAuthMode           = errors.New("unsupported Copilot or Nous authentication mode")
 	ErrCopilotNousBaseURL            = errors.New("invalid Copilot or Nous base URL")
 	ErrCopilotNousCredential         = errors.New("invalid resolved Copilot or Nous credential")
-	ErrCopilotNousRefreshUnsupported = errors.New("Copilot and Nous HTTP authentication does not support refresh credentials")
-	ErrCopilotNousExpired            = errors.New("Nous invocation JWT unverified expiry has elapsed; supply a new token")
-	ErrCopilotNousScope              = errors.New("Nous invocation JWT requires an unverified inference:invoke scope claim")
+	ErrCopilotNousRefreshUnsupported = errors.New("Copilot and Nous HTTP authentication does not support refresh credentials") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
+	ErrCopilotNousExpired            = errors.New("Nous invocation JWT unverified expiry has elapsed; supply a new token")     //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
+	ErrCopilotNousScope              = errors.New("Nous invocation JWT requires an unverified inference:invoke scope claim")   //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	ErrCopilotNousRequest            = errors.New("unsupported Copilot or Nous outgoing request destination or method")
 )
 

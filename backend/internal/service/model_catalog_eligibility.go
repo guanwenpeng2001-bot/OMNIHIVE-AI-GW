@@ -459,7 +459,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		} else {
 			discovered = slices.Contains(snapshot.DiscoveredModels, member.ID)
 		}
-		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence && !configuredSelectionEvidence(account, member) && !(options.Compact && configuredCompactSelectionEvidence(account, member))) {
+		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence && !configuredSelectionEvidence(account, member) && (!options.Compact || !configuredCompactSelectionEvidence(account, member))) {
 			continue
 		}
 		executable := false

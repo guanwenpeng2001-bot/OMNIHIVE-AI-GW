@@ -18,7 +18,10 @@ func TestCopilotNousRepositoryEncryptedReferenceOwnership(t *testing.T) {
 		t.Run(platform, func(t *testing.T) {
 			database, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer database.Close()
+			defer func() {
+				mock.ExpectClose()
+				require.NoError(t, database.Close())
+			}()
 			encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
 			require.NoError(t, err)
 			metadata := service.CredentialSecret{Reference: "fixture-reference", WorkspaceID: 9, AccountID: 731, Version: 3}

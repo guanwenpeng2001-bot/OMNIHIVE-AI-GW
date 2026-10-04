@@ -217,7 +217,9 @@ func TestCopilotNousRedirectPolicy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		response.Body.Close()
+		if err := response.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
 		if transport.calls != 1 || response.StatusCode != http.StatusTemporaryRedirect {
 			t.Fatal("redirect followed")
 		}

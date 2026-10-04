@@ -149,7 +149,7 @@ func GeminiToMessages(body []byte, model string, stream bool) ([]byte, error) {
 				}
 				if part["thought"] == true {
 					if role != "assistant" || strings.TrimSpace(text) == "" {
-						return nil, fmt.Errorf("Gemini thought replay cannot be authenticated by another provider")
+						return nil, fmt.Errorf("Gemini thought replay cannot be authenticated by another provider") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 					}
 					blocks = append(blocks, map[string]any{"type": "thinking", "thinking": text})
 				} else {
@@ -436,7 +436,7 @@ func geminiTextContent(value any) (string, error) {
 		if !ok || part["inlineData"] != nil || part["fileData"] != nil || part["functionCall"] != nil || part["functionResponse"] != nil {
 			return "", fmt.Errorf("this action requires text parts")
 		}
-		text.WriteString(s)
+		_, _ = text.WriteString(s) // strings.Builder.WriteString always returns a nil error.
 	}
 	return text.String(), nil
 }

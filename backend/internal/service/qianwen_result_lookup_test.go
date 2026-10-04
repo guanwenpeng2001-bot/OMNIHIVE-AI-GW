@@ -96,7 +96,7 @@ func TestQianwenResultLookupVideoAndSpeechUseValidatedPinnedIPs(t *testing.T) {
 			var data []byte
 			var err error
 			if speech {
-				data, err = downloadQianwenSpeech(context.Background(), address)
+				data, err = downloadQianwenSpeechForAccount(context.Background(), nil, address)
 			} else {
 				response, openErr := OpenQianwenVideoContent(context.Background(), address)
 				require.NoError(t, openErr)

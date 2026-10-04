@@ -193,7 +193,11 @@ func (h *OpenAIGatewayHandler) OpenAIRealtime(c *gin.Context) {
 		h.openAIRealtimeDialError(c, err)
 		return
 	}
-	defer upstream.CloseNow()
+	defer func() {
+		if err := upstream.CloseNow(); err != nil {
+			slog.Debug("OpenAI realtime upstream cleanup failed")
+		}
+	}()
 	c.Header("X-Request-ID", session.PublicRequestID)
 	conn, err := ws.Accept(c.Writer, c.Request, &ws.AcceptOptions{CompressionMode: ws.CompressionDisabled})
 	if err != nil {

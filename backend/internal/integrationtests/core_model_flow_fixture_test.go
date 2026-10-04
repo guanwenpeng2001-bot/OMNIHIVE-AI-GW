@@ -1,4 +1,4 @@
-package handler_test
+package integrationtests_test
 
 import (
 	"context"
@@ -89,7 +89,10 @@ func newCoreFlowUpstream(t *testing.T) *coreFlowUpstream {
 			for _, event := range []map[string]any{created, terminal} {
 				encoded, _ := json.Marshal(event)
 				_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event["type"], encoded)
-				w.(http.Flusher).Flush()
+				if err := http.NewResponseController(w).Flush(); err != nil {
+					t.Errorf("flush fixture response: %v", err)
+					return
+				}
 			}
 			return
 		}

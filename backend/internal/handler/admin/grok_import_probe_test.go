@@ -86,25 +86,6 @@ func (s *grokImportProbeStub) snapshot() (map[int64]int, int, bool) {
 	return calls, s.maxActive, s.deadlineSeen
 }
 
-type grokImportProbeSchedulerTestSnapshot struct {
-	queued     int
-	workers    int
-	maxWorkers int
-}
-
-func snapshotGrokImportProbeScheduler(s *grokImportProbeScheduler) grokImportProbeSchedulerTestSnapshot {
-	if s == nil {
-		return grokImportProbeSchedulerTestSnapshot{}
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return grokImportProbeSchedulerTestSnapshot{
-		queued:     len(s.queue),
-		workers:    s.workers,
-		maxWorkers: s.maxWorkers,
-	}
-}
-
 func newGrokOAuthImportAccount(id int64) *service.Account {
 	return &service.Account{
 		ID:       id,

@@ -186,7 +186,7 @@ func QianwenRealtimeCharacters(raw []byte) (int64, error) {
 		}
 		sum := int64(0)
 		for modality, value := range details {
-			if modality != "text_tokens" && !(direction == "output" && modality == "audio_tokens") {
+			if modality != "text_tokens" && (direction != "output" || modality != "audio_tokens") {
 				return 0, ErrUpstreamJobUnsupportedUsage
 			}
 			quantity, valid := count(value, 10000000)
@@ -301,7 +301,7 @@ func (s *UpstreamJobService) StartQianwenRealtime(ctx context.Context, j *Upstre
 	case "omni":
 		validation.UsageJSON = json.RawMessage(`{"input_tokens":0,"output_tokens":0,"input_tokens_details":{"text_tokens":0,"audio_tokens":0},"output_tokens_details":{"text_tokens":0,"audio_tokens":0}}`)
 	}
-	if _, _, err := QianwenRealtimeCharge(&validation); err != nil && !(QianwenRealtimeFamily(j.Billing.Model) != "tts" && errors.Is(err, ErrModelPricingUnavailable)) {
+	if _, _, err := QianwenRealtimeCharge(&validation); err != nil && (QianwenRealtimeFamily(j.Billing.Model) == "tts" || !errors.Is(err, ErrModelPricingUnavailable)) {
 		return nil, err
 	}
 	j.RequestFingerprint = j.PublicRequestID

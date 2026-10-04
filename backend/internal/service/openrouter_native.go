@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -133,7 +134,11 @@ func (gateway *OpenAIGatewayService) forwardOpenRouterNative(ctx context.Context
 	if err != nil {
 		return nil, gateway.handleOpenAIUpstreamTransportError(ctx, request, account, err, false)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Debug("provider response cleanup failed")
+		}
+	}()
 	if response.StatusCode >= 400 {
 		raw, message := gateway.readOpenAIUpstreamError(response)
 		if failover := gateway.openRouterFailover(ctx, account, response, raw, message); failover != nil {

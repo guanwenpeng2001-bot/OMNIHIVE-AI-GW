@@ -42,12 +42,12 @@ func bindGroupsTestRepository(t *testing.T) (*accountRepository, *sql.DB) {
 	return newAccountRepositoryWithSQL(client, database, nil), database
 }
 
-func lockBindGroupsAccount(ctx context.Context, transaction *dbent.Tx, accountID int64) error {
+func lockBindGroupsAccount(ctx context.Context, transaction *dbent.Tx, accountID int64) (resultErr error) {
 	rows, err := transaction.Client().QueryContext(ctx, "SELECT id FROM accounts WHERE id=$1 FOR UPDATE", accountID)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	for rows.Next() {
 		var lockedID int64
 		if err := rows.Scan(&lockedID); err != nil {
@@ -83,7 +83,11 @@ func TestBindGroupsAmbientTransaction(t *testing.T) {
 			require.NoError(t, err)
 			transaction, err := repository.client.Tx(ctx)
 			require.NoError(t, err)
-			defer transaction.Rollback()
+			defer func() {
+				if err := transaction.Rollback(); !errors.Is(err, sql.ErrTxDone) {
+					require.NoError(t, err)
+				}
+			}()
 			writeContext, cancel := context.WithTimeout(dbent.NewTxContext(ctx, transaction), 8*time.Second)
 			defer cancel()
 			require.NoError(t, lockBindGroupsAccount(writeContext, transaction, account.ID))
@@ -259,7 +263,11 @@ func TestBindGroupsAmbientOutboxFailureRollsBack(t *testing.T) {
 		transaction, err := repository.client.Tx(ctx)
 		require.NoError(t, err)
 		func() {
-			defer transaction.Rollback()
+			defer func() {
+				if err := transaction.Rollback(); !errors.Is(err, sql.ErrTxDone) {
+					require.NoError(t, err)
+				}
+			}()
 			writeContext := dbent.NewTxContext(ctx, transaction)
 			// A transaction-local constraint injects an outbox failure without leaving
 			// any schema changes or affecting another test's committed events.
@@ -311,7 +319,11 @@ func TestBindGroupsAmbientAccountReadIncludesUncommittedRelations(t *testing.T) 
 	ctx := context.Background()
 	transaction, err := repository.client.Tx(ctx)
 	require.NoError(t, err)
-	defer transaction.Rollback()
+	defer func() {
+		if err := transaction.Rollback(); !errors.Is(err, sql.ErrTxDone) {
+			require.NoError(t, err)
+		}
+	}()
 	writeContext := dbent.NewTxContext(ctx, transaction)
 	proxy, err := transaction.Proxy.Create().SetName("uncommitted-proxy").SetProtocol("http").SetHost("proxy.example.invalid").SetPort(8080).Save(writeContext)
 	require.NoError(t, err)

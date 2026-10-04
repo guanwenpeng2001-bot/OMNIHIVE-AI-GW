@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
 	ws "github.com/coder/websocket"
 	"io"
 	"net"
@@ -286,7 +287,11 @@ func TestProductionOpenAIRealtimeWireAndReceiptFacts(test *testing.T) {
 				if err != nil {
 					return
 				}
-				defer connection.CloseNow()
+				defer func() {
+					if err := connection.CloseNow(); !errors.Is(err, net.ErrClosed) {
+						require.NoError(test, err)
+					}
+				}()
 				_ = connection.Write(ctx, ws.MessageText, []byte(`{"type":"session.created","session":{"id":"fixture-session","model":"provider-declared-snapshot"}}`))
 				_, _, err = connection.Read(ctx)
 				if err != nil {
@@ -314,7 +319,11 @@ func TestProductionOpenAIRealtimeWireAndReceiptFacts(test *testing.T) {
 				test.Fatalf("upgrade: %v: %s", err, body)
 			}
 			require.NoError(test, err)
-			defer client.CloseNow()
+			defer func() {
+				if err := client.CloseNow(); !errors.Is(err, net.ErrClosed) {
+					require.NoError(test, err)
+				}
+			}()
 			_, _, err = client.Read(ctx)
 			require.NoError(test, err)
 			require.NoError(test, client.Write(ctx, ws.MessageText, []byte(`{"type":"response.create"}`)))
@@ -379,7 +388,11 @@ func TestProductionQianwenRealtimeNativeAndAliasWire(test *testing.T) {
 				if err != nil {
 					return
 				}
-				defer connection.CloseNow()
+				defer func() {
+					if err := connection.CloseNow(); !errors.Is(err, net.ErrClosed) {
+						require.NoError(test, err)
+					}
+				}()
 				_ = connection.Write(ctx, ws.MessageText, []byte(`{"type":"session.created","session":{"id":"fixture-session","model":"`+wireModel+`"}}`))
 				_, _, err = connection.Read(ctx)
 				if err != nil {
@@ -390,13 +403,13 @@ func TestProductionQianwenRealtimeNativeAndAliasWire(test *testing.T) {
 			}))
 			defer provider.Close()
 			originalTransport := http.DefaultTransport
-			transport := originalTransport.(*http.Transport).Clone()
+			transport := testassert.Type[*http.Transport](test, originalTransport).Clone()
 			transport.Proxy = nil
 			transport.DialTLSContext = func(dialContext context.Context, network, address string) (net.Conn, error) {
 				if address != "dashscope.aliyuncs.com:443" {
 					return nil, errors.New("unexpected external socket destination")
 				}
-				dialer := tls.Dialer{Config: provider.Client().Transport.(*http.Transport).TLSClientConfig}
+				dialer := tls.Dialer{Config: testassert.Type[*http.Transport](test, provider.Client().Transport).TLSClientConfig}
 				return dialer.DialContext(dialContext, network, provider.Listener.Addr().String())
 			}
 			http.DefaultTransport = transport
@@ -411,7 +424,11 @@ func TestProductionQianwenRealtimeNativeAndAliasWire(test *testing.T) {
 				test.Fatalf("upgrade: %v: %s", err, body)
 			}
 			require.NoError(test, err)
-			defer client.CloseNow()
+			defer func() {
+				if err := client.CloseNow(); !errors.Is(err, net.ErrClosed) {
+					require.NoError(test, err)
+				}
+			}()
 			_, created, err := client.Read(ctx)
 			require.NoError(test, err)
 			require.Contains(test, string(created), wireModel)

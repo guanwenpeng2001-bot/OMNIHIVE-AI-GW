@@ -438,12 +438,6 @@ func (h *OpenAIGatewayHandler) handleVideoRead(c *gin.Context, content bool, pla
 	c.DataFromReader(http.StatusOK, response.ContentLength, contentType, response.Body, nil)
 }
 
-// resolveOpenAIVideoJob resolves one video job for the requesting user and key.
-// An unknown, foreign or non-video id is indistinguishable from a missing one.
-func (h *OpenAIGatewayHandler) resolveOpenAIVideoJob(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger) (*service.UpstreamJob, bool) {
-	return h.resolveVideoJob(c, apiKey, reqLog, service.PlatformOpenAI)
-}
-
 func (h *OpenAIGatewayHandler) resolveVideoJob(c *gin.Context, apiKey *service.APIKey, reqLog *zap.Logger, platform string) (*service.UpstreamJob, bool) {
 	job, err := h.upstreamJobs.Get(c.Request.Context(), c.Param("request_id"), apiKey.UserID, apiKey.ID)
 	if err != nil || job == nil || job.Platform != platform || job.Family != "video" {

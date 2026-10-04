@@ -2435,7 +2435,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	}
 
 	if finishReason == "" {
-		return nil, errors.New("Gemini stream ended without finishReason")
+		return nil, errors.New("Gemini stream ended without finishReason") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
 	}
 	stopReason := mapGeminiFinishReasonToClaudeStopReason(finishReason)
 	if sawToolUse {
@@ -3961,9 +3961,13 @@ func convertClaudeGenerationConfig(req map[string]any) (map[string]any, error) {
 	}
 	if config, ok := req["output_config"].(map[string]any); ok {
 		if effort, exists := config["effort"]; exists {
-			switch effort {
+			level, ok := effort.(string)
+			if !ok {
+				return nil, fmt.Errorf("output_config.effort %v cannot be represented by Gemini", effort)
+			}
+			switch level {
 			case "minimal", "low", "medium", "high":
-				out["thinkingConfig"] = map[string]any{"thinkingLevel": strings.ToUpper(effort.(string))}
+				out["thinkingConfig"] = map[string]any{"thinkingLevel": strings.ToUpper(level)}
 			default:
 				return nil, fmt.Errorf("output_config.effort %v cannot be represented by Gemini", effort)
 			}

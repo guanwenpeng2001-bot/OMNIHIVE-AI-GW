@@ -308,10 +308,6 @@ func completeQianwenASR(ctx context.Context, u UpstreamJobUpdate, fetch func(con
 
 // Provider result downloads are unsigned requests to one documented OSS bucket.
 // No account headers, cookies or proxy credentials reach the result origin.
-func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) {
-	return fetchQianwenTranscriptForAccount(ctx, nil, rawURL)
-}
-
 func fetchQianwenTranscriptForAccount(ctx context.Context, account *Account, rawURL string) ([]byte, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.Host != "dashscope-result-bj.oss-cn-beijing.aliyuncs.com" || u.User != nil || strings.Contains(rawURL, "#") {
