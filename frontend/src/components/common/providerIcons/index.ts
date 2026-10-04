@@ -12,6 +12,7 @@ import apinebulaUrl from './apinebula.png?url'
 import astron_codingUrl from './astron_coding.svg?url'
 import atlascloudUrl from './atlascloud.png?url'
 import azure_openaiUrl from './azure_openai.svg?url'
+import bailingUrl from './bailing.ico?url'
 import byteplusUrl from './byteplus.png?url'
 import ccsubUrl from './ccsub.svg?url'
 import cherryinUrl from './cherryin.png?url'
@@ -22,6 +23,7 @@ import code_9527Url from './code_9527.svg?url'
 import compshareUrl from './compshare.svg?url'
 import crazyrouterUrl from './crazyrouter.svg?url'
 import cubenceUrl from './cubence.svg?url'
+import dmxapiUrl from './dmxapi.png?url'
 import eflowcodeUrl from './eflowcode.png?url'
 import fennoaiUrl from './fennoai.webp?url'
 import fluxaUrl from './fluxa.png?url'
@@ -54,6 +56,7 @@ import subrouterUrl from './subrouter.svg?url'
 import sudocode_chatUrl from './sudocode_chat.png?url'
 import sudocode_usUrl from './sudocode_us.png?url'
 import teamorouterUrl from './teamorouter.png?url'
+import therouterUrl from './therouter.svg?url'
 import togetherUrl from './together.svg?url'
 import xycaiUrl from './xycai.png?url'
 import zetaapiUrl from './zetaapi.png?url'
@@ -75,7 +78,7 @@ const icons: Record<string, ProviderIcon> = {
   astron_coding: { kind: 'asset', src: astron_codingUrl, monochrome: true },
   atlascloud: { kind: 'asset', src: atlascloudUrl, monochrome: false },
   azure_openai: { kind: 'asset', src: azure_openaiUrl, monochrome: true },
-  bailing: { kind: 'monogram', text: 'BL' },
+  bailing: { kind: 'asset', src: bailingUrl, monochrome: false },
   byteplus: { kind: 'asset', src: byteplusUrl, monochrome: false },
   ccsub: { kind: 'asset', src: ccsubUrl, monochrome: false },
   cherryin: { kind: 'asset', src: cherryinUrl, monochrome: false },
@@ -86,7 +89,7 @@ const icons: Record<string, ProviderIcon> = {
   compshare: { kind: 'asset', src: compshareUrl, monochrome: false },
   crazyrouter: { kind: 'asset', src: crazyrouterUrl, monochrome: true },
   cubence: { kind: 'asset', src: cubenceUrl, monochrome: false },
-  dmxapi: { kind: 'monogram', text: 'DMX' },
+  dmxapi: { kind: 'asset', src: dmxapiUrl, monochrome: false },
   eflowcode: { kind: 'asset', src: eflowcodeUrl, monochrome: false },
   fennoai: { kind: 'asset', src: fennoaiUrl, monochrome: false },
   fluxa: { kind: 'asset', src: fluxaUrl, monochrome: false },
@@ -119,7 +122,7 @@ const icons: Record<string, ProviderIcon> = {
   sudocode_chat: { kind: 'asset', src: sudocode_chatUrl, monochrome: false },
   sudocode_us: { kind: 'asset', src: sudocode_usUrl, monochrome: false },
   teamorouter: { kind: 'asset', src: teamorouterUrl, monochrome: false },
-  therouter: { kind: 'monogram', text: 'TR' },
+  therouter: { kind: 'asset', src: therouterUrl, monochrome: true },
   together: { kind: 'asset', src: togetherUrl, monochrome: true },
   xycai: { kind: 'asset', src: xycaiUrl, monochrome: false },
   zetaapi: { kind: 'asset', src: zetaapiUrl, monochrome: false },
