@@ -10,10 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
-const cloudQuotaSnapshotKeysSQL = "ARRAY['volcengine_5h_used_percent','volcengine_5h_reset_at','volcengine_weekly_used_percent','volcengine_weekly_reset_at','volcengine_monthly_used_percent','volcengine_monthly_reset_at','volcengine_usage_updated_at','volcengine_daily_used_percent','volcengine_daily_reset_at','hunyuan_token_plan','hunyuan_usage_updated_at']::text[]"
+const cloudQuotaSnapshotKeysSQL = "ARRAY['volcengine_5h_used_percent','volcengine_5h_reset_at','volcengine_weekly_used_percent','volcengine_weekly_reset_at','volcengine_monthly_used_percent','volcengine_monthly_reset_at','volcengine_usage_updated_at','volcengine_daily_used_percent','volcengine_daily_reset_at','hunyuan_token_plan','hunyuan_usage_updated_at','byteplus_5h_used_percent','byteplus_5h_reset_at','byteplus_weekly_used_percent','byteplus_weekly_reset_at','byteplus_monthly_used_percent','byteplus_monthly_reset_at','byteplus_usage_updated_at']::text[]"
 
 func cloudQuotaInvalidationSQL(credentialsExpression string) string {
-	return "CASE WHEN platform IN ('volcengine','hunyuan') AND credentials IS DISTINCT FROM " + credentialsExpression + " THEN " + cloudQuotaSnapshotKeysSQL + " ELSE ARRAY[]::text[] END"
+	return "CASE WHEN platform IN ('volcengine','hunyuan','byteplus') AND credentials IS DISTINCT FROM " + credentialsExpression + " THEN " + cloudQuotaSnapshotKeysSQL + " ELSE ARRAY[]::text[] END"
 }
 
 func hasManagementQuerySecrets(credentials map[string]any) bool {

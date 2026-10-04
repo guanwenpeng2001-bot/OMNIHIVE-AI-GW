@@ -67,3 +67,17 @@ func TestVolcengineAgentSignatureUsesTransmittedHostAndContentType(t *testing.T)
 	require.Equal(t, contentType, request.Header.Get("Content-Type"))
 	require.Equal(t, "ark.cn-beijing.volcengineapi.com", request.Host)
 }
+
+func TestArkSeatSignatureOfficialSDKVectors(test *testing.T) {
+	// Fixed synthetic vectors independently calculated with Python hashlib/hmac,
+	// using canonical/KDF steps inspected in both official Go SDKs.
+	for _, scenario := range []struct{ region, host, signature string }{
+		{"cn-beijing", "ark.cn-beijing.volcengineapi.com", "bc61b9a2c26b5f4b0a81a7ad7d602c6b66b645969b1812614d1255787404b37f"},
+		{"ap-southeast-1", "ark.ap-southeast-1.byteplusapi.com", "9f4034466a6c851c493c208c2b105b037b378da803aa3d0943a6634e917cbd8d"},
+	} {
+		req, err := http.NewRequest("POST", "https://"+scenario.host+"/?Action=GetSeatInfoUsage&Version=2024-01-01", nil)
+		require.NoError(test, err)
+		signArkSeatUsage(req, []byte(`{"SeatID":"seat-1"}`), "AKLTtest", "secretkey", scenario.region, time.Date(2024, 6, 21, 0, 0, 0, 0, time.UTC))
+		require.Equal(test, "HMAC-SHA256 Credential=AKLTtest/20240621/"+scenario.region+"/ark/request, SignedHeaders=host;x-content-sha256;x-date, Signature="+scenario.signature, req.Header.Get("Authorization"))
+	}
+}

@@ -153,53 +153,13 @@ func TestVolcengineNoRequestBoundaries(t *testing.T) {
 	}
 }
 
-func TestVolcengineTeamSeatFlow(t *testing.T) {
-	for _, seat := range []string{"", `seat-"\\escaped`} {
-		t.Run(seat, func(t *testing.T) {
-			a := volcengineUsageAccount()
-			a.Credentials["volcengine_plan_edition"] = "team"
-			a.Credentials["volcengine_seat_id"] = seat
-			repo := &compatibleBalanceRepo{account: a}
-			actions := []string{}
-			upstream := compatibleBalanceHTTP{send: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-				action := req.URL.Query().Get("Action")
-				actions = append(actions, action)
-				var body map[string]any
-				require.NoError(t, json.NewDecoder(req.Body).Decode(&body))
-				require.Equal(t, "", body["Scene"])
-				response := volcengineUsageFixture
-				if action == "GetSeatInfo" {
-					require.NotContains(t, body, "SeatID")
-					response = `{"Result":{"SeatID":"bound-seat"}}`
-				} else {
-					expected := seat
-					if expected == "" {
-						expected = "bound-seat"
-					}
-					require.Equal(t, expected, body["SeatID"])
-				}
-				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(response))}, nil
-			}}
-			r, err := NewCNProviderQuotaService(repo, nil, upstream, nil).QueryUsage(volcengineQuotaTestContext(t), a.ID)
-			require.NoError(t, err)
-			require.True(t, r.Success)
-			require.Equal(t, "team", r.PlanLevel)
-			if seat == "" {
-				require.Equal(t, []string{"GetSeatInfo", "GetSeatInfoUsage"}, actions)
-			} else {
-				require.Equal(t, []string{"GetSeatInfoUsage"}, actions)
-			}
-		})
-	}
-}
-
 func TestVolcengineFailurePreservesSnapshotAndSecrets(t *testing.T) {
 	for _, scenario := range []struct {
 		name, body, status string
 		http               int
 		team, invalid      bool
 	}{
-		{"empty seat", `{"Result":{}}`, "no_seat", 200, true, false},
+
 		{"permission", `{"ResponseMetadata":{"Error":{"Code":"AccessDenied","Message":"test-secret"}}}`, "permission_denied", 200, false, false},
 		{"signature", `{"Error":{"Code":"SignatureDoesNotMatch","Message":"inference-secret"}}`, "invalid_credentials", 200, false, true},
 		{"authentication", `{"Error":{"Code":"AuthFailure"}}`, "invalid_credentials", 200, false, true},

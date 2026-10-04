@@ -6,7 +6,7 @@ import "strings"
 // form inputs preserve stored values; an explicit null is the clear operation.
 func IsManagementQuerySecret(key string) bool {
 	switch key {
-	case "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token":
+	case "volcengine_access_key_id", "volcengine_secret_access_key", "byteplus_access_key_id", "byteplus_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token":
 		return true
 	}
 	return false
@@ -23,7 +23,7 @@ var SensitiveCredentialKeys = []string{
 	"password", "sso_token", "sso", "sso-rw", "clearTextPassword",
 	// 云服务凭据
 	"aws_secret_access_key", "aws_session_token",
-	"volcengine_access_key_id", "volcengine_secret_access_key",
+	"volcengine_access_key_id", "volcengine_secret_access_key", "byteplus_access_key_id", "byteplus_secret_access_key",
 	"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token",
 	"service_account_json", "service_account", "private_key",
 }

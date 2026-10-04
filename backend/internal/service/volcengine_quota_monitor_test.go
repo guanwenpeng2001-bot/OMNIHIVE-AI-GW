@@ -29,3 +29,24 @@ func TestVolcengineQuotaMonitorCredentialBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestByteplusQuotaMonitorCredentialBoundary(test *testing.T) {
+	for _, status := range []string{"ok", "permission_denied", "invalid_credentials", "missing_credentials", "unsupported_profile"} {
+		test.Run(status, func(test *testing.T) {
+			fetcher, usage, quota, balance, accounts := newQuotaFetcherTestSetup(test)
+			account := byteplusUsageAccount()
+			accounts.accounts[account.ID] = account
+			quota.result = &CNProviderQuotaProbeResult{Success: status == "ok", Status: status, StatusCode: 403, Unsupported: status == "unsupported_profile", Tiers: []CNQuotaTier{{Window: "5h", UsedPercent: 20}, {Window: "weekly", UsedPercent: 30}, {Window: "monthly", UsedPercent: 40}}}
+			snapshot := fetcher.Fetch(context.Background(), account.ID)
+			require.Equal(test, 1, quota.calls)
+			require.Zero(test, usage.getCalls())
+			require.Zero(test, balance.calls)
+			require.False(test, snapshot.CredentialInvalid)
+			require.Equal(test, quota.result.Unsupported, snapshot.Unsupported)
+			require.Equal(test, status == "ok", snapshot.Success)
+			if snapshot.Success {
+				require.Len(test, snapshot.Tiers, 3)
+			}
+		})
+	}
+}

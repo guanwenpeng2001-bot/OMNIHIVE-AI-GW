@@ -51,7 +51,7 @@ func (c volcengineCredentialCapture) Match(value driver.Value) bool {
 }
 
 func quotaCredentialMap() map[string]any {
-	return map[string]any{"api_key": "inference-secret", "volcengine_access_key_id": "management-access", "volcengine_secret_access_key": "management-secret", "account_mode": "coding", "tencent_query_secret_id": "management-access", "tencent_query_secret_key": "management-secret", "usage_query_token": "management-secret"}
+	return map[string]any{"api_key": "inference-secret", "volcengine_access_key_id": "management-access", "volcengine_secret_access_key": "management-secret", "account_mode": "coding", "tencent_query_secret_id": "management-access", "tencent_query_secret_key": "management-secret", "usage_query_token": "management-secret", "byteplus_access_key_id": "management-access", "byteplus_secret_access_key": "management-secret"}
 }
 
 func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
@@ -65,7 +65,7 @@ func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
 	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "credential_secret.convert", sqlmock.AnyArg(), volcengineCredentialCapture{&audit}).WillReturnResult(sqlmock.NewResult(1, 1))
 	inline, err := prepareReferencedCredentials(context.Background(), db, enc, 17, 7, map[string]any{}, quotaCredentialMap())
 	require.NoError(t, err)
-	for _, key := range []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+	for _, key := range []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 		require.NotContains(t, inline, key)
 	}
 	require.Equal(t, reference, inline[service.CredentialSecretReferenceKey])
@@ -98,17 +98,17 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			incoming := maps.Clone(current)
 			switch operation {
 			case "blank":
-				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 					incoming[field] = " "
 				}
 				incoming["volcengine_secret_access_key"] = ""
 			case "rotate", "conflict":
-				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 					incoming[field] = "rotated"
 				}
 				incoming["volcengine_secret_access_key"] = "rotated"
 			case "clear":
-				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 					incoming[field] = nil
 				}
 				incoming["volcengine_secret_access_key"] = nil
@@ -137,7 +137,7 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			resolved, err := service.ResolveCredentialSecret(context.Background(), enc, metadata, ciphertext)
 			require.NoError(t, err)
 			require.Equal(t, "inference-secret", resolved["api_key"])
-			for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+			for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 				require.NotContains(t, out, field)
 				switch operation {
 				case "clear":
@@ -270,7 +270,7 @@ func TestVolcengineSnapshotConfigurationPreservation(t *testing.T) {
 }
 
 func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
-	for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+	for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token", "byteplus_access_key_id", "byteplus_secret_access_key"} {
 		t.Run(field, func(t *testing.T) {
 			database, mock, err := sqlmock.New()
 			require.NoError(t, err)
@@ -305,8 +305,33 @@ func TestCloudQuotaSnapshotConfigurationPreservation(t *testing.T) {
 	// Both the bulk identity path and direct secret-rotation path must erase
 	// observations tied to the previous management identity.
 	for _, expression := range []string{clearChangedAccountRuntimeObservationsSQL("credentials", "extra", "TRUE"), cloudQuotaInvalidationSQL("$1::jsonb")} {
-		for _, key := range []string{"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at"} {
+		for _, key := range []string{"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at", "byteplus_5h_used_percent", "byteplus_5h_reset_at", "byteplus_weekly_used_percent", "byteplus_weekly_reset_at", "byteplus_monthly_used_percent", "byteplus_monthly_reset_at", "byteplus_usage_updated_at"} {
 			require.Contains(t, expression, "'"+key+"'")
 		}
 	}
+}
+
+func TestByteplusSnapshotConfigurationPreservation(test *testing.T) {
+	current := map[string]any{"byteplus_5h_used_percent": 70.0, "byteplus_monthly_reset_at": "current-reset"}
+	incoming := map[string]any{"byteplus_5h_used_percent": 2.0, "byteplus_weekly_used_percent": 99.0, "note": "keep"}
+	mergeAccountRuntimeExtra(incoming, current)
+	require.Equal(test, 70.0, incoming["byteplus_5h_used_percent"])
+	require.Equal(test, "current-reset", incoming["byteplus_monthly_reset_at"])
+	require.NotContains(test, incoming, "byteplus_weekly_used_percent")
+	require.Equal(test, "keep", incoming["note"])
+}
+
+func TestByteplusBulkSeatChangeClearsOldWindows(test *testing.T) {
+	executor := &recordingSQLExecutor{result: rowsAffectedResult(1)}
+	repo := newAccountRepositoryWithSQL(nil, executor, nil)
+	count, err := repo.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"byteplus_seat_id": "new-seat"}})
+	require.NoError(test, err)
+	require.Equal(test, int64(1), count)
+	require.NotEmpty(test, executor.execQueries)
+	query := normalizeSQLWhitespace(executor.execQueries[0])
+	for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at"} {
+		require.Contains(test, query, "'byteplus_"+suffix+"'")
+	}
+	require.Contains(test, query, "credentials IS DISTINCT FROM")
+	require.Less(test, strings.Index(query, "extra ="), strings.Index(query, "credentials = COALESCE"))
 }
