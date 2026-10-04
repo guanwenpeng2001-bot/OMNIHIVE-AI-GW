@@ -50,7 +50,27 @@ func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context
 		return nil, infraerrors.New(http.StatusNotFound, "BALANCE_ACCOUNT_NOT_FOUND", "account not found")
 	}
 	if _, compatible := domain.LookupCompatibleProvider(account.Platform); !compatible {
-		return service.QueryBalanceForAccount(ctx, account)
+		result, err := service.QueryBalanceForAccount(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+		if account.Platform != PlatformMiniMax {
+			return result, nil
+		}
+		// MiniMax provides no availability signal. Project the native observation
+		// into the existing optional-amount contract instead of exposing its
+		// internal bool placeholder or an unknown balance as a synthetic zero.
+		publicResult := &CompatibleBalanceResult{
+			Kind: "wallet_balance", Provider: result.Provider, Success: result.Success,
+			StatusCode: result.StatusCode, FetchedAt: result.FetchedAt,
+			Persisted: result.Persisted, Error: result.Error,
+		}
+		if result.Success {
+			publicResult.Balance = &result.Balance
+			publicResult.Currency = result.Currency
+			publicResult.Balances = result.Balances
+		}
+		return publicResult, nil
 	}
 	return service.queryCompatibleBalance(ctx, account)
 }

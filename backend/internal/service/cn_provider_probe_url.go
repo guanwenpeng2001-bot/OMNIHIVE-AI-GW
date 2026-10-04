@@ -50,6 +50,9 @@ func cnValidateProbeURL(cfg *config.Config, raw string) (string, error) {
 // nativeProfileProbeURL authorizes only implemented, exact regional/plan probes.
 // An empty result means unknown/unsupported, never invalid credentials.
 func nativeProfileProbeURL(account *Account, quota bool) string {
+	if !quota && account != nil && account.Platform == PlatformMiniMax {
+		return miniMaxPayGBalanceURL(account)
+	}
 	p := nativeAccountProfile(account)
 	if p == nil {
 		return ""
