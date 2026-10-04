@@ -58,6 +58,16 @@ func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context
 // proves balance access. Sources and field contracts are recorded beside parser cases.
 func compatibleBalanceEndpoint(provider string) string {
 	switch provider {
+	case "stepfun_api":
+		return "https://api.stepfun.com/v1/accounts"
+	case "stepfun_api_intl":
+		return "https://api.stepfun.ai/v1/accounts"
+	case "teamorouter":
+		return "https://teamorouter.cn/v1/billing/balance"
+	case "teamorouter_com":
+		return "https://teamorouter.com/v1/billing/balance"
+	case "sudocode_chat":
+		return "https://api.sudocode.chat/api/account/balance"
 	case "novita":
 		return "https://api.novita.ai/openapi/v1/billing/balance/detail"
 	case "ppio":
@@ -137,12 +147,19 @@ func compatibleQueryTarget(account *Account) (string, error) {
 		}
 		return "", compatibleQueryError{reason, "no verified inference-key query for this provider and mode"}
 	}
-	// A later inference registry change must not silently rebind a regional key
-	// to this balance registry's fixed origin, including when no override is set.
+	// Bind the inference origin to the fixed query origin. TeamoRouter documents
+	// billing on the regional apex, separately from its api. inference host.
 	targetURL, _ := url.Parse(target)
+	inferenceHost := targetURL.Host
+	switch account.Platform {
+	case "teamorouter":
+		inferenceHost = "api.teamorouter.cn"
+	case "teamorouter_com":
+		inferenceHost = "api.teamorouter.com"
+	}
 	for _, endpoint := range mode.Endpoints {
 		preset, err := url.Parse(endpoint.BaseURL)
-		if err != nil || preset.Scheme != targetURL.Scheme || !strings.EqualFold(preset.Host, targetURL.Host) {
+		if err != nil || preset.Scheme != targetURL.Scheme || !strings.EqualFold(preset.Host, inferenceHost) {
 			return "", errors.New("balance and inference origins do not match")
 		}
 	}
@@ -249,7 +266,8 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 	result.Balances = entries
 	result.Balance = &entries[0].Balance
 	result.Currency = entries[0].Currency
-	if account.Platform == "atlascloud" {
+	switch account.Platform {
+	case "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com":
 		result.Scope = "account"
 	}
 	updates := map[string]any{
@@ -265,7 +283,7 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
 
 func clearCompatibleBalanceSnapshots(extra map[string]any) {
-	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud"} {
+	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat"} {
 		for _, suffix := range []string{cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixBalances, cnBalanceExtraSuffixUpdated} {
 			delete(extra, cnExtraKey(provider, suffix))
 		}
@@ -286,6 +304,35 @@ func parseCompatibleBalance(provider string, body []byte) ([]CNProviderBalanceEn
 	}
 	path, currency, scale := "", "", float64(1)
 	switch provider {
+	case "teamorouter", "teamorouter_com":
+		// https://teamorouter.cn/docs/open-api and https://teamorouter.com/docs/open-api
+		if root.Get("balance.value").Type != gjson.String || root.Get("balance.currency").Type != gjson.String {
+			return nil, invalid
+		}
+		path, currency = "balance.value", root.Get("balance.currency").String()
+		if len(currency) != 3 || strings.Trim(currency, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") != "" {
+			return nil, invalid
+		}
+	case "sudocode_chat":
+		// https://sudocode.chat/docs/claude-code: the display balance includes
+		// wallet and subscriptions; token.remaining must not be added again.
+		if root.Get("success").Type != gjson.True || root.Get("data.ccswitch.remaining").Type != gjson.Number || root.Get("data.ccswitch.unit").Type != gjson.String {
+			return nil, invalid
+		}
+		path, currency = "data.ccswitch.remaining", root.Get("data.ccswitch.unit").String()
+		if strings.TrimSpace(currency) == "" {
+			return nil, invalid
+		}
+	case "stepfun_api", "stepfun_api_intl":
+		// https://platform.stepfun.com/docs/zh/api-reference/accounts/get.md
+		// https://platform.stepfun.ai/docs/en/api-reference/accounts/get.md
+		// Only balance is available funds; cash/voucher totals are cumulative.
+		// Neither regional contract specifies a currency.
+		accountType := root.Get("type").String()
+		if root.Get("object").String() != "account" || (accountType != "prepaid" && accountType != "postpaid") || root.Get("balance").Type != gjson.Number {
+			return nil, invalid
+		}
+		path = "balance"
 	case "atlascloud":
 		// https://www.atlascloud.ai/docs/public-api/balance
 		if root.Get("object").String() != "balance" || root.Get("scope").String() != "account" || root.Get("available.value").Type != gjson.String {

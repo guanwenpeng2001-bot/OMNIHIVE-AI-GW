@@ -115,6 +115,56 @@ describe('CNProviderBalanceCell', () => {
 
 
 describe('compatible wallet and budget semantics', () => {
+  it.each([
+    ['teamorouter', 'USD'], ['teamorouter_com', 'EUR'], ['sudocode_chat', 'Credits']
+  ])('queries %s and displays the response unit %s', async (platform, currency) => {
+    queryBalance.mockResolvedValue({ success: true, balance: 0, currency, balances: [{ currency, balance: 0 }] })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform, extra: {} } as Account } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(queryBalance).toHaveBeenLastCalledWith(account.id)
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe(`${currency} 0.00`)
+  })
+  it.each(['stepfun_api', 'stepfun_api_intl'])('renders %s live zero without inventing currency', async platform => {
+    queryBalance.mockResolvedValue({ success: true, kind: 'wallet_balance', scope: 'account', balance: 0, balances: [{ currency: '', balance: 0 }] })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform, credentials_status: { has_api_key: true }, extra: {} } as Account } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    await flushPromises()
+    expect(queryBalance).toHaveBeenLastCalledWith(account.id)
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('0.00')
+    expect(wrapper.text()).toContain('compatibleUsage.accountBalance')
+    expect(wrapper.text()).not.toMatch(/USD|CNY|¥|\$/)
+  })
+  it.each(['stepfun_api', 'stepfun_api_intl'])('preserves %s unknown-currency snapshots on failure', async platform => {
+    for (const extra of [
+      { [`${platform}_balance`]: 12.5 },
+      { [`${platform}_balances`]: [{ currency: '', balance: 12.5 }] }
+    ]) {
+      queryBalance.mockResolvedValue({ success: false, reason: 'invalid_response' })
+      const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform, extra } as Account } })
+      expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('12.50')
+      await wrapper.get('button').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('12.50')
+      expect(wrapper.get('[role="alert"]').text()).toContain('invalid_response')
+      expect(wrapper.text()).toContain('compatibleUsage.stale')
+      expect(wrapper.text()).not.toMatch(/USD|CNY|¥|\$/)
+      wrapper.unmount()
+    }
+  })
+  it.each(['stepfun_api', 'stepfun_api_intl'])('does not display %s failure as zero', async platform => {
+    queryBalance.mockResolvedValue({ success: false, status_code: 401 })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform, extra: {} } as Account } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('admin.accounts.cnProviders.balance')
+    expect(wrapper.get('[role="alert"]').text()).toContain('invalid_credentials')
+    expect(wrapper.text()).not.toContain('0.00')
+  })
+  it.each(['stepfun_plan', 'stepfun_plan_intl'])('hides the query control for %s', platform => {
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: { ...account, platform, extra: {} } as Account } })
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
   it.each([false, true])('renders a project budget, unlimited=%s, without an old wallet amount', async unlimited => {
     queryBalance.mockResolvedValue({ success: true, kind: 'project_budget', project_budget: {
       consumed: 0, limit: null, unlimited, currency: 'CNY', period_kind: 'monthly',

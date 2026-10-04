@@ -2,10 +2,15 @@ import { compatibleMode, compatibleProvider, paygBalanceAllowed } from '@/consta
 import type { Account } from '@/types'
 import type { CompatibleUsageReason } from '@/api/admin/cnProviders'
 
+// Approved inference hosts; TeamoRouter billing uses the corresponding apex
+// host selected exclusively by the backend, never a credential-supplied URL.
 const walletHosts: Record<string, string> = {
   novita: 'api.novita.ai', ppio: 'api.ppio.com', siliconflow_cn: 'api.siliconflow.cn',
   siliconflow_global: 'api.siliconflow.com', shengsuanyun: 'router.shengsuanyun.com',
-  soleapi: 'soleapi.com', atlascloud: 'api.atlascloud.ai'
+  soleapi: 'soleapi.com', atlascloud: 'api.atlascloud.ai',
+  stepfun_api: 'api.stepfun.com', stepfun_api_intl: 'api.stepfun.ai',
+  teamorouter: 'api.teamorouter.cn', teamorouter_com: 'api.teamorouter.com',
+  sudocode_chat: 'api.sudocode.chat'
 }
 export type CompatibleUsageCapability = { kind: 'wallet_balance' | 'consumed_usage' | 'unsupported'; reason?: CompatibleUsageReason }
 

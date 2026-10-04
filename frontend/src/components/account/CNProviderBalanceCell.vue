@@ -26,7 +26,7 @@
       </span>
     </div>
 
-    <div v-if="account.platform === 'atlascloud'" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
+    <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com'].includes(account.platform)" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
     <div v-if="stale" class="text-[10px] text-amber-600">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): the old chip doubled as the data display and a hidden click
@@ -89,7 +89,7 @@ const readMode = (): string => {
   return typeof mode === 'string' ? mode : ''
 }
 
-// 仅 kimi / deepseek payg 账号有公开余额端点（智谱 payg 无）。
+// Native and compatible PAYG accounts with a verified balance endpoint.
 const visible = computed(() => cnBalanceCellVisible(props.account.platform, readMode()) || compatibleBalanceVisible(props.account))
 
 const loading = ref(false)

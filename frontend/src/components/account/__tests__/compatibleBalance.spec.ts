@@ -8,6 +8,39 @@ const account = (platform: string, credentials: Record<string, unknown> = {}) =>
 }) as Account
 
 describe('compatible balance eligibility', () => {
+  it.each([
+    ['teamorouter', 'https://api.teamorouter.cn/v1', 'https://api.teamorouter.com/v1', 'https://teamorouter.cn/v1'],
+    ['teamorouter_com', 'https://api.teamorouter.com/v1', 'https://api.teamorouter.cn/v1', 'https://teamorouter.com/v1'],
+    ['sudocode_chat', 'https://api.sudocode.chat/v1', 'https://api.sudocode.us/v1', 'https://api.sudocode.chat/api/account/balance']
+  ])('checks the inference host separately from billing for %s', (platform, base, otherRegion, queryBase) => {
+    const protocol = platform === 'teamorouter_com' ? 'chat_completions' : 'anthropic'
+    expect(compatibleBalanceVisible(account(platform))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: base }))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { [protocol]: base } }))).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: otherRegion }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { base_url: queryBase }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { [protocol]: otherRegion } }))).toBe(false)
+  })
+  it('does not reuse the chat balance contract for sudocode_us', () => {
+    expect(compatibleBalanceVisible(account('sudocode_us'))).toBe(false)
+  })
+  it.each([
+    ['stepfun_api', 'https://api.stepfun.com/v1', 'https://api.stepfun.ai/v1'],
+    ['stepfun_api_intl', 'https://api.stepfun.ai/v1', 'https://api.stepfun.com/v1']
+  ])('only shows the verified PAYG region for %s', (platform, base, otherRegion) => {
+    expect(compatibleBalanceVisible(account(platform))).toBe(true)
+    expect(compatibleBalanceVisible({ ...account(platform, { account_mode: 'payg', base_url: base }), credentials_status: { has_api_key: true } })).toBe(true)
+    expect(compatibleBalanceVisible(account(platform, { base_url: otherRegion }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { api_base_urls: { chat_completions: otherRegion } }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { base_url: base.replace('/v1', '/step_plan/v1') }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { account_mode: 'coding' }))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { billing_plan: 'step_plan' }))).toBe(false)
+    expect(compatibleBalanceVisible({ ...account(platform), credentials_status: { has_api_key: false } })).toBe(false)
+  })
+  it.each(['stepfun_plan', 'stepfun_plan_intl'])('never presents an account balance query for %s', platform => {
+    expect(compatibleBalanceVisible(account(platform))).toBe(false)
+    expect(compatibleBalanceVisible(account(platform, { account_mode: 'payg', billing_plan: 'payg' }))).toBe(false)
+  })
   it.each(['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi'])('shows documented payg %s', platform => {
     expect(compatibleBalanceVisible(account(platform))).toBe(true)
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'payg' }))).toBe(true)
@@ -35,7 +68,7 @@ describe('compatible balance eligibility', () => {
 
 
 describe('compatible usage registry matrix', () => {
-  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud']
+  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'sudocode_chat']
   it('covers all 75 registered provider IDs and every declared mode', () => {
     expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
     for (const provider of COMPATIBLE_PROVIDERS) {
