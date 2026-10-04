@@ -3131,3 +3131,24 @@ describe('Volcengine query credential editing', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('management query editing', () => {
+  it.each(['keep', 'replace', 'clear'])('submits management %s without changing inference', async action => {
+    const account = { ...buildAccount(), platform: 'dmxapi', credentials_status: { has_api_key: true, has_usage_query_token: true }, credentials: { usage_query_user_id: '42' } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account); await flushPromises()
+    expect(wrapper.get('[data-test="usage-query-token"]').element).toHaveProperty('value', '')
+    expect(wrapper.get('[data-test="usage-query-user-id"]').element).toHaveProperty('value', '42')
+    if (action === 'replace') await wrapper.get('[data-test="usage-query-token"]').setValue('replacement-management')
+    if (action === 'clear') await wrapper.get('[data-test="usage-query-clear"]').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent'); await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    const credentials = updateAccountMock.mock.calls[0][1].credentials
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials.usage_query_user_id).toBe('42')
+    expect(credentials.usage_query_token).toBe(action === 'keep' ? undefined : action === 'clear' ? null : 'replacement-management')
+    wrapper.unmount()
+  })
+})

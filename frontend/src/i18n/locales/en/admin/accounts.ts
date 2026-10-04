@@ -3,6 +3,7 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      usageQuery: {"title": "Management query credentials", "hint": "Use the supplier’s management token for account queries. Your inference API key is stored separately.", "token": "Management token", "userId": "Management user ID", "keepSecret": "Leave blank to keep the saved token", "saved": "Token saved", "clearSecret": "Clear saved management token", "totalCredits": "Total credits", "totalUsage": "Total usage", "used": "Used"},
       atlasUsage: {
         title: "Daily model usage",
         scope: "Current identity · all its API keys, not this key alone",
@@ -28,6 +29,7 @@ export default {
       compatibleUsage: {
         project: 'Project', member: 'Member',
         reasons: {
+          missing_query_credentials: 'Configure management query credentials in account settings.',
           no_verified_query: 'No verified upstream usage query for this supplier and plan. Check the supplier console.',
           mode_unsupported: 'No verified upstream usage query for this plan. Check the supplier console.',
           custom_origin: 'Upstream queries are unavailable for this custom endpoint or relay.',
@@ -79,7 +81,7 @@ export default {
         optionalBaseUrl: 'Base URL (optional)',
         protocolHint: 'OmniHive converts Messages, Responses and Gemini chat requests to Chat Completions for this provider.',
       },
-      compatible: { protocolHint: 'Adaptive prefers a matching native endpoint. A fixed protocol uses only that endpoint; gateway conversion is available only where declared.', manualModels: 'Automatic model discovery is unavailable. Enter exact model names in the model mapping below.', deploymentHint: 'Enter your Azure resource base URL. Use deployment names as model mapping targets; each mapping can point to a different deployment.', invalid: 'Check the account mode, protocol and resource base URL.' },
+      compatible: { protocolHint: 'Adaptive prefers a matching native endpoint. A fixed protocol uses only that endpoint; gateway conversion is available only where declared.', manualModels: 'Automatic model discovery is unavailable for the current configuration. Enter the exact model IDs manually.', deploymentHint: 'Enter your Azure resource base URL. Use deployment names as model mapping targets; each mapping can point to a different deployment.', invalid: 'Check the account mode, protocol and resource base URL.' },
       tpmUnlimited: 'Unlimited',
       tpmLimit: 'Tokens per admission minute',
       tpmLimitHint: 'Includes input, output and cache tokens; 0 means unlimited. Fixed UTC admission minutes, not a sliding throughput limit. Verified upstream bounds are required; requests without them are rejected.',

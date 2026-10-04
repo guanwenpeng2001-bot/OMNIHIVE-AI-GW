@@ -37,7 +37,7 @@ export interface CNProviderBalanceEntry {
 
 /** Native and compatible payg balance results; failed/unsupported queries omit unknown amounts. */
 export interface CNProviderBalanceResult {
-  kind?: 'wallet_balance' | 'project_budget' | 'unsupported'
+  kind?: 'wallet_balance' | 'account_credits' | 'project_budget' | 'unsupported'
   reason?: CompatibleUsageReason
   project_budget?: CompatibleProjectBudget
   scope?: 'account' | 'account_in_project'
@@ -45,6 +45,8 @@ export interface CNProviderBalanceResult {
   success: boolean
   unsupported?: boolean
   /** 主币种余额（balances 首条，兼容单币种展示）。 */
+  used?: number
+  credits?: { total_credits: number; total_usage: number; unit: 'credits' }
   balance?: number
   currency?: string
   /** 多币种明细；缺省时按主币种展示。 */
@@ -72,7 +74,7 @@ export async function queryBalance(id: number): Promise<CNProviderBalanceResult>
   return data
 }
 
-export type CompatibleUsageReason = 'no_verified_query' | 'mode_unsupported' | 'custom_origin' | 'invalid_credentials' | 'proxy_unavailable' | 'permission_denied' | 'upstream_error' | 'invalid_response' | 'rate_limited'
+export type CompatibleUsageReason = 'missing_query_credentials' | 'no_verified_query' | 'mode_unsupported' | 'custom_origin' | 'invalid_credentials' | 'proxy_unavailable' | 'permission_denied' | 'upstream_error' | 'invalid_response' | 'rate_limited'
 
 export interface CompatibleProjectBudget {
   scope: 'account_in_project'

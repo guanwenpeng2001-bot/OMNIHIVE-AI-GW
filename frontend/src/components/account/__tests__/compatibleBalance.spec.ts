@@ -47,7 +47,7 @@ describe('compatible balance eligibility', () => {
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'coding' }))).toBe(false)
     expect(compatibleBalanceVisible(account(platform, { account_mode: 'invalid' }))).toBe(false)
   })
-  it.each(['dmxapi', 'together', 'openrouter'])('hides unknown or privileged %s', platform => {
+  it.each(['dmxapi_com', 'together', 'openrouter'])('hides unknown or privileged %s', platform => {
     expect(compatibleBalanceVisible(account(platform))).toBe(false)
   })
   it.each([
@@ -68,13 +68,13 @@ describe('compatible balance eligibility', () => {
 
 
 describe('compatible usage registry matrix', () => {
-  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'sudocode_chat']
+  const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'sudocode_chat', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl']
   it('covers all 75 registered provider IDs and every declared mode', () => {
     expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
     for (const provider of COMPATIBLE_PROVIDERS) {
       for (const mode of provider.modes) {
         const candidate = account(provider.id, { account_mode: mode.mode })
-        const expected = mode.mode !== 'payg' ? 'unsupported' : wallets.includes(provider.id) ? 'wallet_balance' : provider.id === 'qiniu' ? 'consumed_usage' : 'unsupported'
+        const expected = mode.mode !== 'payg' ? 'unsupported' : wallets.includes(provider.id) ? 'wallet_balance' : provider.id === 'qiniu' ? 'consumed_usage' : provider.id === 'therouter' ? 'account_credits' : 'unsupported'
         expect(compatibleUsageCapability(candidate).kind, `${provider.id}/${mode.mode}`).toBe(expected)
       }
     }
@@ -131,5 +131,27 @@ describe('persisted plan query eligibility', () => {
     expect(compatibleBalanceVisible(candidate)).toBe(true)
     delete candidate.credentials.billing_plan
     expect(compatibleBalanceVisible(candidate)).toBe(true)
+  })
+})
+
+
+describe('management query eligibility', () => {
+  it.each(['aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl', 'therouter'])('keeps %s configurable with missing management credentials', platform => {
+    const kind = platform === 'therouter' ? 'account_credits' : 'wallet_balance'
+    const missing = { ...account(platform), credentials_status: { has_api_key: false, has_usage_query_token: false } }
+    expect(compatibleBalanceVisible(missing)).toBe(true)
+    expect(compatibleUsageCapability(missing)).toEqual({ kind, reason: 'missing_query_credentials' })
+    const configured = { ...missing, credentials: { usage_query_user_id: '42' }, credentials_status: { has_api_key: false, has_usage_query_token: true } }
+    expect(compatibleUsageCapability(configured)).toEqual({ kind })
+    expect(compatibleUsageCapability({ ...configured, credentials: { ...configured.credentials, base_url: 'https://relay.example/v1' } }).reason).toBe('custom_origin')
+    expect(compatibleUsageCapability({ ...configured, credentials: { ...configured.credentials, account_mode: 'coding' } }).reason).toBe('mode_unsupported')
+  })
+  it.each(['dmxapi', 'crazyrouter', 'crazyrouter_intl'])('requires management user ID for %s', platform => {
+    const saved = { ...account(platform), credentials_status: { has_usage_query_token: true } }
+    expect(compatibleUsageCapability(saved).reason).toBe('missing_query_credentials')
+    expect(compatibleUsageCapability({ ...saved, credentials: { usage_query_user_id: 'bad id' } }).reason).toBe('invalid_credentials')
+  })
+  it.each(['dmxapi_com', 'dmxapi_ssvip'])('never applies the domestic wallet contract to %s', platform => {
+    expect(compatibleUsageCapability(account(platform)).reason).toBe('no_verified_query')
   })
 })

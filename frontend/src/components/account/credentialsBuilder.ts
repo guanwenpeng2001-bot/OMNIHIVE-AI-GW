@@ -993,3 +993,24 @@ export function applyPlanType(
   }
   return credentials
 }
+
+
+export function supportsUsageQuery(platform: string): boolean {
+  return ['aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl', 'therouter'].includes(platform)
+}
+export function usageQueryNeedsUserId(platform: string): boolean {
+  return ['dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(platform)
+}
+export interface UsageQueryDraft { token: string; userId: string; clearToken: boolean }
+export function usageQueryDraft(credentials: Record<string, unknown> = {}): UsageQueryDraft {
+  // Passwords are never populated, even from legacy plaintext responses.
+  return { token: '', userId: typeof credentials.usage_query_user_id === 'string' ? credentials.usage_query_user_id : '', clearToken: false }
+}
+export function applyUsageQueryCredentials(credentials: Record<string, unknown>, platform: string, draft: UsageQueryDraft): void {
+  if (!supportsUsageQuery(platform)) return
+  delete credentials.usage_query_token
+  delete credentials.usage_query_user_id
+  if (draft.clearToken) credentials.usage_query_token = null
+  else if (draft.token !== '') credentials.usage_query_token = draft.token
+  if (usageQueryNeedsUserId(platform)) credentials.usage_query_user_id = draft.userId
+}

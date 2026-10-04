@@ -1,3 +1,4 @@
+import { supportsUsageQuery, usageQueryNeedsUserId } from './credentialsBuilder'
 import { compatibleMode, compatibleProvider, paygBalanceAllowed } from '@/constants/compatibleProviders'
 import type { Account } from '@/types'
 import type { CompatibleUsageReason } from '@/api/admin/cnProviders'
@@ -12,7 +13,7 @@ const walletHosts: Record<string, string> = {
   teamorouter: 'api.teamorouter.cn', teamorouter_com: 'api.teamorouter.com',
   sudocode_chat: 'api.sudocode.chat'
 }
-export type CompatibleUsageCapability = { kind: 'wallet_balance' | 'consumed_usage' | 'unsupported'; reason?: CompatibleUsageReason }
+export type CompatibleUsageCapability = { kind: 'wallet_balance' | 'account_credits' | 'consumed_usage' | 'unsupported'; reason?: CompatibleUsageReason }
 
 /** Mirrors the server's fixed-origin eligibility; never derives query URLs from credentials. */
 export function compatibleUsageCapability(account: Account): CompatibleUsageCapability {
@@ -22,13 +23,15 @@ export function compatibleUsageCapability(account: Account): CompatibleUsageCapa
   if (account.type !== 'apikey') return unsupported('invalid_credentials')
   const credentials = account.credentials ?? {}
   if (!paygBalanceAllowed(account.platform, credentials)) return unsupported('mode_unsupported')
+  const management = supportsUsageQuery(account.platform)
   for (const field of ['account_mode', 'api_protocol', 'base_url', 'api_key']) {
+    if (management && field === 'api_key') continue
     if (field in credentials && typeof credentials[field] !== 'string') return unsupported('invalid_credentials')
   }
   const mode = compatibleMode(provider, (credentials.account_mode as string | undefined)?.trim())
   if (!mode || mode.mode !== 'payg') return unsupported('mode_unsupported')
   const host = account.platform === 'qiniu' ? 'api.qnaigc.com' : walletHosts[account.platform]
-  if (!host) return unsupported('no_verified_query')
+  if (!host && !management) return unsupported('no_verified_query')
   const protocol = (credentials.api_protocol as string | undefined)?.trim()
   if (protocol && protocol !== 'adaptive' && !mode.endpoints.some(endpoint => endpoint.protocol === protocol)) return unsupported('invalid_credentials')
   const relay = account.extra?.custom_base_url_enabled
@@ -51,7 +54,7 @@ export function compatibleUsageCapability(account: Account): CompatibleUsageCapa
         })
     } catch { return false }
   }
-  if (mode.endpoints.some(endpoint => { try { const preset = new URL(endpoint.base_url || ''); return preset.protocol !== 'https:' || preset.host !== host } catch { return true } })) return unsupported('custom_origin')
+  if (!management && mode.endpoints.some(endpoint => { try { const preset = new URL(endpoint.base_url || ''); return preset.protocol !== 'https:' || preset.host !== host } catch { return true } })) return unsupported('custom_origin')
   if (credentials.base_url != null && !approved(credentials.base_url)) return unsupported('custom_origin')
   const bases = credentials.api_base_urls
   if ('api_base_urls' in credentials) {
@@ -62,13 +65,22 @@ export function compatibleUsageCapability(account: Account): CompatibleUsageCapa
       if (typeof value === 'string' && value.trim() && new URL(value.trim()).pathname.replace(/\/+$/, '') !== new URL(endpoint.base_url || '').pathname.replace(/\/+$/, '')) return unsupported('custom_origin')
     }
   }
+  if (management) {
+    const kind = account.platform === 'therouter' ? 'account_credits' : 'wallet_balance'
+    const userId = credentials.usage_query_user_id
+    const token = credentials.usage_query_token
+    const hasToken = account.credentials_status?.has_usage_query_token ?? (typeof token === 'string' && token.length > 0)
+    if (!hasToken || (usageQueryNeedsUserId(account.platform) && (userId == null || userId === '' || (typeof userId === 'string' && !userId.trim())))) return { kind, reason: 'missing_query_credentials' }
+    if ((token != null && (typeof token !== 'string' || !/^[!-~]+$/.test(token))) || (usageQueryNeedsUserId(account.platform) && (typeof userId !== 'string' || !/^[!-~]+$/.test(userId)))) return { kind, reason: 'invalid_credentials' }
+    return { kind }
+  }
   // List DTOs redact keys; the server resolves stored secrets by account ID.
   if (account.credentials_status?.has_api_key === false) return unsupported('invalid_credentials')
   return { kind: account.platform === 'qiniu' ? 'consumed_usage' : 'wallet_balance' }
 }
 
 export function compatibleBalanceVisible(account: Account): boolean {
-  return compatibleUsageCapability(account).kind === 'wallet_balance'
+  return ['wallet_balance', 'account_credits'].includes(compatibleUsageCapability(account).kind)
 }
 
 export function compatibleFailureReason(result: { reason?: CompatibleUsageReason; status_code?: number; unsupported?: boolean }): CompatibleUsageReason {

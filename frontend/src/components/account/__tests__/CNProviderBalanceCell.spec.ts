@@ -189,3 +189,50 @@ describe('compatible wallet and budget semantics', () => {
     expect(wrapper.text()).toContain('compatibleUsage.accountBalance')
   })
 })
+
+
+describe('management balance presentation', () => {
+  beforeEach(() => queryBalance.mockReset())
+  const managed = (platform: string) => ({ ...account, platform, credentials: { usage_query_user_id: '42', credential_secret_version: 1 }, credentials_status: { has_api_key: false, has_usage_query_token: true }, extra: {} } as Account)
+  it('shows missing configuration while retaining the query action', async () => {
+    const candidate = { ...managed('dmxapi'), credentials_status: { has_usage_query_token: false } }
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: candidate } })
+    expect(wrapper.text()).toContain('missing_query_credentials')
+    queryBalance.mockResolvedValue({ success: false, kind: 'wallet_balance', reason: 'missing_query_credentials' })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+    expect(wrapper.text()).toContain('missing_query_credentials')
+    expect(wrapper.text()).not.toContain('0.00')
+  })
+  it('renders both raw credits values without a wallet or currency', async () => {
+    queryBalance.mockResolvedValue({ success: true, kind: 'account_credits', credits: { total_credits: 950.5, total_usage: 49.5, unit: 'credits' } })
+    const candidate = { ...managed('therouter'), extra: { therouter_balance: 901, therouter_balance_currency: 'USD' } }
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: candidate } })
+    expect(wrapper.text()).not.toContain('901')
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-test="account-credits"]').text()).toContain('950.5 credits')
+    expect(wrapper.get('[data-test="account-credits"]').text()).toContain('49.5 credits')
+    expect(wrapper.text()).not.toContain('USD'); expect(wrapper.text()).not.toContain('901')
+  })
+  it('displays reported used amounts including zero', async () => {
+    queryBalance.mockResolvedValue({ success: true, kind: 'wallet_balance', balance: 0, currency: 'USD', used: 0 })
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: managed('aihubmix') } })
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-test="management-used"]').text()).toContain('0 USD')
+    expect(wrapper.get('[data-test="cn-provider-balance-value"]').text()).toBe('USD 0.00')
+  })
+  it.each(['user', 'tokenVersion', 'hasToken'])('suppresses old snapshots and an in-flight result after %s changes', async change => {
+    let resolve!: (value: unknown) => void
+    queryBalance.mockReturnValue(new Promise(r => { resolve = r }))
+    const candidate = { ...managed('crazyrouter'), extra: { crazyrouter_balances: [{ currency: 'USD', balance: 18 }, { currency: 'CNY', balance: 20 }] } }
+    const wrapper = mount(CNProviderBalanceCell, { props: { account: candidate } })
+    expect(wrapper.text()).toContain('USD 18.00'); expect(wrapper.text()).toContain('CNY 20.00')
+    await wrapper.get('[data-test="cn-provider-balance-probe"]').trigger('click')
+    const next = { ...candidate, credentials: { ...candidate.credentials }, credentials_status: { ...candidate.credentials_status } }
+    if (change === 'user') next.credentials.usage_query_user_id = '43'
+    if (change === 'tokenVersion') next.credentials.credential_secret_version = 2
+    if (change === 'hasToken') next.credentials_status.has_usage_query_token = false
+    await wrapper.setProps({ account: next })
+    resolve({ success: true, balance: 999, currency: 'USD' }); await flushPromises()
+    expect(wrapper.text()).not.toContain('18.00'); expect(wrapper.text()).not.toContain('20.00'); expect(wrapper.text()).not.toContain('999')
+  })
+})

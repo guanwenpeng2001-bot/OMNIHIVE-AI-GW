@@ -3,6 +3,7 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      usageQuery: {"title": "管理查询凭据", "hint": "使用供应商的管理令牌查询账户数据，独立于推理 API Key。", "token": "管理令牌", "userId": "管理用户 ID", "keepSecret": "留空保留已保存的令牌", "saved": "已保存令牌", "clearSecret": "清除已保存的管理令牌", "totalCredits": "总 credits", "totalUsage": "总使用量", "used": "已用"},
       atlasUsage: {
         title: "每日模型消耗",
         scope: "当前身份名下所有 API Key 合计，并非单把 Key",
@@ -28,6 +29,7 @@ export default {
       compatibleUsage: {
         project: '项目', member: '成员',
         reasons: {
+          missing_query_credentials: '请在账户设置中配置管理查询凭据。',
           no_verified_query: '此供应商及套餐尚无已验证的上游用量查询，请查看供应商控制台。',
           mode_unsupported: '此套餐尚无已验证的上游用量查询，请查看供应商控制台。',
           custom_origin: '自定义端点或中继暂不支持此上游查询。',
@@ -79,7 +81,7 @@ export default {
         optionalBaseUrl: '基础地址（可选）',
         protocolHint: 'OmniHive 会将 Messages、Responses 和 Gemini 聊天请求转换为此平台使用的 Chat Completions 协议。',
       },
-      compatible: { protocolHint: '自适应优先使用匹配的原生端点。固定协议仅使用该端点；仅在已声明支持时进行网关转换。', manualModels: '不支持自动发现模型。请在下方模型映射中手动填写准确的模型名称。', deploymentHint: '填写 Azure 资源基础地址。模型映射的目标填写部署名称，不同映射可使用不同部署。', invalid: '请检查账号模式、协议和资源基础地址。' },
+      compatible: { protocolHint: '自适应优先使用匹配的原生端点。固定协议仅使用该端点；仅在已声明支持时进行网关转换。', manualModels: '当前配置暂不能自动获取模型，请手动填写准确的模型ID', deploymentHint: '填写 Azure 资源基础地址。模型映射的目标填写部署名称，不同映射可使用不同部署。', invalid: '请检查账号模式、协议和资源基础地址。' },
       tpmUnlimited: '不限额',
       tpmLimit: '每分钟 token 上限',
       tpmLimitHint: '按请求准入分钟归属，含输入、输出和缓存 token；0 表示不限额。采用 UTC 固定分钟，非滑动吞吐上限；请求必须有经验证的上游数量界限，无法确定时拒绝。',

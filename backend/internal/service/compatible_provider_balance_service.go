@@ -18,24 +18,26 @@ import (
 // CompatibleBalanceResult keeps unknown amounts absent, rather than reporting
 // zero. Balances uses the existing balance cell's multi-currency contract.
 type CompatibleBalanceResult struct {
-	Kind          string                   `json:"kind"`
-	Reason        string                   `json:"reason,omitempty"`
-	Scope         string                   `json:"scope,omitempty"`
-	ProjectBudget *CompatibleProjectBudget `json:"project_budget,omitempty"`
-	Provider      string                   `json:"provider"`
-	Success       bool                     `json:"success"`
-	Unsupported   bool                     `json:"unsupported,omitempty"`
-	Balance       *float64                 `json:"balance,omitempty"`
-	Currency      string                   `json:"currency,omitempty"`
-	Balances      []CNProviderBalanceEntry `json:"balances,omitempty"`
-	StatusCode    int                      `json:"status_code,omitempty"`
-	FetchedAt     int64                    `json:"fetched_at"`
-	Persisted     bool                     `json:"persisted"`
-	Error         string                   `json:"error,omitempty"`
+	Kind          string                    `json:"kind"`
+	Reason        string                    `json:"reason,omitempty"`
+	Scope         string                    `json:"scope,omitempty"`
+	ProjectBudget *CompatibleProjectBudget  `json:"project_budget,omitempty"`
+	Provider      string                    `json:"provider"`
+	Success       bool                      `json:"success"`
+	Unsupported   bool                      `json:"unsupported,omitempty"`
+	Used          *float64                  `json:"used,omitempty"`
+	Credits       *CompatibleAccountCredits `json:"credits,omitempty"`
+	Balance       *float64                  `json:"balance,omitempty"`
+	Currency      string                    `json:"currency,omitempty"`
+	Balances      []CNProviderBalanceEntry  `json:"balances,omitempty"`
+	StatusCode    int                       `json:"status_code,omitempty"`
+	FetchedAt     int64                     `json:"fetched_at"`
+	Persisted     bool                      `json:"persisted"`
+	Error         string                    `json:"error,omitempty"`
 }
 
 // QueryAccountBalance extends the existing injected admin balance service without
-// changing native quota/balance behavior or probing management-only endpoints.
+// changing native quota/balance behavior. Management queries use their own credentials.
 func (service *CNProviderBalanceService) QueryAccountBalance(ctx context.Context, accountID int64) (any, error) {
 	if service == nil || service.accountRepo == nil || service.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusServiceUnavailable, "BALANCE_NOT_CONFIGURED", "balance service is not configured")
@@ -118,25 +120,34 @@ func compatibleQueryTarget(account *Account) (string, error) {
 	if !allowed {
 		return "", compatibleQueryError{"mode_unsupported", "no verified query for the selected billing plan"}
 	}
+	management := managementBalanceEndpoint(account.Platform) != ""
 	for _, field := range []string{"account_mode", "api_protocol", "base_url", "api_key"} {
+		if management && field == "api_key" {
+			continue
+		}
 		if value, exists := account.Credentials[field]; exists {
 			if _, valid := value.(string); !valid {
 				return "", errors.New("invalid balance account credentials")
 			}
 		}
 	}
-	key := strings.TrimSpace(account.GetCredential("api_key"))
-	if key == "" || strings.ContainsAny(key, "\r\n\t ") {
-		return "", errors.New("invalid query API key")
-	}
-	for _, character := range key {
-		if character < 33 || character > 126 {
+	if !management {
+		key := strings.TrimSpace(account.GetCredential("api_key"))
+		if key == "" || strings.ContainsAny(key, "\r\n\t ") {
 			return "", errors.New("invalid query API key")
+		}
+		for _, character := range key {
+			if character < 33 || character > 126 {
+				return "", errors.New("invalid query API key")
+			}
 		}
 	}
 	provider, found := domain.LookupCompatibleProvider(account.Platform)
 	mode, valid := provider.ResolveMode(strings.TrimSpace(account.GetCredential("account_mode")))
 	target := compatibleBalanceEndpoint(account.Platform)
+	if management {
+		target = managementBalanceEndpoint(account.Platform)
+	}
 	if account.Platform == "qiniu" {
 		target = "https://api.qnaigc.com/v3/stat/usage"
 	}
@@ -147,7 +158,9 @@ func compatibleQueryTarget(account *Account) (string, error) {
 		}
 		return "", compatibleQueryError{reason, "no verified inference-key query for this provider and mode"}
 	}
-	// Bind the inference origin to the fixed query origin. TeamoRouter documents
+	// Management queries retain the preset inference-origin guard below, but their
+	// fixed management host need not equal the inference host. Inference-key
+	// queries bind inference to the fixed query origin. TeamoRouter documents
 	// billing on the regional apex, separately from its api. inference host.
 	targetURL, _ := url.Parse(target)
 	inferenceHost := targetURL.Host
@@ -159,7 +172,7 @@ func compatibleQueryTarget(account *Account) (string, error) {
 	}
 	for _, endpoint := range mode.Endpoints {
 		preset, err := url.Parse(endpoint.BaseURL)
-		if err != nil || preset.Scheme != targetURL.Scheme || !strings.EqualFold(preset.Host, inferenceHost) {
+		if err != nil || preset.Scheme != targetURL.Scheme || (!management && !strings.EqualFold(preset.Host, inferenceHost)) {
 			return "", errors.New("balance and inference origins do not match")
 		}
 	}
@@ -217,6 +230,9 @@ func compatibleQueryTarget(account *Account) (string, error) {
 }
 
 func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Context, account *Account) (*CompatibleBalanceResult, error) {
+	if managementBalanceEndpoint(account.Platform) != "" {
+		return service.queryManagementBalance(ctx, account)
+	}
 	result := &CompatibleBalanceResult{Provider: account.Platform, Kind: "wallet_balance", FetchedAt: time.Now().UTC().Unix()}
 	target, err := compatibleBalanceTarget(account)
 	if err != nil {
@@ -283,7 +299,7 @@ func (service *CNProviderBalanceService) queryCompatibleBalance(ctx context.Cont
 var errCompatibleBalanceUnsupported = errors.New("response represents an unsupported balance scope")
 
 func clearCompatibleBalanceSnapshots(extra map[string]any) {
-	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat"} {
+	for _, provider := range []string{"novita", "ppio", "siliconflow_cn", "siliconflow_global", "shengsuanyun", "soleapi", "atlascloud", "stepfun_api", "stepfun_api_intl", "teamorouter", "teamorouter_com", "sudocode_chat", "aihubmix", "dmxapi", "crazyrouter", "crazyrouter_intl", "therouter"} {
 		for _, suffix := range []string{cnBalanceExtraSuffixBalance, cnBalanceExtraSuffixCurrency, cnBalanceExtraSuffixBalances, cnBalanceExtraSuffixUpdated} {
 			delete(extra, cnExtraKey(provider, suffix))
 		}

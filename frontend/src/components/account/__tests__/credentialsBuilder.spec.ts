@@ -1,3 +1,4 @@
+import { usageQueryDraft, applyUsageQueryCredentials } from '../credentialsBuilder'
 import { describe, it, expect } from 'vitest'
 import {
   applyVolcengineQuotaCredentials,
@@ -610,5 +611,22 @@ describe('plan_type helpers', () => {
       expect(out).toEqual({ email: 'a@b.c' })
       expect('plan_type' in out).toBe(false)
     })
+  })
+})
+
+
+describe('management credential payloads', () => {
+  it.each(['aihubmix', 'therouter'])('drops irrelevant user ID for %s without touching inference', platform => {
+    const credentials = { api_key: 'original', usage_query_user_id: 'old' } as Record<string, unknown>
+    applyUsageQueryCredentials(credentials, platform, { token: 'management', userId: '42', clearToken: false })
+    expect(credentials).toEqual({ api_key: 'original', usage_query_token: 'management' })
+  })
+  it('never copies passwords into edit drafts', () => {
+    expect(usageQueryDraft({ usage_query_token: 'legacy', usage_query_user_id: '42' })).toEqual({ token: '', userId: '42', clearToken: false })
+  })
+  it('leaves other shared query token consumers untouched', () => {
+    const credentials = { usage_query_token: 'azure-token', usage_query_subscription_id: 'subscription' }
+    applyUsageQueryCredentials(credentials, 'azure_openai', usageQueryDraft())
+    expect(credentials.usage_query_token).toBe('azure-token')
   })
 })

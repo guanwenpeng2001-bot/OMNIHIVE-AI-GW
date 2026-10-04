@@ -8,6 +8,10 @@
       <div>{{ t('admin.accounts.compatibleUsage.limit') }}: {{ budget.unlimited ? t('admin.accounts.compatibleUsage.unlimited') : budget.limit == null ? '—' : `${budget.limit} ${budget.currency}` }}</div>
       <div>{{ t(`admin.accounts.compatibleUsage.${budget.period_kind}`) }}: {{ budget.period_start }} – {{ budget.period_end }}</div>
     </div>
+    <div v-else-if="credits" data-test="account-credits" class="text-xs" aria-live="polite">
+      <div>{{ t('admin.accounts.usageQuery.totalCredits') }}: {{ credits.total_credits }} {{ credits.unit }}</div>
+      <div>{{ t('admin.accounts.usageQuery.totalUsage') }}: {{ credits.total_usage }} {{ credits.unit }}</div>
+    </div>
     <div v-else class="flex flex-wrap items-center gap-1.5">
       <span
         data-test="cn-provider-balance-value"
@@ -26,7 +30,9 @@
       </span>
     </div>
 
-    <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com'].includes(account.platform)" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
+    <div v-if="data?.success && data.used != null" data-test="management-used" class="text-[10px] text-gray-500">{{ t('admin.accounts.usageQuery.used') }}: {{ data.used }} {{ data.currency }}</div>
+    <div v-if="queryCredentialReason && !error" data-test="query-credentials-hint" class="text-[10px] text-gray-500">{{ t(`admin.accounts.compatibleUsage.reasons.${queryCredentialReason}`) }}</div>
+    <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(account.platform)" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
     <div v-if="stale" class="text-[10px] text-amber-600">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): the old chip doubled as the data display and a hidden click
@@ -75,7 +81,7 @@ import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admi
 import type { Account } from '@/types'
 import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
-import { compatibleBalanceVisible, compatibleFailureReason } from './compatibleBalance'
+import { compatibleBalanceVisible, compatibleFailureReason, compatibleUsageCapability } from './compatibleBalance'
 import { compatibleProvider } from '@/constants/compatibleProviders'
 
 const props = defineProps<{
@@ -95,8 +101,14 @@ const visible = computed(() => cnBalanceCellVisible(props.account.platform, read
 const loading = ref(false)
 const error = ref<string | null>(null)
 const data = ref<CNProviderBalanceResult | null>(null)
+const suppressSnapshot = ref(false)
+const credits = computed(() => data.value?.success && data.value.kind === 'account_credits' ? data.value.credits : undefined)
+const queryCredentialReason = computed(() => {
+  const reason = compatibleUsageCapability(props.account).reason
+  return reason === 'missing_query_credentials' || reason === 'invalid_credentials' ? reason : undefined
+})
 const budget = computed(() => data.value?.kind === 'project_budget' ? data.value.project_budget : undefined)
-const stale = computed(() => !!compatibleProvider(props.account.platform) && (budget.value || currentEntries.value.length > 0) && (loading.value || !!error.value || !data.value))
+const stale = computed(() => !!compatibleProvider(props.account.platform) && (budget.value || credits.value || currentEntries.value.length > 0) && (loading.value || !!error.value || !data.value))
 let requestGeneration = 0
 
 const extraKey = (suffix: string) => `${props.account.platform}_${suffix}`
@@ -121,7 +133,7 @@ const snapshotBalances = computed<CNProviderBalanceEntry[]>(() => {
     return [{ currency, balance }]
   })
 })
-const balanceLow = computed(() => props.account.extra?.[extraKey('balance_low')] === true)
+const balanceLow = computed(() => !suppressSnapshot.value && props.account.platform !== 'therouter' && props.account.extra?.[extraKey('balance_low')] === true)
 
 // 优先用探测结果，其次落库快照。多币种返回全部明细，否则主币种单条。
 const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
@@ -130,6 +142,7 @@ const currentEntries = computed<CNProviderBalanceEntry[]>(() => {
     if (typeof data.value.balance === 'number') return [{ currency: data.value.currency || '', balance: data.value.balance }]
     return []
   }
+  if (suppressSnapshot.value || props.account.platform === 'therouter') return []
   if (snapshotBalances.value.length > 0) return snapshotBalances.value
   if (snapshotBalance.value != null) {
     return [{ currency: snapshotCurrency.value, balance: snapshotBalance.value }]
@@ -185,13 +198,16 @@ const handleProbe = async () => {
 }
 
 watch(
-  () => [props.account.id, props.account.platform, props.account.type, JSON.stringify(props.account.credentials), props.account.credentials_status?.has_api_key, props.account.extra?.custom_base_url_enabled],
-  () => {
+  () => [props.account.id, props.account.platform, props.account.type, JSON.stringify(props.account.credentials), props.account.credentials_status?.has_api_key, props.account.credentials_status?.has_usage_query_token, props.account.extra?.custom_base_url_enabled],
+  (current, previous) => {
+    // A same-account identity edit can arrive with old extra still attached.
+    suppressSnapshot.value = current[0] === previous[0]
     requestGeneration++
     data.value = null
     error.value = null
     loading.value = false
-  }
+  },
+  { flush: 'sync' }
 )
 onBeforeUnmount(() => { requestGeneration++ })
 </script>

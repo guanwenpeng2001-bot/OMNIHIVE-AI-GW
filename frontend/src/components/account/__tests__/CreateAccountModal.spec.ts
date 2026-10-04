@@ -2112,3 +2112,21 @@ describe('Volcengine usage query create fields', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('management query creation', () => {
+  it('submits management and inference credentials separately', async () => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 5603, platform: 'aihubmix', type: 'apikey' })
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { form: { platform: string } }
+    state.form.platform = 'aihubmix'; await flushPromises()
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Management fixture')
+    await wrapper.get('[data-account-field="apiKeyValue"]').setValue('synthetic-inference')
+    await wrapper.get('[data-test="usage-query-token"]').setValue('synthetic-management')
+    expect(wrapper.find('[data-test="usage-query-user-id"]').exists()).toBe(false)
+    await openReview(wrapper); await confirmReview(wrapper); await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ api_key: 'synthetic-inference', usage_query_token: 'synthetic-management' })
+    wrapper.unmount()
+  })
+})

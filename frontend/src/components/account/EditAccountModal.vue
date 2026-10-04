@@ -372,6 +372,8 @@
           :platform="account.platform"
           :plan="editOpenCodeAccountMode"
         />
+        <UsageQueryCredentialFields v-if="account && supportsUsageQuery(account.platform)" v-model="usageCredentials"
+          :platform="account.platform" editing :has-token="account.credentials_status?.has_usage_query_token" class="mt-4" />
         <VolcengineQuotaFields v-if="showVolcengineQuotaFields" v-model="quotaCredentials" editing
           :has-access-key-id="account.credentials_status?.has_volcengine_access_key_id ?? Boolean(account.credentials?.volcengine_access_key_id)"
           :has-secret-access-key="account.credentials_status?.has_volcengine_secret_access_key ?? Boolean(account.credentials?.volcengine_secret_access_key)" />
@@ -2496,6 +2498,8 @@ import { supplierOf } from '@/constants/supplierFamilies'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { specialCompatibleKeyOptional, specialCompatibleModeChanged, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
 import VolcengineQuotaFields from './VolcengineQuotaFields.vue'
+import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
+import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
 import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -2875,6 +2879,7 @@ const editOpenCodeAccountMode = ref<OpenCodeAccountMode>('go')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return props.account?.platform === 'opencode_go' ? editOpenCodeAccountMode.value : editAccountMode.value
 }
+const usageCredentials = ref(usageQueryDraft())
 const quotaCredentials = ref(volcengineQuotaDraft())
 const showVolcengineQuotaFields = computed(() => props.account?.platform === 'volcengine' && volcengineQuotaProfile({
   account_mode: editAccountMode.value,
@@ -3637,7 +3642,7 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   selectedCompatibleProvider.value ? compatibleDraft.value : null,
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
-  quotaCredentials.value, editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
+  usageCredentials.value, quotaCredentials.value, editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
   editBedrockRegion.value, editBedrockForceGlobal.value, editBedrockApiKeyValue.value, editVertexProjectId.value, editVertexClientEmail.value, editVertexLocation.value,
   customBaseUrlEnabled.value, customBaseUrl.value, openAIEndpointCapabilities.value, openaiPassthroughEnabled.value, anthropicPassthroughEnabled.value,
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
@@ -3664,6 +3669,7 @@ const handleModelSelectionSaved = (account: Account) => {
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
+  usageCredentials.value = usageQueryDraft(newAccount?.credentials)
   quotaCredentials.value = volcengineQuotaDraft(newAccount?.credentials)
   loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
   if (!newAccount) {
@@ -4735,6 +4741,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
           delete newCredentials.volcengine_secret_access_key
         }
       }
+      applyUsageQueryCredentials(newCredentials, props.account.platform, usageCredentials.value)
       // Handle API key
       // 后端响应已脱敏：currentCredentials 不会再包含 api_key 原文。
       // 用户填入新值则覆盖；留空时优先看 credentials_status.has_api_key；
