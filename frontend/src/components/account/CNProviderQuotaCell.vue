@@ -91,6 +91,7 @@ import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
+import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
 import { cnQuotaCellVisible } from './credentialsBuilder'
 import UsageProgressBar from './UsageProgressBar.vue'
 
@@ -237,15 +238,19 @@ const handleProbe = async () => {
 }
 
 watch(
-  [() => props.account.id, () => JSON.stringify([props.account.credentials, props.account.credentials_status,
-    props.account.extra?.custom_base_url_enabled, props.account.platform === 'volcengine' ? props.account.updated_at : null]),
-    () => props.account.platform, () => snapshotData.value],
-  (current, previous) => {
-    observationGeneration++
-    const identityChanged = current.slice(0, 3).some((value, index) => value !== previous[index])
-    data.value = identityChanged ? null : snapshotData.value
-    error.value = null
-    loading.value = false
+  [() => accountQueryIdentity(props.account), () => JSON.stringify(snapshotData.value)],
+  ([identity, snapshot], [previousIdentity, previousSnapshot]) => {
+    if (identity !== previousIdentity) {
+      observationGeneration++
+      data.value = null
+      error.value = null
+      loading.value = false
+    } else if (snapshot !== previousSnapshot) {
+      // A persisted observation is data, not an identity change. Keep an active
+      // query valid; an equivalent row refresh must not overwrite its result.
+      data.value = snapshotData.value
+      error.value = null
+    }
   }
 )
 </script>
