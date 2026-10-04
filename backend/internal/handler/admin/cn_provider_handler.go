@@ -86,24 +86,11 @@ func (handler *CNProviderHandler) QueryUsage(ctx *gin.Context) {
 		response.BadRequest(ctx, "Invalid usage query parameters")
 		return
 	}
-	for key, values := range query {
-		if (key != "granularity" && key != "start" && key != "end" && key != "timezone") || len(values) != 1 {
-			response.BadRequest(ctx, "Invalid usage query parameters")
-			return
-		}
-	}
-	window, err := service.ValidateCompatibleUsageWindow(service.CompatibleUsageWindow{
-		Granularity: query.Get("granularity"), Start: query.Get("start"), End: query.Get("end"), Timezone: query.Get("timezone"),
-	})
-	if err != nil {
-		response.ErrorFrom(ctx, err)
-		return
-	}
 	if handler == nil || handler.balanceService == nil {
 		response.BadRequest(ctx, "cn provider usage service is not enabled")
 		return
 	}
-	result, err := handler.balanceService.QueryAccountUsage(ctx.Request.Context(), accountID, window)
+	result, err := handler.balanceService.QueryProviderUsage(ctx.Request.Context(), accountID, query)
 	if err != nil {
 		response.ErrorFrom(ctx, err)
 		return
