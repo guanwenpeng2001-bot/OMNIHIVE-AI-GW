@@ -55,7 +55,9 @@ type accountCredentialChangesKey struct{}
 func WithAccountCredentialChanges(ctx context.Context, before, after map[string]any) context.Context {
 	changes := make(map[string]any)
 	for key, value := range after {
-		if old, exists := before[key]; !exists || !reflect.DeepEqual(old, value) {
+		// The caller's version is CAS intent even when equal to the initial
+		// read; the locked row may have advanced since that read.
+		if old, exists := before[key]; key == CredentialSecretVersionKey || !exists || !reflect.DeepEqual(old, value) {
 			changes[key] = value
 		}
 	}
@@ -78,8 +80,12 @@ func MergeAccountCredentialChanges(ctx context.Context, current map[string]any) 
 	for key, value := range current {
 		merged[key] = value
 	}
+	reference, _ := CredentialReference(current)
 	for key, value := range changes {
-		if value == nil {
+		// Referenced query secrets need their explicit clear marker to reach
+		// the encrypted payload CAS. Inline clears remain ordinary deletions
+		// so an absent field cannot create an encrypted reference.
+		if value == nil && (reference == "" || !IsManagementQuerySecret(key)) {
 			delete(merged, key)
 		} else {
 			merged[key] = value
