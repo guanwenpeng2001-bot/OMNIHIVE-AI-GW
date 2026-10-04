@@ -90,7 +90,8 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectPlatform" />
+        <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectSupplierPlatform" />
+        <SupplierVariantCards v-if="selectedSupplier" class="mt-4" :supplier="selectedSupplier" :model-value="supplierSelection" @update:model-value="selectSupplierVariant" />
       </div>
       <!-- Account Type Selection (Cursor): 三张一级卡先于协议与凭据，直接决定实际请求类型 -->
       <div v-if="form.platform === 'cursor'">
@@ -1316,7 +1317,7 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
+      <div v-if="!supplierSelectionIncomplete && form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
         <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="apiKeyValue = ''" />
         <div v-else-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
@@ -3111,7 +3112,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting"
+          :disabled="submitting || supplierSelectionIncomplete"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3425,6 +3426,8 @@ import { buildPlanTypeOptions } from './credentialsBuilder'
 import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountWorkflowRequest, type AccountCredentialDraft } from './accountCredentialDraft'
 
 import AccountPlatformSelector from './AccountPlatformSelector.vue'
+import SupplierVariantCards from './SupplierVariantCards.vue'
+import { supplierOf, resolveMember, type SupplierFamily, type SupplierSelection } from '@/constants/supplierFamilies'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { specialCompatibleKeyOptional, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
@@ -3733,7 +3736,42 @@ const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
 const compatibleDraft = ref<Record<string, unknown>>({})
-const selectedCompatibleProvider = computed(() => compatibleProvider(form.platform))
+const selectedSupplier = ref<SupplierFamily>()
+const supplierSelection = ref<SupplierSelection>({})
+const supplierSelectionIncomplete = computed(() => !!selectedSupplier.value && !resolveMember(selectedSupplier.value, supplierSelection.value))
+const selectedCompatibleProvider = computed(() => supplierSelectionIncomplete.value ? undefined : compatibleProvider(form.platform))
+function resetSupplierConnection() {
+  compatibleDraft.value = {}
+  form.credentials = {}
+  headerOverrideEnabled.value = false
+  headerOverrideRows.value = []
+  apiKeyValue.value = ''
+  apiKeyBaseUrl.value = ''
+  allowedModels.value = []
+  modelMappings.value = []
+}
+function selectSupplierPlatform(platform: string) {
+  const supplier = supplierOf(platform)
+  if (supplier && selectedSupplier.value?.id === supplier.id) return
+  selectedSupplier.value = supplier
+  supplierSelection.value = {}
+  if (supplier || supplierOf(form.platform)) resetSupplierConnection()
+  selectPlatform(platform)
+}
+function selectSupplierVariant(selection: SupplierSelection) {
+  if (!selectedSupplier.value) return
+  const previous = resolveMember(selectedSupplier.value, supplierSelection.value)
+  supplierSelection.value = selection
+  const member = resolveMember(selectedSupplier.value, selection)
+  if (previous?.platform === member?.platform) return
+  resetSupplierConnection()
+  if (member) {
+    selectPlatform(member.platform)
+    const provider = compatibleProvider(member.platform)!
+    const mode = compatibleMode(provider)!
+    compatibleDraft.value = { account_mode: mode.mode, api_protocol: mode.default_protocol }
+  }
+}
 const accountMode = ref<CnAccountMode>('payg')
 const openCodeAccountMode = ref<OpenCodeAccountMode>('zen')
 // API 协议决定转发端点与格式：cc=现有转换链，anthropic=原生直通（Claude Code），
@@ -4531,7 +4569,11 @@ watch(
     if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
     // Reset base URL based on platform
     if (compatibleProvider(newPlatform)) {
-      compatibleDraft.value = {}
+      const provider = compatibleProvider(newPlatform)!
+      const mode = compatibleMode(provider)!
+      compatibleDraft.value = selectedSupplier.value && !supplierSelectionIncomplete.value
+        ? { account_mode: mode.mode, api_protocol: mode.default_protocol } : {}
+      apiKeyValue.value = ''
       accountCategory.value = 'apikey'
       form.type = 'apikey'
       apiKeyBaseUrl.value = ''
@@ -5026,6 +5068,8 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 }
 
 const resetForm = () => {
+  selectedSupplier.value = undefined
+  supplierSelection.value = {}
   createdCatalogAccounts.value = []
   cursorAutoCredentials.value = {}
   cursorClientVersion.value = ''
@@ -5343,6 +5387,7 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (supplierSelectionIncomplete.value) { appStore.showError(t('admin.accounts.supplier.chooseVariant')); return }
   if (!proxySelectionValid.value) { appStore.showError(t('admin.proxyGroups.selectionRequired')); return }
   if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)

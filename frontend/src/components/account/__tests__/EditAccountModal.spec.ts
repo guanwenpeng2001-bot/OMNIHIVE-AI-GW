@@ -2956,7 +2956,7 @@ it.each([false, true])('edits a compatible account preserving other overrides an
   const wrapper = mountModal(account)
   await flushPromises()
   expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
-  expect(wrapper.get('[data-testid="compatible-protocol"]').element).toHaveProperty('value', 'anthropic')
+  expect(wrapper.get('[data-testid="compatible-protocol"] [data-choice="anthropic"]').attributes('aria-checked')).toBe('true')
   if (clearProtocol) await wrapper.get('[data-testid="compatible-base-anthropic"]').setValue('')
   await wrapper.get('form#edit-account-form').trigger('submit.prevent')
   await flushPromises()
@@ -2996,5 +2996,52 @@ it.each([false, true])('preserves Nous references for same-mode edits and clears
   expect(submitted.api_key).toBe(switchMode ? '' : undefined)
   expect(submitted.auth_mode).toBe(switchMode ? 'official_proxy' : 'invocation_token')
   expect(account.credentials).toEqual(credentials)
+  wrapper.unmount()
+})
+
+
+it('reconstructs and locks Step Plan while preserving masked references and overrides on save', async () => {
+  const credentials = { account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://relay.example/v1', api_base_urls: { anthropic: 'https://relay.example/messages', responses: 'https://retained.example/responses' }, credential_secret_reference: 'bound-secret', credential_secret_version: 3, api_key_ref: 'vault:step-plan', model_mapping: { public: 'private-model' } }
+  const account = { ...buildAccount(), platform: 'stepfun_plan', proxy_id: 8, group_ids: [12], credentials_status: { has_api_key: true }, credentials }
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  const wrapper = mountModal(account)
+  await flushPromises()
+  expect(wrapper.get('[data-testid="supplier-product"] [data-choice="stepPlan"]').attributes('aria-checked')).toBe('true')
+  expect(wrapper.get('[data-testid="supplier-region"] [data-choice="china"]').attributes('aria-checked')).toBe('true')
+  const sibling = wrapper.get('[data-testid="supplier-product"] [data-choice="api"]')
+  expect(sibling.attributes('disabled')).toBeDefined()
+  await sibling.trigger('click')
+  expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock).toHaveBeenCalledOnce()
+  const payload = updateAccountMock.mock.calls[0][1]
+  expect(payload.platform).toBeUndefined()
+  expect(payload.credentials).toMatchObject(credentials)
+  expect(payload.credentials.api_key).toBeUndefined()
+  expect(payload.proxy_id).toBeUndefined()
+  expect(payload.group_ids).toEqual([12])
+  expect(account.credentials).toEqual(credentials)
+  wrapper.unmount()
+})
+
+it('allows kat_coder same-ID coding mode edits without rebinding its masked secret', async () => {
+  const credentials = { account_mode: 'payg', api_protocol: 'adaptive', credential_secret_reference: 'kat-secret', credential_secret_version: 2, base_url: 'https://custom.example/v1', model_mapping: { public: 'private-model' } }
+  const account = { ...buildAccount(), platform: 'kat_coder', credentials_status: { has_api_key: true }, credentials }
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  updateAccountMock.mockReset().mockResolvedValue(account)
+  const wrapper = mountModal(account)
+  await flushPromises()
+  expect(wrapper.find('[data-testid="supplier-variants"]').exists()).toBe(false)
+  await wrapper.get('[data-testid="compatible-mode"] [data-choice="coding"]').trigger('click')
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock).toHaveBeenCalledOnce()
+  const payload = updateAccountMock.mock.calls[0][1]
+  expect(payload.platform).toBeUndefined()
+  expect(payload.credentials).toMatchObject({ ...credentials, account_mode: 'coding' })
+  expect(payload.credentials.api_key).toBeUndefined()
+  expect(account.platform).toBe('kat_coder')
   wrapper.unmount()
 })

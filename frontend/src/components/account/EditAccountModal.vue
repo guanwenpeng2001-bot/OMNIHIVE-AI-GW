@@ -209,6 +209,10 @@
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
+        <div v-if="selectedSupplier" class="space-y-3" data-testid="edit-supplier">
+          <p class="font-medium">{{ t(`admin.accounts.supplier.names.${selectedSupplier.id}`) }}</p>
+          <SupplierVariantCards :supplier="selectedSupplier" :model-value="selectedSupplier.members.find(member => member.platform === account?.platform)?.selection ?? {}" locked />
+        </div>
         <CompatibleProviderFields v-if="selectedCompatibleProvider" :provider="selectedCompatibleProvider" v-model="compatibleDraft" @reset-secret="editApiKey = ''" />
         <div v-else-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
@@ -2484,6 +2488,8 @@ import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import CompatibleProviderFields from './CompatibleProviderFields.vue'
+import SupplierVariantCards from './SupplierVariantCards.vue'
+import { supplierOf } from '@/constants/supplierFamilies'
 import { compatibleProvider, compatibleMode, buildCompatibleCredentials, compatibleDiscoveryDisabled } from '@/constants/compatibleProviders'
 import { specialCompatibleKeyOptional, specialCompatibleModeChanged, validateSpecialCompatibleDraft } from './compatibleSpecialAuth'
 import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
@@ -2636,6 +2642,7 @@ watch(accountForm, (element, _previous, cleanup) => {
 }, { flush: 'post' })
 
 const props = defineProps<Props>()
+const selectedSupplier = computed(() => supplierOf(props.account?.platform || ''))
 const selectedCompatibleProvider = computed(() => compatibleProvider(props.account?.platform || ''))
 const compatibleDraft = ref<Record<string, unknown>>({})
 watch([() => props.account, () => props.show], () => {

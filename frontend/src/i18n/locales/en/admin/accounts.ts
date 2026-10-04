@@ -3,6 +3,17 @@ import { COMPATIBLE_PROVIDERS } from '@/constants/compatibleProviders'
 export default {
 
     accounts: {
+      supplier: {
+        credentialPlan: 'Credential plan',
+        planKeyHint: 'Use the credential issued for the selected product or plan.',
+        protocolDescriptions: { adaptive: 'Prefer the native endpoint matching each request.', chat_completions: 'Use the provider’s OpenAI-compatible chat endpoint.', anthropic: 'Use the provider’s Messages endpoint for Claude-compatible clients.', responses: 'Use the provider’s Responses endpoint for Codex-compatible clients.' },
+        names: { astron: 'Astron', stepfun: 'StepFun', mimo: 'Xiaomi MiMo', compshare: 'Compshare', siliconflow: 'SiliconFlow', qwencloud: 'QwenCloud', dmxapi: 'DMXAPI', teamorouter: 'TeamoRouter', crazyrouter: 'CrazyRouter' },
+        region: 'Region', product: 'Product / plan', site: 'Service site',
+        locked: 'Region, product and service site are fixed for this account. Create a new account to use another variant.',
+        chooseVariant: 'Choose each option to configure this account.',
+        choices: { tokenPlanSingapore: 'Token Plan (Singapore)', tokenPlanEurope: 'Token Plan (Europe)', china: 'China', international: 'International', global: 'Global', api: 'API', stepPlan: 'Step Plan', tokenPlanChina: 'Token Plan (China)', codingPlan: 'Coding Plan', maas: 'MaaS', maasTokenPlan: 'MaaS Token Plan', tokenPlan: 'Token Plan', cnSite: '.cn', comSite: '.com', ssvip: 'SSVIP' }
+      },
+
       specialCompatibleAuth: {
         authMode: 'Authentication mode',
         selectAuthMode: 'Select authentication mode',
