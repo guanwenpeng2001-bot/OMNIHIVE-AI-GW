@@ -51,7 +51,7 @@ func (c volcengineCredentialCapture) Match(value driver.Value) bool {
 }
 
 func quotaCredentialMap() map[string]any {
-	return map[string]any{"api_key": "inference-secret", "volcengine_access_key_id": "management-access", "volcengine_secret_access_key": "management-secret", "account_mode": "coding"}
+	return map[string]any{"api_key": "inference-secret", "volcengine_access_key_id": "management-access", "volcengine_secret_access_key": "management-secret", "account_mode": "coding", "tencent_query_secret_id": "management-access", "tencent_query_secret_key": "management-secret", "usage_query_token": "management-secret"}
 }
 
 func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
@@ -65,7 +65,7 @@ func TestVolcengineQueryReferenceCreateEncryptsAndFailsClosed(t *testing.T) {
 	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), "credential_secret.convert", sqlmock.AnyArg(), volcengineCredentialCapture{&audit}).WillReturnResult(sqlmock.NewResult(1, 1))
 	inline, err := prepareReferencedCredentials(context.Background(), db, enc, 17, 7, map[string]any{}, quotaCredentialMap())
 	require.NoError(t, err)
-	for _, key := range []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key"} {
+	for _, key := range []string{"api_key", "volcengine_access_key_id", "volcengine_secret_access_key", "tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
 		require.NotContains(t, inline, key)
 	}
 	require.Equal(t, reference, inline[service.CredentialSecretReferenceKey])
@@ -98,10 +98,19 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			incoming := maps.Clone(current)
 			switch operation {
 			case "blank":
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+					incoming[field] = " "
+				}
 				incoming["volcengine_secret_access_key"] = ""
 			case "rotate", "conflict":
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+					incoming[field] = "rotated"
+				}
 				incoming["volcengine_secret_access_key"] = "rotated"
 			case "clear":
+				for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+					incoming[field] = nil
+				}
 				incoming["volcengine_secret_access_key"] = nil
 				incoming["volcengine_access_key_id"] = nil
 			}
@@ -128,6 +137,17 @@ func TestVolcengineQueryReferenceUpdateClearAndRetain(t *testing.T) {
 			resolved, err := service.ResolveCredentialSecret(context.Background(), enc, metadata, ciphertext)
 			require.NoError(t, err)
 			require.Equal(t, "inference-secret", resolved["api_key"])
+			for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+				require.NotContains(t, out, field)
+				switch operation {
+				case "clear":
+					require.NotContains(t, resolved, field)
+				case "rotate":
+					require.Equal(t, "rotated", resolved[field])
+				default:
+					require.Equal(t, quotaCredentialMap()[field], resolved[field])
+				}
+			}
 			if operation == "clear" {
 				require.NotContains(t, resolved, "volcengine_secret_access_key")
 				require.NotContains(t, resolved, "volcengine_access_key_id")
@@ -247,4 +267,46 @@ func TestVolcengineSnapshotConfigurationPreservation(t *testing.T) {
 	require.Equal(t, "current-reset", incoming["volcengine_monthly_reset_at"])
 	require.NotContains(t, incoming, "volcengine_weekly_used_percent")
 	require.Equal(t, "keep", incoming["note"])
+}
+
+func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
+	for _, field := range []string{"tencent_query_secret_id", "tencent_query_secret_key", "usage_query_token"} {
+		t.Run(field, func(t *testing.T) {
+			database, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer database.Close()
+			encryptor, err := NewAESEncryptor(&config.Config{Totp: config.TotpConfig{EncryptionKey: strings.Repeat("42", 32)}})
+			require.NoError(t, err)
+			credentials := map[string]any{"api_key": "inference-secret", field: "management-secret", "usage_query_user_id": "user"}
+			var reference, ciphertext string
+			mock.ExpectExec("INSERT INTO credential_secrets").WithArgs(volcengineCredentialCapture{&reference}, int64(7), int64(17), volcengineCredentialCapture{&ciphertext}, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(1, 1))
+			mock.ExpectExec("INSERT INTO audit_logs").WillReturnResult(sqlmock.NewResult(1, 1))
+			inline, err := prepareReferencedCredentials(context.Background(), database, encryptor, 17, 7, nil, credentials)
+			require.NoError(t, err)
+			require.NotContains(t, inline, field)
+			require.NotContains(t, inline, "api_key")
+			require.Equal(t, "user", inline["usage_query_user_id"])
+			resolved, err := service.ResolveCredentialSecret(context.Background(), encryptor, service.CredentialSecret{Reference: reference, AccountID: 17, WorkspaceID: 7, Version: 1}, ciphertext)
+			require.NoError(t, err)
+			require.Equal(t, "management-secret", resolved[field])
+			require.Equal(t, "inference-secret", resolved["api_key"])
+			require.NoError(t, mock.ExpectationsWereMet())
+			_, err = (&accountRepository{}).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
+			require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
+		})
+	}
+}
+
+func TestCloudQuotaSnapshotConfigurationPreservation(t *testing.T) {
+	current := map[string]any{"volcengine_daily_used_percent": 30.0, "hunyuan_token_plan": map[string]any{"unit": "tokens"}, "hunyuan_usage_updated_at": "old"}
+	incoming := map[string]any{"volcengine_daily_used_percent": 0, "volcengine_daily_reset_at": "invented", "hunyuan_token_plan": map[string]any{"unit": "credits"}}
+	mergeAccountRuntimeExtra(incoming, current)
+	require.Equal(t, current, incoming)
+	// Both the bulk identity path and direct secret-rotation path must erase
+	// observations tied to the previous management identity.
+	for _, expression := range []string{clearChangedAccountRuntimeObservationsSQL("credentials", "extra", "TRUE"), cloudQuotaInvalidationSQL("$1::jsonb")} {
+		for _, key := range []string{"volcengine_daily_used_percent", "volcengine_daily_reset_at", "hunyuan_token_plan", "hunyuan_usage_updated_at"} {
+			require.Contains(t, expression, "'"+key+"'")
+		}
+	}
 }

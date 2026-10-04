@@ -45,13 +45,14 @@ func cnExtraKey(provider, suffix string) string { return provider + "_" + suffix
 
 // CNQuotaTier 表示一个滚动用量窗口档位（5h / weekly）。
 type CNQuotaTier struct {
-	Window      string  `json:"window"`             // "5h" | "weekly" | "monthly"
+	Window      string  `json:"window"`             // "5h" | "daily" | "weekly" | "monthly"
 	UsedPercent float64 `json:"used_percent"`       // 已用百分比（0-100+，不做裁剪）
 	ResetAt     string  `json:"reset_at,omitempty"` // RFC3339，空表示无重置时间
 }
 
 // CNProviderQuotaProbeResult 是 Coding Plan 额度探测的返回结构（管理端 + UI 消费）。
 type CNProviderQuotaProbeResult struct {
+	TokenPlan       *CNTokenPlanQuota  `json:"token_plan,omitempty"`
 	Status          string             `json:"status,omitempty"`
 	Unsupported     bool               `json:"unsupported,omitempty"`
 	Credits         map[string]float64 `json:"credits,omitempty"`
@@ -134,7 +135,13 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
 	if account.Platform == PlatformVolcengine || account.Platform == "byteplus" {
+		if volcengineAgentUsageProfile(account) {
+			return s.queryVolcengineAgentUsage(ctx, account), nil
+		}
 		return s.queryVolcengineCodingUsage(ctx, account), nil
+	}
+	if account.Platform == PlatformHunyuan {
+		return s.queryTencentTokenPlan(ctx, account), nil
 	}
 	if account.IsCommandCode() {
 		return s.queryCommandCodeUsage(ctx, account)
@@ -331,6 +338,9 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 func validateCodingPlanAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if tencentTokenPlanProfile(account) {
+		return nil
 	}
 	if (account.Platform == PlatformVolcengine || account.Platform == "byteplus") && account.Type == AccountTypeAPIKey {
 		return nil
@@ -676,6 +686,11 @@ func cnQuotaExtraUpdates(provider string, tiers []CNQuotaTier, now time.Time) ma
 			updates[cnExtraKey(provider, cnExtraSuffix5hUsed)] = t.UsedPercent
 			if t.ResetAt != "" {
 				updates[cnExtraKey(provider, cnExtraSuffix5hReset)] = t.ResetAt
+			}
+		case "daily":
+			updates[cnExtraKey(provider, "daily_used_percent")] = t.UsedPercent
+			if t.ResetAt != "" {
+				updates[cnExtraKey(provider, "daily_reset_at")] = t.ResetAt
 			}
 		case "weekly":
 			updates[cnExtraKey(provider, cnExtraSuffixWeeklyUsed)] = t.UsedPercent

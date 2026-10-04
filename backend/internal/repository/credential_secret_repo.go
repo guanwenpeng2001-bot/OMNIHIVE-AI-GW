@@ -148,7 +148,7 @@ func writeReferencedAccount(ctx context.Context, database credentialSQL, account
 		return err
 	}
 	_, err = database.ExecContext(ctx, `UPDATE accounts SET credentials=$2::jsonb, updated_at=NOW(),
-		extra=COALESCE(extra,'{}'::jsonb)-'upstream_billing_probe'-'ollama_cloud_usage_snapshot' - `+volcengineQuotaInvalidationSQL("$2::jsonb")+`
+		extra=COALESCE(extra,'{}'::jsonb)-'upstream_billing_probe'-'ollama_cloud_usage_snapshot' - `+cloudQuotaInvalidationSQL("$2::jsonb")+`
 		WHERE id=$1`+workspaceClause(ctx, "workspace_id"), accountID, string(payload))
 	if err != nil {
 		return err
@@ -204,7 +204,7 @@ func (r *credentialSecretRepository) mutate(ctx context.Context, accountID, expe
 			if !service.IsSensitiveCredentialKey(field) {
 				return nil, service.ErrCredentialSecretInvalid
 			}
-			if service.IsVolcengineQuerySecret(field) {
+			if service.IsManagementQuerySecret(field) {
 				if value == nil {
 					delete(secrets, field)
 					continue
@@ -282,8 +282,8 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 		if incomingReferenced {
 			return nil, service.ErrCredentialSecretInvalid
 		}
-		if hasVolcengineQuerySecrets(incoming) {
-			return createVolcengineQueryReference(ctx, database, encryptor, accountID, workspaceID, incoming)
+		if hasManagementQuerySecrets(incoming) {
+			return createManagementQueryReference(ctx, database, encryptor, accountID, workspaceID, incoming)
 		}
 		return incoming, nil
 	}
@@ -304,7 +304,7 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 	inline, incomingSecrets := service.SplitCredentialSecrets(incoming)
 	changed := map[string]any{}
 	for field, value := range incomingSecrets {
-		if service.IsVolcengineQuerySecret(field) {
+		if service.IsManagementQuerySecret(field) {
 			if value == nil {
 				if _, exists := secrets[field]; exists {
 					changed[field] = nil
