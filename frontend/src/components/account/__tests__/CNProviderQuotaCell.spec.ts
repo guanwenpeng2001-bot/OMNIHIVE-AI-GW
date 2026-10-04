@@ -309,24 +309,24 @@ describe('Volcengine upstream usage observations', () => {
     expect(wrapper.findComponent(UsageProgressBar).props('label')).toContain('windowMonthly')
     wrapper.unmount()
   })
-  it.each(['version', 'edition', 'seat'])('discards in-flight results after the %s changes', async change => {
+  it.each(['version', 'edition', 'seat', 'root', 'account'])('discards in-flight results after the %s changes', async change => {
     let finish!: (value: unknown) => void
     queryQuota.mockReturnValue(new Promise(resolve => { finish = resolve }))
     const initial = codingAccount(5450 + change.length, { volcengine_5h_used_percent: 18, volcengine_usage_updated_at: new Date().toISOString() })
-    initial.updated_at = '2026-10-04T10:00:00Z'
+    Object.assign(initial, { runtime_identity: 'old-digest', credentials_status: { has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true } })
     const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
     await flushPromises()
     expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
     await wrapper.get('button').trigger('click')
-    const updated = { ...initial, ...(change === 'version' ? { updated_at: '2026-10-04T10:01:00Z' } : {
-      credentials: { ...initial.credentials, ...(change === 'edition' ? { volcengine_plan_edition: 'team' } : { volcengine_seat_id: 'another-synthetic-seat' }) }
+    const updated = { ...initial, ...(change === 'version' ? { runtime_identity: 'rotated-digest' } : {
+      credentials: { ...initial.credentials, ...(change === 'edition' ? { volcengine_plan_edition: 'team' } : change === 'root' ? { base_url: 'https://relay.example/api/coding/v3' } : { volcengine_seat_id: 'another-synthetic-seat' }) }
     }) }
-    await wrapper.setProps({ account: updated })
+    await wrapper.setProps({ account: change === 'account' ? { ...updated, id: initial.id + 1 } : updated })
     finish({ success: true, tiers: [{ window: '5h', used_percent: 88 }] })
     await flushPromises()
     expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
     expect(wrapper.text()).not.toContain('88%')
-    expect(wrapper.text()).toContain('usageUnknown')
+    if (change !== 'root') expect(wrapper.text()).toContain('usageUnknown')
     wrapper.unmount()
   })
   it.each(['https://ark.cn-beijing.volces.com/api/plan/v3', 'https://relay.example/api/coding/v3'])('never probes an unverified profile %s', async base_url => {
@@ -335,6 +335,60 @@ describe('Volcengine upstream usage observations', () => {
     await flushPromises()
     expect(queryQuota).not.toHaveBeenCalled()
     expect(wrapper.find('button').exists()).toBe(false)
+    wrapper.unmount()
+  })
+})
+
+
+describe('quota identity and ordinary row refreshes', () => {
+  const initialAccount = () => ({
+    ...account, id: 6001, platform: 'volcengine',
+    credentials: { account_mode: 'coding', base_url: 'https://ark.cn-beijing.volces.com/api/coding/v3' },
+    credentials_status: { has_volcengine_access_key_id: true, has_volcengine_secret_access_key: true },
+    updated_at: '2026-10-04T10:00:00Z',
+    extra: { volcengine_5h_used_percent: 18, volcengine_usage_updated_at: new Date().toISOString() }
+  } as Account)
+
+  beforeEach(() => { queryQuota.mockReset() })
+
+  it.each([false, true])('preserves 18 percent on timestamp, notes, and snapshot time updates (runtime identity: %s)', async withIdentity => {
+    const initial = { ...initialAccount(), ...(withIdentity ? { runtime_identity: 'stable-digest' } : {}) }
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    for (const update of [
+      { ...initial, updated_at: '2026-10-04T10:01:00Z' },
+      { ...initial, notes: 'updated note' },
+      { ...initial, extra: { ...initial.extra, volcengine_usage_updated_at: '2099-10-04T10:01:00Z' } },
+    ]) {
+      await wrapper.setProps({ account: update })
+      expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(18)
+    }
+    wrapper.unmount()
+  })
+
+  it('keeps a live result when an equivalent persisted snapshot is refreshed', async () => {
+    const initial = initialAccount()
+    queryQuota.mockResolvedValue({ success: true, tiers: [{ window: '5h', used_percent: 41 }], fetched_at: 1791120000 })
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.setProps({ account: { ...initial, extra: { ...initial.extra }, notes: 'note' } })
+    expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(41)
+    wrapper.unmount()
+  })
+
+  it.each(['row', 'snapshot'])('accepts an in-flight result after a same-identity %s timestamp update', async source => {
+    let finish!: (value: unknown) => void
+    queryQuota.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    const initial = initialAccount()
+    const wrapper = mount(CNProviderQuotaCell, { props: { account: initial } })
+    await wrapper.get('button').trigger('click')
+    await wrapper.setProps({ account: source === 'row'
+      ? { ...initial, updated_at: '2099-10-04T10:01:00Z' }
+      : { ...initial, extra: { ...initial.extra, volcengine_usage_updated_at: '2099-10-04T10:01:00Z' } } })
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    finish({ success: true, tiers: [{ window: '5h', used_percent: 29 }] })
+    await flushPromises()
+    expect(wrapper.findComponent(UsageProgressBar).props('utilization')).toBe(29)
     wrapper.unmount()
   })
 })

@@ -584,6 +584,8 @@ export interface AccountExtra extends CodexUsageSnapshot, OpenAICompactState, Op
 export type AccountStatus = 'active' | 'inactive' | 'error'
 
 export interface AccountListItem {
+  // Opaque admin response digest; optional for older servers.
+  readonly runtime_identity?: string
   tpm_limit?: number
   id: number
   name: string
