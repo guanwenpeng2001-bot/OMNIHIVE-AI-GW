@@ -1432,10 +1432,18 @@ export default {
       }
     },
     "notes": {
-      "coverage": "本次扩展包含 72 个独立兼容供应商 ID。Copilot / Nous 支持手工凭据子集：fine_grained_pat、invocation_token、official_proxy，无自动 OAuth 或 refresh。上游仅 Chat，本站 Messages / Responses / Gemini 桥接经过离线合同测试，不是供应商在线认证；真实可用性需运营方授权 key 验证。内部 payg 路由不表示供应商按量计费。RelayCode 身份未解决，与已实现的 RelaxyCode 分开；ETok.ai 是历史移除的预设，不是停服声明。",
+      "coverage": "供应商系列、地区、产品与套餐以当前后台目录为准，账号与分组权限决定实际访问范围。目录包含 Astron Token Plan、小米 MiMo 中国/欧洲/新加坡等独立产品和集群；相似名称不代表密钥互通。Copilot / Nous 支持手工凭据子集：fine_grained_pat、invocation_token、official_proxy，无自动 OAuth 或 refresh。上游仅 Chat，本站 Messages / Responses / Gemini 桥接经过离线合同测试，不是供应商在线认证；真实可用性需运营方授权 key 验证。内部 payg 路由不表示供应商按量计费。RelayCode 身份未解决，与已实现的 RelaxyCode 分开；ETok.ai 是历史移除的预设，不是停服声明。",
       "plans": "区域根地址、套餐 key 与未知元数据分别保留。Tencent Intl 个人套餐不能从共享主机继承企业 Responses；企业需明确配置 Responses 端点。Copilot 使用 Copilot-Integration-Id: omnihive，根 /models 与 /v1/chat/completions 分开。Nous invocation token 到期手工替换；official_proxy 需显式可移植的运营方 URL 前缀（不自动加 /v1），入口 key 可选。通过单账号编辑切换 auth_mode（包括密钥引用账号），必须新 key 或在无 key 代理时明确清空；同模式编辑保留密钥引用。不读取客户端 token 存储或共享 refresh grants。消费者订阅、Coding 套餐不自动授予 API、共享或自动化权限。",
       "media": "图片、视频和音频路由分别见对应章节。增加兼容文本供应商不等于新增原生媒体适配器；调用前须确认具体媒体动作、分组和模型。",
-      "evidence": "手工余额支持 Novita / PPIO（USD / CNY，除以 10000）、SiliconFlow CN / Global（CNY / USD，不缩放）、胜算云（CNY，仅 common 网关）、SoleAPI（remaining Credits，不折算现金）。不支持或失败不是零余额；管理 key API 不等于推理 key API。CC Switch 固定提交 793e67d9b3210eb527e7d36f2c866a56fae9dec7 是客户端配置证据，不是运行认证。OpenRouter 文档是 API 参考，不自动成为本站价格或功能承诺。"
+      "evidence": "手工钱包查询支持 Novita / PPIO（USD / CNY，除以 10000）、SiliconFlow CN / Global（CNY / USD，不缩放）、SoleAPI（remaining Credits，不折算现金）及 AtlasCloud PAYG（账户余额、返回币种，需读取权限）。胜算云 common 返回 CNY 钱包，enterprise 返回 project_budget，保留预算周期与无限状态；不是个人钱包。查询结果附时间，不支持或失败不是零余额。CC Switch 固定提交 793e67d9b3210eb527e7d36f2c866a56fae9dec7 是配置证据，不是运行认证；供应商文档不自动成为本站价格或功能承诺。",
+      "selection": "管理员按认证方式、套餐类型、协议核对账号。有套餐目录时选择并保存 billing_plan：AICodeMirror 提供 PRO / MAX / ULTRA / 按量付费，CCSub 提供月度订阅 / 按量付费；编辑会回显，清除移除选择。未选保持未设置，选择不购买额度、不改变模型权限或传输地址。AtlasCloud Coding、七牛订阅继续使用独立接入模式与专用 Key。本站用户订阅与上游供应商套餐分别管理。",
+      "usage": "七牛 PAYG 手工查询 consumed_usage：今天、近 7 天或近 30 天；day 粒度、明确时区的 RFC3339 起止、最多 31 天，默认 Asia/Shanghai。按模型/计费项保留 kToken 等原单位，不合计不同单位、不当作剩余额度。钱包余额、上游套餐额度、项目预算和本站账本消耗分别核对；本站记录不包含绕过本站的调用。保存 plan 套餐会阻止未验证的 PAYG 查询；AtlasCloud Coding、七牛订阅没有对应已接入的套餐余额查询。",
+      "queryErrors": "查询未接入、当前模式不可查、自定义地址不匹配、密钥无效、权限不足、代理不可用、限流、上游失败与格式错误分别处理；未知不等于零或无限。先看成功状态与时间，再看数值；不要把旧钱包快照当实时余额。这些查询在管理员账号列表操作，普通本站模型 Key 不具备管理查询权限。",
+      "configuration": "直接 URL + Key：客户端使用本站地址、本站 Key 与当前组可见的精确模型 ID。CC Switch 是可选配置工具，其预设、模型映射和本地协议转换需单独核对，不能代替网关授权。模型发现/同步与实际调用分开；没有发现接口时仍可由管理员维护已确认的模型映射。",
+      "volcengineQuota": "火山 Ark Coding 个人/团队套餐：管理员另配用量查询 AK/SK，与推理 Key 分开；密钥不回显，编辑留空保留，明确清除才删除。旧账号缺省 personal；team 可填席位，未填查询当前身份绑定席位。5h / weekly / monthly 只显示已用百分比和重置时间，不填造 used/total、Token 或现金；重置不等于订阅到期。缺凭据不影响原推理配置。BytePlus 和 Ark Agent Plan 查询合同尚未核实，不属于本功能范围。",
+      "quotaStatus": "火山查询先看 success / status 和查询时间：ok、missing_credentials、invalid_credentials、permission_denied、unsupported_profile、no_verified_query、not_subscribed、no_seat、invalid_response、upstream_error、url_rejected 分别代表成功、缺凭据、凭据错误、权限不足、档案不支持、未核实查询、未订阅、无席位、响应无效、上游失败、出站策略拒绝。HTTP 200 不等于业务成功；失败不当零、不清历史，旧读数须结合更新时间判断，缺窗口也不补零。",
+      "modelSync": "模型同步或保存失败保留原模型 ID、别名映射、白名单、选中项与上次成功目录。discovered_models 才是上游实际发现；candidate_models / 平台预设仍是候选，不证明账号可用，手工选择不等于发现成功。候选不能单独使目录 ready 或写入 eligible_models。discovery=none 默认尚未确认列表接口，不等于官方确认没有接口；保持关闭，不猜路径。",
+      "modelSyncErrors": "模型同步错误以 upstream_model_sync_ 原因码区分：configuration 配置、credentials 凭据、account_type 账号类型、not_adapted 未适配、discovery_unconfirmed 未确认、endpoint_not_found 上游404路径、method_not_allowed 上游405方法、permission 上游403权限、rate_limited 上游429限流、network 网络、upstream 上游、internal 内部。403 没有明确认证错误码时不直接认定 Key 失效；未知原因显示同步失败，不归为账号类型。不要为修复错误清空配置；同步成功仍需验证实际调用。"
     }
   }
 }

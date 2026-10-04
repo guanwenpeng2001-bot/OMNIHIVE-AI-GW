@@ -91,6 +91,7 @@ describe('configuration manual', () => {
     const { wrapper } = mountGuide(locale)
     const supplierSection = wrapper.get('section#suppliers')
     expect(supplierSection.findAll('tbody tr')).toHaveLength(5)
+    expect(supplierSection.text()).not.toMatch(/72 (?:个|distinct)/)
     expect(supplierSection.text()).toContain('https://omnihive2.com/v1')
     for (const endpoint of ['/v1/models', '/v1/models/catalog', '/v1beta/models/']) {
       expect(supplierSection.text()).toContain(endpoint)
@@ -98,12 +99,25 @@ describe('configuration manual', () => {
     for (const supplierName of ['Copilot', 'Nous', 'RelayCode', 'RelaxyCode', 'ETok.ai']) {
       expect(supplierSection.text()).toContain(supplierName)
     }
-    for (const contract of ['72', 'fine_grained_pat', 'invocation_token', 'official_proxy',
+    for (const contract of ['billing_plan', 'AICodeMirror', 'CCSub', 'AtlasCloud', 'kToken', 'project_budget', 'consumed_usage', 'Asia/Shanghai', 'fine_grained_pat', 'invocation_token', 'official_proxy',
       'Copilot-Integration-Id: omnihive', '/models', '/v1/chat/completions',
       'Tencent Intl', 'Novita', 'PPIO', 'SiliconFlow', 'SoleAPI', '10000', 'Credits']) {
       expect(supplierSection.text()).toContain(contract)
     }
     const supplierCopy = supplierSection.text()
+    for (const contract of ['Ark Coding', 'AK/SK', 'BytePlus', 'Ark Agent Plan',
+      '5h / weekly / monthly', 'missing_credentials', 'invalid_credentials', 'permission_denied',
+      'unsupported_profile', 'no_verified_query', 'not_subscribed', 'no_seat',
+      'invalid_response', 'upstream_error', 'url_rejected', 'discovered_models', 'candidate_models',
+      'upstream_model_sync_', 'discovery_unconfirmed', 'endpoint_not_found', 'method_not_allowed']) {
+      expect(supplierCopy).toContain(contract)
+    }
+    for (const boundary of locale === 'en'
+      ? ['explicit clearing removes them', 'Failures never become zero or erase history',
+        'Selecting a candidate manually is not discovery success']
+      : ['明确清除才删除', '失败不当零、不清历史', '手工选择不等于发现成功']) {
+      expect(supplierCopy).toContain(boundary)
+    }
     expect(supplierCopy).not.toMatch(/pending integration|待集成验证|70 distinct|70 个独立/)
     for (const boundary of locale === 'en'
       ? ['offline contract tests, not live vendor certification', 'no automatic OAuth or refresh',

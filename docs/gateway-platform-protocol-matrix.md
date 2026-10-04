@@ -12,11 +12,35 @@ recertify every historical platform claim or deployment.
 
 ## Existing concrete platforms
 
-The table below covers the 19 existing concrete platforms. The provider expansion
-adds 72 distinct compatible supplier IDs; their exact mode, base, authentication,
-discovery and declared conversion contracts are listed in the
-[administrator provider reference](provider-configuration.md). The 72 IDs are
-not additional native media adapters. Copilot and Nous are included as manual-credential subsets, without automatic OAuth or refresh. Regional roots, auth defaults, unknown metadata and the six manual balance contracts are documented in that reference. The original 19-platform table below retains its historical scope; migration 283 likewise retains its historical 70 compatible IDs. Neither count replaces the current 72-ID registry.
+The table below retains its historical concrete-platform scope. Compatible
+suppliers, regional products, modes and selectable plans are defined by the
+[current registry](../backend/internal/domain/data/compatible_providers/index.json),
+not a frozen ID count. Their exact bases, authentication, discovery and declared
+bridges are in the [administrator provider reference](provider-configuration.md).
+Supplier-family cards can group multiple route IDs without migrating accounts.
+A registry entry is not an additional native media adapter. Copilot and Nous use
+manual credentials without automatic OAuth or refresh; migration 283 is a
+historical migration, not the current registry inventory.
+
+`credentials.billing_plan` stores an operator-selected product, not proof of a
+purchase, quota or model entitlement. Omitted updates retain it; null/empty clears
+it. Independent transport modes (AtlasCloud Coding and Qiniu subscription) keep
+their own endpoint/key contracts. Plan selections gate PAYG queries without
+changing inference transport. See [plan configuration](provider-configuration.md#套餐选择保存与清除).
+
+Manual administrator queries distinguish `wallet_balance`, `project_budget`,
+`consumed_usage` and `unsupported`. AtlasCloud PAYG reads account balance;
+Shengsuanyun enterprise returns project budget with period and unlimited state;
+Qiniu PAYG returns consumed usage for an explicit day-granularity window (at most
+31 days), preserving units such as kToken. Neither plan-only selections nor
+AtlasCloud Coding/Qiniu subscription inherit these PAYG query permissions.
+Missing readings are not zero. Local ledger usage, upstream wallet and upstream
+plan quota are separate. These admin routes use administrator authentication:
+`GET /api/v1/admin/cn-providers/accounts/:id/balance` and
+`GET /api/v1/admin/cn-providers/accounts/:id/usage`; they are not public inference
+endpoints. See [query contracts and errors](provider-configuration.md#手工余额查询).
+Direct URL + key configuration and CC Switch client-side mapping are independent;
+model discovery does not prove an inference action is authorized.
 
 | Compatible ID / auth mode | Upstream / discovery | Public gateway behavior and limits |
 | --- | --- | --- |
@@ -60,6 +84,36 @@ adapter per action, then retains account/model qualification. A provider's lack
 of a native Messages or Responses URL does not by itself reject an implemented
 public bridge. Unsupported actions are rejected; error envelopes follow the
 public protocol and the selected handler rather than one universal body shape.
+
+## Coding quota and model synchronization
+
+Domestic Ark Coding personal/team uses the existing administrator route
+`GET /api/v1/admin/cn-providers/accounts/:id/quota`. Query credentials are
+`volcengine_access_key_id` and `volcengine_secret_access_key`, independent of the
+inference key and never echoed back. Omitted updates preserve them; explicit null
+clears them. `volcengine_plan_edition` is personal/team (default personal), and
+`volcengine_seat_id` is optional for team access. Only the domestic Coding profile
+is eligible; BytePlus and Ark Agent Plan query contracts remain unverified.
+
+Returned 5h/weekly/monthly windows contain used percentages and optional reset
+times, not absolute used/total or cash. Missing windows and failed queries are not
+zero; failures retain the last successful snapshot with its original time. Check
+success and status, including missing_credentials, invalid_credentials,
+permission_denied, unsupported_profile, no_verified_query, not_subscribed, no_seat,
+invalid_response, upstream_error and url_rejected; HTTP 200 alone is insufficient.
+The control-plane host is fixed and signed with query AK/SK; it does not receive
+inference credentials or inherit inference header overrides. See the
+[configuration and status contract](provider-configuration.md#火山-ark-coding-套餐用量).
+
+Model synchronization distinguishes configuration, credentials, account type,
+unadapted platform, unconfirmed discovery, 404 endpoint, 405 method, 403 permission,
+429 rate limit, network, upstream and internal errors. A disabled discovery mode
+is unconfirmed unless explicit supplier evidence establishes absence; no model
+endpoint is guessed. Failure preserves saved mappings, whitelist, selection and
+last successful catalog. Only actual discovered_models are discovery evidence;
+candidate_models and platform presets remain candidates, and selecting one is
+manual configuration, not discovery success. Candidates cannot alone establish a
+ready catalog or populate eligible_models. See [model synchronization](provider-configuration.md#模型同步候选与失败处理).
 
 ## Core endpoint contracts
 
