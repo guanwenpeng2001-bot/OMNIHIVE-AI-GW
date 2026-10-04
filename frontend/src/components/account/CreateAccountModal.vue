@@ -91,7 +91,6 @@
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
         <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectSupplierPlatform" />
-        <SupplierVariantCards v-if="selectedSupplier" class="mt-4" :supplier="selectedSupplier" :model-value="supplierSelection" @update:model-value="selectSupplierVariant" />
       </div>
       <!-- Account Type Selection (Cursor): 三张一级卡先于协议与凭据，直接决定实际请求类型 -->
       <div v-if="form.platform === 'cursor'">
@@ -221,6 +220,7 @@
         <AccountChoiceCards :label="t('admin.accounts.supplier.authenticationMethod')" model-value="apikey" :columns="3"
           :options="[{ value: 'apikey', label: t('admin.accounts.apiKey'), icon: 'key', description: t('admin.accounts.platformDetails.apiKeyOnlyAccountTypeDescription') }]" />
       </div>
+      <SupplierVariantCards v-if="selectedSupplier" :supplier="selectedSupplier" :model-value="supplierSelection" @update:model-value="selectSupplierVariant" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>

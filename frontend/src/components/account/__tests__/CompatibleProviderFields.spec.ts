@@ -13,7 +13,7 @@ import CompatibleProviderFields from '../CompatibleProviderFields.vue'
 import AccountPlatformSelector from '../AccountPlatformSelector.vue'
 import { GROUP_PLATFORM_OPTIONS, PRODUCT_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth, platformSupportsPricingSync, platformFamily } from '@/constants/platforms'
 import { platformBadgeClass, platformSolidBadgeClass } from '@/utils/platformColors'
-import { compatibleDiscoveryDisabled, buildCompatibleCredentials } from '@/constants/compatibleProviders'
+import { compatibleDiscoveryDisabled, buildCompatibleCredentials, compatibleProvider } from '@/constants/compatibleProviders'
 import { isCNProviderPlatform, isMultiProtocolApiKeyPlatform, showsCodingPlanMode, isDeclaredProtocolPlatform } from '../credentialsBuilder'
 import en from '@/i18n/locales/en/admin/accounts'
 import zh from '@/i18n/locales/zh/admin/accounts'
@@ -26,6 +26,52 @@ function mountFields(provider = compatibleFixture, modelValue: Record<string, un
 }
 
 describe('shared compatible provider forms', () => {
+  it.each(['ccsub', 'nous_research', 'github_copilot'])('discloses %s billing without emitting or mutating create/edit credentials', (id) => {
+    const provider = compatibleProvider(id)!
+    for (const draft of [{}, { account_mode: provider.default_mode, api_key_ref: 'masked-reference', base_url: 'https://relay.example/v1', model_mapping: { alias: 'manual-model' } }]) {
+      const before = JSON.stringify(draft)
+      const wrapper = mountFields(provider, draft)
+      const disclosure = wrapper.get('[data-testid="compatible-billing"]')
+      expect(disclosure.text()).toContain(provider.billing!.summary)
+      expect(disclosure.find('input,select,button,[role="radio"]').exists()).toBe(false)
+      expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+      expect(JSON.stringify(draft)).toBe(before)
+      if (id !== 'ccsub') {
+        expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
+        expect(wrapper.find('[data-testid="compatible-protocol"]').exists()).toBe(false)
+      }
+      wrapper.unmount()
+    }
+  })
+
+  it('retains a provider-scoped billing slot override', () => {
+    const provider = compatibleProvider('ccsub')!
+    const wrapper = mount(CompatibleProviderFields, { props: { provider, modelValue: {} }, slots: { billing: '<p data-testid="billing-override">{{ params.provider.id }}</p>' } })
+    expect(wrapper.get('[data-testid="billing-override"]').text()).toBe('ccsub')
+    expect(wrapper.find('[data-testid="compatible-billing"]').exists()).toBe(false)
+  })
+
+  it.each(['en', 'zh'])('uses actual dedicated-key labels and mode-specific protocols in %s', async (language) => {
+    locale.value = language
+    for (const [id, selectedMode, protocols] of [
+      ['atlascloud', 'coding', ['adaptive', 'chat_completions', 'anthropic']],
+      ['qiniu', 'subscription', ['adaptive', 'chat_completions']]
+    ] as const) {
+      const provider = compatibleProvider(id)!
+      const wrapper = mountFields(provider, { account_mode: 'payg', api_protocol: 'responses', api_key_ref: 'masked-reference' })
+      const option = wrapper.get(`[data-testid="compatible-mode"] [data-choice="${selectedMode}"]`)
+      const vendorMode = provider.modes.find(entry => entry.mode === selectedMode)!
+      expect(option.text()).toContain(language === 'zh' ? vendorMode.label_zh! : vendorMode.label!)
+      expect(wrapper.text()).toContain('admin.accounts.supplier.planKeyHint')
+      expect(wrapper.get('[data-testid="compatible-billing"]').text()).toContain(language === 'zh' ? provider.billing!.summary_zh : provider.billing!.summary)
+      await option.trigger('click')
+      expect(wrapper.get('[data-testid="compatible-protocol"]').findAll('[role="radio"]').map(radio => radio.attributes('data-choice'))).toEqual(protocols)
+      expect(wrapper.props('modelValue')).toEqual({ account_mode: selectedMode, api_protocol: 'adaptive', api_key_ref: 'masked-reference' })
+      wrapper.unmount()
+    }
+    locale.value = 'en'
+  })
+
   it('projects named entries into labels, filters, groups and a searchable bounded picker', async () => {
     expect(PRODUCT_PLATFORM_OPTIONS.find(option => option.value === compatibleFixture.id)?.label).toBe('Example Cloud')
     expect(GROUP_PLATFORM_OPTIONS.some(option => option.value === compatibleFixture.id)).toBe(true)

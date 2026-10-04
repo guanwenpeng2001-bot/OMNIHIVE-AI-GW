@@ -355,7 +355,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(radio.getComponent(PlatformIcon).props('platform')).toBe(option.value === 'vertex' ? 'gemini' : option.value)
       expect(radio.get('svg').attributes('aria-hidden')).toBe('true')
       expect(radio.classes()).toContain('focus-visible:ring-2')
-      expect(radio.text()).toBe(option.supplier ? `admin.accounts.supplier.names.${option.supplier.id}` : option.value === 'commandcode' ? `CC${option.label}` : option.label)
+      const label = Array.from(radio.element.childNodes).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim()
+      expect(label).toBe(option.supplier ? `admin.accounts.supplier.names.${option.supplier.id}` : option.label)
     })
     expect(radios[0]!.classes()).toEqual(expect.arrayContaining(['bg-white', 'text-primary-600', 'shadow-sm']))
     wrapper.unmount()
@@ -1963,22 +1964,32 @@ describe('supplier family create flow', () => {
   it.each([
     ['stepfun_api', 'china', 'stepPlan', 'stepfun_plan', 'coding'],
     ['stepfun_api', 'international', 'api', 'stepfun_api_intl', 'payg'],
-    ['qwencloud', '', 'tokenPlan', 'qwencloud_token', 'coding']
+    ['qwencloud', '', 'tokenPlan', 'qwencloud_token', 'coding'],
+    ['astron_coding', '', 'codingPlan', 'astron_coding', 'coding'],
+    ['astron_coding', '', 'tokenPlan', 'astron_token', 'coding'],
+    ['mimo', '', 'tokenPlanChina', 'mimo_token_cn', 'coding'],
+    ['mimo', '', 'tokenPlanSingapore', 'mimo_token_sg', 'coding'],
+    ['mimo', '', 'tokenPlanEurope', 'mimo_token_eu', 'coding']
   ])('resolves %s / %s / %s to the exact routing ID', async (chip, region, product, platform, mode) => {
     createAccountMock.mockReset().mockResolvedValue({ id: 410, platform, type: 'apikey' })
     const wrapper = mountModal()
     await wrapper.get(`[data-testid="${chip}-platform"]`).trigger('click')
     expect(wrapper.find('[data-testid="compatible-provider-fields"]').exists()).toBe(false)
+    const authentication = wrapper.get('[data-testid="account-type-summary"]')
+    const variant = wrapper.get('[data-testid="supplier-product"]')
+    expect(authentication.element.compareDocumentPosition(variant.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     if (region) await wrapper.get(`[data-testid="supplier-region"] [data-choice="${region}"]`).trigger('click')
     await wrapper.get(`[data-testid="supplier-product"] [data-choice="${product}"]`).trigger('click')
     await flushPromises()
     if (platform === 'qwencloud_token') expect(wrapper.find('[data-testid="compatible-protocol"] [data-choice="chat_completions"]').exists()).toBe(false)
+    expect(variant.element.compareDocumentPosition(wrapper.get('[data-testid="compatible-protocol"]').element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(wrapper.find('[data-testid="compatible-mode"]').exists()).toBe(false)
     await wrapper.get('[data-account-field="apiKeyValue"]').setValue('new-variant-key')
     await openReview(wrapper)
     await confirmReview(wrapper)
     expect(createAccountMock).toHaveBeenCalledOnce()
     expect(createAccountMock.mock.calls[0][0]).toMatchObject({ platform, type: 'apikey', credentials: { account_mode: mode, api_key: 'new-variant-key' } })
+    if (platform === 'qwencloud_token') expect(createAccountMock.mock.calls[0][0].credentials.api_protocol).toBe('responses')
     wrapper.unmount()
   })
 
