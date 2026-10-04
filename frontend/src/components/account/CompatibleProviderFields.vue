@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AccountChoiceCards from './AccountChoiceCards.vue'
+import CompatibleProviderBilling from './CompatibleProviderBilling.vue'
 import CompatibleSpecialAuthFields from './CompatibleSpecialAuthFields.vue'
 import { isSpecialCompatibleProvider } from './compatibleSpecialAuth'
 import { useI18n } from 'vue-i18n'
@@ -39,7 +40,9 @@ function updateBase(protocol: string, value: string) {
 
 <template>
   <div class="space-y-4" data-testid="compatible-provider-fields">
-    <slot name="billing" :provider="provider" />
+    <slot name="billing" :provider="provider">
+      <CompatibleProviderBilling :provider="provider" />
+    </slot>
     <CompatibleSpecialAuthFields v-if="isSpecialCompatibleProvider(provider.id)" :platform="provider.id" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" @reset-secret="emit('reset-secret')" />
     <template v-else>
       <AccountChoiceCards v-if="provider.modes.length > 1" data-testid="compatible-mode"

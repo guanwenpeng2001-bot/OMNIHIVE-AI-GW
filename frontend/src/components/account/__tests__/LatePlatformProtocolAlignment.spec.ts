@@ -171,7 +171,7 @@ async function submitApiKey(wrapper: ReturnType<typeof mountModal>, name: string
   }
 }
 
-/** 账号类型卡的标题词条：国产多协议供应商与后加四家共用同一条 accountMode.title。 */
+/** 套餐卡保留供应商模式文案，并共用套餐类型分组标题。 */
 const MODE_TITLE_KEYS: Record<string, string> = {
   payg: 'admin.accounts.cnProviders.accountMode.payg',
   coding: 'admin.accounts.cnProviders.accountMode.coding'
@@ -179,7 +179,7 @@ const MODE_TITLE_KEYS: Record<string, string> = {
 
 function accountModeGroup(wrapper: ReturnType<typeof mountModal>) {
   return wrapper.findAll('[role="radiogroup"]').find(
-    candidate => candidate.attributes('aria-label') === 'admin.accounts.cnProviders.accountMode.title'
+    candidate => candidate.attributes('aria-label') === 'admin.accounts.supplier.planType'
   )
 }
 
@@ -303,7 +303,7 @@ describe('late platform protocol cards', () => {
     await selectPlatform(wrapper, platform)
 
     const group = wrapper.get('[data-testid="late-platform-account-type"]')
-    expect(group.get('[role="radiogroup"]').attributes('aria-label')).toBe('admin.accounts.accountType')
+    expect(group.get('[role="radiogroup"]').attributes('aria-label')).toBe('admin.accounts.supplier.authenticationMethod')
     const radios = group.findAll('[role="radio"]')
     expect(radios).toHaveLength(1)
     expect(radios[0]!.attributes('data-testid')).toBe('late-platform-account-type-apikey')
