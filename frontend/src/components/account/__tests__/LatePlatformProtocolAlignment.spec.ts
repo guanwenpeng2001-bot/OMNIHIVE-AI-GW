@@ -161,7 +161,7 @@ async function selectPlatform(wrapper: ReturnType<typeof mountModal>, platform: 
 
 async function submitApiKey(wrapper: ReturnType<typeof mountModal>, name: string, apiKey = 'sk-fixture') {
   await wrapper.get('form#create-account-form input[type="text"]').setValue(name)
-  await wrapper.get('form#create-account-form input[type="password"]').setValue(apiKey)
+  await wrapper.get('[data-account-field="apiKeyValue"]').setValue(apiKey)
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
   await flushPromises()
   const confirm = wrapper.find('[data-testid="confirm-account-review"]')
@@ -655,9 +655,42 @@ describe('late platform account mode credentials', () => {
     await submitApiKey(wrapper, `${platform} coding`)
 
     // 断言原文：credentials.account_mode 等于所选值，base_url 等于厂商公布的套餐站点。
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      api_key: 'sk-fixture',
       account_mode: 'coding',
       base_url: CODING_BASE_URLS[platform]
+    })
+    if (platform === 'volcengine') {
+      const credentials = createAccountMock.mock.calls[0]![0].credentials
+      expect(credentials).not.toHaveProperty('volcengine_access_key_id')
+      expect(credentials).not.toHaveProperty('volcengine_secret_access_key')
+    }
+
+    wrapper.unmount()
+  })
+
+  it('keeps optional Volcengine signed quota credentials separate from the coding inference key', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'volcengine')
+    await selectAccountMode(wrapper, 'coding')
+    const quotaFields = wrapper.get('[data-test="volcengine-quota-fields"]')
+    await quotaFields.get('[data-test="accessKeyId"]').setValue('synthetic-query-access')
+    await quotaFields.get('[data-test="secretAccessKey"]').setValue('synthetic-query-secret')
+    await quotaFields.get('[data-test="quota-edition"]').setValue('team')
+    await quotaFields.get('[data-test="quota-seat"]').setValue('synthetic-seat')
+
+    await submitApiKey(wrapper, 'volcengine signed quota', 'synthetic-inference-key')
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]![0].credentials).toMatchObject({
+      api_key: 'synthetic-inference-key',
+      account_mode: 'coding',
+      base_url: CODING_BASE_URLS.volcengine,
+      volcengine_access_key_id: 'synthetic-query-access',
+      volcengine_secret_access_key: 'synthetic-query-secret',
+      volcengine_plan_edition: 'team',
+      volcengine_seat_id: 'synthetic-seat'
     })
 
     wrapper.unmount()

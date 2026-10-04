@@ -113,9 +113,10 @@ describe('configuration manual', () => {
       expect(supplierCopy).toContain(contract)
     }
     for (const boundary of locale === 'en'
-      ? ['explicit clearing removes them', 'Failures never become zero or erase history',
+      ? ['explicit clearing removes them', 'Failures never become zero', 'ordinary failures preserve history',
+        'identity_changed clears observations from the old identity',
         'Selecting a candidate manually is not discovery success']
-      : ['明确清除才删除', '失败不当零、不清历史', '手工选择不等于发现成功']) {
+      : ['明确清除才删除', '普通失败不当零、保留历史', 'identity_changed 清除旧身份观测', '手工选择不等于发现成功']) {
       expect(supplierCopy).toContain(boundary)
     }
     expect(supplierCopy).not.toMatch(/pending integration|待集成验证|70 distinct|70 个独立/)
