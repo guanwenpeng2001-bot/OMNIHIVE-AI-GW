@@ -934,6 +934,24 @@ export default {
         selectAtLeastOne: 'Select at least one account after enabling pinned accounts'
       },
       compositeRoutes: {
+        searchPlaceholder: "Search saved routes",
+        searchEmpty: "No routes match the search",
+        clearSearch: "Clear search",
+        listOrderHint: "Ordered by priority for browsing. Exact matches, specific endpoints and longer prefixes take precedence.",
+        savedPreview: "Preview saved routes",
+        savedPreviewHint: "Checks saved rules only; drafts are not included. Editing the draft or preview inputs clears the result. Run preview again.",
+        priorityHint: "Among equally specific matches, the smaller number is considered first.",
+        advanced: "Advanced constraints",
+        primaryAttempt: "Primary, tried first",
+        attemptOrder: "Attempt {order}",
+        skippedTarget: "Disabled, skipped",
+        discardConfirm: "Discard unsaved route changes?",
+        suggestionsHint: "Suggestions come from the platform catalog and saved routes; they do not confirm account availability. You can enter any model name.",
+        suggestionsUnavailable: "Suggestions are unavailable. Type a name instead.",
+        accountType: "Account type",
+        anyAccountType: "Any account type",
+        noUnsavedChanges: "No unsaved changes",
+
         action: 'Routes',
         title: 'Composite Routes',
         titleWithGroup: 'Composite Routes: {name}',
@@ -1005,6 +1023,7 @@ export default {
           prefix: 'Prefix'
         },
         sources: {
+          account: "Account model",
           route: 'Route',
           detector: 'Detector'
         }

@@ -931,6 +931,24 @@ export default {
         selectAtLeastOne: '开启固定账号后至少选择一个账号'
       },
       compositeRoutes: {
+        searchPlaceholder: "搜索已保存路由",
+        searchEmpty: "没有符合搜索的路由",
+        clearSearch: "清空搜索",
+        listOrderHint: "按优先级排列便于查看。命中时精确匹配、具体端点和更长前缀优先。",
+        savedPreview: "预览已保存的路由",
+        savedPreviewHint: "仅检查已保存规则，不包含草稿。修改草稿或预览输入后，旧结果会清除，请重新预览。",
+        priorityHint: "同一匹配强度下，数字更小的路由先被考虑。",
+        advanced: "高级约束",
+        primaryAttempt: "主目标，最先尝试",
+        attemptOrder: "第 {order} 个尝试",
+        skippedTarget: "已停用，跳过",
+        discardConfirm: "放弃未保存的路由修改？",
+        suggestionsHint: "建议来自平台目录和已保存路由，不代表账号可调用。可输入列表以外的模型名。",
+        suggestionsUnavailable: "模型建议暂不可用，可直接输入。",
+        accountType: "账号类型",
+        anyAccountType: "不限制",
+        noUnsavedChanges: "没有未保存的修改",
+
         action: '路由',
         title: 'Composite 路由',
         titleWithGroup: 'Composite 路由：{name}',
@@ -1002,6 +1020,7 @@ export default {
           prefix: '前缀'
         },
         sources: {
+          account: "账号模型",
           route: '路由',
           detector: '内置识别'
         }

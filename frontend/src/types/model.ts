@@ -115,6 +115,7 @@ export interface CompositeRoutePreviewRequest {
 }
 
 export interface CompositeRouteDecision {
+  targets?: CompositeRouteTarget[] | null
   account_type?: '' | 'bedrock' | 'service_account'
   matched: boolean
   source: CompositeRouteSource
