@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"github.com/stretchr/testify/require"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -57,7 +60,7 @@ func TestCommandCodeUnsupportedDoesNotInventQuotaOrChangeHealth(t *testing.T) {
 			"commandcode_5h_reset_at":     time.Now().Add(time.Hour).Format(time.RFC3339),
 		}
 		repo := &cnBalanceProbeRepo{account: account}
-		svc := NewCNProviderQuotaService(repo, nil, &cnBalanceResponseUpstream{statusCode: tc.status, body: tc.body}, nil)
+		svc := NewCNProviderQuotaService(repo, nil, &commandCodeResponseUpstream{statusCode: tc.status, body: tc.body}, nil)
 		result, err := svc.QueryUsage(context.Background(), 20)
 		require.NoError(t, err)
 		require.False(t, result.Success)
@@ -75,7 +78,7 @@ func TestCommandCodeUnsupportedDoesNotInventQuotaOrChangeHealth(t *testing.T) {
 func TestCommandCodePersistsOnlyObservedWindows(t *testing.T) {
 	account := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "base_url": "https://proxy.example/provider/v1"}}
 	repo := &cnBalanceProbeRepo{account: account}
-	svc := NewCNProviderQuotaService(repo, nil, &cnBalanceResponseUpstream{statusCode: 200, body: `{"credits":{"monthlyCredits":57},"windowLimits":{"limited":true,"weekly":{"used":7,"cap":35}}}`}, nil)
+	svc := NewCNProviderQuotaService(repo, nil, &commandCodeResponseUpstream{statusCode: 200, body: `{"credits":{"monthlyCredits":57},"windowLimits":{"limited":true,"weekly":{"used":7,"cap":35}}}`}, nil)
 	result, err := svc.QueryUsage(context.Background(), 20)
 	require.NoError(t, err)
 	require.True(t, result.Success)
@@ -147,9 +150,9 @@ func TestCommandCodePartialObservations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			account := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Status: StatusActive, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://fixture.example/provider/v1"}}
 			repo := &cnBalanceProbeRepo{account: account}
-			requests := 0
+			var requests atomic.Int32
 			upstream := &commandCodeUsageFixture{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requests++
+				requests.Add(1)
 				require.Equal(t, http.MethodGet, r.Method)
 				require.Equal(t, "fixture", r.Header.Get("x-api-key"))
 				status, body := 200, "{}"
@@ -177,7 +180,7 @@ func TestCommandCodePartialObservations(t *testing.T) {
 			})}
 			result, err := NewCNProviderQuotaService(repo, nil, upstream, nil).QueryUsage(context.Background(), account.ID)
 			require.NoError(t, err)
-			require.Equal(t, 3, requests)
+			require.Equal(t, int32(3), requests.Load())
 			require.Equal(t, tc.wantSuccess, result.Success)
 			require.Equal(t, !tc.wantSuccess, result.Unsupported)
 			require.Equal(t, tc.wantSuccess, result.CredentialValid)
@@ -225,7 +228,7 @@ func TestCommandCodeObservationsRejectStaleIdentity(t *testing.T) {
 			current := *old
 			current.Credentials = map[string]any{"api_key": "new-fixture", "base_url": "https://fixture.example/provider/v1"}
 			repo := &commandCodeSnapshotFixture{cnBalanceProbeRepo: cnBalanceProbeRepo{account: &current}}
-			svc := NewCNProviderQuotaService(repo, nil, &cnBalanceResponseUpstream{statusCode: 200, body: tc.body}, nil)
+			svc := NewCNProviderQuotaService(repo, nil, &commandCodeResponseUpstream{statusCode: 200, body: tc.body}, nil)
 			result, err := svc.queryCommandCodeUsage(context.Background(), old)
 			require.NoError(t, err)
 			require.False(t, result.Persisted)
@@ -250,4 +253,78 @@ func (repo *commandCodeSnapshotFixture) UpdateAccountRuntimeSnapshot(ctx context
 		return ErrAccountRuntimeIdentityChanged
 	}
 	return repo.UpdateExtra(ctx, expected.ID, updates)
+}
+
+func TestCommandCodeParallelFetchCreditsGate(t *testing.T) {
+	for _, creditsSucceed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("credits_success_%t", creditsSucceed), func(t *testing.T) {
+			account := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "base_url": "https://fixture.example/provider/v1"}}
+			repo := &cnBalanceProbeRepo{account: account}
+			arrived := make(chan string, 3)
+			release := make(chan struct{})
+			allConcurrent := make(chan bool, 1)
+			go func() {
+				timer := time.NewTimer(300 * time.Millisecond)
+				defer timer.Stop()
+				defer close(release)
+				paths := make(map[string]bool)
+				for len(paths) < 3 {
+					select {
+					case path := <-arrived:
+						paths[path] = true
+					case <-timer.C:
+						allConcurrent <- false
+						return
+					}
+				}
+				allConcurrent <- true
+			}()
+			upstream := &commandCodeUsageFixture{handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				arrived <- request.URL.Path
+				<-release
+				// Distinct statuses expose last-writer races; the diagnostic status must
+				// belong to credits regardless of which optional response finishes last.
+				if strings.HasSuffix(request.URL.Path, "/credits") {
+					if creditsSucceed {
+						writer.WriteHeader(http.StatusOK)
+						_, _ = writer.Write([]byte(`{"credits":{"monthlyCredits":12},"windowLimits":{"limited":true,"weekly":{"used":2,"cap":10}}}`))
+					} else {
+						writer.WriteHeader(http.StatusUnauthorized)
+					}
+				} else {
+					writer.WriteHeader(http.StatusServiceUnavailable)
+				}
+			})}
+			result, err := NewCNProviderQuotaService(repo, nil, upstream, nil).queryCommandCodeUsage(context.Background(), account)
+			require.NoError(t, err)
+			require.True(t, <-allConcurrent, "all three GETs must start before any completes")
+			require.Equal(t, creditsSucceed, result.Success)
+			require.Equal(t, !creditsSucceed, result.Unsupported)
+			require.Len(t, repo.extraWrites, 1)
+			if creditsSucceed {
+				require.Equal(t, http.StatusOK, result.StatusCode)
+				require.Len(t, result.Tiers, 1)
+				require.Equal(t, float64(12), repo.extraWrites[0]["commandcode_monthlyCredits"])
+			} else {
+				require.Equal(t, http.StatusUnauthorized, result.StatusCode)
+				require.Empty(t, result.Tiers)
+			}
+		})
+	}
+}
+
+// CommandCode now calls the same transport concurrently. The balance fixture's
+// mutable last-request counters are deliberately not used by these read-only GETs.
+type commandCodeResponseUpstream struct {
+	cnBalanceResponseUpstream
+	statusCode int
+	body       string
+}
+
+func (upstream *commandCodeResponseUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: upstream.statusCode,
+		Body:       io.NopCloser(strings.NewReader(upstream.body)),
+		Header:     make(http.Header),
+	}, nil
 }

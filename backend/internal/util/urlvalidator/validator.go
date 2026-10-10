@@ -107,9 +107,15 @@ func ValidateHTTPSURL(raw string, opts ValidationOptions) (string, error) {
 
 // ValidateResolvedIP 验证 DNS 解析后的 IP 地址是否安全
 // 用于防止 DNS Rebinding 攻击：在实际 HTTP 请求时调用此函数验证解析后的 IP
-func ValidateResolvedIP(host string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+func ValidateResolvedIP(ctx context.Context, host string) error {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("dns resolution failed: %w", err)
+	}
 
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
