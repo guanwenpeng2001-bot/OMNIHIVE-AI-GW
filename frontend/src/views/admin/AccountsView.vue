@@ -754,6 +754,7 @@ const usageBatchErrorByAccountId = ref<Record<string, string | null>>({})
 const usageBatchLoadingByAccountId = ref<Record<string, boolean>>({})
 const usageBatchRequestTokenByAccountId = ref<Record<string, number>>({})
 const usageBatchCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
+const USAGE_BATCH_CHUNK_SIZE = 6
 const USAGE_BATCH_CACHE_TTL = 5 * 60 * 1000
 const pendingUsageBatchIds = new Set<number>()
 let usageBatchFlushTimer: ReturnType<typeof setTimeout> | null = null
@@ -819,9 +820,7 @@ const flushQueuedUsageBatch = async () => {
     return acc
   }, {})
 
-  try {
-    const result = await adminAPI.accounts.getBatchUsage(accountIDs, force)
-
+  const applyUsageBatchResult = (chunkIDs: number[], result: Awaited<ReturnType<typeof adminAPI.accounts.getBatchUsage>>) => {
     const usageMap = result.usage ?? {}
     const errorMap = result.errors ?? {}
     const now = Date.now()
@@ -829,7 +828,7 @@ const flushQueuedUsageBatch = async () => {
     const nextErrors = { ...usageBatchErrorByAccountId.value }
     const nextLoading = { ...usageBatchLoadingByAccountId.value }
 
-    for (const accountID of accountIDs) {
+    for (const accountID of chunkIDs) {
       const key = String(accountID)
       if ((usageBatchRequestTokenByAccountId.value[key] ?? 0) !== requestTokensByAccount[key]) {
         continue
@@ -848,10 +847,12 @@ const flushQueuedUsageBatch = async () => {
     usageBatchByAccountId.value = nextUsage
     usageBatchErrorByAccountId.value = nextErrors
     usageBatchLoadingByAccountId.value = nextLoading
-  } catch (error) {
+  }
+
+  const markUsageBatchFailed = (chunkIDs: number[]) => {
     const nextErrors = { ...usageBatchErrorByAccountId.value }
     const nextLoading = { ...usageBatchLoadingByAccountId.value }
-    for (const accountID of accountIDs) {
+    for (const accountID of chunkIDs) {
       const key = String(accountID)
       if ((usageBatchRequestTokenByAccountId.value[key] ?? 0) !== requestTokensByAccount[key]) {
         continue
@@ -861,7 +862,17 @@ const flushQueuedUsageBatch = async () => {
     }
     usageBatchErrorByAccountId.value = nextErrors
     usageBatchLoadingByAccountId.value = nextLoading
-    console.error('Failed to load account usage batch:', error)
+  }
+
+  for (let offset = 0; offset < accountIDs.length; offset += USAGE_BATCH_CHUNK_SIZE) {
+    const chunkIDs = accountIDs.slice(offset, offset + USAGE_BATCH_CHUNK_SIZE)
+    try {
+      const result = await adminAPI.accounts.getBatchUsage(chunkIDs, force)
+      applyUsageBatchResult(chunkIDs, result)
+    } catch (error) {
+      markUsageBatchFailed(chunkIDs)
+      console.error('Failed to load account usage batch chunk:', error)
+    }
   }
 }
 

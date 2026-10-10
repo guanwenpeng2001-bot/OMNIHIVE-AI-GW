@@ -370,6 +370,8 @@ export async function getBatchUsage(accountIds: number[], force?: boolean): Prom
   const { data } = await apiClient.post<BatchAccountUsageResponse>('/admin/accounts/usage/batch', {
     account_ids: accountIds,
     force: force === true
+  }, {
+    timeout: 25000 // Backend batch budget is 20s; leave transport/serialization headroom.
   })
   return data
 }
