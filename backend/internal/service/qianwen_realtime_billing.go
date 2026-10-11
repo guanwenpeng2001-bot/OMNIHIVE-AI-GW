@@ -61,10 +61,12 @@ func EqualQianwenRealtimeReceipt(stored, receipt *UpstreamJob) bool {
 // QianwenRealtimeFamily classifies the implemented classic DashScope families.
 // Selected future snapshots remain eligible; workspace-hosted Omni needs separate configuration.
 func QianwenRealtimeFamily(model string) string {
-	for _, family := range []string{"tts", "omni", "asr"} {
-		prefix := "qwen3-" + family + "-flash-realtime"
-		if model == prefix || strings.HasPrefix(model, prefix+"-") {
-			return family
+	for _, generation := range []string{"qwen3-", "qwen3.8-"} {
+		for _, family := range []string{"tts", "omni", "asr"} {
+			prefix := generation + family + "-flash-realtime"
+			if model == prefix || strings.HasPrefix(model, prefix+"-") {
+				return family
+			}
 		}
 	}
 	return ""
