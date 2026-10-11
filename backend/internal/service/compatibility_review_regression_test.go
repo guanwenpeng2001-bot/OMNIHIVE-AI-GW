@@ -159,7 +159,7 @@ func TestExplicitNoneRequestedEffortPersistsWithoutCeilingExpansion(t *testing.T
 }
 
 func TestGrokNormalizersPreserveUnlistedModelEffort(t *testing.T) {
-	for _, model := range []string{"grok-4.7", "private-vendor/unknown-exact-id"} {
+	for _, model := range []string{"grok-future-unlisted", "private-vendor/unknown-exact-id"} {
 		for _, effort := range []string{"none", "low", "medium", "high", "xhigh", "future-effort"} {
 			t.Run(model+"/"+effort, func(t *testing.T) {
 				for _, field := range []string{"reasoning_effort", "reasoningEffort"} {
@@ -203,7 +203,7 @@ func TestGrokDirectChatRecordsNormalizedEffort(t *testing.T) {
 }
 
 func TestGrokDirectResponsesPreservesUnlistedEffort(t *testing.T) {
-	for _, model := range []string{"grok-4.7", "private-vendor/unknown-exact-id"} {
+	for _, model := range []string{"grok-future-unlisted", "private-vendor/unknown-exact-id"} {
 		for _, effort := range []string{"none", "high", "xhigh", "max", "extra-high", "future-effort", "ultra"} {
 			for _, field := range []string{"reasoning.effort", "reasoning_effort"} {
 				t.Run(model+"/"+effort+"/"+field, func(t *testing.T) {
@@ -244,8 +244,8 @@ func TestGrokDirectResponsesRecordsFinalEffortWithSuffixFallback(t *testing.T) {
 		{"known composer stripping", "grok-composer-2.5-fast", `,"reasoning":{"effort":"high"}`, "", ""},
 		{"omitted effort suffix", "private-vendor/unknown-high", "", "", "high"},
 		{"explicit effort overrides suffix", "private-vendor/unknown-high", `,"reasoning":{"effort":"ultra"}`, "ultra", "ultra"},
-		{"nested effort takes precedence", "grok-4.7", `,"reasoning":{"effort":"max"},"reasoning_effort":"ultra"`, "max", "max"},
-		{"empty nested effort uses flat field", "grok-4.7", `,"reasoning":{"effort":" "},"reasoning_effort":"future-effort"`, "future-effort", "future-effort"},
+		{"nested effort takes precedence", "grok-future-unlisted", `,"reasoning":{"effort":"max"},"reasoning_effort":"ultra"`, "max", "max"},
+		{"empty nested effort uses flat field", "grok-future-unlisted", `,"reasoning":{"effort":" "},"reasoning_effort":"future-effort"`, "future-effort", "future-effort"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			account := rawChatCompletionsTestAccount()

@@ -43,6 +43,18 @@ func TestPatchGrokResponsesBodySetsMappedModelAndDropsUnsupportedFields(t *testi
 	require.Equal(t, "high", gjson.GetBytes(patched, "reasoning.effort").String())
 }
 
+func TestGrokNewModelReasoningRegistration(t *testing.T) {
+	for _, model := range []string{"grok-4.7", "grok-4.7-latest", "xai/grok-4.7", "x-ai/grok-4.7-latest"} {
+		require.True(t, GrokSupportsXHighReasoningEffort(model))
+		require.True(t, grokSupportsReasoningEffort(model))
+		for _, effort := range []string{"xhigh", "extra-high"} {
+			normalized, keep := normalizeGrokReasoningEffortValue(effort, model)
+			require.True(t, keep)
+			require.Equal(t, "xhigh", normalized)
+		}
+	}
+}
+
 func TestPatchGrokResponsesBodyDropsRedundantViewImageForCurrentInlineImage(t *testing.T) {
 	t.Parallel()
 
