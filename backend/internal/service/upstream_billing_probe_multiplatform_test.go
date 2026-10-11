@@ -263,6 +263,8 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.lkeap.cloud.tencent.com/plan/v3"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultVolcengineCodingBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://ark.cn-beijing.volces.com/api/coding"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://open.volcengineapi.com"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://ark.cn-beijing.volcengineapi.com"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(DefaultQianfanCodingBaseURL))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://qianfan.baidubce.com/v2/tokenplan/team"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://qianfan.baidubce.com/anthropic/tokenplan/personal"))
@@ -287,6 +289,7 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	// 套餐主机的相似域同理不拦：官方域后缀之外一律照常探测。
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.lkeap.cloud.tencent.com.evil.example/coding/v3"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://ark.cn-beijing.volces.com.evil.example/api/coding/v3"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://open.volcengineapi.com.evil.example"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://qianfan.baidubce.com.evil.example/v2/tokenplan/personal"))
 }
 

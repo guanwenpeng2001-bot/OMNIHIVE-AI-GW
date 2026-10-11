@@ -1041,6 +1041,9 @@ func isUpstreamBillingProbeAccount(account *Account) bool {
 // qianfan.baidubce.com (baidubce.com) — see the official captures of
 // 2026-09-23 recorded in domain/hunyuan_actions.go, domain/volcengine_actions.go
 // and domain/qianfan_actions.go.
+// Volcengine API hosts open.volcengineapi.com and ark.cn-beijing.volcengineapi.com
+// are also covered by volcengineapi.com; volcengine.com is not included without
+// evidence of an API endpoint.
 var upstreamBillingProbeOfficialAPIDomains = []string{
 	"anthropic.com",
 	"googleapis.com",
@@ -1068,6 +1071,7 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"tencentmaas.com",
 	"tencentmaas.cn",
 	"volces.com",
+	"volcengineapi.com",
 	"mistral.ai",
 	"moonshot.ai",
 }
