@@ -409,3 +409,89 @@ it('renders only reported Agent windows including daily, then clears absent wind
   expect(wrapper.find('button').exists()).toBe(false)
   wrapper.unmount()
 })
+
+
+it('limits automatic probes to two, allows manual probes, and clears queued timers on unmount', async () => {
+  vi.useFakeTimers()
+  const completions: Array<() => void> = []
+  queryQuota.mockReset().mockImplementation(() => new Promise(resolve => {
+    completions.push(() => resolve({ success: true, tiers: [] }))
+  }))
+  const wrappers = [8101, 8102, 8103, 8104].map(id => mount(CNProviderQuotaCell, {
+    props: { account: { ...account, id, extra: {} } }
+  }))
+  try {
+    expect(queryQuota).toHaveBeenCalledTimes(2)
+    await wrappers[2].get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    expect(queryQuota).toHaveBeenCalledTimes(3)
+    wrappers[2].unmount()
+    wrappers[3].unmount()
+    completions.splice(0).forEach(complete => complete())
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2400)
+    expect(queryQuota).toHaveBeenCalledTimes(3)
+    const next = mount(CNProviderQuotaCell, { props: { account: { ...account, id: 8105, extra: {} } } })
+    expect(queryQuota).toHaveBeenCalledTimes(4)
+    next.unmount()
+  } finally {
+    wrappers.slice(0, 2).forEach(wrapper => wrapper.unmount())
+    completions.splice(0).forEach(complete => complete())
+    await flushPromises()
+    vi.useRealTimers()
+  }
+})
+
+
+it('starts queued automatic probes as slots free up, including after rejection', async () => {
+  vi.useFakeTimers()
+  const completions: Array<{ resolve: (value: unknown) => void; reject: (reason: Error) => void }> = []
+  queryQuota.mockReset().mockImplementation(() => new Promise((resolve, reject) => {
+    completions.push({ resolve, reject })
+  }))
+  const wrappers = [8201, 8202, 8203, 8204].map(id => mount(CNProviderQuotaCell, {
+    props: { account: { ...account, id, extra: {} } }
+  }))
+  try {
+    expect(queryQuota).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(queryQuota).toHaveBeenCalledTimes(2)
+    completions[0].reject(new Error('unavailable'))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(queryQuota).toHaveBeenCalledTimes(3)
+    completions[1].resolve({ success: true, tiers: [] })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(queryQuota).toHaveBeenCalledTimes(4)
+  } finally {
+    wrappers.forEach(wrapper => wrapper.unmount())
+    completions.forEach(({ resolve }) => resolve({ success: true, tiers: [] }))
+    await flushPromises()
+    vi.useRealTimers()
+  }
+})
+
+
+it('discards a queued automatic probe when the account identity changes', async () => {
+  vi.useFakeTimers()
+  const completions: Array<() => void> = []
+  queryQuota.mockReset().mockImplementation(() => new Promise(resolve => {
+    completions.push(() => resolve({ success: true, tiers: [] }))
+  }))
+  const wrappers = [8301, 8302, 8303].map(id => mount(CNProviderQuotaCell, {
+    props: { account: { ...account, id, extra: {} } }
+  }))
+  try {
+    expect(queryQuota).toHaveBeenCalledTimes(2)
+    await wrappers[2].setProps({ account: { ...account, id: 8304, extra: {} } })
+    completions.forEach(complete => complete())
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2400)
+    expect(queryQuota).toHaveBeenCalledTimes(2)
+  } finally {
+    wrappers.forEach(wrapper => wrapper.unmount())
+    completions.forEach(complete => complete())
+    await flushPromises()
+    vi.useRealTimers()
+  }
+})

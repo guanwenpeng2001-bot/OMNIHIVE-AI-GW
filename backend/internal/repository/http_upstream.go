@@ -666,7 +666,7 @@ func (s *httpUpstreamService) validateRequestHost(req *http.Request) error {
 		// answer and pin the destination, instead of rechecking system DNS here.
 		return nil
 	}
-	if err := urlvalidator.ValidateResolvedIP(host); err != nil {
+	if err := urlvalidator.ValidateResolvedIP(req.Context(), host); err != nil {
 		return err
 	}
 	return nil

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tidwall/gjson"
+	"golang.org/x/sync/errgroup"
 )
 
 // Official upstream alpha endpoints, not a stable public API; may change at any
@@ -77,35 +78,51 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 	if egressErr != nil {
 		return nil, egressErr
 	}
-	fetch := func(path string) ([]byte, error) {
+	fetch := func(path string) ([]byte, int, error) {
 		target, err := commandCodeAlphaURL(account.GetOpenAIBaseURL(), path)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		target, err = cnValidateProbeURL(s.cfg, target)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		req, err := http.NewRequestWithContext(callCtx, http.MethodGet, target, nil)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("Accept", "application/json")
 		account.ApplyHeaderOverrides(req.Header)
 		resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxy, account.ID, maxInt(account.Concurrency, 1))
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		defer func() { _ = resp.Body.Close() }()
-		result.StatusCode = resp.StatusCode
 		body, err := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes+1))
 		if err != nil || len(body) > cnQuotaMaxBodyBytes || resp.StatusCode != http.StatusOK || !gjson.ValidBytes(body) {
-			return nil, fmt.Errorf("alpha response unavailable")
+			return nil, resp.StatusCode, fmt.Errorf("alpha response unavailable")
 		}
-		return body, nil
+		return body, resp.StatusCode, nil
 	}
-	credits, _ := fetch("billing/credits")
+	var credits, subscription, summary []byte
+	var creditsStatus int
+	var subscriptionErr, summaryErr error
+	var group errgroup.Group
+	group.Go(func() error {
+		credits, creditsStatus, _ = fetch("billing/credits")
+		return nil
+	})
+	group.Go(func() error {
+		subscription, _, subscriptionErr = fetch("billing/subscriptions")
+		return nil
+	})
+	group.Go(func() error {
+		summary, _, summaryErr = fetch("usage/summary")
+		return nil
+	})
+	_ = group.Wait()
+	result.StatusCode = creditsStatus
 	result.Tiers = parseCommandCodeUsageTiers(credits)
 	result.Credits = map[string]float64{}
 	updates := cnQuotaExtraUpdates(PlatformCommandCode, result.Tiers, now)
@@ -129,7 +146,7 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 	}
 	// Optional independent metadata failures do not invalidate real window data.
 	updates["commandcode_plan_level"] = nil
-	if subscription, err := fetch("billing/subscriptions"); err == nil && gjson.GetBytes(subscription, "success").Type == gjson.True {
+	if subscriptionErr == nil && gjson.GetBytes(subscription, "success").Type == gjson.True {
 		plan := gjson.GetBytes(subscription, "data.planId")
 		if plan.Type == gjson.String && strings.TrimSpace(plan.String()) != "" {
 			result.PlanLevel = strings.TrimSpace(plan.String())
@@ -140,7 +157,7 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 		updates["commandcode_"+field] = nil
 	}
 	hasSummary := false
-	if summary, err := fetch("usage/summary"); err == nil {
+	if summaryErr == nil {
 		basis := gjson.GetBytes(summary, "periodBasis")
 		if basis.Type == gjson.String && strings.TrimSpace(basis.String()) != "" {
 			updates["commandcode_period_basis"] = strings.TrimSpace(basis.String())

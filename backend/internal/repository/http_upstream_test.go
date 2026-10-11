@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -1046,4 +1047,19 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.CheckRedirect(publicHop, via))
 	require.Error(t, client.CheckRedirect(publicHop, make([]*http.Request, 10)), "redirect chain stays capped")
+}
+
+func TestHTTPUpstreamDNSPreflightRespectsRequestContext(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.Enabled = true
+	upstream, ok := NewHTTPUpstream(cfg).(*httpUpstreamService)
+	require.True(t, ok)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://8.8.8.8/", nil)
+	require.NoError(t, err)
+	require.ErrorIs(t, upstream.validateRequestHost(request), context.Canceled)
+	require.ErrorIs(t, upstream.redirectChecker(request, nil), context.Canceled)
+	cfg.Security.URLAllowlist.Enabled = false
+	require.NoError(t, upstream.validateRequestHost(request), "default unrestricted path is unchanged")
 }

@@ -884,6 +884,15 @@ func (s *AccountUsageService) GetUsageForAccount(ctx context.Context, account *A
 	return s.getUsageForAccount(ctx, account, forceProbe)
 }
 
+// Batch budgets leave five seconds for transport and serialization before the
+// frontend request expires. Variables allow focused tests to shorten the wait.
+var (
+	usageBatchPerAccountTimeout = 12 * time.Second
+	usageBatchOverallTimeout    = 20 * time.Second
+)
+
+const usageBatchTimeoutError = "usage query timed out"
+
 // GetUsageBatch 批量获取账号使用量。
 // Anthropic OAuth/SetupToken 统一走 passive 链路，其他账号复用现有主动查询逻辑。
 // 单个账号失败不会中断整批请求，错误会按账号返回。
@@ -907,56 +916,95 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 		return usageByAccount, errorsByAccount, nil
 	}
 
-	accounts, err := s.accountRepo.GetByIDs(ctx, uniqueIDs)
+	batchCtx, batchCancel := context.WithTimeout(ctx, usageBatchOverallTimeout)
+	defer batchCancel()
+	perAccountTimeout := usageBatchPerAccountTimeout
+	accounts, err := s.accountRepo.GetByIDs(batchCtx, uniqueIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get accounts failed: %w", err)
 	}
 
 	accountsByID := make(map[int64]*Account, len(accounts))
 	for _, account := range accounts {
-		if account == nil {
-			continue
+		if account != nil {
+			accountsByID[account.ID] = account
 		}
-		accountsByID[account.ID] = account
 	}
-
-	var mu sync.Mutex
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(6)
-
+	// Populate missing IDs before concurrent writers start.
 	for _, accountID := range uniqueIDs {
-		id := accountID
-		account := accountsByID[id]
-		if account == nil {
-			errorsByAccount[id] = ErrAccountNotFound.Error()
-			continue
+		if accountsByID[accountID] == nil {
+			errorsByAccount[accountID] = ErrAccountNotFound.Error()
 		}
-
-		g.Go(func() error {
-			var usage *UsageInfo
-			var usageErr error
-			if supportsAnthropicPassiveUsage(account) {
-				usage, usageErr = s.getPassiveUsageForAccount(gctx, account)
-			} else {
-				usage, usageErr = s.getUsageForAccount(gctx, account, force)
+	}
+	var mu sync.Mutex
+	group, groupCtx := errgroup.WithContext(batchCtx)
+	group.SetLimit(6)
+	waitDone := make(chan struct{})
+	go func() {
+		// Go itself blocks at the limit. Include submission in the overall budget,
+		// even when a provider ignores cancellation until its own timeout expires.
+		for _, accountID := range uniqueIDs {
+			account := accountsByID[accountID]
+			if account == nil {
+				continue
 			}
-
-			mu.Lock()
-			defer mu.Unlock()
-			if usageErr != nil {
-				errorsByAccount[id] = batchUsageErrorMessage(usageErr)
+			if groupCtx.Err() != nil {
+				break
+			}
+			group.Go(func() error {
+				if groupCtx.Err() != nil {
+					return nil
+				}
+				accountCtx, accountCancel := context.WithTimeout(groupCtx, perAccountTimeout)
+				defer accountCancel()
+				var usage *UsageInfo
+				var usageErr error
+				if supportsAnthropicPassiveUsage(account) {
+					usage, usageErr = s.getPassiveUsageForAccount(accountCtx, account)
+				} else {
+					usage, usageErr = s.getUsageForAccount(accountCtx, account, force)
+				}
+				mu.Lock()
+				defer mu.Unlock()
+				if accountCtx.Err() != nil {
+					errorsByAccount[account.ID] = usageBatchTimeoutError
+				} else if usageErr != nil {
+					errorsByAccount[account.ID] = batchUsageErrorMessage(usageErr)
+				} else {
+					usageByAccount[account.ID] = usage
+				}
 				return nil
+			})
+		}
+		_ = group.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		if batchCtx.Err() == nil {
+			return usageByAccount, errorsByAccount, nil
+		}
+	case <-batchCtx.Done():
+	}
+	// Never return maps that late provider completions can still mutate.
+	mu.Lock()
+	partialUsage := make(map[int64]*UsageInfo, len(usageByAccount))
+	for accountID, usage := range usageByAccount {
+		partialUsage[accountID] = usage
+	}
+	partialErrors := make(map[int64]string, len(uniqueIDs))
+	for accountID, message := range errorsByAccount {
+		partialErrors[accountID] = message
+	}
+	mu.Unlock()
+	for _, accountID := range uniqueIDs {
+		if _, completed := partialUsage[accountID]; !completed {
+			if _, failed := partialErrors[accountID]; !failed {
+				partialErrors[accountID] = usageBatchTimeoutError
 			}
-			usageByAccount[id] = usage
-			return nil
-		})
+		}
 	}
-
-	if err := g.Wait(); err != nil {
-		return nil, nil, err
-	}
-
-	return usageByAccount, errorsByAccount, nil
+	return partialUsage, partialErrors, nil
 }
 
 // GetPassiveUsage 从 Account.Extra 中的被动采样数据构建 UsageInfo，不调用外部 API。

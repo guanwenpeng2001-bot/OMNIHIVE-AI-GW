@@ -103,10 +103,12 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 
 // Shared across remounts; setup-local maps are recreated for every account row.
 const commandCodeLastProbeAt = new Map<number, number>()
+const AUTO_PROBE_MAX_CONCURRENT = 2
+let autoProbeInflight = 0
 </script>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { CNProviderQuotaProbeResult } from '@/api/admin/cnProviders'
@@ -197,6 +199,20 @@ const snapshotIsStale = computed(() => {
   return Number.isNaN(ts) || Date.now() - ts > SNAPSHOT_STALE_MS
 })
 
+let autoProbeTimer: ReturnType<typeof setTimeout> | null = null
+const scheduleAutoProbe = () => {
+  if (autoProbeInflight >= AUTO_PROBE_MAX_CONCURRENT) {
+    autoProbeTimer = setTimeout(scheduleAutoProbe, 1200)
+    return
+  }
+  autoProbeTimer = null
+  autoProbeInflight += 1
+  void handleProbe().finally(() => { autoProbeInflight -= 1 })
+}
+onBeforeUnmount(() => {
+  if (autoProbeTimer !== null) clearTimeout(autoProbeTimer)
+})
+
 // 挂载时：先用持久化快照渲染；快照缺失或过期再自动探测一次（失败显示错误，
 // 避免静默失败导致单元格空白无提示）。
 onMounted(() => {
@@ -211,7 +227,7 @@ onMounted(() => {
   const last = probeTimes.get(props.account.id) ?? 0
   if (Date.now() - last < AUTO_PROBE_DEBOUNCE_MS) return
   probeTimes.set(props.account.id, Date.now())
-  handleProbe()
+  scheduleAutoProbe()
 })
 
 const extractErrorMessage = (error: unknown): string => extractApiErrorMessage(error, t('common.error'))
@@ -286,6 +302,11 @@ watch(
   [() => accountQueryIdentity(props.account), () => JSON.stringify(snapshotData.value)],
   ([identity, snapshot], [previousIdentity, previousSnapshot]) => {
     if (identity !== previousIdentity) {
+      // A queued automatic observation belongs to the identity that mounted.
+      if (autoProbeTimer !== null) {
+        clearTimeout(autoProbeTimer)
+        autoProbeTimer = null
+      }
       observationGeneration++
       data.value = null
       error.value = null

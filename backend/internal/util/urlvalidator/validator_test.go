@@ -1,6 +1,11 @@
 package urlvalidator
 
-import "testing"
+import (
+	"context"
+	"net"
+	"testing"
+	"time"
+)
 
 func TestValidateURLFormat(t *testing.T) {
 	if _, err := ValidateURLFormat("", false); err == nil {
@@ -87,6 +92,27 @@ func TestIsBlockedHost(t *testing.T) {
 	for _, host := range []string{"example.com", "cdn.example.com", "93.184.216.34", "8.8.8.8", "2606:4700:4700::1111", ""} {
 		if IsBlockedHost(host) {
 			t.Fatalf("expected %q to be allowed", host)
+		}
+	}
+}
+
+func TestValidateResolvedIPRespectsCallerContext(t *testing.T) {
+	previous := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	defer func() { net.DefaultResolver = previous }()
+	for _, canceled := range []bool{true, false} {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		if canceled {
+			cancel()
+		}
+		started := time.Now()
+		err := ValidateResolvedIP(ctx, "budget.example")
+		cancel()
+		if err == nil || time.Since(started) > 500*time.Millisecond {
+			t.Fatalf("lookup escaped caller context: err=%v elapsed=%s", err, time.Since(started))
 		}
 	}
 }

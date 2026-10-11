@@ -6,7 +6,7 @@ import type { PaginatedResponse } from '@/types/common'
 const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 vi.mock('../client', () => ({ apiClient: { get, post } }))
 
-import { batchCreate, create, getAvailableModels, getById, listWithEtag, setSchedulable } from '../admin/accounts'
+import { batchCreate, getBatchUsage, create, getAvailableModels, getById, listWithEtag, setSchedulable } from '../admin/accounts'
 import type { BatchCreateAccountsResponse } from '../admin/accounts'
 
 describe('admin account DTO contracts', () => {
@@ -61,4 +61,13 @@ describe('admin account DTO contracts', () => {
     expectTypeOf<Awaited<ReturnType<typeof setSchedulable>>>().toEqualTypeOf<Account>()
     expectTypeOf<PaginatedResponse<AccountListItem>>().toHaveProperty('pages')
   })
+})
+
+
+it('uses a 25 second request budget and preserves batch force semantics', async () => {
+  post.mockResolvedValue({ data: { usage: {}, errors: {} } })
+  await getBatchUsage([1, 2], true)
+  expect(post).toHaveBeenLastCalledWith('/admin/accounts/usage/batch', { account_ids: [1, 2], force: true }, { timeout: 25000 })
+  await getBatchUsage([3])
+  expect(post).toHaveBeenLastCalledWith('/admin/accounts/usage/batch', { account_ids: [3], force: false }, { timeout: 25000 })
 })

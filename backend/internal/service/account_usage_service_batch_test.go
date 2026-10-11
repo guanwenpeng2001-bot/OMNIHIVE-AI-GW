@@ -3,12 +3,102 @@ package service
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
+
+type usageBatchBlockingLogRepo struct {
+	usageBatchLogRepoStub
+	lookup func(context.Context, int64) (*usagestats.AccountStats, error)
+}
+
+func (repo *usageBatchBlockingLogRepo) GetAccountWindowStats(ctx context.Context, accountID int64, _ time.Time) (*usagestats.AccountStats, error) {
+	return repo.lookup(ctx, accountID)
+}
+
+func setUsageBatchTestTimeouts(t *testing.T, perAccount, overall time.Duration) {
+	t.Helper()
+	previousAccount, previousOverall := usageBatchPerAccountTimeout, usageBatchOverallTimeout
+	usageBatchPerAccountTimeout, usageBatchOverallTimeout = perAccount, overall
+	t.Cleanup(func() { usageBatchPerAccountTimeout, usageBatchOverallTimeout = previousAccount, previousOverall })
+}
+
+func TestAccountUsageService_GetUsageBatch_PerAccountTimeoutPartial(t *testing.T) {
+	setUsageBatchTestTimeouts(t, 100*time.Millisecond, time.Second)
+	repo := &stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Extra: map[string]any{"passive_usage_7d_utilization": 0.2}},
+		{ID: 2, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Extra: map[string]any{"passive_usage_7d_utilization": 0.3}},
+	}}
+	logs := &usageBatchBlockingLogRepo{lookup: func(ctx context.Context, accountID int64) (*usagestats.AccountStats, error) {
+		if accountID == 2 {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &usagestats.AccountStats{}, nil
+	}}
+	svc := &AccountUsageService{accountRepo: repo, usageLogRepo: logs, cache: NewUsageCache()}
+	started := time.Now()
+	usage, failures, err := svc.GetUsageBatch(context.Background(), []int64{1, 2, 99}, false)
+	if err != nil || usage[1] == nil || usage[2] != nil || failures[2] != usageBatchTimeoutError || failures[99] != ErrAccountNotFound.Error() {
+		t.Fatalf("usage=%v failures=%v err=%v", usage, failures, err)
+	}
+	if elapsed := time.Since(started); elapsed < 80*time.Millisecond || elapsed > 750*time.Millisecond {
+		t.Fatalf("per-account budget not respected: %s", elapsed)
+	}
+}
+
+func TestAccountUsageService_GetUsageBatch_OverallTimeoutPartial(t *testing.T) {
+	setUsageBatchTestTimeouts(t, time.Second, 150*time.Millisecond)
+	// Simulate a bounded provider that ignores caller cancellation. More than six
+	// IDs also proves that blocked errgroup submission cannot hide the hard cap.
+	release := make(chan struct{})
+	var active sync.WaitGroup
+	logs := &usageBatchBlockingLogRepo{lookup: func(context.Context, int64) (*usagestats.AccountStats, error) {
+		active.Add(1)
+		defer active.Done()
+		<-release
+		return &usagestats.AccountStats{}, nil
+	}}
+	repo := &stubOpenAIAccountRepo{}
+	ids := []int64{1, 2, 3, 4, 5, 6, 7}
+	for _, accountID := range ids {
+		repo.accounts = append(repo.accounts, Account{ID: accountID, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Extra: map[string]any{"passive_usage_7d_utilization": 0.2}})
+	}
+	svc := &AccountUsageService{accountRepo: repo, usageLogRepo: logs, cache: NewUsageCache()}
+	// Ensure a broken implementation eventually exits rather than hanging tests.
+	fallback := time.AfterFunc(time.Second, func() { close(release) })
+	started := time.Now()
+	usage, failures, err := svc.GetUsageBatch(context.Background(), ids, false)
+	if fallback.Stop() {
+		close(release)
+	}
+	if elapsed := time.Since(started); elapsed > 750*time.Millisecond {
+		t.Fatalf("overall budget not respected: %s", elapsed)
+	}
+	if err != nil || len(usage) != 0 || len(failures) != len(ids) {
+		t.Fatalf("usage=%v failures=%v err=%v", usage, failures, err)
+	}
+	for _, accountID := range ids {
+		if failures[accountID] != usageBatchTimeoutError {
+			t.Fatalf("missing timeout for %d: %v", accountID, failures)
+		}
+	}
+	// Read the returned maps while late results finish, exposing aliasing to -race.
+	for readUntil := time.Now().Add(20 * time.Millisecond); time.Now().Before(readUntil); {
+		for range usage {
+		}
+		for _, message := range failures {
+			if message != usageBatchTimeoutError {
+				t.Fatal(message)
+			}
+		}
+	}
+	active.Wait()
+}
 
 // Minimal UsageLogRepository stub for batch usage tests (HEAD lacks geminiUsageLogRepoStub).
 type usageBatchLogRepoStub struct{}
