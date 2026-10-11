@@ -138,6 +138,53 @@ func TestApplyOpenCodeSessionHeaderOpenCodeGoAlwaysSetsSession(t *testing.T) {
 	require.NotEmpty(t, headers.Get(openCodeSessionHeader))
 }
 
+func TestOpenCodeSessionParentHeaderPassthrough(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name      string
+		platform  string
+		targetURL string
+		incoming  string
+		existing  http.Header
+		want      string
+	}{
+		{name: "official host without child session", targetURL: "https://opencode.ai/zen/v1/responses", incoming: "parent-123", want: "parent-123"},
+		{name: "go account with custom relay", platform: PlatformOpenCodeGo, targetURL: "https://relay.example.com/v1/responses", incoming: "parent-123", want: "parent-123"},
+		{name: "missing parent is never generated", platform: PlatformOpenCodeGo, targetURL: "https://opencode.ai/zen/go/v1/responses"},
+		{name: "other upstream", targetURL: "https://api.openai.com/v1/responses", incoming: "parent-123"},
+		{name: "lookalike host", targetURL: "https://opencode.ai.evil.example/v1/responses", incoming: "parent-123"},
+		{name: "subdomain", targetURL: "https://api.opencode.ai/v1/responses", incoming: "parent-123"},
+		{name: "insecure host", targetURL: "http://opencode.ai/zen/v1/responses", incoming: "parent-123"},
+		{name: "whitespace sanitized", targetURL: "https://opencode.ai/zen/v1/responses", incoming: " parent-123 ", want: "parent-123"},
+		{name: "control characters rejected", targetURL: "https://opencode.ai/zen/v1/responses", incoming: "parent\r\nInjected: value"},
+		{name: "overlong value rejected", targetURL: "https://opencode.ai/zen/v1/responses", incoming: strings.Repeat("p", maxPersistedSessionIDLength+1)},
+		{name: "existing override preserved", targetURL: "https://opencode.ai/zen/v1/responses", incoming: "parent-123", existing: http.Header{"x-opencode-parent-session-id": {"account-parent"}}, want: "account-parent"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			clientContext := newOpenCodeSessionTestContext(t, "")
+			clientContext.Request.Header.Set("x-opencode-parent-session-id", test.incoming)
+			headers := test.existing.Clone()
+			if headers == nil {
+				headers = make(http.Header)
+			}
+			account := &Account{Platform: test.platform, Type: AccountTypeAPIKey}
+			applyOpenCodeSessionHeader(clientContext, account, test.targetURL, headers)
+			require.Equal(t, test.want, getHeaderRaw(headers, "x-opencode-parent-session-id"))
+			require.Equal(t, test.incoming, clientContext.GetHeader("x-opencode-parent-session-id"))
+		})
+	}
+}
+
+func TestOpenCodeSessionParentHeaderNilSafe(t *testing.T) {
+	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
+	headers := make(http.Header)
+	applyOpenCodeSessionHeader(nil, account, "https://opencode.ai/zen/go/v1/responses", headers)
+	require.Empty(t, headers.Get(openCodeParentSessionHeader))
+	applyOpenCodeParentSessionHeader(&gin.Context{}, account, "https://opencode.ai/zen/go/v1/responses", headers)
+	applyOpenCodeParentSessionHeader(newOpenCodeSessionTestContext(t, ""), account, "https://opencode.ai/zen/go/v1/responses", nil)
+}
+
 func TestApplyOpenCodeSessionHeaderMapsCallerSessionID(t *testing.T) {
 	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
 	c := newOpenCodeSessionTestContext(t, "")
@@ -251,9 +298,11 @@ func TestOpenCodeSessionForwardedByResponsesBuildersAfterAccountOverride(t *test
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newOpenCodeSessionTestContext(t, "conversation-456")
+			c.Request.Header.Set("x-opencode-parent-session-id", "parent-conversation-456")
 			req, err := tt.build(c)
 			require.NoError(t, err)
 			requireSingleOpenCodeSessionHeader(t, req.Header, "conversation-456")
+			require.Equal(t, "parent-conversation-456", req.Header.Get("x-opencode-parent-session-id"))
 		})
 	}
 }
@@ -496,6 +545,7 @@ func TestOpenCodeSessionForwardedByRawChatCompletionsAfterAccountOverride(t *tes
 	svc.httpUpstream = upstream
 	account := openCodeSessionTestAccount("https://opencode.ai/zen/v1")
 	c := newOpenCodeSessionTestContext(t, "conversation-789")
+	c.Request.Header.Set("x-opencode-parent-session-id", "parent-conversation-789")
 
 	resp, err := svc.sendCCUpstreamRequest(
 		context.Background(), c, account,
@@ -507,6 +557,7 @@ func TestOpenCodeSessionForwardedByRawChatCompletionsAfterAccountOverride(t *tes
 	require.NotNil(t, upstream.request)
 	require.Equal(t, openCodeUpstreamUserAgent, upstream.request.Header.Get("User-Agent"))
 	requireSingleOpenCodeSessionHeader(t, upstream.request.Header, "conversation-789")
+	require.Equal(t, "parent-conversation-789", upstream.request.Header.Get("x-opencode-parent-session-id"))
 }
 
 func TestOpenCodeNativeAnthropicUpstreamUserAgent(t *testing.T) {
@@ -542,9 +593,11 @@ func TestOpenCodeSessionIsNotForwardedToOtherUpstreams(t *testing.T) {
 				Credentials: map[string]any{"base_url": baseURL},
 			}
 			c := newOpenCodeSessionTestContext(t, "private-conversation")
+			c.Request.Header.Set("x-opencode-parent-session-id", "private-parent")
 			req, err := svc.buildUpstreamRequest(context.Background(), c, account, body, "token", false, "", false)
 			require.NoError(t, err)
 			require.Empty(t, req.Header.Get(openCodeSessionHeader))
+			require.Empty(t, req.Header.Get("x-opencode-parent-session-id"))
 		})
 	}
 }
