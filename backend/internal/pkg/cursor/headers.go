@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const DefaultClientVersion = "3.16.17"
+const DefaultClientVersion = "3.24.12"
 
 type Credentials struct{ AccessToken, MachineID, MacMachineID, ClientVersion string }
 
