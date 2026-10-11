@@ -13,6 +13,7 @@ import (
 
 const (
 	openCodeSessionHeader         = "X-OpenCode-Session"
+	openCodeParentSessionHeader   = "X-OpenCode-Parent-Session-Id"
 	openCodeInboundBodyContextKey = "opencode_inbound_body"
 
 	// openCodeUpstreamUserAgent 是发往官方 OpenCode 上游的规范 User-Agent。
@@ -63,6 +64,7 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 	if !shouldSendOpenCodeSessionHeader(account, targetURL) {
 		return
 	}
+	applyOpenCodeParentSessionHeader(c, account, targetURL, headers)
 
 	payloads := append(openCodeInboundBodies(c), bodies...)
 	sessionID := resolveOpenCodeSessionID(c, headers, shouldGenerateOpenCodeSession(account, targetURL), payloads...)
@@ -75,6 +77,22 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 		}
 	}
 	headers.Set(openCodeSessionHeader, sessionID)
+}
+
+// applyOpenCodeParentSessionHeader forwards only an explicit, valid caller value.
+// Parent IDs must never be generated or replace an existing outbound override.
+func applyOpenCodeParentSessionHeader(c *gin.Context, account *Account, targetURL string, headers http.Header) {
+	if c == nil || c.Request == nil || headers == nil || !shouldSendOpenCodeSessionHeader(account, targetURL) {
+		return
+	}
+	for key := range headers {
+		if strings.EqualFold(key, openCodeParentSessionHeader) {
+			return
+		}
+	}
+	if parentSessionID := sanitizeSessionID(c.GetHeader(openCodeParentSessionHeader)); parentSessionID != "" {
+		headers.Set(openCodeParentSessionHeader, parentSessionID)
+	}
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
