@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,7 +57,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	if isGrokImageGenerationModel(upstreamModel) {
 		return nil, fmt.Errorf("model %s is an image model and is not available on the Responses endpoint; use /v1/images/generations instead", upstreamModel)
 	}
-	patchedBody, clientToolMapping, err := patchGrokResponsesBodyWithClientTools(body, upstreamModel)
+	patchedBody, clientToolMapping, err := patchGrokResponsesBodyWithClientTools(body, upstreamModel, c)
 	if err != nil {
 		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
@@ -525,11 +527,11 @@ func trimGrokInvalidEncryptedContentRetryBody(body []byte) ([]byte, bool, error)
 	return retryBody, true, nil
 }
 
-func patchGrokResponsesBody(body []byte, upstreamModel string) ([]byte, error) {
-	return patchGrokResponsesBodyBase(body, upstreamModel)
+func patchGrokResponsesBody(body []byte, upstreamModel string, requestContext ...*gin.Context) ([]byte, error) {
+	return patchGrokResponsesBodyBase(body, upstreamModel, requestContext...)
 }
 
-func patchGrokResponsesBodyWithClientTools(body []byte, upstreamModel string) ([]byte, apicompat.ResponsesClientToolMapping, error) {
+func patchGrokResponsesBodyWithClientTools(body []byte, upstreamModel string, requestContext ...*gin.Context) ([]byte, apicompat.ResponsesClientToolMapping, error) {
 	if !json.Valid(body) {
 		return nil, apicompat.ResponsesClientToolMapping{}, fmt.Errorf("invalid json request body")
 	}
@@ -541,14 +543,14 @@ func patchGrokResponsesBodyWithClientTools(body []byte, upstreamModel string) ([
 	if err != nil {
 		return nil, apicompat.ResponsesClientToolMapping{}, err
 	}
-	patched, err := patchGrokResponsesBodyBase(adapted, upstreamModel)
+	patched, err := patchGrokResponsesBodyBase(adapted, upstreamModel, requestContext...)
 	if err != nil {
 		return nil, apicompat.ResponsesClientToolMapping{}, err
 	}
 	return patched, mapping, nil
 }
 
-func patchGrokResponsesBodyBase(body []byte, upstreamModel string) ([]byte, error) {
+func patchGrokResponsesBodyBase(body []byte, upstreamModel string, requestContext ...*gin.Context) ([]byte, error) {
 	if !json.Valid(body) {
 		return nil, fmt.Errorf("invalid json request body")
 	}
@@ -566,7 +568,15 @@ func patchGrokResponsesBodyBase(body []byte, upstreamModel string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	for _, unsupportedField := range []string{"prompt_cache_retention", "safety_identifier", "metadata"} {
+	var downstreamContext *gin.Context
+	if len(requestContext) > 0 {
+		downstreamContext = requestContext[0]
+	}
+	out, err = applyGrokSafetyIdentifier(out, downstreamContext)
+	if err != nil {
+		return nil, err
+	}
+	for _, unsupportedField := range []string{"prompt_cache_retention", "metadata"} {
 		if gjson.GetBytes(out, unsupportedField).Exists() {
 			out, err = sjson.DeleteBytes(out, unsupportedField)
 			if err != nil {
@@ -623,6 +633,27 @@ func patchGrokResponsesBodyBase(body []byte, upstreamModel string) ([]byte, erro
 		return nil, err
 	}
 	return out, nil
+}
+
+// applyGrokSafetyIdentifier replaces untrusted client values with a stable
+// downstream identity. Type prefixes keep API key and user ID namespaces apart.
+// The authenticated APIKey in gin context also carries the owning user's ID.
+func applyGrokSafetyIdentifier(body []byte, requestContext *gin.Context) ([]byte, error) {
+	identity := ""
+	if apiKeyID := getAPIKeyIDFromContext(requestContext); apiKeyID > 0 {
+		identity = fmt.Sprintf("api-key:%d", apiKeyID)
+	} else if requestContext != nil {
+		value, _ := requestContext.Get("api_key")
+		if apiKey, ok := value.(*APIKey); ok && apiKey != nil && apiKey.UserID > 0 {
+			identity = fmt.Sprintf("user:%d", apiKey.UserID)
+		}
+	}
+	if identity == "" {
+		return sjson.DeleteBytes(body, "safety_identifier")
+	}
+	digest := sha256.Sum256([]byte("sub2api:grok-safety-id:v1:" + identity))
+	// SHA-256's lowercase hex encoding is exactly the upstream limit of 64 characters.
+	return sjson.SetBytes(body, "safety_identifier", hex.EncodeToString(digest[:]))
 }
 
 // xAI's Grok 4.20 family and newer models do not support OpenAI's logprobs

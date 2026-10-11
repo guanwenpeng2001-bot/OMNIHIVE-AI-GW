@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,6 +54,49 @@ func TestGrokNewModelReasoningRegistration(t *testing.T) {
 			require.Equal(t, "xhigh", normalized)
 		}
 	}
+}
+
+func TestForwardGrokResponsesSafetyIdentifier(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		key      *APIKey
+		identity string
+	}{
+		{"key wins over user", &APIKey{ID: 41, UserID: 99}, "api-key:41"},
+		{"different key", &APIKey{ID: 42, UserID: 99}, "api-key:42"},
+		{"user fallback", &APIKey{UserID: 41}, "user:41"},
+		{"negative key falls back", &APIKey{ID: -1, UserID: 99}, "user:99"},
+		{"no identity", nil, ""},
+		{"invalid identity", &APIKey{ID: -1, UserID: -1}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, clientField := range []string{"", `,"safety_identifier":"client-spoof"`} {
+				body := []byte(`{"model":"grok-4.7","input":"hi"` + clientField + `}`)
+				original := append([]byte(nil), body...)
+				c := adaptiveProtocolTestContext("/v1/responses", body)
+				c.Set("api_key", test.key)
+				account := rawChatCompletionsTestAccount()
+				account.Platform = PlatformGrok
+				upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("safety", "grok-4.7")}
+				gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+				_, err := gateway.forwardGrokResponses(context.Background(), c, account, body, "grok-4.7", false, time.Now())
+				require.NoError(t, err)
+				assertGrokSafetyIdentifier(t, upstream.lastBody, test.identity)
+				require.Equal(t, original, body)
+			}
+		})
+	}
+}
+
+func assertGrokSafetyIdentifier(t *testing.T, body []byte, identity string) {
+	t.Helper()
+	value := gjson.GetBytes(body, "safety_identifier")
+	if identity == "" {
+		require.False(t, value.Exists())
+		return
+	}
+	require.Equal(t, fmt.Sprintf("%x", sha256.Sum256([]byte("sub2api:grok-safety-id:v1:"+identity))), value.String())
+	require.Regexp(t, `^[0-9a-f]{64}$`, value.String())
 }
 
 func TestPatchGrokResponsesBodyDropsRedundantViewImageForCurrentInlineImage(t *testing.T) {
@@ -2156,7 +2200,7 @@ func TestForwardGrokResponsesRetriesInvalidEncryptedContentOnce(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	body := []byte(`{
-		"model":"grok-4.7",
+		"model":"grok-future-unlisted",
 		"reasoning":{"effort":"future-effort"},
 		"previous_response_id":"resp_valid_history",
 		"input":[
@@ -2202,13 +2246,15 @@ func TestForwardGrokResponsesRetriesInvalidEncryptedContentOnce(t *testing.T) {
 	}}
 	svc := &OpenAIGatewayService{httpUpstream: upstream}
 
-	result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok-4.7", false, time.Now())
+	result, err := svc.forwardGrokResponses(context.Background(), c, account, body, "grok-future-unlisted", false, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, "resp_recovered", result.ResponseID)
 	require.Equal(t, "recovered-second", result.RequestID)
 	require.Len(t, upstream.requests, 2)
 	require.Len(t, upstream.bodies, 2)
+	assertGrokSafetyIdentifier(t, upstream.bodies[0], "api-key:4535")
+	assertGrokSafetyIdentifier(t, upstream.bodies[1], "api-key:4535")
 	outboundEffort := gjson.GetBytes(upstream.bodies[1], "reasoning.effort").String()
 	require.Equal(t, "future-effort", outboundEffort)
 	require.Equal(t, outboundEffort, optionalStringValue(result.ReasoningEffort))
