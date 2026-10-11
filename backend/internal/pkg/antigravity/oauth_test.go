@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+func TestAntigravityNormalizeUserAgentVersion_CurrentVersion(t *testing.T) {
+	if got := NormalizeUserAgentVersion("2.22.0"); got != "2.22.0" {
+		t.Errorf("NormalizeUserAgentVersion(2.22.0) = %q, want 2.22.0", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // getClientSecret
 // ---------------------------------------------------------------------------
@@ -693,7 +699,7 @@ func TestConstants_值正确(t *testing.T) {
 	if RedirectURI != "http://localhost:8085/callback" {
 		t.Errorf("RedirectURI 不匹配: got %s", RedirectURI)
 	}
-	if GetUserAgent() != "antigravity/2.9.1 windows/amd64" {
+	if GetUserAgent() != "antigravity/"+DefaultUserAgentVersion+" windows/amd64" {
 		t.Errorf("UserAgent 不匹配: got %s", GetUserAgent())
 	}
 	if SessionTTL != 30*time.Minute {
