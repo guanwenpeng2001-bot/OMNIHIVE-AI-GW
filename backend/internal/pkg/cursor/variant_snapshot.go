@@ -5,6 +5,7 @@ package cursor
 // Source: PR 6289 snapshot; live picker data takes precedence.
 func defaultRunSlugTable() map[string][]string {
 	return map[string][]string{
+		"grok-4.7": effortFast("cursor-grok-4.7", "low", "medium", "high", "xhigh"),
 		"grok-4.6": effortFast("cursor-grok-4.6", "low", "medium", "high", "xhigh"),
 		"composer-2.5": {
 			"composer-2.5-fast",

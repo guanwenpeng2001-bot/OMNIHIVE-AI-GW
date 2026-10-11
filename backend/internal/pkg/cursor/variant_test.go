@@ -59,6 +59,12 @@ func TestResolveModelVariant(t *testing.T) {
 	require.Error(t, err, "live picker is authoritative")
 }
 
+func TestResolveModelGrok47Fallback(t *testing.T) {
+	slug, err := ResolveModel("grok-4.7", "xhigh", nil)
+	require.NoError(t, err)
+	require.Equal(t, "cursor-grok-4.7-xhigh", slug)
+}
+
 func TestReasoningModelsWithoutThinkingSuffix(t *testing.T) {
 	enabled := true
 	for _, test := range []struct {
