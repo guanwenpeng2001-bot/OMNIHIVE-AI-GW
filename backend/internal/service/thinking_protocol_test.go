@@ -1,6 +1,59 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+)
+
+func TestThinkingProtocol_DeepSeekFlashToolCallsPreserveThinking(t *testing.T) {
+	// Anthropic represents tool_calls as tool_use blocks followed by tool_result.
+	// Unsigned thinking is valid for this upstream and must survive both rounds.
+	body := []byte(`{
+		"model":"deepseek-flash",
+		"max_tokens":4096,
+		"thinking":{"type":"enabled"},
+		"tools":[{"name":"get_weather","description":"Get city weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],
+		"messages":[
+			{"role":"user","content":"Compare the weather in Beijing and Shanghai."},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"First I need the weather in Beijing."},
+				{"type":"tool_use","id":"call_beijing","name":"get_weather","input":{"city":"Beijing"}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_beijing","content":"Sunny, 20 C"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"Now I need Shanghai weather for the comparison."},
+				{"type":"tool_use","id":"call_shanghai","name":"get_weather","input":{"city":"Shanghai"}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_shanghai","content":"Rainy, 18 C"}]}
+		]
+	}`)
+
+	const model = "deepseek-flash"
+	require.Equal(t, ThinkingProtocolPassbackRequired, ResolveThinkingProtocol(model))
+	require.False(t, ShouldPreFilterThinkingBlocks(model))
+	require.False(t, ShouldApplyRetryFilters(model))
+	require.False(t, ShouldRectifyThinkingSignatureError(model))
+
+	for _, stage := range []struct {
+		name   string
+		filter func([]byte, string) []byte
+	}{
+		{name: "initial forwarding", filter: FilterThinkingBlocks},
+		{name: "retry forwarding", filter: FilterThinkingBlocksForRetry},
+	} {
+		t.Run(stage.name, func(t *testing.T) {
+			got := stage.filter(body, model)
+			require.True(t, gjson.ValidBytes(got))
+			require.Equal(t, "thinking", gjson.GetBytes(got, "messages.1.content.0.type").String())
+			require.Equal(t, "First I need the weather in Beijing.", gjson.GetBytes(got, "messages.1.content.0.thinking").String())
+			require.Equal(t, "thinking", gjson.GetBytes(got, "messages.3.content.0.type").String())
+			require.Equal(t, "Now I need Shanghai weather for the comparison.", gjson.GetBytes(got, "messages.3.content.0.thinking").String())
+			require.Equal(t, body, got, "thinking, tool calls, and tool results must be preserved verbatim")
+		})
+	}
+}
 
 func TestResolveThinkingProtocol(t *testing.T) {
 	tests := []struct {

@@ -1563,6 +1563,27 @@ func TestApplyThinkingEnabledFallback(t *testing.T) {
 	}
 }
 
+func TestGatewayRequest_KimiK3ReasoningEffortPassThrough(t *testing.T) {
+	body := []byte(`{"model":"kimi-k3","reasoning_effort":"max","messages":[{"role":"user","content":"Hello"}]}`)
+
+	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), domain.PlatformAnthropic)
+	require.NoError(t, err)
+	require.Equal(t, "kimi-k3", parsed.Model)
+	require.False(t, parsed.ThinkingEnabled)
+
+	got, applied := NormalizeGLMOpenAIReasoningEffort(parsed.Body.Bytes(), parsed.Model)
+	require.False(t, applied)
+	got, applied = NormalizeGLM53AnthropicThinking(got, parsed.Model)
+	require.False(t, applied)
+	got, applied = NormalizeChineseLLMThinking(got, parsed.Model)
+	require.False(t, applied)
+	got = FilterThinkingBlocks(got, parsed.Model)
+
+	require.Equal(t, "max", gjson.GetBytes(got, "reasoning_effort").String())
+	require.False(t, gjson.GetBytes(got, "thinking").Exists(), "must not inject thinking when the client omits it")
+	require.Equal(t, body, got, "Kimi K3 request must remain byte-for-byte unchanged")
+}
+
 func TestNormalizeGLMOpenAIReasoningEffort(t *testing.T) {
 	tests := []struct {
 		name          string
