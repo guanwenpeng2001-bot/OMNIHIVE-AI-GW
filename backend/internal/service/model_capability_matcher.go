@@ -135,7 +135,7 @@ func resolveCapabilityProfile(account *Account) string {
 	// 2026-09-23 抓取）。
 	case "api.lkeap.cloud.tencent.com":
 		return "hunyuan"
-	case "openrouter.ai":
+	case "openrouter.ai", "eu.openrouter.ai", "us.openrouter.ai":
 		return "openrouter"
 	case "api.mistral.ai":
 		return "mistral"

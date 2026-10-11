@@ -156,6 +156,16 @@ func TestCapabilityReadOnlyEnrichment(t *testing.T) {
 	})
 }
 
+func TestModelCapabilityOpenRouterHostProfiles(t *testing.T) {
+	for _, host := range []string{"openrouter.ai", "eu.openrouter.ai", "us.openrouter.ai"} {
+		t.Run(host, func(t *testing.T) {
+			account := capabilityDisplayAccount()
+			account.Credentials["base_url"] = "https://" + host + "/api/v1"
+			require.Equal(t, "openrouter", resolveCapabilityProfile(account))
+		})
+	}
+}
+
 func TestCapabilityScopeCoverage(t *testing.T) {
 	t.Run("three_level_field_cascade", func(t *testing.T) {
 		enricher, err := NewCapabilityReadOnlyEnricher(nil, nil)
