@@ -51,6 +51,21 @@ func TestCanonicalImagineVideoModel(t *testing.T) {
 	require.Equal(t, "grok-imagine-video-2", CanonicalImagineVideoModel("grok-imagine-video-2"))
 }
 
+func TestGrokModelMappingNewModels(t *testing.T) {
+	mapping := DefaultModelMapping()
+	for _, prefix := range []string{"", "xai/", "x-ai/", "grok/"} {
+		for _, alias := range []string{"grok-4.7", "grok-4.7-latest"} {
+			require.Equal(t, "grok-4.7", mapping[prefix+alias])
+			require.True(t, IsGrokTextResponsesModelID(prefix+alias))
+			require.Equal(t, "grok-4.7", ResolveGrokTextResponsesModelID(prefix+alias))
+		}
+		const lite = "grok-imagine-video-1.5-lite"
+		require.Equal(t, lite, mapping[prefix+lite])
+		require.Equal(t, lite, CanonicalImagineVideoModel(prefix+lite))
+	}
+	require.Equal(t, "grok-4.6", DefaultTextModel)
+}
+
 func TestIsGrokModelID(t *testing.T) {
 	t.Parallel()
 	require.True(t, IsGrokModelID("grok-4.5"))

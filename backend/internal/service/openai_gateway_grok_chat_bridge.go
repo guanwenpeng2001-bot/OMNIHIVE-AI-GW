@@ -567,7 +567,7 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 	if err != nil {
 		return nil, fmt.Errorf("normalize grok responses bridge cache intent: %w", err)
 	}
-	responsesBody, err = patchGrokResponsesBody(responsesBody, upstreamModel)
+	responsesBody, err = patchGrokResponsesBody(responsesBody, upstreamModel, c)
 	if err != nil {
 		return nil, fmt.Errorf("patch grok responses bridge request: %w", err)
 	}

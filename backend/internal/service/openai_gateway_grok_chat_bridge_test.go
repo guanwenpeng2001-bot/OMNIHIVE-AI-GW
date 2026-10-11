@@ -226,6 +226,36 @@ func TestGrokChatResponsesRuntimeEligibility(t *testing.T) {
 	require.False(t, grokChatResponsesRuntimeEligible("grok-4.6", ""))
 }
 
+func TestForwardGrokChatSafetyIdentifier(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		key      *APIKey
+		identity string
+	}{
+		{"api key", &APIKey{ID: 41, UserID: 99}, "api-key:41"},
+		{"user fallback", &APIKey{UserID: 41}, "user:41"},
+		{"no identity", nil, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, clientField := range []string{"", `,"safety_identifier":"client-spoof"`} {
+				body := []byte(`{"model":"grok-4.7","messages":[{"role":"user","content":"hi"}]` + clientField + `}`)
+				original := append([]byte(nil), body...)
+				c := adaptiveProtocolTestContext(grokChatRawEndpoint, body)
+				c.Set("api_key", test.key)
+				account := rawChatCompletionsTestAccount()
+				account.Platform = PlatformGrok
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chat","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))}}
+				gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+				_, err := gateway.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+				require.NoError(t, err)
+				require.Equal(t, grokChatRawEndpoint, upstream.lastReq.URL.Path)
+				assertGrokSafetyIdentifier(t, upstream.lastBody, test.identity)
+				require.Equal(t, original, body)
+			}
+		})
+	}
+}
+
 func TestForwardGrokChatViaResponsesNonStreamingCachesAndReturnsChat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -251,6 +281,7 @@ func TestForwardGrokChatViaResponsesNonStreamingCachesAndReturnsChat(t *testing.
 	require.NotNil(t, result)
 	require.Equal(t, xai.DefaultCLIBaseURL+"/responses", upstream.lastReq.URL.String())
 	require.Equal(t, grokChatResponsesEndpoint, result.UpstreamEndpoint)
+	assertGrokSafetyIdentifier(t, upstream.lastBody, "api-key:7101")
 	require.Equal(t, "grok-4.6", result.UpstreamModel)
 	require.Equal(t, 9908, result.Usage.InputTokens)
 	require.Equal(t, 12, result.Usage.OutputTokens)

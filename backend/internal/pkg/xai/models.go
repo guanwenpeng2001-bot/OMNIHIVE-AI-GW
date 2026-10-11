@@ -60,6 +60,7 @@ const (
 	DefaultImagineImage20Model       = "grok-imagine-image-2.0"
 	DefaultImagineVideoModel         = "grok-imagine-video"
 	DefaultImagineVideo15Model       = "grok-imagine-video-1.5"
+	DefaultImagineVideo15LiteModel   = "grok-imagine-video-1.5-lite"
 	DefaultImagineVideo15LegacyModel = "grok-imagine-video-1.5-preview"
 )
 
@@ -90,6 +91,8 @@ var grokTextResponsesModelAliases = map[string]string{
 	"grok-latest":                  DefaultTextModel,
 	"grok-4.6":                     "grok-4.6",
 	"grok-4.6-latest":              "grok-4.6",
+	"grok-4.7":                     "grok-4.7",
+	"grok-4.7-latest":              "grok-4.7",
 	"grok-4.5":                     "grok-4.5",
 	"grok-4.5-latest":              "grok-4.5",
 	"grok-4.3":                     "grok-4.3",
@@ -144,6 +147,7 @@ func ModelMappingWithOptions(opts ModelMappingOptions) map[string]string {
 	// rewritten on the wire (pricing still canonicalizes 1.5* via CanonicalImagineVideoModel).
 	mapping["grok-imagine-video"] = DefaultImagineVideoModel
 	mapping["grok-imagine-video-1.5"] = DefaultImagineVideo15Model
+	mapping[DefaultImagineVideo15LiteModel] = DefaultImagineVideo15LiteModel
 	mapping["grok-imagine-video-1.5-preview"] = DefaultImagineVideo15Model
 	// Informal alias only:
 	mapping["grok-video-1.5"] = DefaultImagineVideo15Model
@@ -285,6 +289,8 @@ func ResolveDefaultTextModel(model string, defaultText ...string) string {
 func CanonicalImagineVideoModel(model string) string {
 	m := strings.ToLower(StripGrokProviderPrefix(model))
 	switch {
+	case m == DefaultImagineVideo15LiteModel:
+		return DefaultImagineVideo15LiteModel
 	case m == "" || m == DefaultImagineVideoModel || m == "grok-imagine-video-preview":
 		return DefaultImagineVideoModel
 	case strings.HasPrefix(m, "grok-imagine-video-1.5") || m == "grok-video-1.5":
