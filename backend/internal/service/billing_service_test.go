@@ -79,6 +79,69 @@ func TestCalculateCost_WithCacheTokens(t *testing.T) {
 	require.InDelta(t, expectedTotal, cost.TotalCost, 1e-10)
 }
 
+func TestBillingKimiK3CacheWriteAggregate(t *testing.T) {
+	svc := newTestBillingService()
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheCreationTokens: 2000, CacheReadTokens: 3000}
+	pricing, err := svc.GetModelPricing("kimi-k3")
+	require.NoError(t, err)
+	require.NotNil(t, pricing.TokenPricePresence)
+	require.NoError(t, validateLegacyTokenPrices(pricing, tokens, ""))
+
+	cost, err := svc.CalculateCost("kimi-k3", tokens, 2)
+	require.NoError(t, err)
+	require.InDelta(t, 0.006, cost.CacheCreationCost, 1e-12) // 2000 * $3/MTok (5m)
+	require.InDelta(t, 0.003, cost.InputCost, 1e-12)
+	require.InDelta(t, 0.0075, cost.OutputCost, 1e-12)
+	require.InDelta(t, 0.0009, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.0174, cost.TotalCost, 1e-12)
+	require.InDelta(t, 0.0348, cost.ActualCost, 1e-12)
+}
+
+func TestBillingKimiK3CacheWriteBreakdown(t *testing.T) {
+	svc := newTestBillingService()
+	tokens := UsageTokens{CacheCreationTokens: 3000, CacheCreation5mTokens: 1000, CacheCreation1hTokens: 2000}
+	pricing, err := svc.GetModelPricing("kimi-k3")
+	require.NoError(t, err)
+	require.NotNil(t, pricing.TokenPricePresence)
+	require.NoError(t, validateLegacyTokenPrices(pricing, tokens, ""))
+
+	cost, err := svc.CalculateCost("kimi-k3", tokens, 1)
+	require.NoError(t, err)
+	// Charge each TTL once: 1000 * $3/MTok + 2000 * $6/MTok.
+	require.InDelta(t, 0.015, cost.CacheCreationCost, 1e-12)
+	require.InDelta(t, 0.015, cost.TotalCost, 1e-12)
+	require.InDelta(t, 0.015, cost.ActualCost, 1e-12)
+}
+
+func TestBillingKimiLegacyPricingUnchanged(t *testing.T) {
+	svc := newTestBillingService()
+	for _, model := range []string{"kimi-k2.6", "kimi-for-coding"} {
+		t.Run(model, func(t *testing.T) {
+			pricing, err := svc.GetModelPricing(model)
+			require.NoError(t, err)
+			require.False(t, pricing.SupportsCacheBreakdown)
+			require.Zero(t, pricing.CacheCreationPricePerToken)
+			require.Zero(t, pricing.CacheCreation5mPrice)
+			require.Zero(t, pricing.CacheCreation1hPrice)
+
+			tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 3000}
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 0.00095, cost.InputCost, 1e-12)
+			require.InDelta(t, 0.002, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.00045, cost.CacheReadCost, 1e-12)
+			require.Zero(t, cost.CacheCreationCost)
+			require.InDelta(t, 0.0034, cost.TotalCost, 1e-12)
+			require.InDelta(t, 0.0034, cost.ActualCost, 1e-12)
+
+			// These cards still have no cache-write tariff; do not inherit K3 rates.
+			tokens.CacheCreationTokens = 2000
+			_, err = svc.CalculateCost(model, tokens, 1)
+			require.ErrorIs(t, err, ErrModelPricingUnavailable)
+		})
+	}
+}
+
 func TestCalculateCost_RateMultiplier(t *testing.T) {
 	svc := newTestBillingService()
 
