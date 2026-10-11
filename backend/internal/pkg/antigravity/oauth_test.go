@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+func TestAntigravityNormalizeUserAgentVersion_CurrentVersion(t *testing.T) {
+	if got := NormalizeUserAgentVersion("2.22.0"); got != "2.22.0" {
+		t.Errorf("NormalizeUserAgentVersion(2.22.0) = %q, want 2.22.0", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // getClientSecret
 // ---------------------------------------------------------------------------
