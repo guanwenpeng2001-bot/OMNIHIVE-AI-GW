@@ -416,7 +416,7 @@
         <input
           v-model="form.cursor_client_version"
           class="input max-w-xs font-mono text-sm"
-          placeholder="3.16.17"
+          placeholder="3.24.12"
         />
       </label>
       <!-- Antigravity UA 版本 -->

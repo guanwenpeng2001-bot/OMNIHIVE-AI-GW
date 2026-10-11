@@ -764,8 +764,8 @@ describe('EditAccountModal', () => {
   })
 
   it.each([
-    { type: 'oauth', mode: 'auto', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17', access_token: 'stored-token' } },
-    { type: 'apikey', mode: 'official', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17' } },
+    { type: 'oauth', mode: 'auto', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.24.12', access_token: 'stored-token' } },
+    { type: 'apikey', mode: 'official', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.24.12' } },
     { type: 'upstream', mode: 'relay', credentials: { base_url: 'https://relay.example/v1', api_protocol: 'adaptive' } }
   ] as const)('keeps stored Cursor account types read only ($type)', async ({ type, mode, credentials }) => {
     const account = { ...buildAccount(), platform: 'cursor', type, credentials_status: { has_api_key: true }, credentials: { ...credentials } } as any
@@ -796,7 +796,7 @@ describe('EditAccountModal', () => {
       expect(payload.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
     } else {
       expect(payload.credentials).toEqual({
-        client_version: '3.16.17',
+        client_version: '3.24.12',
         machine_id: 'a'.repeat(64),
         mac_machine_id: 'b'.repeat(64)
       })
