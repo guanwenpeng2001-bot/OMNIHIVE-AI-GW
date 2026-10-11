@@ -25778,7 +25778,8 @@
     "coverage_status": "partial",
     "gaps": [
       "Full regional inventory, non-chat catalog and most legacy capabilities not exhaustively audited; context-specific output settings may differ.",
-      "Public documentation never establishes actual account entitlement, balances, or currently successful calls."
+      "Public documentation never establishes actual account entitlement, balances, or currently successful calls.",
+      "Qwen3.8 entries use official model pages; 1M context and mode-dependent input limits are not normalized here. Realtime requires a workspace-bound WebSocket address; family classification does not establish endpoint compatibility or account entitlement."
     ],
     "models": [
       {
@@ -27954,6 +27955,64 @@
         "verified_at": "2026-10-02T19:33:06.260085+00:00"
       },
       {
+        "display_name": "Qwen3.8-Omni Flash",
+        "field_sources": {
+          "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash"
+        },
+        "id": "qwen3.8-omni-flash",
+        "input_modalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "lifecycle": "unknown",
+        "max_output_tokens": 131072,
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "d0a878054cf6e79c16b691e16203e57712d79c9c2a927d6a74af81d25cf3aba8",
+        "task_type": "unknown",
+        "verified_at": "2026-10-11T00:18:20.140336Z"
+      },
+      {
+        "display_name": "Qwen3.8-Omni Flash Realtime",
+        "field_sources": {
+          "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "max_input_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
+        },
+        "id": "qwen3.8-omni-flash-realtime",
+        "input_modalities": [
+          "text",
+          "audio",
+          "video"
+        ],
+        "lifecycle": "unknown",
+        "max_input_tokens": 196608,
+        "max_output_tokens": 65536,
+        "methods": [],
+        "output_modalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "dd4bcfdbd1bf83c90a519a5317775c979f5a9315312f81173f3e01a5a9cf1002",
+        "task_type": "unknown",
+        "verified_at": "2026-10-11T00:18:20.140336Z"
+      },
+      {
         "context_limit_kind": "total",
         "context_window": 131072,
         "display_name": "QwQ Plus",
@@ -27990,7 +28049,7 @@
     ],
     "platform": "qianwen",
     "provider_profile": "alibaba",
-    "revision": "d1784f2e92e5e952",
+    "revision": "b33b9456184eb549",
     "source_refs": [
       "https://help.aliyun.com/zh/model-studio/models",
       "https://models.dev/api.json#alibaba",
@@ -28000,7 +28059,9 @@
       "https://help.aliyun.com/zh/model-studio/qwen3-7-flash",
       "https://help.aliyun.com/zh/model-studio/qwen3-8-2-4t-a95b",
       "https://help.aliyun.com/zh/model-studio/qwen3-8-27b",
-      "https://help.aliyun.com/zh/model-studio/deep-thinking"
+      "https://help.aliyun.com/zh/model-studio/deep-thinking",
+      "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+      "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
     ]
   },
   {
@@ -28651,7 +28712,8 @@
     "coverage_status": "partial",
     "gaps": [
       "Embedding and other modality rows retained with their original evidence; not revalidated in this focused text refresh.",
-      "Public documentation never establishes actual account entitlement, balances, or currently successful calls."
+      "Public documentation never establishes actual account entitlement, balances, or currently successful calls.",
+      "Qwen3.8 entries use official model pages; 1M context and mode-dependent input limits are not normalized here. Realtime requires a workspace-bound WebSocket address; family classification does not establish endpoint compatibility or account entitlement."
     ],
     "models": [
       {
@@ -31816,6 +31878,64 @@
         "verified_at": "2026-10-02T19:33:06.260085+00:00"
       },
       {
+        "display_name": "Qwen3.8-Omni Flash",
+        "field_sources": {
+          "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+          "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash"
+        },
+        "id": "qwen3.8-omni-flash",
+        "input_modalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "lifecycle": "unknown",
+        "max_output_tokens": 131072,
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "d0a878054cf6e79c16b691e16203e57712d79c9c2a927d6a74af81d25cf3aba8",
+        "task_type": "unknown",
+        "verified_at": "2026-10-11T00:18:20.140336Z"
+      },
+      {
+        "display_name": "Qwen3.8-Omni Flash Realtime",
+        "field_sources": {
+          "id": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "input_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "max_input_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "max_output_tokens": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime",
+          "output_modalities": "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
+        },
+        "id": "qwen3.8-omni-flash-realtime",
+        "input_modalities": [
+          "text",
+          "audio",
+          "video"
+        ],
+        "lifecycle": "unknown",
+        "max_input_tokens": 196608,
+        "max_output_tokens": 65536,
+        "methods": [],
+        "output_modalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "dd4bcfdbd1bf83c90a519a5317775c979f5a9315312f81173f3e01a5a9cf1002",
+        "task_type": "unknown",
+        "verified_at": "2026-10-11T00:18:20.140336Z"
+      },
+      {
         "context_limit_kind": "total",
         "context_window": 131072,
         "display_name": "QwQ 32B",
@@ -32216,7 +32336,7 @@
     ],
     "platform": "qianwen",
     "provider_profile": "alibaba-cn",
-    "revision": "ee672932385ba169",
+    "revision": "7e633d746271d331",
     "source_refs": [
       "https://help.aliyun.com/zh/model-studio/models",
       "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
@@ -32227,7 +32347,9 @@
       "https://help.aliyun.com/zh/model-studio/qwen3-7-flash",
       "https://help.aliyun.com/zh/model-studio/qwen3-8-2-4t-a95b",
       "https://help.aliyun.com/zh/model-studio/qwen3-8-27b",
-      "https://help.aliyun.com/zh/model-studio/deep-thinking"
+      "https://help.aliyun.com/zh/model-studio/deep-thinking",
+      "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash",
+      "https://help.aliyun.com/zh/model-studio/qwen3-8-omni-flash-realtime"
     ]
   },
   {
@@ -42857,9 +42979,22 @@
       "Regional or plan-specific availability and private endpoint IDs are account-scoped.",
       "Task limits, reasoning controls, and parameter-level modality constraints are incomplete in this overview.",
       "Embedding rows document 2048 dimensions with optional 1024 reduction; other task limits remain incomplete in this overview.",
-      "2026-10-02 direct official requests returned JavaScript shells. Search-index excerpts of coding aliases and retirement notices are leads, not fresh verification of public dated model IDs."
+      "2026-10-02 direct official requests returned JavaScript shells. Search-index excerpts of coding aliases and retirement notices are leads, not fresh verification of public dated model IDs.",
+      "ark-code-latest is a Coding Plan dynamic alias selected in the console, not a fixed capability profile. Official documentation search excerpts confirm its name and routing; direct documentation returned a JavaScript shell, so capabilities and verification hash/time remain unset."
     ],
     "models": [
+      {
+        "display_name": "ark-code-latest",
+        "field_sources": {
+          "id": "https://docs.volcengine.com/docs/ark/coding-plan-personal-model-release?lang=zh"
+        },
+        "id": "ark-code-latest",
+        "input_modalities": [],
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [],
+        "task_type": "unknown"
+      },
       {
         "context_limit_kind": "total",
         "context_window": 1048576,
@@ -44476,9 +44611,10 @@
     ],
     "platform": "volcengine",
     "provider_profile": "native",
-    "revision": "6815d825ab8bae32",
+    "revision": "259436daa421c63b",
     "source_refs": [
-      "https://www.volcengine.com/docs/82379/1330310"
+      "https://www.volcengine.com/docs/82379/1330310",
+      "https://docs.volcengine.com/docs/ark/coding-plan-personal-model-release?lang=zh"
     ]
   },
   {

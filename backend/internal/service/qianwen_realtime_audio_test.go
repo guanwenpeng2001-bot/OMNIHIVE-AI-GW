@@ -18,13 +18,18 @@ import (
 const omniUsage = `{"input_tokens":5,"output_tokens":9,"input_tokens_details":{"text_tokens":2,"audio_tokens":3},"output_tokens_details":{"text_tokens":4,"audio_tokens":5},"total_tokens":14}`
 
 func TestQianwenRealtimeFamilySnapshots(t *testing.T) {
-	for _, family := range []string{"tts", "omni", "asr"} {
-		for _, suffix := range []string{"", "-2025-09-15", "-2025-12-01", "-2025-10-27", "-2026-02-10", "-future-selected"} {
-			require.Equal(t, family, QianwenRealtimeFamily("qwen3-"+family+"-flash-realtime"+suffix))
+	for _, generation := range []string{"qwen3-", "qwen3.8-"} {
+		for _, family := range []string{"tts", "omni", "asr"} {
+			for _, suffix := range []string{"", "-2025-09-15", "-2025-12-01", "-2025-10-27", "-2026-02-10", "-future-selected"} {
+				model := generation + family + "-flash-realtime" + suffix
+				require.Equal(t, family, QianwenRealtimeFamily(model), model)
+				require.True(t, IsQianwenRealtimeModel(model), model)
+			}
 		}
 	}
-	for _, model := range []string{"qwen3.5-omni-plus-realtime", "qwen3.8-omni-flash-realtime", "qwen3-asr-flash", "qwen3-omni-flash-realtimeevil"} {
+	for _, model := range []string{"", "qwen3.5-omni-plus-realtime", "qwen3.9-omni-flash-realtime", "qwen3-asr-flash", "qwen3.8-omni-flash", "qwen3.8-omni-plus-realtime", "qwen3-omni-flash-realtimeevil", "qwen3.8-omni-flash-realtimeevil"} {
 		require.Empty(t, QianwenRealtimeFamily(model))
+		require.False(t, IsQianwenRealtimeModel(model), model)
 	}
 }
 

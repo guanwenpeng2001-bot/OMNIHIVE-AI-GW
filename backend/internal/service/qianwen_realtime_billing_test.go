@@ -167,7 +167,7 @@ func TestQianwenRealtimeRegionAndMappedModel(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "singapore", region)
 	require.Equal(t, "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=qwen3-tts-flash-realtime", target)
-	for _, model := range []string{"qwen-tts-realtime", "qwen3.5-omni-plus-realtime", "qwen3.8-omni-flash-realtime"} {
+	for _, model := range []string{"qwen-tts-realtime", "qwen3.5-omni-plus-realtime", "qwen3.9-omni-flash-realtime"} {
 		_, _, err = qianwenRealtimeEndpoint(a, model)
 		require.Error(t, err)
 	}
