@@ -29,35 +29,41 @@ onMounted(() => { void load() })
 
 <template>
   <section class="card space-y-3 p-4" :aria-label="t('admin.usage.settlement.title')">
-    <h2 class="font-semibold">{{ t('admin.usage.settlement.title') }}</h2>
-    <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('admin.usage.settlement.boundary') }}</p>
-    <p v-if="status" class="text-sm">
-      {{ t('admin.usage.settlement.pending') }}: {{ status.pending }} · {{ t('admin.usage.settlement.review') }}: {{ status.needs_review }} ·
-      {{ t('admin.usage.settlement.failures') }}: {{ status.persistence_unconfirmed }} · {{ t('admin.usage.settlement.historical') }}: {{ status.historical_zero_review }}
-    </p>
-    <form class="flex flex-wrap items-center gap-2" @submit.prevent="load()">
-      <label for="settlement-request-id" class="text-sm">{{ t('admin.usage.settlement.locate') }}</label>
-      <input id="settlement-request-id" v-model="requestID" class="input max-w-sm" />
-      <button type="submit" class="btn btn-secondary" :disabled="loading">{{ t('admin.usage.settlement.refresh') }}</button>
-    </form>
-    <p v-if="error" role="alert" class="text-sm text-red-600">{{ t('admin.usage.settlement.failed') }}</p>
-    <div v-else-if="status" class="max-h-56 overflow-auto text-sm" aria-live="polite">
-      <p v-if="!status.items.length">{{ t('admin.usage.settlement.empty') }}</p>
-      <ul v-else class="space-y-2">
-        <li v-for="item in status.items" :key="item.id" class="break-all font-mono">
-          {{ item.request_id }} · key={{ item.api_key_id }} · user={{ item.user_id }} · {{ item.state }} / {{ item.pricing_state }} · {{ item.created_at }}
-        </li>
-      </ul>
-      <button v-if="status.items.length === 100" class="btn btn-secondary mt-2" :disabled="loading" @click="load(status.items[99]!.id)">{{ t('admin.usage.settlement.next') }}</button>
-    </div>
-    <details v-if="status?.historical_items.length" class="text-sm">
-      <summary class="cursor-pointer">{{ t('admin.usage.settlement.historical') }}</summary>
-      <ul class="mt-2 max-h-40 space-y-1 overflow-auto font-mono">
-        <li v-for="item in status.historical_items" :key="item.id" class="break-all">
-          log={{ item.id }} · {{ item.request_id }} · key={{ item.api_key_id }} · user={{ item.user_id }}
-        </li>
-      </ul>
+    <details class="text-sm">
+      <summary class="cursor-pointer">
+        <span class="font-semibold">{{ t('admin.usage.settlement.title') }}</span>
+        <span v-if="status" class="mt-1 block">
+          {{ t('admin.usage.settlement.pending') }}: {{ status.pending }} · {{ t('admin.usage.settlement.review') }}: {{ status.needs_review }} ·
+          {{ t('admin.usage.settlement.failures') }}: {{ status.persistence_unconfirmed }} · {{ t('admin.usage.settlement.historical') }}: {{ status.historical_zero_review }}
+        </span>
+      </summary>
+      <div class="mt-3 space-y-3">
+        <p class="text-sm text-gray-600 dark:text-gray-400">{{ t('admin.usage.settlement.boundary') }}</p>
+        <form class="flex flex-wrap items-center gap-2" @submit.prevent="load()">
+          <label for="settlement-request-id" class="text-sm">{{ t('admin.usage.settlement.locate') }}</label>
+          <input id="settlement-request-id" v-model="requestID" class="input max-w-sm" />
+          <button type="submit" class="btn btn-secondary" :disabled="loading">{{ t('admin.usage.settlement.refresh') }}</button>
+        </form>
+        <div v-if="status && status.needs_review > 0" class="max-h-56 overflow-auto text-sm" aria-live="polite">
+          <p v-if="!status.items.length">{{ t('admin.usage.settlement.empty') }}</p>
+          <ul v-else class="space-y-2">
+            <li v-for="item in status.items" :key="item.id" class="break-all font-mono">
+              {{ item.request_id }} · key={{ item.api_key_id }} · user={{ item.user_id }} · {{ item.state }} / {{ item.pricing_state }} · {{ item.created_at }}
+            </li>
+          </ul>
+          <button v-if="status.items.length === 100" class="btn btn-secondary mt-2" :disabled="loading" @click="load(status.items[99]!.id)">{{ t('admin.usage.settlement.next') }}</button>
+        </div>
+        <details v-if="status?.historical_items.length" class="text-sm">
+          <summary class="cursor-pointer">{{ t('admin.usage.settlement.historical') }}</summary>
+          <ul class="mt-2 max-h-40 space-y-1 overflow-auto font-mono">
+            <li v-for="item in status.historical_items" :key="item.id" class="break-all">
+              log={{ item.id }} · {{ item.request_id }} · key={{ item.api_key_id }} · user={{ item.user_id }}
+            </li>
+          </ul>
+        </details>
+        <p class="text-xs text-gray-500">{{ t('admin.usage.settlement.separate') }}</p>
+      </div>
     </details>
-    <p class="text-xs text-gray-500">{{ t('admin.usage.settlement.separate') }}</p>
+    <p v-if="error" role="alert" class="text-sm text-red-600">{{ t('admin.usage.settlement.failed') }}</p>
   </section>
 </template>
