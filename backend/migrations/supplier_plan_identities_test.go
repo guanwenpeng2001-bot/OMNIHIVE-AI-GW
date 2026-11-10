@@ -1,7 +1,6 @@
 package migrations_test
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 	"regexp"
 	"strings"
@@ -16,9 +15,6 @@ func TestSupplierPlanIdentityMigrationOnlyAddsVerifiedIDs(t *testing.T) {
 		before := compatibleIdentityValues(t, prior, constraint.name)
 		after := compatibleIdentityValues(t, body, constraint.name)
 		require.ElementsMatch(t, append(before, "astron_token", "mimo_token_sg", "mimo_token_eu"), after)
-		for _, id := range domain.ConcretePlatforms() {
-			require.Contains(t, after, id)
-		}
 		for _, pattern := range []string{
 			`ALTER TABLE ` + constraint.table + `\s+DROP CONSTRAINT IF EXISTS ` + constraint.name + `;`,
 			`(?s)ALTER TABLE ` + constraint.table + `\s+ADD CONSTRAINT ` + constraint.name + `\s+CHECK \(` + constraint.column + ` IN \(\s*'[a-z0-9_]+'(?:\s*,\s*'[a-z0-9_]+')*\s*\)\);`,

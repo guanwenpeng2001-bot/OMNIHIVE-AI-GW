@@ -63,9 +63,9 @@ describe('PlatformIcon', () => {
     const fallbacks = COMPATIBLE_PROVIDERS.filter(p => compatibleProviderIcon(p.id, p.label).kind === 'monogram')
     expect(fallbacks).toEqual([])
     const assets = COMPATIBLE_PROVIDERS.map(p => compatibleProviderIcon(p.id, p.label)).filter(p => p.kind === 'asset')
-    expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
-    expect(assets).toHaveLength(75)
-    expect(new Set(assets.map(p => p.src)).size).toBe(60)
+    expect(COMPATIBLE_PROVIDERS).toHaveLength(76)
+    expect(assets).toHaveLength(76)
+    expect(new Set(assets.map(p => p.src)).size).toBe(61)
   })
 
   it.each([

@@ -123,6 +123,7 @@
 | RelaxyCode | [`relaxycode`](#provider-relaxycode) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1601) |
 | CherryIN | [`cherryin`](#provider-cherryin) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1583) |
 | JieKou AI | [`jiekou`](#provider-jiekou) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1897) |
+| Kaggle | [`kaggle`](#provider-kaggle) | 新增兼容供应商（自托管 Notebook，base 由账号提供）；见下方合同。 | [供应商主要文档](https://www.kaggle.com/docs/notebooks) |
 | E FlowCode/E-FlowCode | [`eflowcode`](#provider-eflowcode) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L1614) |
 | ETok.ai | 仅历史记录 | 2026-10-02 从预设移除；历史记录不证明当前可接入，也不证明服务已关闭。 | [配置来源](https://github.com/farion1231/cc-switch/tree/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config) |
 | Cubence | [`cubence`](#provider-cubence) | 新增兼容供应商；区域/模式见下方合同。 | [配置来源](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/claudeProviderPresets.ts#L807) |
@@ -739,6 +740,20 @@ Azure 资源地址由管理员提供，没有通用全球 base。请求 `model` 
 `payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`responses_to_chat`, `responses_to_messages`, `gemini_to_chat`, `gemini_to_messages`。
 
 操作级来源：[固定配置 1](https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/config/codexProviderPresets.ts#L3321)。
+
+<a id="provider-kaggle"></a>
+
+### Kaggle — `kaggle`
+
+默认模式：`payg`。来源：[供应商主要文档](https://www.kaggle.com/docs/notebooks)（观察日期 2026-11-10）。
+
+| 模式 / 默认协议 | 原生协议 | 上游 base | 上游鉴权 |
+| --- | --- | --- | --- |
+| `payg` / `chat_completions` | `chat_completions` | `https://{notebook-tunnel}/v1` | `Authorization: Bearer` |
+
+`payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
+
+Kaggle Notebook 自行运行的 OpenAI 兼容服务（例如 llama.cpp server），通过隧道暴露公网地址。账号 `base_url` 填隧道根地址（带或不带 `/v1` 均可）；隧道地址随 Notebook 会话变化，会话结束后需更新 `base_url`。请求 `model` / 映射目标填写 Notebook 服务实际暴露的模型 ID；没有全局模型发现。
 
 <a id="provider-kat_coder"></a>
 

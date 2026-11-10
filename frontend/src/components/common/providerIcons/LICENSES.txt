@@ -32,6 +32,7 @@ fennoai: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c
 fluxa: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/fluxa.png
 github_copilot: @lobehub/icons@4.0.2/es/GithubCopilot/components/Mono.js
 jiekou: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#jiekou
+kaggle: original simplified "K" glyph drawn for this repository (no vendor artwork copied); Kaggle is a trademark of Google LLC
 kat_coder: @lobehub/icons@4.0.2/es/KwaiKAT/components/Mono.js
 longcat: @lobehub/icons@4.0.2/es/LongCat/components/Mono.js
 micu: https://github.com/farion1231/cc-switch/blob/793e67d9b3210eb527e7d36f2c866a56fae9dec7/src/icons/extracted/index.ts#micu

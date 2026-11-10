@@ -69,8 +69,8 @@ describe('compatible balance eligibility', () => {
 
 describe('compatible usage registry matrix', () => {
   const wallets = ['novita', 'ppio', 'siliconflow_cn', 'siliconflow_global', 'shengsuanyun', 'soleapi', 'atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'sudocode_chat', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl']
-  it('covers all 75 registered provider IDs and every declared mode', () => {
-    expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
+  it('covers all 76 registered provider IDs and every declared mode', () => {
+    expect(COMPATIBLE_PROVIDERS).toHaveLength(76)
     for (const provider of COMPATIBLE_PROVIDERS) {
       for (const mode of provider.modes) {
         const candidate = account(provider.id, { account_mode: mode.mode })
@@ -100,7 +100,7 @@ describe('compatible usage registry matrix', () => {
 
 describe('persisted plan query eligibility', () => {
   it('checks every saved plan against legacy eligibility across all providers and modes', () => {
-    expect(COMPATIBLE_PROVIDERS).toHaveLength(75)
+    expect(COMPATIBLE_PROVIDERS).toHaveLength(76)
     for (const provider of COMPATIBLE_PROVIDERS) {
       for (const mode of provider.modes) {
         const legacy = compatibleUsageCapability(account(provider.id, { account_mode: mode.mode }))

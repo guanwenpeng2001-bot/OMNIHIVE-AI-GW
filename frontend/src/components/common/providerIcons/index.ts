@@ -29,6 +29,7 @@ import fennoaiUrl from './fennoai.webp?url'
 import fluxaUrl from './fluxa.png?url'
 import github_copilotUrl from './github_copilot.svg?url'
 import jiekouUrl from './jiekou.svg?url'
+import kaggleUrl from './kaggle.svg?url'
 import kat_coderUrl from './kat_coder.svg?url'
 import longcatUrl from './longcat.svg?url'
 import micuUrl from './micu.svg?url'
@@ -95,6 +96,7 @@ const icons: Record<string, ProviderIcon> = {
   fluxa: { kind: 'asset', src: fluxaUrl, monochrome: false },
   github_copilot: { kind: 'asset', src: github_copilotUrl, monochrome: true },
   jiekou: { kind: 'asset', src: jiekouUrl, monochrome: false },
+  kaggle: { kind: 'asset', src: kaggleUrl, monochrome: false },
   kat_coder: { kind: 'asset', src: kat_coderUrl, monochrome: true },
   longcat: { kind: 'asset', src: longcatUrl, monochrome: true },
   micu: { kind: 'asset', src: micuUrl, monochrome: false },
