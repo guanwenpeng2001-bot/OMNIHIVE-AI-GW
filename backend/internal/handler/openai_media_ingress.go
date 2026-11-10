@@ -219,7 +219,17 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 			return
 		}
 	}
+	if platform == service.PlatformKaggle {
+		if err := service.ValidateKaggleVideoRequest(body); err != nil {
+			h.errorResponse(c, 400, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	if requestModel == "" {
+		if platform == service.PlatformOpenRouter || platform == service.PlatformKaggle {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+			return
+		}
 		requestModel = "sora-2"
 	}
 	var source *service.UpstreamJob
@@ -246,7 +256,7 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 		billableSeconds = seconds
 	}
 
-	if platform == service.PlatformOpenRouter {
+	if platform == service.PlatformOpenRouter || platform == service.PlatformKaggle {
 		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
 		if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
 			return
@@ -301,9 +311,12 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 	// tier and the group price all belong to the account that will serve the job.
 	var billing service.UpstreamJobBilling
 	var err error
-	if platform == service.PlatformOpenRouter {
+	switch platform {
+	case service.PlatformOpenRouter:
 		billing = h.gatewayService.OpenRouterVideoBillingSnapshot(c.Request.Context(), apiKey.Group, account, apiKey, body, subscription)
-	} else {
+	case service.PlatformKaggle:
+		billing = h.gatewayService.KaggleVideoBillingSnapshot(c.Request.Context(), apiKey.Group, account, apiKey, body, subscription)
+	default:
 		billing, err = service.OpenAIVideoBillingSnapshot(apiKey.Group, account, apiKey, body, subscription, source)
 	}
 	if err != nil {
@@ -327,7 +340,7 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 
 	// Preserve the existing selection and tariff checks, then give the child
 	// submission its TPM repository and scope before it can contact upstream.
-	if platform != service.PlatformOpenRouter {
+	if platform != service.PlatformOpenRouter && platform != service.PlatformKaggle {
 		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
 	}
 	template := &service.UpstreamJob{
@@ -342,9 +355,12 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		var update service.UpstreamJobUpdate
 		var submitErr error
-		if platform == service.PlatformOpenRouter {
+		switch platform {
+		case service.PlatformOpenRouter:
 			update, submitErr = h.gatewayService.SubmitOpenRouterVideo(ctx, account, upstreamBody, billing.Model)
-		} else {
+		case service.PlatformKaggle:
+			update, submitErr = h.gatewayService.SubmitKaggleVideo(ctx, account, upstreamBody, billing.Model)
+		default:
 			update, submitErr = h.gatewayService.SubmitOpenAIVideo(ctx, account, action, contentType, upstreamBody, billing.Model, billableSeconds)
 		}
 		if submitErr != nil {
@@ -412,13 +428,16 @@ func (h *OpenAIGatewayHandler) handleVideoRead(c *gin.Context, content bool, pla
 	}
 	var response *http.Response
 	var err error
-	if platform == service.PlatformOpenRouter {
+	switch platform {
+	case service.PlatformOpenRouter:
 		if index := c.Query("index"); index != "" && index != "0" {
 			h.errorResponse(c, 400, "invalid_request_error", "Only the primary video artifact is supported")
 			return
 		}
 		response, err = h.gatewayService.OpenOpenRouterVideoContent(c.Request.Context(), job)
-	} else {
+	case service.PlatformKaggle:
+		response, err = h.gatewayService.OpenKaggleVideoContent(c.Request.Context(), job)
+	default:
 		response, err = h.gatewayService.OpenOpenAIVideoContent(c.Request.Context(), job)
 	}
 	if err != nil {

@@ -490,6 +490,28 @@ func (mode CompatibleMode) ResolveAction(action, protocol string) (CompatibleEnd
 	return CompatibleEndpoint{}, EndpointRejected, false
 }
 
+// compatibleMediaAdapter returns the gateway adapter for a compatible provider's
+// non-text cells. Kaggle notebooks also expose OpenAI-shaped image and async
+// video endpoints; those are not native chat protocols, so they are not declared
+// as CompatibleEndpoint rows.
+func compatibleMediaAdapter(platform, action string) string {
+	if platform != "kaggle" {
+		return ""
+	}
+	switch action {
+	case "image.generate":
+		return "kaggle.images"
+	case "video.generate":
+		return "kaggle.video.generate"
+	case "video.status":
+		return "kaggle.video.status"
+	case "video.content":
+		return "kaggle.video.content"
+	default:
+		return ""
+	}
+}
+
 // Action is the account-mode bound. Empty mode selects DefaultMode; unknown modes
 // fail closed. Profile, when present, must belong to this mode. Custom endpoint
 // metadata trust and model permissions remain runtime responsibilities.
@@ -497,6 +519,16 @@ func (provider CompatibleProvider) Action(mode string, identity ActionIdentity, 
 	descriptor := ActionDescriptor{Identity: identity, Action: action, Status: ActionUnverified, Evidence: "No declared compatible-provider path for this mode, protocol and credential"}
 	selected, ok := provider.ResolveMode(mode)
 	if !ok || identity.Platform != provider.ID || (identity.HostedAccountType != "" && identity.HostedAccountType != AccountTypeAPIKey) || (identity.Profile != "" && identity.Profile != selected.CapabilityProfile) {
+		return descriptor
+	}
+	if adapter := compatibleMediaAdapter(provider.ID, action); adapter != "" {
+		descriptor.Adapter = adapter
+		descriptor.Status = ActionImplemented
+		descriptor.Evidence = fmt.Sprintf("Declared notebook media path for %s in mode %s; %s (observed %s); runtime account/model validation required", action, selected.Mode, provider.EvidenceURL, provider.EvidenceObserved)
+		descriptor.CredentialPolicy = "API key account; selected endpoint authentication and account base overrides"
+		descriptor.ModelPolicy = "resolved account model evidence and task limits"
+		descriptor.UsagePolicy = "existing adapter usage and frozen request pricing"
+		descriptor.Lifecycle = "request plan"
 		return descriptor
 	}
 	endpoint, support, ok := selected.ResolveAction(action, identity.Protocol)

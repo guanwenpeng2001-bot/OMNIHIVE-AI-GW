@@ -510,6 +510,8 @@ func GatewayResourceJobCharge(job *UpstreamJob) (*UsageLog, *UsageBillingCommand
 		return gatewayResourceBatchCharge(job, "anthropic_message_batch", "anthropic-message-batch-v1")
 	case job.Platform == PlatformOpenRouter && job.Family == "video":
 		return OpenRouterVideoJobCharge(job)
+	case job.Platform == PlatformKaggle && job.Family == "video":
+		return KaggleVideoJobCharge(job)
 	case job.Platform == PlatformOpenAI && job.Family == "video":
 		return OpenAIVideoJobCharge(job)
 	default:

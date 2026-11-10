@@ -753,7 +753,9 @@ Azure 资源地址由管理员提供，没有通用全球 base。请求 `model` 
 
 `payg`：模型发现 `none`（未接入，不等于无模型访问权）；网关转换：`messages_to_chat`, `responses_to_chat`, `gemini_to_chat`。
 
-Kaggle Notebook 自行运行的 OpenAI 兼容服务（例如 llama.cpp server），通过隧道暴露公网地址。账号 `base_url` 填隧道根地址（带或不带 `/v1` 均可）；隧道地址随 Notebook 会话变化，会话结束后需更新 `base_url`。请求 `model` / 映射目标填写 Notebook 服务实际暴露的模型 ID；没有全局模型发现。
+Kaggle Notebook 自行运行的 OpenAI 兼容服务，通过隧道暴露公网地址。聊天、图片、视频通常跑在不同的 Notebook / 隧道上，因此按现有约定为每个上游地址各建一个账号（同一 `kaggle` 平台与分组，各自的 `base_url` 与 `model_mapping`）。账号 `base_url` 填隧道根地址（带或不带 `/v1` 均可）；隧道地址随 Notebook 会话变化，会话结束后需更新对应账号的 `base_url`。请求 `model` / 映射目标填写该 Notebook 实际暴露的模型 ID；没有全局模型发现。
+
+媒体动作与 OpenRouter 一样走网关既有的 API Key 媒体入口和上游任务台账：`image.generate` 透传到 Notebook 的 `POST /v1/images/generations`（`qwen-image-2.1`，`response_format=b64_json`）；`video.generate` / `video.status` / `video.content` 透传到异步 `POST/GET /v1/videos` 与 `/v1/videos/{id}/content`（`wan2.2-ti2v-5b`）。未配置按次价时，视频任务完成但记为待复核，不擅自计费。
 
 <a id="provider-kat_coder"></a>
 

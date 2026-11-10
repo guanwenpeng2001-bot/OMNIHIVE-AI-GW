@@ -650,8 +650,15 @@ func platformActionAdapterBound(account *Account, action string) bool {
 		return false
 	}
 	if IsCompatibleProvider(account.Platform) {
-		_, err := account.compatibleEndpoint(action, "")
-		return err == nil
+		if _, err := account.compatibleEndpoint(action, ""); err == nil {
+			return true
+		}
+		provider, ok := domain.LookupCompatibleProvider(account.Platform)
+		if !ok {
+			return false
+		}
+		descriptor := provider.Action(strings.TrimSpace(account.GetCredential("account_mode")), domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, action)
+		return descriptor.Status == domain.ActionImplemented
 	}
 	return domain.PlatformAction(domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, action).Status == domain.ActionImplemented
 }

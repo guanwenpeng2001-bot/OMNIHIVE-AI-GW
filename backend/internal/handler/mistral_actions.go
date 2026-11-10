@@ -218,7 +218,7 @@ func (h *OpenAIGatewayHandler) handleAPIKeyMediaAction(c *gin.Context, platform 
 	}
 
 	contentType := c.GetHeader("Content-Type")
-	if platform == service.PlatformOpenRouter && kind != mistralActionTranscription && gjson.GetBytes(body, "model").Type != gjson.String {
+	if ((platform == service.PlatformOpenRouter && kind != mistralActionTranscription) || (platform == service.PlatformKaggle && kind == "image.generate")) && gjson.GetBytes(body, "model").Type != gjson.String {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model must be a string")
 		return
 	}
@@ -388,6 +388,9 @@ func (h *OpenAIGatewayHandler) handleAPIKeyMediaAction(c *gin.Context, platform 
 			if platform == service.PlatformOpenRouter {
 				return h.gatewayService.ForwardOpenRouterMedia(requestCtx, c, account, string(kind), body, contentType)
 			}
+			if platform == service.PlatformKaggle {
+				return h.gatewayService.ForwardKaggleMedia(requestCtx, c, account, string(kind), body, contentType)
+			}
 			switch kind {
 			case mistralActionEmbeddings:
 				return h.gatewayService.ForwardMistralEmbeddings(requestCtx, c, account, body, "")
@@ -455,7 +458,7 @@ func (h *OpenAIGatewayHandler) handleAPIKeyMediaAction(c *gin.Context, platform 
 		}
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account, mistralActionScheduleModel(account, requestModel, result), true, nil)
-		if (platform == service.PlatformOpenRouter && result != nil) || shouldRecordMistralActionUsage(kind, result) {
+		if ((platform == service.PlatformOpenRouter || platform == service.PlatformKaggle) && result != nil) || shouldRecordMistralActionUsage(kind, result) {
 			h.recordMistralActionUsage(c, reqLog, apiKey, subject, subscription, account, result, requestModel, body)
 		}
 		reqLog.Debug("mistral_action.request_completed",

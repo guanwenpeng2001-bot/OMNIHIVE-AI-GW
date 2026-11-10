@@ -55,6 +55,8 @@ const (
 	PlatformHunyuan     = domain.PlatformHunyuan
 	PlatformMistral     = domain.PlatformMistral
 	PlatformOpenRouter  = domain.PlatformOpenRouter
+	// PlatformKaggle is the compatible-provider id for self-hosted Kaggle notebooks.
+	PlatformKaggle      = "kaggle"
 	PlatformBedrock     = domain.PlatformBedrock
 	PlatformVolcengine  = domain.PlatformVolcengine
 	PlatformCommandCode = domain.PlatformCommandCode

@@ -40,6 +40,8 @@ func GatewayResourcePollJob(openAI *OpenAIGatewayService) func(context.Context, 
 			return openAI.pollGatewayResourceAnthropicBatch(ctx, job)
 		case job.Platform == PlatformOpenRouter && job.Family == "video":
 			return openAI.PollOpenRouterVideo(ctx, job)
+		case job.Platform == PlatformKaggle && job.Family == "video":
+			return openAI.PollKaggleVideo(ctx, job)
 		case job.Platform == PlatformOpenAI && job.Family == "video":
 			return openAI.PollOpenAIVideo(ctx, job)
 		default:

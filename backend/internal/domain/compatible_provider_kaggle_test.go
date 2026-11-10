@@ -25,3 +25,22 @@ func TestKaggleCompatibleProviderUsesAccountBase(t *testing.T) {
 	require.False(t, ok, "self-hosted notebooks expose Chat Completions only")
 	require.Contains(t, ConcretePlatforms(), "kaggle")
 }
+
+func TestKaggleCompatibleProviderMediaActions(t *testing.T) {
+	provider, ok := LookupCompatibleProvider("kaggle")
+	require.True(t, ok)
+	want := map[string]string{
+		"image.generate": "kaggle.images",
+		"video.generate": "kaggle.video.generate",
+		"video.status":   "kaggle.video.status",
+		"video.content":  "kaggle.video.content",
+	}
+	for action, adapter := range want {
+		descriptor := provider.Action("payg", ActionIdentity{Platform: "kaggle", HostedAccountType: AccountTypeAPIKey}, action)
+		require.Equal(t, ActionImplemented, descriptor.Status, action)
+		require.Equal(t, adapter, descriptor.Adapter, action)
+	}
+	chat := provider.Action("payg", ActionIdentity{Platform: "kaggle", HostedAccountType: AccountTypeAPIKey}, "chat")
+	require.Equal(t, ActionImplemented, chat.Status)
+	require.Equal(t, "openai.chat", chat.Adapter)
+}

@@ -636,11 +636,19 @@ func computeAccountBindingEndpoint(account *Account, model string, options Accou
 			}
 			ep, err := account.compatibleEndpoint(action, model)
 			if err != nil {
+				// Kaggle notebook image/video cells are bound in the provider
+				// action matrix, not as CompatibleEndpoint protocol rows.
+				if !platformActionAdapterBound(account, action) {
+					return false
+				}
+			} else {
+				endpoint = catalogProtocolEndpoint(ep.Protocol)
+			}
+		} else if !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {
+			action := chatOnlyCatalogEndpointAction(endpoint)
+			if action == "" || !platformActionAdapterBound(account, action) {
 				return false
 			}
-			endpoint = catalogProtocolEndpoint(ep.Protocol)
-		} else if !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {
-			return false
 		}
 	}
 	if options.FinalModel != "" && account.IsMultiProtocolAPIKey() && !account.IsAdaptiveAPIProtocol() && chatOnlyCatalogHasTextMethod([]string{endpoint}) && !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {

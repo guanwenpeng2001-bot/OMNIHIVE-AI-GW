@@ -60,6 +60,9 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) string {
 	plan := GatewayRequestPlanFromContext(ctx)
 	if account != nil && IsCompatibleProvider(account.Platform) {
+		if plan != nil && plan.Snapshot().Protocol == "media" {
+			return CompositeRouteEndpointImages
+		}
 		return requestCatalogEndpoint(ctx)
 	}
 	if plan == nil {

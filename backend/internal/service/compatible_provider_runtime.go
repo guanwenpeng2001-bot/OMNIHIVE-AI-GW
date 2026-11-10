@@ -170,6 +170,84 @@ func setCompatibleAuth(header http.Header, auth, key string) {
 
 // At the common send boundary, reject accidental cross-protocol sends. URL was
 // already resolved and validated by the builder; this function never redirects it.
+
+func compatibleMediaPathAction(path string) string {
+	path = strings.TrimRight(path, "/")
+	switch {
+	case strings.HasSuffix(path, "/images/generations"):
+		return "image.generate"
+	case strings.HasSuffix(path, "/content") && strings.Contains(path, "/videos/"):
+		return "video.content"
+	case strings.HasSuffix(path, "/videos"):
+		return "video.generate"
+	case strings.Contains(path, "/videos/"):
+		return "video.status"
+	default:
+		return ""
+	}
+}
+
+func compatibleMediaRelativePathAllowed(rel, action string) bool {
+	switch action {
+	case "image.generate":
+		return rel == "/images/generations"
+	case "video.generate":
+		return rel == "/videos"
+	case "video.status":
+		id := strings.TrimPrefix(rel, "/videos/")
+		return id != rel && !strings.Contains(id, "/") && openAIResourceID(id)
+	case "video.content":
+		if !strings.HasSuffix(rel, "/content") {
+			return false
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(rel, "/videos/"), "/content")
+		return id != "" && !strings.Contains(id, "/") && openAIResourceID(id)
+	default:
+		return false
+	}
+}
+
+func applyCompatibleMediaRequestAuth(account *Account, request *http.Request) error {
+	if account == nil || request == nil || request.URL == nil {
+		return fmt.Errorf("unsupported compatible upstream operation")
+	}
+	action := compatibleMediaPathAction(request.URL.Path)
+	if action == "" || !platformActionAdapterBound(account, action) {
+		return fmt.Errorf("unsupported compatible upstream operation")
+	}
+	_, mode, err := account.compatibleMode()
+	if err != nil {
+		return err
+	}
+	protocol := mode.DefaultProtocol
+	if declared := strings.TrimSpace(account.GetCredential("api_protocol")); declared != "" && declared != APIProtocolAdaptive {
+		protocol = declared
+	}
+	endpoint, ok := mode.LookupEndpoint(protocol)
+	if !ok {
+		return fmt.Errorf("unsupported compatible upstream operation")
+	}
+	base, err := account.compatibleBase(endpoint)
+	if err != nil {
+		return err
+	}
+	parsedBase, err := url.Parse(base)
+	if err != nil {
+		return err
+	}
+	basePath := strings.TrimRight(parsedBase.EscapedPath(), "/")
+	path := request.URL.EscapedPath()
+	if !strings.HasPrefix(path, basePath+"/") {
+		return fmt.Errorf("compatible upstream URL does not match the account endpoint")
+	}
+	rel := strings.TrimPrefix(path, basePath)
+	if !strings.EqualFold(request.URL.Scheme, parsedBase.Scheme) || !strings.EqualFold(request.URL.Host, parsedBase.Host) || request.URL.RawQuery != "" || !compatibleMediaRelativePathAllowed(rel, action) {
+		return fmt.Errorf("compatible upstream URL does not match the account endpoint")
+	}
+	setCompatibleAuth(request.Header, endpoint.Auth, account.GetCredential("api_key"))
+	return nil
+}
+
 func applyCompatibleRequestAuth(account *Account, request *http.Request) error {
 	if isCopilotNous(account) {
 		return applyCompatibleSpecialAuth(account, request)
@@ -186,6 +264,9 @@ func applyCompatibleRequestAuth(account *Account, request *http.Request) error {
 		if strings.HasSuffix(request.URL.Path, suffix) {
 			protocol = p
 		}
+	}
+	if protocol == "" {
+		return applyCompatibleMediaRequestAuth(account, request)
 	}
 	endpoint, ok := mode.LookupEndpoint(protocol)
 	if !ok {
@@ -471,6 +552,10 @@ func (b *compatibleUsageBody) Read(p []byte) (int, error) {
 }
 func compatibleCheckedResponse(account *Account, response *http.Response, limit int64) *http.Response {
 	if response == nil || response.Body == nil || response.StatusCode >= 400 || !IsCompatibleProvider(account.Platform) {
+		return response
+	}
+	contentType := strings.ToLower(response.Header.Get("Content-Type"))
+	if contentType != "" && !strings.Contains(contentType, "application/json") && !strings.Contains(contentType, "text/event-stream") && !strings.Contains(contentType, "text/plain") {
 		return response
 	}
 	protocol := account.GetAPIProtocol()
