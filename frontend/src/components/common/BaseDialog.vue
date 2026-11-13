@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
-    <Transition name="modal">
+    <Transition name="modal" :duration="{ enter: 250, leave: 200 }">
       <div
         v-if="show"
-        class="modal-overlay"
+        class="modal-overlay oh-modal-overlay"
         :style="zIndexStyle"
         :aria-labelledby="dialogId"
         :data-dialog-id="dialogId"
@@ -12,17 +12,17 @@
         @click.self="handleClose"
       >
         <!-- Modal panel -->
-        <div ref="dialogRef" :class="['modal-content', widthClasses]" @click.stop>
+        <div ref="dialogRef" :class="['modal-content oh-modal-content', widthClasses]" @click.stop>
           <!-- Header -->
-          <div class="modal-header">
-            <h3 ref="titleRef" tabindex="-1" :id="dialogId" class="modal-title">
+          <div class="modal-header oh-modal-header">
+            <h3 ref="titleRef" tabindex="-1" :id="dialogId" class="modal-title oh-modal-title">
               {{ title }}
             </h3>
             <button
               v-if="showCloseButton"
               type="button"
               @click="emit('close')"
-              class="-mr-2 rounded-xl p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 focus-visible:ring-offset-2 dark:text-dark-500 dark:hover:bg-dark-700 dark:hover:text-dark-300 dark:focus-visible:ring-offset-dark-900"
+              class="oh-modal-close -mr-2 rounded-lg p-2 opacity-60 transition-colors hover:bg-[var(--secondary)] hover:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
               :aria-label="t('common.close')"
             >
               <Icon name="x" size="md" />
@@ -30,12 +30,12 @@
           </div>
 
           <!-- Body -->
-          <div ref="modalBodyRef" class="modal-body">
+          <div ref="modalBodyRef" class="modal-body oh-modal-body">
             <slot></slot>
           </div>
 
           <!-- Footer -->
-          <div v-if="$slots.footer" class="modal-footer">
+          <div v-if="$slots.footer" class="modal-footer oh-modal-footer">
             <slot name="footer"></slot>
           </div>
         </div>
@@ -192,3 +192,50 @@ onUnmounted(() => {
   if (wasTopDialog && previousActiveElement?.isConnected) previousActiveElement.focus()
 })
 </script>
+
+<style scoped>
+.oh-modal-overlay {
+  background: rgba(10, 10, 14, 0.48);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.oh-modal-content {
+  border-radius: var(--radius-lg, 16px);
+  border: 1px solid var(--border, #e9e9ee);
+  background: var(--card, #ffffff);
+  color: var(--card-foreground, #131316);
+  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+
+.dark .oh-modal-content {
+  border-color: var(--border, #232329);
+  background: var(--card, #131316);
+  color: var(--card-foreground, #ececf0);
+}
+
+.oh-modal-header {
+  border-bottom: 1px solid var(--border, #e9e9ee);
+}
+
+.dark .oh-modal-header {
+  border-bottom-color: var(--border, #232329);
+}
+
+.oh-modal-title {
+  letter-spacing: -0.01em;
+}
+
+.oh-modal-footer {
+  border-top: 1px solid var(--border, #e9e9ee);
+  background: color-mix(in srgb, var(--surface-2, #f4f4f5) 45%, var(--card, #ffffff));
+  border-bottom-left-radius: var(--radius-lg, 16px);
+  border-bottom-right-radius: var(--radius-lg, 16px);
+}
+
+.dark .oh-modal-footer {
+  border-top-color: var(--border, #232329);
+  background: color-mix(in srgb, var(--surface-2, #17171b) 65%, var(--card, #131316));
+}
+</style>

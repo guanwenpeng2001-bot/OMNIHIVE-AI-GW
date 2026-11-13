@@ -1,5 +1,5 @@
 <template>
-  <div v-show="activeTab === 'gateway'" class="space-y-6">
+  <div v-show="activeTab === 'gateway'" class="min-w-0 space-y-4 text-[var(--foreground)]">
     <!-- Claude Code Settings -->
     <GatewayClaudeCodeCard />
 

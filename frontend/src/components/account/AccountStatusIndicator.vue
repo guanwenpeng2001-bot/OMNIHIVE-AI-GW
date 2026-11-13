@@ -1,39 +1,41 @@
 <template>
-  <div class="flex items-center gap-2">
+  <div class="status-cell flex max-w-[260px] flex-wrap items-start gap-1.5">
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="openCodeQuotaStatus" class="flex flex-col items-center gap-1">
-      <span class="badge text-xs badge-warning">{{ t(`admin.accounts.status.${openCodeQuotaStatus.label}`) }}</span>
-      <span class="text-[11px] text-gray-400 dark:text-gray-500">
+    <div v-if="openCodeQuotaStatus" class="flex min-w-0 flex-col items-start gap-1">
+      <span class="badge text-xs badge-warning"><span class="pulse-dot bg-current" aria-hidden="true" />{{ t(`admin.accounts.status.${openCodeQuotaStatus.label}`) }}</span>
+      <span class="max-w-[230px] truncate font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]" :title="t(`admin.accounts.status.${openCodeQuotaStatus.label === 'paymentRequired' ? 'quotaRecheckAt' : 'quotaResetsAt'}`, { time: formatDateTime(openCodeQuotaStatus.resetAt) })">
         {{ t(`admin.accounts.status.${openCodeQuotaStatus.label === 'paymentRequired' ? 'quotaRecheckAt' : 'quotaResetsAt'}`, { time: formatDateTime(openCodeQuotaStatus.resetAt) }) }}
       </span>
     </div>
-    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
-      <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
-      <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
+    <div v-else-if="isRateLimited" class="flex min-w-0 flex-col items-start gap-1">
+      <span class="badge text-xs badge-warning"><span class="pulse-dot bg-current" aria-hidden="true" />{{ t('admin.accounts.status.rateLimited') }}</span>
+      <span class="max-w-[230px] truncate font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]" :title="rateLimitResumeText">{{ rateLimitResumeText }}</span>
     </div>
 
     <!-- Overload Display (529) - Two-line layout -->
-    <div v-else-if="isOverloaded" class="flex flex-col items-center gap-1">
-      <span class="badge text-xs badge-danger">{{ t('admin.accounts.status.overloaded') }}</span>
-      <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ overloadCountdown }}</span>
+    <div v-else-if="isOverloaded" class="flex min-w-0 flex-col items-start gap-1">
+      <span class="badge text-xs badge-danger"><span class="pulse-dot bg-current" aria-hidden="true" />{{ t('admin.accounts.status.overloaded') }}</span>
+      <span class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">{{ overloadCountdown }}</span>
     </div>
 
     <!-- Main Status Badge (shown when not rate limited/overloaded) -->
     <template v-else>
-      <div v-if="isTempUnschedulable" class="flex flex-col items-center gap-1">
+      <div v-if="isTempUnschedulable" class="flex min-w-0 flex-col items-start gap-1">
         <button
           type="button"
           :class="['badge text-xs', statusClass, 'cursor-pointer']"
           :title="t('admin.accounts.status.viewTempUnschedDetails')"
           @click="handleTempUnschedClick"
         >
+          <span class="pulse-dot bg-current" aria-hidden="true" />
           {{ statusText }}
         </button>
-        <span class="max-w-[180px] text-center text-[11px] leading-4 text-gray-500 dark:text-gray-400">
+        <span class="max-w-[180px] truncate font-mono text-[10px] leading-4 tabular-nums text-[var(--muted-foreground)]" :title="tempUnschedRecoveryText">
           {{ tempUnschedRecoveryText }}
         </span>
       </div>
       <span v-else :class="['badge text-xs', statusClass]">
+        <span class="pulse-dot bg-current" aria-hidden="true" />
         {{ statusText }}
       </span>
     </template>
@@ -70,7 +72,7 @@
     <!-- Rate Limit Indicator (429) -->
     <div v-if="isRateLimited && !openCodeQuotaStatus" class="group relative">
       <span
-        class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+        class="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--warn-text)]"
       >
         <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
         429
@@ -89,19 +91,13 @@
     <!-- Model Status Indicators (普通限流 / 超量请求中) -->
     <div
       v-if="activeModelStatuses.length > 0"
-      :class="[
-        activeModelStatuses.length <= 4
-          ? 'flex flex-col gap-1'
-          : activeModelStatuses.length <= 8
-            ? 'columns-2 gap-x-2'
-            : 'columns-3 gap-x-2'
-      ]"
+      class="flex min-w-0 flex-wrap items-center gap-1"
     >
-      <div v-for="item in activeModelStatuses" :key="`${item.kind}-${item.model}`" class="group relative mb-1 break-inside-avoid">
+      <div v-for="item in activeModelStatuses" :key="`${item.kind}-${item.model}`" class="group relative break-inside-avoid">
         <!-- 积分已用尽 -->
         <span
           v-if="item.kind === 'credits_exhausted'"
-          class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
+          class="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--bad-text)]"
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
           {{ t('admin.accounts.status.creditsExhausted') }}
@@ -110,7 +106,7 @@
         <!-- 正在走积分（模型限流但积分可用）-->
         <span
           v-else-if="item.kind === 'credits_active'"
-          class="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+          class="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--warn-text)]"
         >
           <span>⚡</span>
           {{ formatScopeName(item.model) }}
@@ -119,7 +115,7 @@
         <!-- 普通模型限流 -->
         <span
           v-else
-          class="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+          class="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--warn-text)]"
         >
           <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
           {{ formatScopeName(item.model) }}
@@ -146,7 +142,7 @@
     <!-- Overload Indicator (529) -->
     <div v-if="isOverloaded" class="group relative">
       <span
-        class="inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-400"
+        class="inline-flex items-center gap-1 rounded-md border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--bad-text)]"
       >
         <Icon name="exclamationTriangle" size="xs" :stroke-width="2" />
         529
@@ -393,3 +389,49 @@ const handleTempUnschedClick = () => {
   emit('show-temp-unsched', props.account)
 }
 </script>
+
+<style scoped>
+.status-cell .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.status-cell .badge-success {
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-text);
+}
+
+.status-cell .badge-warning {
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn-text);
+}
+
+.status-cell .badge-danger {
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: var(--bad-text);
+}
+
+.status-cell .badge-gray {
+  background: var(--surface-2);
+  color: var(--muted-foreground);
+}
+
+.status-cell button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.status-cell .pulse-dot {
+  width: 6px;
+  height: 6px;
+}
+</style>

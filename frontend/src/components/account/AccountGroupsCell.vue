@@ -1,7 +1,7 @@
 <template>
   <div v-if="groups && groups.length > 0" class="relative max-w-56">
     <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
+    <div class="flex max-h-14 flex-wrap items-center gap-1 overflow-hidden">
       <GroupBadge
         v-for="group in displayGroups"
         :key="group.id"
@@ -10,14 +10,18 @@
         :subscription-type="group.subscription_type"
         :rate-multiplier="group.rate_multiplier"
         :show-rate="false"
-        class="max-w-24"
+        class="group-pill max-w-24"
+        :title="group.name"
       />
       <!-- 更多数量徽章 -->
       <button
         v-if="hiddenCount > 0"
         ref="moreButtonRef"
+        type="button"
+        :aria-expanded="showPopover"
+        :aria-label="t('admin.accounts.groupCountTotal', { count: groups.length })"
         @click.stop="showPopover = !showPopover"
-        class="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500 transition-colors cursor-pointer whitespace-nowrap"
+        class="group-action inline-flex cursor-pointer items-center gap-1 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 font-mono text-[10px] font-medium tabular-nums text-[var(--foreground)] shadow-sm transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)]"
       >
         <span>+{{ hiddenCount }}</span>
       </button>
@@ -36,16 +40,18 @@
         <div
           v-if="showPopover"
           ref="popoverRef"
-          class="fixed z-50 min-w-48 max-w-96 rounded-lg border border-gray-200 bg-white p-3 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+          class="fixed z-50 min-w-48 max-w-[min(24rem,calc(100vw-1rem))] rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 shadow-lg"
           :style="popoverStyle"
         >
           <div class="mb-2 flex items-center justify-between">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <span class="text-[11px] font-medium text-[var(--muted-foreground)]">
               {{ t('admin.accounts.groupCountTotal', { count: groups.length }) }}
             </span>
             <button
+              type="button"
+              :aria-label="t('common.close')"
               @click="showPopover = false"
-              class="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+              class="group-action rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-1 text-[var(--muted-foreground)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)]"
             >
               <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -61,6 +67,7 @@
               :subscription-type="group.subscription_type"
               :rate-multiplier="group.rate_multiplier"
               :show-rate="false"
+              class="group-pill"
             />
           </div>
         </div>
@@ -74,7 +81,7 @@
       @click="showPopover = false"
     />
   </div>
-  <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+  <span v-else class="text-[11px] text-[var(--muted-foreground)]">-</span>
 </template>
 
 <script setup lang="ts">
@@ -156,3 +163,18 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
+
+<style scoped>
+.group-pill {
+  border-color: var(--border);
+  background: var(--surface-2);
+  padding: 0.125rem 0.375rem;
+  font-size: 10px;
+  color: var(--foreground);
+}
+
+.group-action:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+</style>

@@ -1,37 +1,37 @@
 <template>
   <BaseDialog :show="show" :title="t('admin.users.userApiKeys')" width="wide" @close="handleClose">
     <div v-if="user" class="space-y-4">
-      <div class="flex items-center gap-3 rounded-xl bg-gray-50 p-4 dark:bg-dark-700">
-        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
-          <span class="text-lg font-medium text-primary-700 dark:text-primary-300">{{ user.email.charAt(0).toUpperCase() }}</span>
+      <div class="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)]">
+          <span class="text-lg font-medium text-[var(--foreground)]">{{ user.email.charAt(0).toUpperCase() }}</span>
         </div>
-        <div><p class="font-medium text-gray-900 dark:text-white">{{ user.email }}</p><p class="text-sm text-gray-500 dark:text-dark-400">{{ user.username }}</p></div>
+        <div class="min-w-0"><p class="break-all font-medium text-[var(--foreground)]">{{ user.email }}</p><p class="text-xs text-[var(--muted-foreground)]">{{ user.username }}</p></div>
       </div>
       <div v-if="loading" class="flex justify-center py-8"><svg class="h-8 w-8 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg></div>
       <div v-else-if="apiKeys.length === 0" class="py-8 text-center"><p class="text-sm text-gray-500">{{ t('admin.users.noApiKeys') }}</p></div>
       <div v-else ref="scrollContainerRef" class="max-h-96 space-y-3 overflow-y-auto" @scroll="closeGroupSelector">
-        <div v-for="key in apiKeys" :key="key.id" class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-600 dark:bg-dark-800">
+        <div v-for="key in apiKeys" :key="key.id" class="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
-              <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
-              <p class="truncate font-mono text-sm text-gray-500">{{ key.key }}</p>
+              <div class="mb-1 flex flex-wrap items-center gap-2"><span class="break-all font-medium text-[var(--foreground)]">{{ key.name }}</span><span :class="['badge w-fit shrink-0 text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
+              <p class="truncate font-mono text-xs text-[var(--muted-foreground)]">{{ key.key }}</p>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary mt-2" @click="modelAccessKeyID = modelAccessKeyID === key.id ? null : key.id">{{ t('modelAccess.title') }}</button>
-          <div class="mt-3 space-y-2"><TpmLimitField v-model="tpmDrafts[key.id]" /><button type="button" class="btn btn-secondary btn-sm" :disabled="updatingKeyIds.has(key.id)" @click="saveTpm(key)">{{ t('common.save') }}</button></div>
+          <button type="button" class="btn btn-secondary btn-sm mt-3" :aria-expanded="modelAccessKeyID === key.id" @click="modelAccessKeyID = modelAccessKeyID === key.id ? null : key.id">{{ t('modelAccess.title') }}</button>
+          <div class="mt-3 space-y-2 border-y border-[var(--border)] py-3"><TpmLimitField v-model="tpmDrafts[key.id]" /><button type="button" class="btn btn-secondary btn-sm" :disabled="updatingKeyIds.has(key.id)" @click="saveTpm(key)">{{ t('common.save') }}</button></div>
           <ModelAccessRuleEditor v-if="modelAccessKeyID === key.id" :path="`/admin/api-keys/${key.id}`" />
           <div class="mt-2 flex flex-wrap gap-2">
             <button type="button" class="btn btn-secondary btn-sm" @click="openRotate(key)">{{ t('keys.rotateKey') }}</button>
             <button type="button" class="btn btn-secondary btn-sm" @click="toggleStatus(key)">{{ key.status === 'active' ? t('keys.disable') : t('keys.enable') }}</button>
             <button type="button" class="btn btn-danger btn-sm" @click="confirmRemove(key)">{{ t('common.delete') }}</button>
           </div>
-          <div class="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
+          <div class="mt-3 flex flex-wrap gap-4 text-xs text-[var(--muted-foreground)]">
             <div class="flex items-center gap-1">
               <span>{{ t('admin.users.group') }}:</span>
               <button
                 :ref="(el) => setGroupButtonRef(key.id, el)"
                 @click="openGroupSelector(key)"
-                class="-mx-1 -my-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700"
+                class="-mx-1 -my-0.5 flex cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
                 :disabled="updatingKeyIds.has(key.id)"
               >
                 <GroupBadge
@@ -50,11 +50,16 @@
                 <svg v-else class="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15L12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" /></svg>
               </button>
             </div>
-            <div class="flex items-center gap-1"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
+            <div class="flex items-center gap-1 font-mono tabular-nums"><span>{{ t('admin.users.columns.created') }}: {{ formatDateTime(key.created_at) }}</span></div>
           </div>
         </div>
       </div>
     </div>
+    <template #footer>
+      <div class="flex justify-end">
+        <button type="button" class="btn btn-secondary" @click="handleClose">{{ t('common.close') }}</button>
+      </div>
+    </template>
   </BaseDialog>
 
   <!-- Group Selector Dropdown -->
@@ -62,7 +67,7 @@
     <div
       v-if="groupSelectorKeyId !== null && dropdownPosition"
       ref="dropdownRef"
-      class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-64 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 duration-200 dark:bg-dark-800 dark:ring-white/10"
+      class="fixed z-[100000020] w-64 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] shadow-lg"
       :style="{ top: dropdownPosition.top + 'px', left: dropdownPosition.left + 'px' }"
     >
       <div class="max-h-64 overflow-y-auto p-1.5">
@@ -72,8 +77,8 @@
           :class="[
             'flex w-full items-center rounded-lg px-3 py-2 text-sm transition-colors',
             !selectedKeyForGroup?.group_id
-              ? 'bg-primary-50 dark:bg-primary-900/20'
-              : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+              ? 'bg-[var(--surface-2)]'
+              : 'hover:bg-[var(--surface-2)]'
           ]"
         >
           <span class="text-gray-500 italic">{{ t('admin.users.none') }}</span>
@@ -91,8 +96,8 @@
           :class="[
             'flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors',
             selectedKeyForGroup?.group_id === group.id
-              ? 'bg-primary-50 dark:bg-primary-900/20'
-              : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+              ? 'bg-[var(--surface-2)]'
+              : 'hover:bg-[var(--surface-2)]'
           ]"
         >
           <GroupOptionItem

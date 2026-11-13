@@ -64,7 +64,7 @@
         >
           <!-- Search input -->
           <div v-if="isSearchable" class="select-search">
-            <Icon name="search" size="sm" class="text-gray-400" />
+            <Icon name="search" size="sm" class="text-[var(--muted-foreground)]" />
             <input
               ref="searchInputRef"
               v-model="searchQuery"
@@ -108,14 +108,14 @@
                   v-if="option._creatable"
                   name="search"
                   size="sm"
-                  class="flex-shrink-0 text-gray-400"
+                  class="flex-shrink-0 text-[var(--muted-foreground)]"
                 />
-                <span class="select-option-label" :class="option._creatable && 'italic text-gray-500 dark:text-dark-300'">{{ getOptionLabel(option) }}</span>
+                <span class="select-option-label" :class="option._creatable && 'italic text-[var(--muted-foreground)] '">{{ getOptionLabel(option) }}</span>
                 <Icon
                   v-if="isSelected(option)"
                   name="check"
                   size="sm"
-                  class="text-primary-500"
+                  class="text-[var(--brand-text)]"
                   :stroke-width="2"
                 />
               </slot>
@@ -549,18 +549,23 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-500 dark:border-dark-400;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
-  @apply focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-700 dark:focus:border-primary-300 dark:focus:ring-primary-300;
-  @apply hover:border-gray-600 dark:hover:border-dark-300;
+  @apply rounded-lg px-3 py-1.5 text-[13.5px];
+  @apply bg-[var(--card)] ;
+  @apply border border-[var(--border)] ;
+  @apply text-[var(--foreground)] ;
+  @apply transition-colors duration-150;
+  @apply focus:border-[var(--brand)] focus:outline-none;
+  box-shadow: none;
+  @apply hover:border-[var(--brand)] ;
   @apply cursor-pointer;
 }
 
 .select-trigger-open {
-  @apply border-primary-700 ring-2 ring-primary-700 dark:border-primary-300 dark:ring-primary-300;
+  @apply border-[var(--brand)];
+}
+
+.select-trigger:focus-visible, .select-trigger-open {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
 }
 
 .select-trigger-error {
@@ -568,7 +573,7 @@ onUnmounted(() => {
 }
 
 .select-trigger-disabled {
-  @apply cursor-not-allowed bg-gray-100 opacity-60 dark:bg-dark-900;
+  @apply cursor-not-allowed bg-[var(--surface-2)] opacity-60 ;
 }
 
 .select-value {
@@ -576,7 +581,7 @@ onUnmounted(() => {
 }
 
 .select-icon {
-  @apply flex-shrink-0 text-gray-400 dark:text-dark-400;
+  @apply flex-shrink-0 text-[var(--muted-foreground)] ;
 }
 
 .select-trigger-clearable {
@@ -585,18 +590,18 @@ onUnmounted(() => {
 
 .select-clear {
   @apply absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center;
-  @apply rounded text-gray-600 transition-colors dark:text-dark-300;
-  @apply hover:bg-gray-100 dark:hover:bg-dark-700;
-  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-700 dark:focus-visible:outline-primary-300;
+  @apply rounded text-[var(--muted-foreground)] transition-colors ;
+  @apply hover:bg-[var(--surface-2)] ;
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)];
 }
 </style>
 
 <style>
 .select-dropdown-portal {
   @apply w-max min-w-[200px];
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
+  @apply bg-[var(--card)] ;
+  @apply rounded-lg;
+  @apply border border-[var(--border)] ;
   @apply shadow-lg shadow-black/10 dark:shadow-black/30;
   @apply overflow-hidden;
   pointer-events: auto !important;
@@ -604,13 +609,13 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-search {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b border-gray-100 dark:border-dark-700;
+  @apply border-b border-[var(--border)] ;
 }
 
 .select-dropdown-portal .select-search-input {
   @apply flex-1 bg-transparent text-sm;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply placeholder:text-gray-500 dark:placeholder:text-dark-400;
+  @apply text-[var(--foreground)] ;
+  @apply placeholder:text-[var(--muted-foreground)] ;
   @apply focus:outline-none;
 }
 
@@ -620,20 +625,20 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-option {
   @apply flex items-center justify-between gap-2;
-  @apply px-4 py-2.5 text-sm;
-  @apply text-gray-700 dark:text-gray-300;
+  @apply px-3 py-2 text-[13.5px];
+  @apply text-[var(--foreground)] ;
   @apply cursor-pointer transition-colors duration-150;
-  @apply hover:bg-gray-50 dark:hover:bg-dark-700;
+  @apply hover:bg-[var(--surface-2)] ;
   pointer-events: auto !important;
 }
 
 .select-dropdown-portal .select-option-selected {
-  @apply bg-primary-50 dark:bg-primary-900/20;
-  @apply text-primary-700 dark:text-primary-300;
+  @apply bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] ;
+  @apply text-[var(--brand-text)] ;
 }
 
 .select-dropdown-portal .select-option-focused {
-  @apply bg-gray-100 dark:bg-dark-700;
+  @apply bg-[var(--surface-2)] ;
 }
 
 .select-dropdown-portal .select-option-disabled {
@@ -642,13 +647,13 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-option-group {
   @apply cursor-default select-none;
-  @apply bg-gray-50 dark:bg-dark-900;
+  @apply bg-[var(--surface-2)] ;
   @apply text-[11px] font-bold uppercase tracking-wider;
-  @apply text-gray-500 dark:text-gray-400;
+  @apply text-[var(--muted-foreground)] ;
 }
 
 .select-dropdown-portal .select-option-group:hover {
-  @apply bg-gray-50 dark:bg-dark-900;
+  @apply bg-[var(--surface-2)] ;
 }
 
 .select-dropdown-portal .select-option-label {
@@ -658,7 +663,7 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-empty {
   @apply px-4 py-8 text-center text-sm;
-  @apply text-gray-500 dark:text-dark-400;
+  @apply text-[var(--muted-foreground)] ;
 }
 
 .select-dropdown-enter-active,
@@ -670,5 +675,10 @@ onUnmounted(() => {
 .select-dropdown-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .select-dropdown-enter-active, .select-dropdown-leave-active,
+  .select-dropdown-portal .select-option { transition: none; }
 }
 </style>

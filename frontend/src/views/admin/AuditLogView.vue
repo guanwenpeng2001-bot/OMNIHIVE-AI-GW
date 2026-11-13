@@ -1,82 +1,126 @@
 <template>
   <AppLayout>
     <TablePageLayout>
-      <!-- Filters -->
+      <!-- opencode Audit Style Compact Filter Bar -->
       <template #filters>
-        <div class="card p-4 sm:p-6">
-          <div class="flex flex-wrap items-end justify-between gap-4">
-            <!-- Left: filter fields -->
-            <div class="flex flex-1 flex-wrap items-end gap-4">
-              <div class="w-full sm:w-auto sm:min-w-[240px]">
-                <label class="input-label">{{ t('admin.audit.filters.q') }}</label>
-                <div class="relative">
-                  <Icon
-                    name="search"
-                    size="md"
-                    class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                  />
-                  <input
-                    v-model.trim="filters.q"
-                    type="text"
-                    class="input pl-10"
-                    :placeholder="t('admin.audit.filters.qPlaceholder')"
-                    @keyup.enter="search"
-                  />
-                </div>
-              </div>
+        <div class="card space-y-3 p-4">
+          <!-- Workbench Status & Action Header -->
+          <div
+            class="flex flex-wrap items-center justify-between gap-2 border-b pb-3"
+            style="border-color: var(--border)"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="chip font-mono tabular-nums text-xs font-medium">
+                <span class="pulse-dot" :class="loading ? 'pulse-warn' : 'pulse-ok'"></span>
+                <span>AUDIT STREAM</span>
+              </span>
+              <span class="pill pill-ghost font-mono text-xs tabular-nums">
+                {{ total }} events
+              </span>
+            </div>
 
-              <div class="w-full sm:w-auto sm:min-w-[200px]">
-                <label class="input-label">{{ t('admin.audit.filters.actorEmail') }}</label>
-                <input v-model.trim="filters.actor_email" type="text" class="input" @keyup.enter="search" />
-              </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" class="btn btn-primary btn-sm" :disabled="loading" @click="search">
+                {{ t('common.search') }}
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="resetFilters">
+                {{ t('common.reset') }}
+              </button>
+              <button type="button" class="btn btn-danger btn-sm" @click="openClearDialog">
+                <Icon name="trash" size="sm" />
+                {{ t('admin.audit.clearAll') }}
+              </button>
+            </div>
+          </div>
 
-              <div class="w-full sm:w-auto sm:min-w-[180px]">
-                <label class="input-label">{{ t('admin.audit.filters.action') }}</label>
-                <input v-model.trim="filters.action" type="text" class="input" @keyup.enter="search" />
-              </div>
-
-              <div class="w-full sm:w-auto sm:min-w-[160px]">
-                <label class="input-label">{{ t('admin.audit.filters.clientIp') }}</label>
-                <input v-model.trim="filters.client_ip" type="text" class="input" @keyup.enter="search" />
-              </div>
-
-              <div class="w-full sm:w-auto sm:min-w-[140px]">
-                <label class="input-label">{{ t('admin.audit.filters.method') }}</label>
-                <Select v-model="filters.method" :options="methodOptions" @change="search" />
-              </div>
-
-              <div class="w-full sm:w-auto sm:min-w-[170px]">
-                <label class="input-label">{{ t('admin.audit.filters.authMethod') }}</label>
-                <Select v-model="filters.auth_method" :options="authMethodOptions" @change="search" />
-              </div>
-
-              <div class="w-full sm:w-auto sm:min-w-[140px]">
-                <label class="input-label">{{ t('admin.audit.filters.result') }}</label>
-                <Select v-model="filters.success" :options="resultOptions" @change="search" />
-              </div>
-
-              <div class="w-full sm:w-auto sm:min-w-[170px]">
-                <label class="input-label">{{ t('admin.dashboard.timeRange') }}</label>
-                <Select
-                  :model-value="timeRange"
-                  :options="timeRangeOptions"
-                  @update:model-value="handleTimeRangeChange"
+          <!-- High-Density Filter Grid -->
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.q') }}
+              </label>
+              <div class="relative">
+                <Icon
+                  name="search"
+                  size="sm"
+                  class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+                />
+                <input
+                  v-model.trim="filters.q"
+                  type="text"
+                  class="input py-2 pl-9 font-mono tabular-nums text-xs"
+                  :placeholder="t('admin.audit.filters.qPlaceholder')"
+                  @keyup.enter="search"
                 />
               </div>
             </div>
 
-            <!-- Right: actions -->
-            <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
-              <button type="button" class="btn btn-primary" :disabled="loading" @click="search">
-                {{ t('common.search') }}
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="loading" @click="resetFilters">
-                {{ t('common.reset') }}
-              </button>
-              <button type="button" class="btn btn-danger" @click="openClearDialog">
-                <Icon name="trash" size="sm" class="mr-1.5" />
-                {{ t('admin.audit.clearAll') }}
-              </button>
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.actorEmail') }}
+              </label>
+              <input
+                v-model.trim="filters.actor_email"
+                type="text"
+                class="input py-2 font-mono tabular-nums text-xs"
+                @keyup.enter="search"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.action') }}
+              </label>
+              <input
+                v-model.trim="filters.action"
+                type="text"
+                class="input py-2 font-mono tabular-nums text-xs"
+                @keyup.enter="search"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.clientIp') }}
+              </label>
+              <input
+                v-model.trim="filters.client_ip"
+                type="text"
+                class="input py-2 font-mono tabular-nums text-xs"
+                @keyup.enter="search"
+              />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.method') }}
+              </label>
+              <Select v-model="filters.method" :options="methodOptions" @change="search" />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.authMethod') }}
+              </label>
+              <Select v-model="filters.auth_method" :options="authMethodOptions" @change="search" />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.audit.filters.result') }}
+              </label>
+              <Select v-model="filters.success" :options="resultOptions" @change="search" />
+            </div>
+
+            <div>
+              <label class="mb-1 block font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.dashboard.timeRange') }}
+              </label>
+              <Select
+                :model-value="timeRange"
+                :options="timeRangeOptions"
+                @update:model-value="handleTimeRangeChange"
+              />
             </div>
           </div>
         </div>
@@ -86,49 +130,69 @@
       <template #table>
         <DataTable :columns="columns" :data="logs" :loading="loading" row-key="id">
           <template #cell-created_at="{ value }">
-            <span class="whitespace-nowrap text-gray-600 dark:text-gray-300">{{ formatTime(value) }}</span>
+            <span class="whitespace-nowrap font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
+              {{ formatTime(value) }}
+            </span>
           </template>
 
           <template #cell-actor="{ row }">
             <div class="min-w-0 max-w-[220px]">
-              <div class="truncate font-medium text-gray-900 dark:text-white" :title="row.actor_email">
+              <div class="truncate text-sm font-medium text-[var(--foreground)]" :title="row.actor_email">
                 {{ row.actor_email || '—' }}
               </div>
-              <div class="mt-0.5 truncate text-xs text-gray-400">
-                {{ row.actor_role }}<span v-if="row.auth_method"> · {{ authMethodLabel(row.auth_method) }}</span>
+              <div class="mt-1 flex flex-wrap items-center gap-1">
+                <span v-if="row.actor_role" class="pill pill-ghost font-mono tabular-nums text-[10px]">
+                  {{ row.actor_role }}
+                </span>
+                <span v-if="row.auth_method" class="pill pill-ghost font-mono tabular-nums text-[10px]">
+                  {{ authMethodLabel(row.auth_method) }}
+                </span>
               </div>
             </div>
           </template>
 
           <template #cell-action="{ row }">
-            <div class="min-w-0 max-w-xs">
-              <div class="truncate font-mono text-sm text-gray-800 dark:text-gray-200" :title="row.action">
+            <div class="min-w-0 max-w-md space-y-1">
+              <div class="truncate font-mono tabular-nums text-xs font-semibold text-[var(--foreground)]" :title="row.action">
                 {{ row.action }}
               </div>
-              <div class="mt-0.5 select-text break-all font-mono text-xs text-gray-500 dark:text-gray-400" data-testid="audit-request-path">{{ auditRequestText(row) }}</div>
-              <button type="button" class="btn btn-secondary mt-1 text-xs" :aria-label="`${t('common.copy')} ${auditRequestText(row)}`" @click="copyToClipboard(auditRequestText(row))">{{ t('common.copy') }}</button>
+              <div
+                class="select-text break-all rounded-md border px-2 py-1 font-mono tabular-nums text-xs text-[var(--muted-foreground)]"
+                style="border-color: var(--border); background: var(--surface-2)"
+                data-testid="audit-request-path"
+              >{{ auditRequestText(row) }}</div>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm px-2 py-0.5 font-mono tabular-nums text-[11px]"
+                :aria-label="`${t('common.copy')} ${auditRequestText(row)}`"
+                @click="copyToClipboard(auditRequestText(row))"
+              >{{ t('common.copy') }}</button>
             </div>
           </template>
 
           <template #cell-status_code="{ row }">
             <span :class="statusBadgeClass(row.status_code)">
-              <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(row.status_code)"></span>
+              <span class="pulse-dot" :class="statusDotClass(row.status_code)"></span>
               {{ row.status_code }}
             </span>
           </template>
 
           <template #cell-latency_ms="{ value }">
-            <span class="whitespace-nowrap text-gray-500 dark:text-gray-400">{{ value }} ms</span>
+            <span class="pill pill-ghost whitespace-nowrap font-mono text-xs tabular-nums">
+              {{ value }} ms
+            </span>
           </template>
 
           <template #cell-client_ip="{ value }">
-            <span class="whitespace-nowrap font-mono text-gray-600 dark:text-gray-300">{{ value || '—' }}</span>
+            <span class="whitespace-nowrap font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
+              {{ value || '—' }}
+            </span>
           </template>
 
           <template #cell-actions="{ row }">
             <button
               type="button"
-              class="inline-flex items-center gap-1 font-medium text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              class="btn btn-ghost btn-sm inline-flex items-center gap-1 text-xs font-medium text-[var(--brand-text)] transition-colors hover:text-[var(--brand-text)]"
               @click="openDetail(row.id)"
             >
               <Icon name="eye" size="sm" />
@@ -137,9 +201,15 @@
           </template>
 
           <template #empty>
-            <div class="flex flex-col items-center py-8">
-              <Icon name="shield" size="xl" class="mb-4 h-12 w-12 text-gray-300 dark:text-dark-600" />
-              <p class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ t('admin.audit.empty') }}</p>
+            <div class="flex flex-col items-center py-10">
+              <div class="mb-4 flex flex-col gap-2 opacity-40" aria-hidden="true">
+                <div v-for="i in 3" :key="i" class="flex items-center gap-2.5">
+                  <span class="h-2.5 w-2.5 rounded-full border border-current"></span>
+                  <span class="h-2 w-40 rounded" style="background: var(--border)"></span>
+                </div>
+              </div>
+              <Icon name="shield" size="xl" class="mb-4 h-12 w-12 text-[var(--muted-foreground)]" />
+              <p class="text-sm font-medium text-[var(--muted-foreground)]">{{ t('admin.audit.empty') }}</p>
             </div>
           </template>
         </DataTable>
@@ -168,33 +238,39 @@
     >
       <div v-if="detailLoading" class="flex items-center justify-center py-16">
         <div class="flex flex-col items-center gap-3">
-          <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"></div>
-          <div class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ t('common.loading') }}</div>
+          <div class="h-8 w-8 animate-spin rounded-full border-b-2 border-[var(--brand)]"></div>
+          <div class="text-sm font-medium text-[var(--muted-foreground)]">{{ t('common.loading') }}</div>
         </div>
       </div>
 
       <div v-else-if="detail" class="space-y-5 py-2">
         <!-- Hero: action + result at a glance -->
-        <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-5 dark:border-dark-700 dark:bg-dark-900/60">
+        <div
+          class="rounded-2xl border p-5"
+          style="border-color: var(--border); background: var(--surface-2)"
+        >
           <div class="flex flex-wrap items-center gap-3">
             <span :class="statusBadgeClass(detail.status_code)">
-              <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(detail.status_code)"></span>
+              <span class="pulse-dot" :class="statusDotClass(detail.status_code)"></span>
               {{ detail.status_code }} {{ statusText(detail.status_code) }}
             </span>
-            <span class="break-all font-mono text-base font-semibold text-gray-900 dark:text-white">
+            <span class="break-all font-mono tabular-nums text-base font-semibold text-[var(--foreground)]">
               {{ detail.action }}
             </span>
           </div>
 
-          <div class="mt-3 flex items-center gap-2 rounded-lg bg-white px-3 py-2 ring-1 ring-gray-200 dark:bg-dark-800 dark:ring-dark-600">
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-gray-700 dark:bg-dark-700 dark:text-gray-200">
+          <div
+            class="mt-3 flex items-center gap-2 rounded-xl border px-3 py-2"
+            style="border-color: var(--border); background: var(--card)"
+          >
+            <span class="pill pill-ghost font-mono tabular-nums text-[11px] font-bold">
               {{ detail.method }}
             </span>
-            <span class="select-text break-all font-mono text-xs text-gray-600 dark:text-gray-300">{{ sanitizeAuditPath(detail.path) }}</span>
-            <button type="button" class="btn btn-secondary shrink-0 text-xs" :aria-label="`${t('common.copy')} ${auditRequestText(detail)}`" @click="copyToClipboard(auditRequestText(detail))">{{ t('common.copy') }}</button>
+            <span class="select-text break-all font-mono tabular-nums text-xs text-[var(--muted-foreground)]">{{ sanitizeAuditPath(detail.path) }}</span>
+            <button type="button" class="btn btn-secondary btn-sm shrink-0 font-mono tabular-nums text-xs" :aria-label="`${t('common.copy')} ${auditRequestText(detail)}`" @click="copyToClipboard(auditRequestText(detail))">{{ t('common.copy') }}</button>
           </div>
 
-          <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
             <span class="inline-flex items-center gap-1.5">
               <Icon name="clock" size="xs" />
               {{ formatTime(detail.created_at) }}
@@ -202,40 +278,40 @@
             <span>{{ t('admin.audit.detail.latency') }} {{ detail.latency_ms }} ms</span>
             <span v-if="detail.request_id" class="inline-flex items-center gap-1">
               {{ t('admin.audit.detail.requestId') }}
-              <span class="break-all font-mono">{{ detail.request_id }}</span>
+              <span class="break-all font-mono tabular-nums">{{ detail.request_id }}</span>
             </span>
           </div>
         </div>
 
         <!-- Actor / auth / source -->
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-            <div class="text-xs font-bold uppercase tracking-wider text-gray-400">
+          <div class="rounded-xl bg-[var(--surface-2)] p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
               {{ t('admin.audit.columns.actor') }}
             </div>
-            <div class="mt-1 break-all text-sm font-medium text-gray-900 dark:text-white">
+            <div class="mt-1 break-all text-sm font-medium text-[var(--foreground)]">
               {{ detail.actor_email || '—' }}
             </div>
-            <div class="mt-0.5 text-xs text-gray-400">{{ detail.actor_role }}</div>
+            <div class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ detail.actor_role }}</div>
           </div>
 
-          <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-            <div class="text-xs font-bold uppercase tracking-wider text-gray-400">
+          <div class="rounded-xl bg-[var(--surface-2)] p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
               {{ t('admin.audit.filters.authMethod') }}
             </div>
-            <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
+            <div class="mt-1 text-sm font-medium text-[var(--foreground)]">
               {{ authMethodLabel(detail.auth_method) || '—' }}
             </div>
-            <div v-if="detail.credential_masked" class="mt-0.5 break-all font-mono text-xs text-gray-400">
+            <div v-if="detail.credential_masked" class="mt-0.5 break-all font-mono tabular-nums text-xs text-[var(--muted-foreground)]">
               {{ detail.credential_masked }}
             </div>
           </div>
 
-          <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-            <div class="text-xs font-bold uppercase tracking-wider text-gray-400">
+          <div class="rounded-xl bg-[var(--surface-2)] p-4">
+            <div class="text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
               {{ t('admin.audit.columns.clientIp') }}
             </div>
-            <div class="mt-1 break-all font-mono text-sm font-medium text-gray-900 dark:text-white">
+            <div class="mt-1 break-all font-mono tabular-nums text-sm font-medium text-[var(--foreground)]">
               {{ detail.client_ip || '—' }}
             </div>
           </div>
@@ -243,28 +319,28 @@
 
         <!-- User-Agent -->
         <section>
-          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-gray-400">
+          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             {{ t('admin.audit.detail.userAgent') }}
           </h4>
-          <div class="break-all rounded-xl bg-gray-50 p-3 font-mono text-xs leading-relaxed text-gray-600 dark:bg-dark-900 dark:text-gray-400">
+          <div class="break-all rounded-xl bg-[var(--surface-2)] p-3 font-mono tabular-nums text-xs leading-relaxed text-[var(--muted-foreground)]">
             {{ detail.user_agent || '—' }}
           </div>
         </section>
 
         <!-- Request body (redacted) -->
         <section v-if="detail.request_body">
-          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-gray-400">
+          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             {{ t('admin.audit.detail.requestBody') }}
           </h4>
-          <pre class="max-h-72 overflow-auto rounded-xl bg-gray-50 p-4 font-mono text-xs leading-relaxed text-gray-600 dark:bg-dark-900 dark:text-gray-400">{{ prettyBody(detail.request_body) }}</pre>
+          <pre class="max-h-72 overflow-auto rounded-xl bg-[var(--surface-2)] p-4 font-mono tabular-nums text-xs leading-relaxed text-[var(--muted-foreground)]">{{ prettyBody(detail.request_body) }}</pre>
         </section>
 
         <!-- Extra -->
         <section v-if="detail.extra && Object.keys(detail.extra).length">
-          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-gray-400">
+          <h4 class="mb-1.5 text-xs font-bold uppercase tracking-wider text-[var(--muted-foreground)]">
             {{ t('admin.audit.detail.extra') }}
           </h4>
-          <pre class="max-h-48 overflow-auto rounded-xl bg-gray-50 p-4 font-mono text-xs leading-relaxed text-gray-600 dark:bg-dark-900 dark:text-gray-400">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
+          <pre class="max-h-48 overflow-auto rounded-xl bg-[var(--surface-2)] p-4 font-mono tabular-nums text-xs leading-relaxed text-[var(--muted-foreground)]">{{ JSON.stringify(detail.extra, null, 2) }}</pre>
         </section>
       </div>
     </BaseDialog>
@@ -322,7 +398,7 @@
       @close="cancelClearTotp"
     >
       <div class="py-2">
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.audit.clearConfirm.totpHint') }}</p>
+        <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.audit.clearConfirm.totpHint') }}</p>
         <input
           v-model.trim="clearTotpCode"
           type="text"
@@ -672,16 +748,16 @@ function statusText(status: number): string {
 }
 
 function statusBadgeClass(status: number): string {
-  const base = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold '
+  const base = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold tabular-nums '
   if (status >= 500) return base + 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
   if (status >= 400) return base + 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
   return base + 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 }
 
 function statusDotClass(status: number): string {
-  if (status >= 500) return 'bg-red-500'
-  if (status >= 400) return 'bg-amber-500'
-  return 'bg-green-500'
+  if (status >= 500) return 'pulse-bad'
+  if (status >= 400) return 'pulse-warn'
+  return 'pulse-ok'
 }
 
 onMounted(fetchLogs)

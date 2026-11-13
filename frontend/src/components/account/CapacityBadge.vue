@@ -11,7 +11,7 @@ defineProps<{
 <template>
   <span
     :class="[
-      'inline-flex items-center gap-1 rounded-md px-1.5 py-px text-[10px] font-medium leading-tight',
+      'inline-flex min-w-max items-center gap-1 rounded-md border border-current/15 px-1.5 py-0.5 text-[10px] font-medium leading-tight tabular-nums',
       colorClass
     ]"
     :title="tooltip"

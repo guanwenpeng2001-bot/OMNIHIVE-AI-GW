@@ -1,38 +1,40 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.forgotPasswordTitle') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.forgotPasswordHint') }}
         </p>
       </div>
 
       <!-- Success State -->
       <div v-if="isSubmitted" class="space-y-6">
-        <div class="rounded-xl border border-green-200 bg-green-50 p-6 dark:border-green-800/50 dark:bg-green-900/20">
-          <div class="flex flex-col items-center gap-4 text-center">
-            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-800/50">
+        <div class="auth-summary" role="status">
+          <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 items-center justify-center text-[var(--ok-text)]">
               <Icon name="checkCircle" size="lg" class="text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-green-800 dark:text-green-200">
+              <h3 class="text-lg font-semibold text-[var(--foreground)]">
                 {{ t('auth.resetEmailSent') }}
               </h3>
-              <p class="mt-2 text-sm text-green-700 dark:text-green-300">
+              <p class="mt-2 text-sm text-[var(--muted-foreground)]">
                 {{ t('auth.resetEmailSentHint') }}
               </p>
+              <p class="mt-2 break-all">{{ formData.email }}</p>
             </div>
           </div>
         </div>
 
-        <div class="text-center">
+        <div class="auth-actions">
+          <button type="button" class="btn btn-outline" @click="isSubmitted = false">{{ t('auth.forgotPassword') }}</button>
           <router-link
             to="/login"
-            class="inline-flex items-center gap-2 font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+            class="btn btn-primary"
           >
             <Icon name="arrowLeft" size="sm" />
             {{ t('auth.backToLogin') }}
@@ -41,16 +43,14 @@
       </div>
 
       <!-- Form State -->
-      <form v-else @submit.prevent="handleSubmit" class="space-y-5">
+      <form v-else @submit.prevent="handleSubmit" class="space-y-3">
+        <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
             {{ t('auth.emailLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="mail" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="email"
               v-model="formData.email"
@@ -59,7 +59,7 @@
               autofocus
               autocomplete="email"
               :disabled="isLoading"
-              class="input pl-11"
+              class="input"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
             />
@@ -86,6 +86,7 @@
         </div>
 
         <!-- Submit Button -->
+        <div class="auth-actions">
         <button
           type="submit"
           :disabled="isLoading || (turnstileEnabled && !turnstileToken)"
@@ -93,7 +94,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -114,21 +115,11 @@
           <Icon v-else name="mail" size="md" class="mr-2" />
           {{ isLoading ? t('auth.sendingResetLink') : t('auth.sendResetLink') }}
         </button>
+        <router-link to="/login" class="btn btn-outline">{{ t('auth.backToLogin') }}</router-link>
+        </div>
       </form>
     </div>
 
-    <!-- Footer -->
-    <template #footer>
-      <p class="text-gray-500 dark:text-dark-400">
-        {{ t('auth.rememberedPassword') }}
-        <router-link
-          to="/login"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-        >
-          {{ t('auth.signIn') }}
-        </router-link>
-      </p>
-    </template>
   </AuthLayout>
 </template>
 
@@ -327,6 +318,52 @@ async function handleSubmit(): Promise<void> {
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -336,5 +373,12 @@ async function handleSubmit(): Promise<void> {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

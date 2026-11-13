@@ -2,9 +2,9 @@
   <label class="block space-y-1" data-testid="tpm-limit-field">
     <span class="input-label">{{ t('admin.accounts.tpmLimit') }}</span>
     <input :value="modelValue" type="number" min="0" step="1" :max="Number.MAX_SAFE_INTEGER"
-      required :disabled="disabled" class="input" @input="update" />
+      required :disabled="disabled" class="input font-mono tabular-nums" @input="update" />
     <span class="input-hint block">{{ t('admin.accounts.tpmLimitHint') }}</span>
-    <span v-if="modelValue === 0" class="text-sm text-gray-500">{{ t('admin.accounts.tpmUnlimited') }}</span>
+    <span v-if="modelValue === 0" class="text-sm text-[var(--muted-foreground)]">{{ t('admin.accounts.tpmUnlimited') }}</span>
   </label>
 </template>
 <script setup lang="ts">
@@ -19,3 +19,11 @@ function update(event: Event) {
   emit('update:modelValue', value)
 }
 </script>
+
+<style scoped>
+.input { border: 1px solid var(--border); background: var(--card); color: var(--foreground); }
+.input:focus { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); outline: none; }
+.input:disabled { background: var(--surface-2); }
+.input-label { color: var(--foreground); }
+.input-hint { color: var(--muted-foreground); }
+</style>

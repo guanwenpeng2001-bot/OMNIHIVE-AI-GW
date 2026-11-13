@@ -1,15 +1,15 @@
 <template>
-  <div class="flex items-start gap-4">
+  <div class="flex flex-wrap items-start gap-4">
     <!-- Preview Box -->
     <div class="flex-shrink-0">
       <div
-        class="flex items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 dark:border-dark-600 dark:bg-dark-800"
+        class="flex items-center justify-center overflow-hidden rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)]"
         :class="[previewSizeClass, { 'border-solid': !!modelValue }]"
       >
         <!-- SVG mode: render inline -->
         <span
           v-if="mode === 'svg' && modelValue"
-          class="text-gray-600 dark:text-gray-300 [&>svg]:h-full [&>svg]:w-full"
+          class="text-[var(--muted-foreground)] [&>svg]:h-full [&>svg]:w-full"
           :class="innerSizeClass"
           v-html="sanitizedValue"
         ></span>
@@ -23,7 +23,7 @@
         <!-- Empty placeholder -->
         <svg
           v-else
-          class="text-gray-400 dark:text-dark-500"
+          class="text-[var(--muted-foreground)]"
           :class="placeholderSizeClass"
           fill="none"
           viewBox="0 0 24 24"
@@ -40,13 +40,14 @@
     </div>
 
     <!-- Controls -->
-    <div class="flex-1 space-y-2">
-      <div class="flex items-center gap-2">
-        <label class="btn btn-secondary btn-sm cursor-pointer">
+    <div class="min-w-0 flex-1 space-y-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <label class="btn btn-secondary btn-sm relative cursor-pointer focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--brand)]">
           <input
             type="file"
             :accept="acceptTypes"
-            class="hidden"
+            class="sr-only"
+            :aria-label="resolvedUploadLabel"
             @change="handleUpload"
           />
           <Icon name="upload" size="sm" class="mr-1.5" :stroke-width="2" />
@@ -62,8 +63,8 @@
           {{ resolvedRemoveLabel }}
         </button>
       </div>
-      <p v-if="hint" class="text-xs text-gray-500 dark:text-gray-400">{{ hint }}</p>
-      <p v-if="error" class="text-xs text-red-500">{{ error }}</p>
+      <p v-if="hint" class="text-xs text-[var(--muted-foreground)]">{{ hint }}</p>
+      <p v-if="error" class="text-xs text-red-500" role="alert">{{ error }}</p>
     </div>
   </div>
 </template>

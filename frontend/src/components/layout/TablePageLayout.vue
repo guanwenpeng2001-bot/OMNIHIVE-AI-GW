@@ -46,7 +46,7 @@ onUnmounted(() => {
 <style scoped>
 /* 桌面端：Flexbox 布局 */
 .table-page-layout {
-  @apply flex flex-col gap-6;
+  @apply flex flex-col gap-4;
   height: calc(100vh - 64px - 4rem); /* 减去 header + lg:p-8 的上下padding */
 }
 
@@ -58,9 +58,12 @@ onUnmounted(() => {
   @apply flex-1 min-h-0 flex flex-col;
 }
 
-/* 表格滚动容器 - 增强版表体滚动方案 */
+/* 表格滚动容器 - OmniHive 细边框高密度工作台表格外壳 */
 .table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full bg-white dark:bg-dark-800 rounded-2xl border border-gray-200 dark:border-dark-700 shadow-sm;
+  @apply flex flex-col overflow-hidden h-full rounded-xl border shadow-sm;
+  background: var(--card, #ffffff);
+  border-color: var(--border, #e9e9ee);
+  color: var(--card-foreground, #131316);
 }
 
 .table-scroll-container :deep(.table-wrapper) {
@@ -76,19 +79,36 @@ onUnmounted(() => {
 }
 
 .table-scroll-container :deep(thead) {
-  @apply bg-gray-50/80 dark:bg-dark-800/80 backdrop-blur-sm;
+  @apply backdrop-blur-sm;
+  background: color-mix(in srgb, var(--surface-2, #f4f4f5) 68%, var(--card, #ffffff));
 }
 
 .table-scroll-container :deep(tbody) {
   /* 保持默认 table-row-group 显示，不使用 block */
 }
 
+.table-scroll-container :deep(tbody tr) {
+  transition: background-color 0.16s ease;
+}
+
+.table-scroll-container :deep(tbody tr:hover) {
+  background: color-mix(in srgb, var(--brand, #f59e0b) 4.5%, transparent);
+}
+
 .table-scroll-container :deep(th) {
-  @apply px-5 py-4 text-left text-sm font-medium text-gray-600 dark:text-dark-300 border-b border-gray-200 dark:border-dark-700;
+  @apply px-4 py-2.5 text-left border-b;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground, #6f6f78);
+  border-color: var(--border, #e9e9ee);
+  user-select: none;
 }
 
 .table-scroll-container :deep(td) {
-  @apply px-5 py-4 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-dark-800;
+  @apply px-4 py-3 text-sm border-b;
+  color: var(--foreground, #131316);
+  border-color: var(--border, #e9e9ee);
 }
 
 /* 移动端：恢复正常滚动 */

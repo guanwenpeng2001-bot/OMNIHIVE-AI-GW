@@ -44,13 +44,20 @@ function navigate(event: KeyboardEvent, index: number) {
       <input v-model="search" type="search" class="input" :aria-label="t('common.search')" :placeholder="t('common.search')" />
       <Select v-model="family" :options="families" :aria-label="t('admin.accounts.platform')" />
     </div>
-    <div role="radiogroup" :aria-label="t('admin.accounts.platform')" class="flex max-h-80 flex-wrap gap-1 overflow-y-auto rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+    <div role="radiogroup" :aria-label="t('admin.accounts.platform')" class="flex max-h-80 flex-wrap gap-1.5 overflow-y-auto rounded-lg bg-gray-100 p-1 border border-[var(--border)] !bg-[var(--surface-2)] !p-2" data-tour="account-form-platform">
       <button v-for="(option, index) in visible" :key="option.value" type="button" role="radio"
         :aria-checked="selected === option.value" :data-testid="`${option.value}-platform`"
         :tabindex="selected === option.value || (!visible.some(item => item.value === selected) && index === 0) ? 0 : -1"
-        :class="['flex items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', selected === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 dark:text-gray-300']"
+        :class="[
+          'flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]',
+          selected === option.value
+            ? 'bg-white text-primary-600 shadow-sm border-[var(--brand)] !bg-[var(--card)] !text-[var(--foreground)] font-semibold ring-1 ring-[var(--brand)]/25'
+            : 'border-transparent bg-[var(--card)]/70 text-[var(--muted-foreground)] hover:border-[var(--border)] hover:bg-[var(--card)] hover:text-[var(--foreground)]'
+        ]"
         @click="emit('select', option.value)" @keydown="navigate($event, index)">
-        <PlatformIcon :platform="option.value === 'vertex' ? 'gemini' : option.value" size="sm" />{{ option.supplier ? t(`admin.accounts.supplier.names.${option.supplier.id}`) : getPlatformLabel(option.value, t) }}
+        <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--card)]">
+          <PlatformIcon :platform="option.value === 'vertex' ? 'gemini' : option.value" size="sm" />
+        </span>{{ option.supplier ? t(`admin.accounts.supplier.names.${option.supplier.id}`) : getPlatformLabel(option.value, t) }}
       </button>
     </div>
     <p v-if="!visible.length" role="status" class="input-hint">{{ t('common.noData') }}</p>

@@ -6,7 +6,7 @@
     @close="handleClose"
   >
     <div class="space-y-4">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex-1">
           <input
             v-model="search"
@@ -31,21 +31,22 @@
         @sort="handleSort"
       >
         <template #cell-email="{ value }">
-          <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+          <span class="font-medium text-[var(--foreground)]">{{ value }}</span>
         </template>
 
         <template #cell-balance="{ value }">
-          <span class="font-medium text-gray-900 dark:text-white">${{ Number(value ?? 0).toFixed(2) }}</span>
+          <span class="font-mono font-medium tabular-nums text-[var(--foreground)]">${{ Number(value ?? 0).toFixed(2) }}</span>
         </template>
 
         <template #cell-eligible="{ value }">
           <span :class="['badge', value ? 'badge-success' : 'badge-gray']">
+            <span class="pulse-dot bg-current" aria-hidden="true" />
             {{ value ? t('admin.announcements.eligible') : t('common.no') }}
           </span>
         </template>
 
         <template #cell-read_at="{ value }">
-          <span class="text-sm text-gray-500 dark:text-dark-400">
+          <span class="text-sm text-[var(--muted-foreground)]">
             {{ value ? formatDateTime(value) : t('admin.announcements.unread') }}
           </span>
         </template>

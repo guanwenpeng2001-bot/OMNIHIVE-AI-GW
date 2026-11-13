@@ -1,5 +1,5 @@
 <template>
-  <div ref="rootRef" v-if="showUsageWindows">
+  <div ref="rootRef" v-if="showUsageWindows" class="cell-stack w-full min-w-0 max-w-[248px] space-y-1 whitespace-normal">
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -87,7 +87,7 @@
           </span>
           <button
             type="button"
-            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
+            class="usage-action inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
             :disabled="activeQueryLoading"
             @click="loadActiveUsage"
           >
@@ -147,6 +147,7 @@
           :utilization="usageInfo.seven_day.utilization"
           :resets-at="usageInfo.seven_day.resets_at"
           :window-stats="usageInfo.seven_day.window_stats"
+          :show-window-stats="!openAIWindowStatsRepeated"
           :estimated-total-cost="openAISevenDayEstimatedTotalCost"
           :show-now-when-idle="true"
           color="emerald"
@@ -160,7 +161,7 @@
           <template #pre-actions>
             <button
               type="button"
-              class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              class="usage-action inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="activeQueryLoading"
               @click="loadActiveUsage"
             >
@@ -264,7 +265,7 @@
           </a>
           <button
             type="button"
-            class="text-[10px] text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            class="usage-action inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)]"
             :title="t('admin.accounts.copyLink')"
             @click="copyValidationURL"
           >
@@ -275,14 +276,14 @@
 
       <!-- Needs reauth (401) -->
       <div v-else-if="needsReauth" class="space-y-1">
-        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+        <span class="inline-block rounded border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn-text)]">
           {{ t('admin.accounts.needsReauth') }}
         </span>
       </div>
 
       <!-- Degraded error (non-403, non-401) -->
       <div v-else-if="usageInfo?.error" class="space-y-1">
-        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+        <span class="inline-block rounded border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn-text)]" :title="usageInfo?.error">
           {{ usageErrorLabel }}
         </span>
       </div>
@@ -370,12 +371,12 @@
         {{ error }}
       </div>
       <div v-else-if="needsReauth" class="space-y-1">
-        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+        <span class="inline-block rounded border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--warn-text)]">
           {{ t('admin.accounts.needsReauth') }}
         </span>
       </div>
       <div v-else-if="isForbidden" class="space-y-1">
-        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+        <span class="inline-block rounded border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--bad-text)]">
           {{ usageInfo?.grok_entitlement_status || t('admin.accounts.forbidden') }}
         </span>
       </div>
@@ -385,7 +386,7 @@
           <UsageProgressBar
             v-if="grokFreeTokenBar"
             label="24h"
-            :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) })"
+            :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) }).replace(/sub2api/gi, 'OmniHive')"
             :utilization="grokFreeTokenBar.utilization"
             :window-stats="grokFreeQuotaUsage"
             :show-now-when-idle="true"
@@ -457,11 +458,11 @@
       <ProviderManagementUsage v-else-if="managementUsageVisible(account)" :account="account" />
       <TogetherBillingUsage v-else-if="togetherBillingVisible(account)" :account="account" />
       <CompatibleConsumedUsage v-else-if="compatibleCapability.kind === 'consumed_usage'" :account="account" />
-      <div v-else data-test="compatible-usage-unsupported" class="text-xs text-gray-500" role="status">
+      <div v-else data-test="compatible-usage-unsupported" class="max-w-[230px] truncate rounded border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]" role="status" :title="t(`admin.accounts.compatibleUsage.reasons.${compatibleCapability.reason}`)">
         {{ t(`admin.accounts.compatibleUsage.reasons.${compatibleCapability.reason}`) }}
       </div>
       <AtlasModelUsage v-if="account.platform === 'atlascloud'" :account="account" />
-      <div class="mt-1 text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.localLedger') }}</div>
+      <div class="max-w-[230px] truncate text-[10px] text-[var(--muted-foreground)]" :title="t('admin.accounts.compatibleUsage.localLedger')">{{ t('admin.accounts.compatibleUsage.localLedger') }}</div>
     </template>
 
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
@@ -539,19 +540,18 @@
           v-if="showGeminiTodayStats && todayStats"
           class="mb-0.5 flex items-center"
         >
-          <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+          <div class="usage-stats inline-flex flex-wrap items-center gap-1 rounded-md border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_70%,transparent)] px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+            <span>
               {{ formatKeyRequests }} req
             </span>
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+            <span>
               {{ formatKeyTokens }}
             </span>
-            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
+            <span :title="t('usage.accountBilled')">
               A ${{ formatKeyCost }}
             </span>
             <span
               v-if="todayStats.user_cost != null"
-              class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
               :title="t('usage.userBilled')"
             >
               U ${{ formatKeyUserCost }}
@@ -605,7 +605,7 @@
   </div>
 
   <!-- Non-OAuth/Setup-Token accounts -->
-  <div ref="rootRef" v-else>
+  <div ref="rootRef" v-else class="cell-stack min-w-0 max-w-[260px] space-y-1.5">
     <!-- Gemini API Key accounts: show quota info -->
     <AccountQuotaInfo v-if="account.platform === 'gemini'" :account="account" />
     <!-- Key/Bedrock accounts: show today stats + optional quota bars -->
@@ -619,26 +619,26 @@
       <p
         v-if="hasNoUpstreamUsageApi"
         data-testid="local-usage-explanation"
-        class="max-w-[240px] whitespace-normal text-[10px] leading-relaxed text-gray-500 dark:text-gray-400"
+        class="max-w-[230px] truncate rounded border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_70%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+        :title="t(localUsageExplanation)"
       >{{ t(localUsageExplanation) }}</p>
       <!-- Today stats row (requests, tokens, cost, user_cost) -->
       <div
         v-if="todayStats"
         class="mb-0.5 flex items-center"
       >
-        <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+        <div class="usage-stats inline-flex flex-wrap items-center gap-1 rounded-md border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_70%,transparent)] px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
+          <span>
             {{ formatKeyRequests }} req
           </span>
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+          <span>
             {{ formatKeyTokens }} tokens
           </span>
-          <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
+          <span :title="t('usage.accountBilled')">
             A ${{ formatKeyCost }}
           </span>
           <span
             v-if="todayStats.user_cost != null"
-            class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
             :title="t('usage.userBilled')"
           >
             U ${{ formatKeyUserCost }}
@@ -868,6 +868,14 @@ const hasOpenAIUsageFallback = computed(() => {
   return !!usageInfo.value?.five_hour || !!usageInfo.value?.seven_day
 })
 
+const openAIWindowStatsRepeated = computed(() => {
+  const fiveHour = usageInfo.value?.five_hour?.window_stats
+  const sevenDay = usageInfo.value?.seven_day?.window_stats
+  return Boolean(fiveHour && sevenDay &&
+    fiveHour.requests === sevenDay.requests &&
+    fiveHour.tokens === sevenDay.tokens)
+})
+
 const openAISevenDayEstimatedTotalCost = computed(() => {
   const sevenDay = usageInfo.value?.seven_day
   const utilization = sevenDay?.utilization
@@ -1088,28 +1096,7 @@ const geminiAuthTypeLabel = computed(() => {
 })
 
 // Gemini 账户类型徽章样式（统一样式）
-const geminiTierClass = computed(() => {
-  // Use channel+level to choose a stable color without depending on raw tier_id variants.
-  const channel = geminiChannelShort.value
-  const level = geminiUserLevel.value
-
-  if (channel === 'client' || channel === 'ai studio') {
-    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-  }
-
-  if (channel === 'google one') {
-    if (level === 'ultra') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    if (level === 'pro') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-    return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-  }
-
-  if (channel === 'gcp') {
-    if (level === 'enterprise') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-  }
-
-  return ''
-})
+const geminiTierClass = 'border border-[var(--border)] bg-[var(--surface-2)] font-mono text-[var(--foreground)]'
 
 // Gemini 配额政策信息
 const geminiQuotaPolicyChannel = computed(() => {
@@ -1377,18 +1364,7 @@ const antigravityTierLabel = computed(() => {
 })
 
 // 账户类型徽章样式
-const antigravityTierClass = computed(() => {
-  switch (antigravityTier.value) {
-    case 'free-tier':
-      return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-    case 'g1-pro-tier':
-      return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-    case 'g1-ultra-tier':
-      return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    default:
-      return ''
-  }
-})
+const antigravityTierClass = geminiTierClass
 
 // 检测账户是否有不合格状态（ineligibleTiers）
 const hasIneligibleTiers = computed(() => {
@@ -1430,9 +1406,9 @@ const forbiddenLabel = computed(() => {
 
 const forbiddenBadgeClass = computed(() => {
   if (forbiddenType.value === 'validation') {
-    return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300'
+    return 'border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-[var(--warn-text)]'
   }
-  return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+  return 'border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] text-[var(--bad-text)]'
 })
 
 const linkCopied = ref(false)
@@ -1789,3 +1765,42 @@ onUnmounted(() => {
   desktopViewportMediaQuery = null
 })
 </script>
+
+<style scoped>
+.usage-stats > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.usage-stats > span + span::before {
+  content: '';
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  opacity: 0.5;
+}
+
+.usage-action:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.cell-stack .text-gray-400,
+.cell-stack .text-gray-500,
+.cell-stack .text-gray-600 { color: var(--muted-foreground); }
+.cell-stack .text-red-500 { color: var(--bad-text); }
+.cell-stack .text-amber-600 { color: var(--warn-text); }
+.cell-stack .bg-gray-200 { background-color: var(--surface-2); }
+.h-1\.5.w-8 { width: 3rem; }
+
+div.text-amber-600 {
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  padding: 0.125rem 0.375rem;
+  font-size: 10px;
+}
+</style>

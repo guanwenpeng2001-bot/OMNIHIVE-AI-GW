@@ -1,63 +1,64 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.resetPasswordTitle') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.resetPasswordHint') }}
         </p>
       </div>
 
       <!-- Invalid Link State -->
       <div v-if="isInvalidLink" class="space-y-6">
-        <div class="rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-800/50 dark:bg-amber-900/20">
-          <div class="flex flex-col items-center gap-4 text-center">
-            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-800/50">
+        <div class="auth-summary">
+          <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 items-center justify-center text-[var(--warn-text)]">
               <Icon name="exclamationCircle" size="lg" class="text-amber-600 dark:text-amber-400" />
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-amber-800 dark:text-amber-200">
+              <h3 class="text-lg font-semibold text-[var(--foreground)]">
                 {{ t('auth.invalidResetLink') }}
               </h3>
-              <p class="mt-2 text-sm text-amber-700 dark:text-amber-300">
+              <p class="mt-2 text-sm text-[var(--muted-foreground)]">
                 {{ t('auth.invalidResetLinkHint') }}
               </p>
             </div>
           </div>
         </div>
 
-        <div class="text-center">
+        <div class="auth-actions">
           <router-link
             to="/forgot-password"
-            class="inline-flex items-center gap-2 font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+            class="btn btn-primary"
           >
             {{ t('auth.requestNewResetLink') }}
           </router-link>
+          <router-link to="/login" class="btn btn-outline">{{ t('auth.backToLogin') }}</router-link>
         </div>
       </div>
 
       <!-- Success State -->
       <div v-else-if="isSuccess" class="space-y-6">
-        <div class="rounded-xl border border-green-200 bg-green-50 p-6 dark:border-green-800/50 dark:bg-green-900/20">
-          <div class="flex flex-col items-center gap-4 text-center">
-            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-800/50">
+        <div class="auth-summary" role="status">
+          <div class="flex items-start gap-3">
+            <div class="flex h-10 w-10 items-center justify-center text-[var(--ok-text)]">
               <Icon name="checkCircle" size="lg" class="text-green-600 dark:text-green-400" />
             </div>
             <div>
-              <h3 class="text-lg font-semibold text-green-800 dark:text-green-200">
+              <h3 class="text-lg font-semibold text-[var(--foreground)]">
                 {{ t('auth.passwordResetSuccess') }}
               </h3>
-              <p class="mt-2 text-sm text-green-700 dark:text-green-300">
+              <p class="mt-2 text-sm text-[var(--muted-foreground)]">
                 {{ t('auth.passwordResetSuccessHint') }}
               </p>
             </div>
           </div>
         </div>
 
-        <div class="text-center">
+        <div class="auth-actions">
           <router-link
             to="/login"
             class="btn btn-primary inline-flex items-center gap-2"
@@ -65,27 +66,26 @@
             <Icon name="login" size="md" />
             {{ t('auth.signIn') }}
           </router-link>
+          <router-link to="/forgot-password" class="btn btn-outline">{{ t('auth.requestNewResetLink') }}</router-link>
         </div>
       </div>
 
       <!-- Form State -->
-      <form v-else @submit.prevent="handleSubmit" class="space-y-5">
+      <form v-else @submit.prevent="handleSubmit" class="space-y-3">
+        <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
         <!-- Email (readonly) -->
-        <div>
+        <div class="auth-summary">
           <label for="email" class="input-label">
             {{ t('auth.emailLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="mail" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="email"
               :value="email"
               type="email"
               readonly
               disabled
-              class="input pl-11 bg-gray-50 dark:bg-dark-700"
+              class="input bg-[var(--surface-2)]"
             />
           </div>
         </div>
@@ -96,9 +96,6 @@
             {{ t('auth.newPassword') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="password"
               v-model="formData.password"
@@ -106,14 +103,16 @@
               required
               autocomplete="new-password"
               :disabled="isLoading"
-              class="input pl-11 pr-11"
+              class="input pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.newPasswordPlaceholder')"
             />
             <button
               type="button"
               @click="showPassword = !showPassword"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              :aria-label="t('auth.newPassword')"
+              :aria-pressed="showPassword"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
@@ -127,9 +126,6 @@
             {{ t('auth.confirmPassword') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="confirmPassword"
               v-model="formData.confirmPassword"
@@ -137,14 +133,16 @@
               required
               autocomplete="new-password"
               :disabled="isLoading"
-              class="input pl-11 pr-11"
+              class="input pr-11"
               :class="{ 'input-error': errors.confirmPassword }"
               :placeholder="t('auth.confirmPasswordPlaceholder')"
             />
             <button
               type="button"
               @click="showConfirmPassword = !showConfirmPassword"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              :aria-label="t('auth.confirmPassword')"
+              :aria-pressed="showConfirmPassword"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]"
             >
               <Icon v-if="showConfirmPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
@@ -153,6 +151,7 @@
         </div>
 
         <!-- Submit Button -->
+        <div class="auth-actions">
         <button
           type="submit"
           :disabled="isLoading"
@@ -160,7 +159,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -181,21 +180,11 @@
           <Icon v-else name="checkCircle" size="md" class="mr-2" />
           {{ isLoading ? t('auth.resettingPassword') : t('auth.resetPassword') }}
         </button>
+        <router-link to="/forgot-password" class="btn btn-outline">{{ t('auth.forgotPassword') }}</router-link>
+        </div>
       </form>
     </div>
 
-    <!-- Footer -->
-    <template #footer>
-      <p class="text-gray-500 dark:text-dark-400">
-        {{ t('auth.rememberedPassword') }}
-        <router-link
-          to="/login"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-        >
-          {{ t('auth.signIn') }}
-        </router-link>
-      </p>
-    </template>
   </AuthLayout>
 </template>
 
@@ -326,6 +315,52 @@ async function handleSubmit(): Promise<void> {
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -335,5 +370,12 @@ async function handleSubmit(): Promise<void> {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

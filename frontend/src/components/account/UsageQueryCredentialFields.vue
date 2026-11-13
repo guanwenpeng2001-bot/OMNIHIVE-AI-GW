@@ -1,5 +1,5 @@
 <template>
-  <fieldset data-test="usage-query-fields" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+  <fieldset data-test="usage-query-fields" class="min-w-0 space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 [&_input]:font-mono">
     <legend class="px-1 text-sm font-medium">{{ t('admin.accounts.usageQuery.title') }}</legend>
     <p class="text-xs text-gray-500">{{ t('admin.accounts.usageQuery.hint') }}</p>
     <label class="block">

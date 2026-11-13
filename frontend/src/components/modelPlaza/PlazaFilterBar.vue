@@ -1,8 +1,28 @@
 <template>
-  <div class="space-y-3">
+  <div
+    class="omnihive-filter-panel space-y-3.5 rounded-xl border bg-[var(--card)] p-4 shadow-sm  sm:p-5"
+    style="border-color: var(--border, #e9e9ee)"
+  >
+    <!-- 顶部微标题与一键重置 -->
+    <div class="flex items-center justify-between border-b pb-2.5 text-xs" style="border-color: var(--border, #e9e9ee)">
+      <div class="flex items-center gap-2 font-semibold uppercase tracking-wider opacity-60">
+        <Icon name="search" size="xs" class="h-3.5 w-3.5" />
+        <span>FILTER &amp; FACETS · 多维联动筛选</span>
+      </div>
+      <button
+        v-if="hasActiveFilter"
+        type="button"
+        class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-400"
+        @click="resetAllFilters"
+      >
+        <Icon name="x" size="xs" class="h-3 w-3" />
+        <span>重置筛选</span>
+      </button>
+    </div>
+
     <!-- 一级:平台 -->
     <div class="flex items-start gap-2">
-      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] ">
         {{ t('modelPlaza.filters.platformLabel') }}
       </span>
       <div class="flex flex-wrap items-center gap-2">
@@ -24,7 +44,7 @@
 
     <!-- 二级:分组(按所属平台着色,当前组合下无结果的置灰) -->
     <div class="flex items-start gap-2">
-      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] ">
         {{ t('modelPlaza.filters.groupLabel') }}
       </span>
       <div class="flex flex-wrap items-center gap-2">
@@ -53,7 +73,7 @@
 
     <!-- 三级:倍率(当前组合下不存在的置灰) -->
     <div class="flex items-start gap-2">
-      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] ">
         {{ t('modelPlaza.filters.rateLabel') }}
       </span>
       <div class="flex flex-wrap items-center gap-2">
@@ -81,18 +101,19 @@
 
     <!-- 四级:模型名搜索(纯前端过滤) -->
     <div class="flex flex-wrap items-start gap-2">
-      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)] ">
         {{ t('modelPlaza.filters.modelLabel') }}
       </span>
       <div class="relative w-full sm:w-72">
         <Icon
           name="search"
           size="sm"
-          class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] "
         />
         <input
           :value="search"
           type="text"
+          :aria-label="t('modelPlaza.filters.searchPlaceholder')"
           :placeholder="t('modelPlaza.filters.searchPlaceholder')"
           class="input rounded-lg py-1.5 pl-9 pr-9"
           @input="$emit('update:search', ($event.target as HTMLInputElement).value)"
@@ -100,7 +121,8 @@
         <button
           v-if="search"
           type="button"
-          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600 dark:text-dark-500 dark:hover:text-gray-300"
+          aria-label="清除模型搜索"
+          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]  "
           @click="$emit('update:search', '')"
         >
           <Icon name="x" size="xs" class="h-3.5 w-3.5" />
@@ -111,6 +133,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
@@ -131,7 +154,7 @@ const props = defineProps<{
   search: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'update:platform': [value: string]
   'update:groupId': [value: number | 'all']
   'update:rate': [value: number | 'all']
@@ -139,6 +162,21 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+const hasActiveFilter = computed(
+  () =>
+    props.platform !== 'all' ||
+    props.groupId !== 'all' ||
+    props.rate !== 'all' ||
+    props.search.trim() !== ''
+)
+
+function resetAllFilters() {
+  emit('update:platform', 'all')
+  emit('update:groupId', 'all')
+  emit('update:rate', 'all')
+  emit('update:search', '')
+}
 
 /**
  * 三个维度互为约束(faceted):某选项可点 ⟺ 在「其他两维」当前选择下仍有分组命中。
@@ -171,12 +209,17 @@ function rateEnabled(r: number): boolean {
 
 function chipClass(active: boolean): string {
   return active
-    ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-sm shadow-primary-500/30'
-    : 'bg-white text-gray-600 ring-1 ring-inset ring-gray-200 enabled:hover:bg-gray-50 enabled:hover:text-gray-900 enabled:hover:ring-gray-300 dark:bg-dark-800/60 dark:text-dark-300 dark:ring-dark-700 dark:enabled:hover:bg-dark-800 dark:enabled:hover:text-white'
+    ? 'hive-filter-active'
+    : 'hive-filter-idle'
 }
 </script>
 
 <style scoped>
+.omnihive-filter-panel { background: var(--card); border-color: var(--border); box-shadow: none; }
+.hive-filter-active { background: var(--primary); color: var(--primary-foreground); }
+.hive-filter-idle { background: var(--background); color: var(--muted-foreground); box-shadow: inset 0 0 0 1px var(--border); }
+.hive-filter-idle:hover { background: var(--surface-2); color: var(--foreground); }
+:is(button, input):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
 /* 平台/分组 chip 的配色统一从 --chip-accent(平台主色)派生,新增平台无需扩展样式。
    激活态与非激活态在模板上互斥挂载,避免选择器优先级互相覆盖。 */
 .chip-tinted {

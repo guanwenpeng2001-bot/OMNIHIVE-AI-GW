@@ -177,6 +177,10 @@ func RegisterGatewayRoutes(
 		return service.GuardResponsesSubpath(next, h.OpenAIGateway.ResponsesInputTokens)
 	}
 	// API网关（Claude API兼容）
+	var extensionMiddleware gin.HandlerFunc
+	if h != nil && h.MCP != nil {
+		extensionMiddleware = h.MCP.GatewayExtensionMiddleware()
+	}
 	gateway := r.Group("/v1")
 	gateway.Use(middleware.GatewayProtocol())
 	gateway.Use(bodyLimit)
@@ -184,6 +188,9 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	if extensionMiddleware != nil {
+		gateway.Use(extensionMiddleware)
+	}
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)
@@ -298,6 +305,9 @@ func RegisterGatewayRoutes(
 	gemini.Use(opsErrorLogger)
 	gemini.Use(endpointNorm)
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
+	if extensionMiddleware != nil {
+		gemini.Use(extensionMiddleware)
+	}
 	gemini.Use(groupModelAllowlist)
 	gemini.Use(compositeGeminiTarget)
 	gemini.Use(actionRequirement)
@@ -314,6 +324,10 @@ func RegisterGatewayRoutes(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
+		if extensionMiddleware != nil {
+			r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
+			return
+		}
 		r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
 	}
 	rootRoute(http.MethodPost, "/files", bodyLimit, h.Resource.UploadFile)
@@ -373,7 +387,11 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/live/:call_id", bodyLimit, h.OpenAIGateway.LiveSideband)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
+	if extensionMiddleware != nil {
+		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), extensionMiddleware, groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
+	} else {
+		codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
+	}
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
 		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)

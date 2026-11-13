@@ -2,7 +2,7 @@
   <div v-if="entry.status === 'idle'" class="mt-0.5 text-xs">
     <button
       type="button"
-      class="text-primary-600 underline decoration-dashed underline-offset-2 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+      class="rounded text-[var(--brand-text)] underline decoration-dashed underline-offset-2 hover:text-[var(--foreground)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
       @click="handleFetch"
     >
       {{ t('usage.ipGeo.fetch') }}
@@ -24,7 +24,7 @@
     {{ t('usage.ipGeo.fetching') }}
   </div>
 
-  <div v-else-if="entry.status === 'success'" class="mt-0.5 flex items-center gap-1 text-xs">
+  <div v-else-if="entry.status === 'success'" class="mt-0.5 flex min-w-0 items-center gap-1 text-xs">
     <button
       type="button"
       class="truncate text-gray-500 underline decoration-dotted underline-offset-2 hover:text-primary-600 dark:text-gray-400 dark:hover:text-primary-400"
@@ -35,7 +35,7 @@
     </button>
     <button
       type="button"
-      class="text-gray-400 hover:text-primary-600 dark:hover:text-primary-400"
+      class="shrink-0 rounded text-[var(--muted-foreground)] hover:text-[var(--brand-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
       :title="t('usage.ipGeo.refreshTitle')"
       @click="handleRefresh"
     >

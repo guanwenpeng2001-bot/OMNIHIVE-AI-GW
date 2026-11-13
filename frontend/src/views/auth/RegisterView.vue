@@ -1,12 +1,12 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.createAccount') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.signUpToStart', { siteName }) }}
         </p>
       </div>
@@ -14,7 +14,7 @@
       <!-- Registration Disabled Message -->
       <div
         v-if="!registrationEnabled && settingsLoaded"
-        class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
+        class="auth-summary"
       >
         <div class="flex items-start gap-3">
           <div class="flex-shrink-0">
@@ -27,16 +27,14 @@
       </div>
 
       <!-- Registration Form -->
-      <form v-else @submit.prevent="handleRegister" class="space-y-5">
+      <form v-else @submit.prevent="handleRegister" class="space-y-3">
+        <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
             {{ t('auth.emailLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="mail" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="email"
               v-model="formData.email"
@@ -45,14 +43,19 @@
               autofocus
               autocomplete="email"
               :disabled="registrationActionDisabled"
-              class="input pl-11"
+              class="input"
               :class="{ 'input-error': errors.email }"
               :aria-invalid="Boolean(errors.email)"
               :aria-describedby="errors.email ? 'email-error' : undefined"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
-          <p v-if="errors.email" id="email-error" role="alert" class="sr-only">{{ errors.email }}</p>
+          <p v-if="errors.email" id="email-error" role="alert" class="auth-field-error">{{ errors.email }}</p>
+        </div>
+
+        <div>
+          <label for="username" class="input-label">{{ t('profile.username') }}</label>
+          <input id="username" v-model="formData.username" type="text" autocomplete="username" maxlength="100" :disabled="registrationActionDisabled" class="input" />
         </div>
 
         <!-- Password Input -->
@@ -61,9 +64,6 @@
             {{ t('auth.passwordLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="password"
               v-model="formData.password"
@@ -71,7 +71,7 @@
               required
               autocomplete="new-password"
               :disabled="registrationActionDisabled"
-              class="input pl-11 pr-11"
+              class="input pr-11"
               :class="{ 'input-error': errors.password }"
               :aria-invalid="Boolean(errors.password)"
               :aria-describedby="errors.password ? 'password-error' : undefined"
@@ -81,7 +81,9 @@
               type="button"
               :disabled="registrationActionDisabled"
               @click="showPassword = !showPassword"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              :aria-label="t('auth.passwordLabel')"
+              :aria-pressed="showPassword"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
@@ -90,7 +92,7 @@
           <p class="input-hint">
             {{ t('auth.passwordHint') }}
           </p>
-          <p v-if="errors.password" id="password-error" role="alert" class="sr-only">{{ errors.password }}</p>
+          <p v-if="errors.password" id="password-error" role="alert" class="auth-field-error">{{ errors.password }}</p>
         </div>
 
         <!-- Confirm Password Input -->
@@ -99,9 +101,6 @@
             {{ t('auth.confirmPassword') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="confirmPassword"
               v-model="confirmPassword"
@@ -109,7 +108,7 @@
               required
               autocomplete="new-password"
               :disabled="registrationActionDisabled"
-              class="input pl-11 pr-11"
+              class="input pr-11"
               :class="{ 'input-error': errors.confirmPassword }"
               :aria-invalid="Boolean(errors.confirmPassword)"
               :aria-describedby="errors.confirmPassword ? 'confirm-password-error' : undefined"
@@ -121,13 +120,13 @@
               :aria-label="t('auth.confirmPassword')"
               :aria-pressed="showConfirmPassword"
               @click="showConfirmPassword = !showConfirmPassword"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]"
             >
               <Icon v-if="showConfirmPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
-          <p v-if="errors.confirmPassword" id="confirm-password-error" role="alert" class="sr-only">{{ errors.confirmPassword }}</p>
+          <p v-if="errors.confirmPassword" id="confirm-password-error" role="alert" class="auth-field-error">{{ errors.confirmPassword }}</p>
         </div>
 
         <!-- Invitation Code Input (Required when enabled) -->
@@ -136,15 +135,15 @@
             {{ t('auth.invitationCodeLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="key" size="md" :class="invitationValidation.valid ? 'text-green-500' : 'text-gray-400 dark:text-dark-500'" />
-            </div>
             <input
               id="invitation_code"
+              required
+              :aria-invalid="Boolean(errors.invitation_code || invitationValidation.invalid)"
+              :aria-describedby="errors.invitation_code || invitationValidation.invalid ? 'invitation-error' : undefined"
               v-model="formData.invitation_code"
               type="text"
               :disabled="registrationActionDisabled"
-              class="input pl-11 pr-10"
+              class="input pr-10"
               :class="{
                 'border-green-500 focus:border-green-500 focus:ring-green-500': invitationValidation.valid,
                 'border-red-500 focus:border-red-500 focus:ring-red-500': invitationValidation.invalid || errors.invitation_code
@@ -154,7 +153,7 @@
             />
             <!-- Validation indicator -->
             <div v-if="invitationValidating" class="absolute inset-y-0 right-0 flex items-center pr-3.5">
-              <svg class="h-4 w-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+              <svg class="h-4 w-4 animate-spin text-[var(--muted-foreground)]" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -168,52 +167,68 @@
           </div>
           <!-- Invitation code validation result -->
           <transition name="fade">
-            <div v-if="invitationValidation.valid" class="mt-2 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/20">
+            <div v-if="invitationValidation.valid" class="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
               <Icon name="checkCircle" size="sm" class="text-green-600 dark:text-green-400" />
               <span class="text-sm text-green-700 dark:text-green-400">
                 {{ t('auth.invitationCodeValid') }}
               </span>
             </div>
           </transition>
+          <p v-if="errors.invitation_code || invitationValidation.invalid" id="invitation-error" role="alert" class="auth-field-error">{{ errors.invitation_code || invitationValidation.message }}</p>
         </div>
 
-        <!-- Affiliate Invitation Code Input (Optional) -->
-        <div v-else-if="affiliateEnabled" data-testid="affiliate-invitation-field">
+        <div v-else data-testid="affiliate-invitation-field">
           <label for="affiliate_code" class="input-label">
             {{ t('auth.invitationCodeLabel') }}
-            <span class="ml-1 text-xs font-normal text-gray-400 dark:text-dark-500">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="key" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="affiliate_code"
-              v-model="formData.aff_code"
+              v-model="formData.invitation_code"
               type="text"
               :disabled="registrationActionDisabled"
-              class="input pl-11"
+              class="input pr-10"
+              :aria-invalid="Boolean(errors.invitation_code || invitationValidation.invalid)"
+              :aria-describedby="errors.invitation_code || invitationValidation.invalid ? 'invitation-error' : undefined"
+              :class="{
+                'border-green-500 focus:border-green-500 focus:ring-green-500': invitationValidation.valid,
+                'border-red-500 focus:border-red-500 focus:ring-red-500': invitationValidation.invalid || errors.invitation_code
+              }"
               :placeholder="t('auth.invitationCodePlaceholder')"
+              @input="handleInvitationCodeInput"
             />
+            <div v-if="invitationValidating" class="absolute inset-y-0 right-0 flex items-center pr-3.5">
+              <svg class="h-4 w-4 animate-spin text-[var(--muted-foreground)]" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </div>
+            <div v-else-if="invitationValidation.valid" class="absolute inset-y-0 right-0 flex items-center pr-3.5">
+              <Icon name="checkCircle" size="md" class="text-green-500" />
+            </div>
+            <div v-else-if="invitationValidation.invalid || errors.invitation_code" class="absolute inset-y-0 right-0 flex items-center pr-3.5">
+              <Icon name="exclamationCircle" size="md" class="text-red-500" />
+            </div>
           </div>
+          <p v-if="errors.invitation_code || invitationValidation.invalid" id="invitation-error" role="alert" class="auth-field-error">{{ errors.invitation_code || invitationValidation.message }}</p>
         </div>
 
         <!-- Promo Code Input (Optional) -->
         <div v-if="promoCodeEnabled">
           <label for="promo_code" class="input-label">
             {{ t('auth.promoCodeLabel') }}
-            <span class="ml-1 text-xs font-normal text-gray-400 dark:text-dark-500">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="gift" size="md" :class="promoValidation.valid ? 'text-green-500' : 'text-gray-400 dark:text-dark-500'" />
-            </div>
             <input
               id="promo_code"
               v-model="formData.promo_code"
               type="text"
               :disabled="registrationActionDisabled"
-              class="input pl-11 pr-10"
+              class="input pr-10"
+              :aria-invalid="promoValidation.invalid"
+              :aria-describedby="promoValidation.invalid ? 'promo-error' : undefined"
               :class="{
                 'border-green-500 focus:border-green-500 focus:ring-green-500': promoValidation.valid,
                 'border-red-500 focus:border-red-500 focus:ring-red-500': promoValidation.invalid
@@ -223,7 +238,7 @@
             />
             <!-- Validation indicator -->
             <div v-if="promoValidating" class="absolute inset-y-0 right-0 flex items-center pr-3.5">
-              <svg class="h-4 w-4 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
+              <svg class="h-4 w-4 animate-spin text-[var(--muted-foreground)]" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
@@ -237,7 +252,7 @@
           </div>
           <!-- Promo code validation result -->
           <transition name="fade">
-            <div v-if="promoValidation.valid" class="mt-2 flex items-center gap-2 rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/20">
+            <div v-if="promoValidation.valid" class="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
               <Icon name="gift" size="sm" class="text-green-600 dark:text-green-400" />
               <span class="text-sm text-green-700 dark:text-green-400">
                 {{ t('auth.promoCodeValid', { amount: promoValidation.bonusAmount?.toFixed(2) }) }}
@@ -246,7 +261,21 @@
           </transition>
         </div>
 
-        <!-- Turnstile Widget -->
+        <p v-if="promoValidation.invalid" id="promo-error" role="alert" class="auth-field-error">{{ promoValidation.message }}</p>
+        <div data-testid="referral-code-field">
+          <label for="aff_code" class="input-label">
+            推荐码
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
+          </label>
+          <input
+            id="aff_code"
+            v-model="formData.aff_code"
+            type="text"
+            :disabled="registrationActionDisabled"
+            class="input"
+            placeholder="输入推荐码（可选）"
+          />
+        </div>
         <div v-if="captchaEnabled" data-testid="registration-turnstile">
           <TurnstileWidget
             ref="turnstileRef"
@@ -266,7 +295,6 @@
         </div>
 
         <LoginAgreementPrompt
-          v-if="loginAgreementEnabled"
           :accepted="agreementAccepted"
           :documents="loginAgreementDocuments"
           :mode="loginAgreementMode"
@@ -278,6 +306,7 @@
         />
 
         <!-- Submit Button -->
+        <div class="auth-actions">
         <button
           type="submit"
           :disabled="registrationActionDisabled || (turnstileEnabled && !turnstileToken)"
@@ -285,7 +314,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -308,65 +337,47 @@
             isLoading
               ? t('auth.processing')
               : emailVerifyEnabled
-                ? t('auth.continue')
+                ? t('auth.sendCode')
                 : t('auth.createAccount')
           }}
         </button>
+        <router-link :to="{ path: '/login', query: route.query }" class="btn btn-outline">{{ t('auth.backToLogin') }}</router-link>
+        </div>
 
       </form>
 
       <div v-if="showOAuthLogin" class="space-y-3 pt-1">
         <div class="flex items-center gap-3">
-          <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
-          <span class="text-xs text-gray-500 dark:text-dark-400">
+          <div class="h-px flex-1 bg-[var(--border)]"></div>
+          <span class="text-xs text-[var(--muted-foreground)]">
             {{ t('auth.oauthOrContinue') }}
           </span>
-          <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+          <div class="h-px flex-1 bg-[var(--border)]"></div>
         </div>
 
-        <EmailOAuthButtons
+        <OAuthLoginSections
           :disabled="registrationActionDisabled"
           :aff-code="formData.aff_code"
           :promo-code="formData.promo_code"
           :github-enabled="githubOAuthEnabled"
           :google-enabled="googleOAuthEnabled"
-          :show-divider="false"
-          @start="handleOAuthStart"
-        />
-
-        <LinuxDoOAuthSection
-          v-if="linuxdoOAuthEnabled"
-          :disabled="registrationActionDisabled"
-          :aff-code="formData.aff_code"
-          :promo-code="formData.promo_code"
-          :show-divider="false"
-          @start="handleOAuthStart"
-        />
-        <WechatOAuthSection
-          v-if="wechatOAuthEnabled"
-          :disabled="registrationActionDisabled"
-          :aff-code="formData.aff_code"
-          :show-divider="false"
-          @start="handleOAuthStart"
-        />
-        <OidcOAuthSection
-          v-if="oidcOAuthEnabled"
-          :disabled="registrationActionDisabled"
-          :provider-name="oidcOAuthProviderName"
-          :aff-code="formData.aff_code"
-          :show-divider="false"
+          :linuxdo-enabled="linuxdoOAuthEnabled"
+          :dingtalk-enabled="dingtalkOAuthEnabled"
+          :wechat-enabled="wechatOAuthEnabled"
+          :oidc-enabled="oidcOAuthEnabled"
+          :oidc-provider-name="oidcOAuthProviderName"
           @start="handleOAuthStart"
         />
       </div>
     </div>
 
     <!-- Footer -->
-    <template #footer>
-      <p class="text-gray-500 dark:text-dark-400">
+    <template v-if="!registrationEnabled && settingsLoaded" #footer>
+      <p class="text-[var(--muted-foreground)]">
         {{ t('auth.alreadyHaveAccount') }}
         <router-link
           to="/login"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+          class="font-medium text-[var(--brand-text)] transition-colors hover:underline"
         >
           {{ t('auth.signIn') }}
         </router-link>
@@ -380,10 +391,7 @@ import { computed, ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
-import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
-import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
-import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
-import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
+import OAuthLoginSections from '@/components/auth/OAuthLoginSections.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
@@ -436,7 +444,6 @@ const emailVerifyEnabled = ref<boolean>(false)
 // Use injected settings on the first render; stay hidden until explicitly enabled.
 const promoCodeEnabled = ref<boolean>(appStore.cachedPublicSettings?.promo_code_enabled === true)
 const invitationCodeEnabled = ref<boolean>(false)
-const affiliateEnabled = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
 const turnstileSiteKey = ref<string>('')
 const tencentCaptchaEnabled = ref<boolean>(false)
@@ -446,8 +453,9 @@ const aliyunCaptchaEnabled = ref<boolean>(false)
 const aliyunCaptchaSceneId = ref<string>('')
 const aliyunCaptchaPrefix = ref<string>('')
 const aliyunCaptchaRegion = ref<string>('cn')
-const siteName = ref<string>('Sub2API')
+const siteName = ref<string>('OmniHive')
 const linuxdoOAuthEnabled = ref<boolean>(false)
+const dingtalkOAuthEnabled = ref(false)
 const wechatOAuthEnabled = ref<boolean>(false)
 const oidcOAuthEnabled = ref<boolean>(false)
 const oidcOAuthProviderName = ref<string>('OIDC')
@@ -503,9 +511,11 @@ const invitationValidation = reactive({
   message: ''
 })
 let invitationValidateTimeout: ReturnType<typeof setTimeout> | null = null
+let invitationValidationSequence = 0
 
 const formData = reactive({
   email: '',
+  username: '',
   password: '',
   promo_code: '',
   invitation_code: '',
@@ -534,6 +544,7 @@ const validationToastMessage = computed(() =>
 const showOAuthLogin = computed(
   () =>
     linuxdoOAuthEnabled.value ||
+    dingtalkOAuthEnabled.value ||
     wechatOAuthEnabled.value ||
     oidcOAuthEnabled.value ||
     githubOAuthEnabled.value ||
@@ -545,7 +556,7 @@ const agreementGateActive = computed(
 )
 
 const registrationActionDisabled = computed(
-  () => isLoading.value || !settingsLoaded.value || agreementGateActive.value
+  () => isLoading.value || !settingsLoaded.value || (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
 )
 
 watch(validationToastMessage, (value, previousValue) => {
@@ -573,7 +584,6 @@ onMounted(async () => {
     emailVerifyEnabled.value = settings.email_verify_enabled
     promoCodeEnabled.value = settings.promo_code_enabled
     invitationCodeEnabled.value = settings.invitation_code_enabled
-    affiliateEnabled.value = settings.affiliate_enabled
     turnstileEnabled.value = settings.turnstile_enabled
     turnstileSiteKey.value = settings.turnstile_site_key || ''
     tencentCaptchaEnabled.value = settings.tencent_captcha_enabled === true
@@ -583,8 +593,9 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
-    siteName.value = settings.site_name || 'Sub2API'
+    siteName.value = settings.site_name || 'OmniHive'
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
+    dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled === true
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
     oidcOAuthEnabled.value = settings.oidc_oauth_enabled
     oidcOAuthProviderName.value = settings.oidc_oauth_provider_name || 'OIDC'
@@ -598,12 +609,18 @@ onMounted(async () => {
 
     // Read promo code from URL parameter only if promo code is enabled
     if (promoCodeEnabled.value) {
-      const promoParam = route.query.promo as string
+      const promoParam = [route.query.promo, route.query.promo_code].find(
+        (value): value is string => typeof value === 'string' && Boolean(value.trim())
+      )?.trim()
       if (promoParam) {
         formData.promo_code = promoParam
         // Validate the promo code from URL
         await validatePromoCodeDebounced(promoParam)
       }
+    }
+    if (typeof route.query.invitation_code === 'string' && route.query.invitation_code.trim()) {
+      formData.invitation_code = route.query.invitation_code.trim()
+      await validateInvitationCodeDebounced(formData.invitation_code)
     }
     syncAffiliateReferralCode()
   } catch (error) {
@@ -770,6 +787,12 @@ function getPromoErrorMessage(errorCode?: string): string {
 
 function handleInvitationCodeInput(): void {
   const code = formData.invitation_code.trim()
+  invitationValidationSequence++
+  if (invitationValidateTimeout) {
+    clearTimeout(invitationValidateTimeout)
+    invitationValidateTimeout = null
+  }
+  invitationValidating.value = Boolean(code)
 
   // Clear previous validation
   invitationValidation.valid = false
@@ -781,21 +804,20 @@ function handleInvitationCodeInput(): void {
     return
   }
 
-  // Debounce validation
-  if (invitationValidateTimeout) {
-    clearTimeout(invitationValidateTimeout)
-  }
-
   invitationValidateTimeout = setTimeout(() => {
+    invitationValidateTimeout = null
     validateInvitationCodeDebounced(code)
   }, 500)
 }
 
 async function validateInvitationCodeDebounced(code: string): Promise<void> {
+  if (!code.trim()) return
+  const sequence = ++invitationValidationSequence
   invitationValidating.value = true
 
   try {
     const result = await validateInvitationCode(code)
+    if (sequence !== invitationValidationSequence) return
 
     if (result.valid) {
       invitationValidation.valid = true
@@ -807,11 +829,14 @@ async function validateInvitationCodeDebounced(code: string): Promise<void> {
       invitationValidation.message = getInvitationErrorMessage(result.error_code)
     }
   } catch {
+    if (sequence !== invitationValidationSequence) return
     invitationValidation.valid = false
     invitationValidation.invalid = true
     invitationValidation.message = t('auth.invitationCodeInvalid')
   } finally {
-    invitationValidating.value = false
+    if (sequence === invitationValidationSequence) {
+      invitationValidating.value = false
+    }
   }
 }
 
@@ -870,6 +895,13 @@ async function acquireActionProof(): Promise<boolean> {
 
 async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
   if (registrationActionDisabled.value) return
+  if (agreementGateActive.value) {
+    appStore.showWarning(t('legal.loginAgreementPrompt.registerRequiredWarning'))
+    if (loginAgreementMode.value !== 'checkbox') {
+      showAgreementModal.value = true
+    }
+    return
+  }
 
   if (!actionCaptchaEnabled.value) {
     window.location.href = buildOAuthLoginStartURL(request)
@@ -1024,8 +1056,7 @@ async function handleRegister(): Promise<void> {
     }
   }
 
-  // Check invitation code validation status (if enabled and code provided)
-  if (invitationCodeEnabled.value) {
+  if (invitationCodeEnabled.value || formData.invitation_code.trim()) {
     // If still validating, wait
     if (invitationValidating.value) {
       errorMessage.value = t('auth.invitationCodeValidating')
@@ -1067,13 +1098,15 @@ async function handleRegister(): Promise<void> {
         'register_data',
         JSON.stringify({
           email: formData.email,
+          ...(formData.username.trim() ? { username: formData.username.trim() } : {}),
+          ...(typeof route.query.redirect === 'string' ? { redirect: safeRedirect(route.query.redirect) } : {}),
           password: formData.password,
           turnstile_token:
             turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
           tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
           tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
           promo_code: formData.promo_code || undefined,
-          invitation_code: formData.invitation_code || undefined,
+          invitation_code: formData.invitation_code.trim() || undefined,
           ...(affCode ? { aff_code: affCode } : {})
         })
       )
@@ -1086,13 +1119,14 @@ async function handleRegister(): Promise<void> {
     // Otherwise, directly register
     await authStore.register({
       email: formData.email,
+      ...(formData.username.trim() ? { username: formData.username.trim() } : {}),
       password: formData.password,
       turnstile_token:
         turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
       tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
       promo_code: formData.promo_code || undefined,
-      invitation_code: formData.invitation_code || undefined,
+      invitation_code: formData.invitation_code.trim() || undefined,
       ...(affCode ? { aff_code: affCode } : {})
     })
     clearAffiliateReferralCode()
@@ -1101,7 +1135,7 @@ async function handleRegister(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to dashboard
-    await router.push('/dashboard')
+    await router.push(safeRedirect(route.query.redirect))
   } catch (error: unknown) {
     // Handle registration error
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.registrationFailed'))
@@ -1116,6 +1150,10 @@ async function handleRegister(): Promise<void> {
   }
 }
 
+function safeRedirect(value: unknown): string {
+  return typeof value === 'string' && value.startsWith('/') && !/^\/[\\/]/.test(value) && !/[\r\n\\]/.test(value) ? value : '/dashboard'
+}
+
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
@@ -1125,6 +1163,55 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+.border-green-500 { --field-border: var(--ok); }
+.border-red-500 { --field-border: var(--bad); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -1134,5 +1221,12 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

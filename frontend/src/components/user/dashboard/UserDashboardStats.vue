@@ -1,67 +1,72 @@
 <template>
-  <p v-if="summaryScope !== 'all_time'" class="text-xs text-gray-500 dark:text-gray-400" data-testid="summary-scope">{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
+  <p
+    v-if="summaryScope !== 'all_time'"
+    class="oh-scope-banner text-xs text-[var(--muted-foreground)]"
+    data-testid="summary-scope"
+  >{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
   <!-- Row 1: Core Stats -->
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-4">
     <!-- Balance -->
-    <div v-if="!isSimple" class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
-          <svg class="h-5 w-5 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-          </svg>
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.balance') }} (USD)</p>
-          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.available') }}</p>
+    <div v-if="!isSimple" class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.balance') }} (USD)</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0">
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ t('common.available') }}</p>
         </div>
       </div>
     </div>
 
     <!-- API Keys -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
-          <Icon name="key" size="md" class="text-blue-600 dark:text-blue-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.apiKeys') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.total_api_keys || 0 }}</p>
-          <p class="text-xs text-green-600 dark:text-green-400">{{ stats?.active_api_keys || 0 }} {{ t('common.active') }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.apiKeys') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0">
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ stats?.total_api_keys || 0 }}</p>
+          <p class="mt-0.5 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <span class="tabular-nums">{{ stats?.active_api_keys || 0 }} {{ t('common.active') }}</span>
+          </p>
         </div>
       </div>
     </div>
 
     <!-- Today Requests -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
-          <Icon name="chart" size="md" class="text-green-600 dark:text-green-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayRequests') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.today_requests || 0 }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.todayRequests') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0">
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ stats?.today_requests || 0 }}</p>
+          <p class="mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}</p>
         </div>
       </div>
     </div>
 
     <!-- Today Cost -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
-          <Icon name="dollar" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ formatCost(stats?.today_actual_cost) }}</span>
-            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ formatCost(stats?.today_cost) }}</span>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.todayCost') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <p class="oh-cost-pair text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">
+            <span class="text-[var(--brand-text)]" :title="t('dashboard.actual')"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_actual_cost) }}</span></span>
+            <span class="text-sm font-normal text-[var(--muted-foreground)]" :title="t('dashboard.standard')"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ formatCost(stats?.today_cost) }}</span></span>
           </p>
-          <p class="text-xs">
-            <span class="text-gray-500 dark:text-gray-400">{{ summaryLabel }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_actual_cost) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_cost) }}</span>
+          <p class="oh-cost-pair mt-0.5 text-xs tabular-nums">
+            <span class="text-[var(--muted-foreground)]">{{ summaryLabel }}: </span>
+            <span class="text-[var(--brand-text)]" :title="t('dashboard.actual')"><span class="inline-block">{{ t('dashboard.actual') }}</span> <span class="inline-block whitespace-nowrap">USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_actual_cost) }}</span></span>
+            <span class="text-[var(--muted-foreground)]" :title="t('dashboard.standard')"><span class="inline-block whitespace-nowrap"> / {{ t('dashboard.standard') }}</span> <span class="inline-block whitespace-nowrap">USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats?.total_cost) }}</span></span>
           </p>
         </div>
       </div>
@@ -69,65 +74,65 @@
   </div>
 
   <!-- Row 2: Token Stats -->
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div class="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 lg:grid-cols-4">
     <!-- Today Tokens -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
-          <Icon name="cube" size="md" class="text-amber-600 dark:text-amber-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayTokens') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.today_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.todayTokens') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <p class="font-mono text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ formatTokens(stats?.today_tokens || 0) }}</p>
+          <p class="mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</p>
         </div>
       </div>
     </div>
 
     <!-- Total Tokens -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
-          <Icon name="database" size="md" class="text-indigo-600 dark:text-indigo-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ summaryScope === 'all_time' ? t('dashboard.totalTokens') : summaryLabel + ' · Token' }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_input_tokens) }} / {{ t('dashboard.output') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_output_tokens) }} / {{ t('dashboard.cache') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens((stats.total_cache_creation_tokens) + (stats.total_cache_read_tokens)) }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ summaryScope === 'all_time' ? t('dashboard.totalTokens') : summaryLabel + ' · Token' }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0 flex-1">
+          <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}</p>
+          <p class="mt-0.5 text-xs tabular-nums text-[var(--muted-foreground)]">{{ t('dashboard.input') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_input_tokens) }} / {{ t('dashboard.output') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_output_tokens) }} / {{ t('dashboard.cache') }}: {{ summaryScope === 'unknown' ? '—' : formatTokens((stats.total_cache_creation_tokens) + (stats.total_cache_read_tokens)) }}</p>
         </div>
       </div>
     </div>
 
     <!-- Performance (RPM/TPM) -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-violet-100 p-2 dark:bg-violet-900/30">
-          <Icon name="bolt" size="md" class="text-violet-600 dark:text-violet-400" :stroke-width="2" />
-        </div>
-        <div class="flex-1">
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.performance') }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.performance') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0 flex-1">
           <div class="flex items-baseline gap-2">
-            <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.rpm || 0) }}</p>
-            <span class="text-xs text-gray-500 dark:text-gray-400">RPM</span>
+            <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ formatTokens(stats?.rpm || 0) }}</p>
+            <span class="font-mono text-xs text-[var(--muted-foreground)]">RPM</span>
           </div>
           <div class="flex items-baseline gap-2">
-            <p class="text-sm font-semibold text-violet-600 dark:text-violet-400">{{ formatTokens(stats?.tpm || 0) }}</p>
-            <span class="text-xs text-gray-500 dark:text-gray-400">TPM</span>
+            <p class="text-sm font-semibold tabular-nums text-violet-600 dark:text-violet-400">{{ formatTokens(stats?.tpm || 0) }}</p>
+            <span class="font-mono text-xs text-[var(--muted-foreground)]">TPM</span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Avg Response Time -->
-    <div class="card p-4">
-      <div class="flex items-center gap-3">
-        <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
-          <Icon name="clock" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
-        </div>
-        <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}</p>
+    <div class="card oh-metric-card group relative overflow-hidden p-4">
+      <div class="flex items-start justify-between gap-2">
+        <p class="truncate text-xs font-medium text-[var(--muted-foreground)]">{{ t('dashboard.avgResponse') }}</p>
+        <span class="text-xs opacity-35" aria-hidden="true">›</span>
+      </div>
+      <div class="mt-2 flex items-end justify-between gap-2">
+        <div class="min-w-0">
+          <p class="text-xl font-bold tabular-nums tracking-tight text-[var(--foreground)]">{{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}</p>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ summaryLabel }}</p>
         </div>
       </div>
     </div>
@@ -136,8 +141,10 @@
   <!-- Row 3: Per-platform breakdown -->
   <div v-if="!isSimple && platformCards.length > 0" class="card p-4">
     <div class="mb-3 flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('dashboard.platformBreakdown') }}</h3>
-      <span class="text-xs text-gray-500 dark:text-gray-400">
+      <div class="flex items-center gap-2">
+        <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('dashboard.platformBreakdown') }}</h3>
+      </div>
+      <span class="oh-platform-count-pill font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
         {{ t('dashboard.platformCount', { count: platformCount }) }}
       </span>
     </div>
@@ -148,42 +155,45 @@
         data-testid="platform-card"
         :data-platform="item.platform"
         :class="[
-          'rounded-lg border p-3',
+          'oh-platform-card rounded-xl border p-3.5 transition-all',
           item.isOther
-            ? 'border-dashed border-gray-300 bg-gray-50 dark:border-dark-500 dark:bg-dark-700/30'
-            : 'border-gray-200 dark:border-dark-600'
+            ? 'border-dashed border-[var(--border)] bg-[var(--surface-2)]  '
+            : 'border-[var(--border)] bg-[var(--card)]  '
         ]"
       >
         <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold text-gray-900 dark:text-white">
+          <span class="text-sm font-semibold text-[var(--foreground)]">
             {{ item.isOther ? t('dashboard.platformOther') : platformLabel(item.platform) }}
           </span>
-          <span class="font-mono text-sm text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">
+          <span class="font-mono text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400" :title="t('dashboard.actual')">
             {{ summaryScope === 'unknown' ? '—' : `$${formatCost(item.total_actual_cost)}` }}
           </span>
         </div>
-        <div class="mt-2 space-y-1 text-xs">
+        <div class="oh-meter mt-2" aria-hidden="true">
+          <span :style="{ width: platformSharePercent(item) + '%' }" />
+        </div>
+        <div class="mt-2.5 space-y-1 text-xs">
           <div class="flex items-center justify-between">
-            <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</span>
-            <span class="font-mono text-gray-900 dark:text-white">${{ formatCost(item.today_actual_cost) }}</span>
+            <span class="text-[var(--muted-foreground)]">{{ t('dashboard.todayCost') }}</span>
+            <span class="font-mono tabular-nums text-[var(--foreground)]">${{ formatCost(item.today_actual_cost) }}</span>
           </div>
           <div class="flex items-center justify-between">
-            <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.requests') }}</span>
-            <span class="font-mono text-gray-700 dark:text-gray-300">
+            <span class="text-[var(--muted-foreground)]">{{ t('dashboard.requests') }}</span>
+            <span class="font-mono tabular-nums text-[var(--foreground)]">
               {{ summaryScope === 'unknown' ? '—' : formatNumber(item.total_requests) }}
             </span>
           </div>
           <div class="flex items-center justify-between">
-            <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.tokens') }}</span>
-            <span class="font-mono text-gray-700 dark:text-gray-300">
+            <span class="text-[var(--muted-foreground)]">{{ t('dashboard.tokens') }}</span>
+            <span class="font-mono tabular-nums text-[var(--foreground)]">
               {{ summaryScope === 'unknown' ? '—' : formatTokens(item.total_tokens) }}
             </span>
           </div>
         </div>
 
         <!-- Quota 区：仅当 quota 配置存在、非 __other__ 且至少有一个窗口配了 limit 时显示 -->
-        <div v-if="hasAnyLimit(item.quota) && !item.isOther" class="mt-3 space-y-1.5 border-t border-gray-200 pt-2 dark:border-dark-700">
-          <p class="text-[10px] uppercase tracking-wide text-gray-400">
+        <div v-if="hasAnyLimit(item.quota) && !item.isOther" class="mt-3 space-y-1.5 border-t border-[var(--border)] pt-2">
+          <p class="text-[10px] uppercase tracking-wide text-[var(--muted-foreground)]">
             {{ t('dashboard.platformQuota.title') }}
           </p>
           <template v-for="w in (['daily', 'weekly', 'monthly'] as const)" :key="w">
@@ -191,29 +201,29 @@
               <!-- limit=0：完全禁用 -->
               <template v-if="(quotaVal(item.quota, `${w}_limit_usd`) as number) === 0">
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-600 dark:text-gray-300">{{ t(`dashboard.platformQuota.${w}`) }}</span>
+                  <span class="text-[var(--muted-foreground)]">{{ t(`dashboard.platformQuota.${w}`) }}</span>
                   <span class="font-mono text-red-500">{{ t('dashboard.platformQuota.disabled') }}</span>
                 </div>
-                <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+                <div class="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                   <div class="h-full w-full rounded-full bg-red-500" />
                 </div>
               </template>
               <!-- limit>0：正常用量进度条 -->
               <template v-else>
                 <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-600 dark:text-gray-300">{{ t(`dashboard.platformQuota.${w}`) }}</span>
-                  <span class="font-mono text-gray-700 dark:text-gray-200">
+                  <span class="text-[var(--muted-foreground)]">{{ t(`dashboard.platformQuota.${w}`) }}</span>
+                  <span class="font-mono tabular-nums text-[var(--foreground)]">
                     ${{ formatUsd((quotaVal(item.quota, `${w}_usage_usd`) as number) ?? 0) }} / ${{ formatUsd(quotaVal(item.quota, `${w}_limit_usd`) as number) }}
                   </span>
                 </div>
-                <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700">
+                <div class="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                   <div
                     class="h-full rounded-full transition-all"
                     :class="quotaBarClass(calcPercent((quotaVal(item.quota, `${w}_usage_usd`) as number) ?? 0, quotaVal(item.quota, `${w}_limit_usd`) as number))"
                     :style="{ width: calcPercent((quotaVal(item.quota, `${w}_usage_usd`) as number) ?? 0, quotaVal(item.quota, `${w}_limit_usd`) as number) + '%' }"
                   />
                 </div>
-                <p v-if="quotaVal(item.quota, `${w}_window_resets_at`)" class="text-[10px] text-gray-400">
+                <p v-if="quotaVal(item.quota, `${w}_window_resets_at`)" class="text-[10px] text-[var(--muted-foreground)]">
                   {{ t('dashboard.platformQuota.resetsAt', { time: formatResetTime(quotaVal(item.quota, `${w}_window_resets_at`) as string) }) }}
                 </p>
               </template>
@@ -233,7 +243,6 @@ import { formatBalanceAmount, formatLedgerAmount } from '@/utils/money'
 import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import Icon from '@/components/icons/Icon.vue'
 import type { PlatformDashboardStats, UserDashboardStats as UserStatsType } from '@/api/usage'
 import type { PlatformQuotaItem } from '@/types'
 
@@ -342,6 +351,17 @@ const platformCards = computed<FusedPlatformCard[]>(() => {
 // 标题右侧的平台计数 = 实际渲染的平台卡片数，不含"其他"差额卡。
 const platformCount = computed(() => platformCards.value.filter((c) => !c.isOther).length)
 
+const maxPlatformCost = computed(() => {
+  const costs = platformCards.value.map((c) => c.total_actual_cost || c.today_actual_cost || 0)
+  return Math.max(0.000001, ...costs)
+})
+
+function platformSharePercent(item: FusedPlatformCard): number {
+  const val = item.total_actual_cost || item.today_actual_cost || 0
+  if (val <= 0) return 0
+  return Math.min(100, Math.max(0, (val / maxPlatformCost.value) * 100))
+}
+
 // Quota helpers
 
 type QuotaWindow = 'daily' | 'weekly' | 'monthly'
@@ -402,3 +422,180 @@ const formatTokens = (t: number) => {
 }
 const formatDuration = (ms: number) => ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(0)}ms`
 </script>
+
+<style scoped>
+.oh-scope-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e9e9ee);
+  background: color-mix(in srgb, var(--brand, #f59e0b) 8%, var(--card, #ffffff));
+}
+
+.dark .oh-scope-banner {
+  border-color: var(--border, #232329);
+  background: color-mix(in srgb, var(--brand, #fbbf24) 10%, var(--card, #131316));
+}
+
+.oh-metric-card {
+  container-type: inline-size;
+  min-width: 0;
+  min-height: 8.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e9e9ee);
+  background: var(--card);
+  color: var(--foreground);
+  transition: border-color .15s;
+}
+
+.oh-metric-card p {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.oh-metric-card .text-xl {
+  font-size: clamp(1rem, 9cqi, 1.25rem);
+  line-height: 1.4;
+}
+
+.oh-metric-card .text-xs {
+  line-height: 1.65;
+}
+
+.oh-cost-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.375rem;
+}
+
+.oh-cost-pair > span {
+  max-width: 100%;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.dark .oh-metric-card {
+  border-color: var(--border, #232329);
+}
+
+.oh-metric-card:hover {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 42%, var(--border, #e9e9ee));
+}
+
+.oh-micro-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1.5px 6px;
+  border-radius: 5px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.oh-micro-emerald {
+  color: var(--ok-text, #15803d);
+  background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent);
+}
+
+.oh-micro-amber {
+  color: var(--brand-text, #92610a);
+  background: color-mix(in srgb, var(--brand, #f59e0b) 14%, transparent);
+}
+
+.oh-micro-indigo {
+  color: #4338ca;
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.oh-micro-rose {
+  color: #be123c;
+  background: rgba(244, 63, 94, 0.12);
+}
+
+.dark .oh-micro-emerald {
+  color: #4ade80;
+}
+
+.dark .oh-micro-amber {
+  color: #fbbf24;
+}
+
+.dark .oh-micro-indigo {
+  color: #a5b4fc;
+}
+
+.dark .oh-micro-rose {
+  color: #fda4af;
+}
+
+
+.pulse-dot {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 9999px;
+  display: inline-block;
+  flex: none;
+}
+
+.pulse-ok {
+  background: var(--ok, #16a34a);
+  color: var(--ok, #16a34a);
+  animation: oh-stat-breath 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes oh-stat-breath {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 65%, transparent);
+  }
+  65% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+
+.oh-platform-count-pill {
+  padding: 2px 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--border, #e9e9ee);
+  background: var(--surface-2, #f4f4f5);
+}
+
+.dark .oh-platform-count-pill {
+  border-color: var(--border, #232329);
+  background: var(--surface-2, #1d1d21);
+}
+
+.oh-platform-card:hover {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 40%, var(--border, #e9e9ee));
+}
+
+.oh-meter {
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--surface-2, #f4f4f5);
+  overflow: hidden;
+}
+
+.dark .oh-meter {
+  background: var(--surface-2, #1d1d21);
+}
+
+.oh-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 9999px;
+  background: var(--brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ok { animation: none; }
+  .oh-metric-card { transition: none; }
+}
+</style>

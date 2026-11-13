@@ -18,7 +18,7 @@ function clearProxyKey() {
 </script>
 
 <template>
-  <div class="space-y-4" data-testid="compatible-special-auth">
+  <div class="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 [&_input]:font-mono" data-testid="compatible-special-auth">
     <label v-if="platform === 'nous_research'" class="block">
       <span class="input-label">{{ t('admin.accounts.specialCompatibleAuth.authMode') }}</span>
       <select class="input" data-testid="special-auth-mode" :value="modelValue.auth_mode || ''" @change="changeMode(($event.target as HTMLSelectElement).value)">

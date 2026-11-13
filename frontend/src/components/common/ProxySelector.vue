@@ -88,7 +88,7 @@
                 <!-- Account count badge -->
                 <span
                   v-if="proxy.account_count !== undefined"
-                  class="inline-flex flex-shrink-0 items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-dark-600 dark:text-gray-400"
+                  class="inline-flex flex-shrink-0 items-center rounded px-1.5 py-0.5 text-xs text-gray-600 bg-[var(--surface-2)] dark:text-gray-400"
                 >
                   {{ proxy.account_count }}
                 </span>
@@ -310,22 +310,22 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
+  @apply rounded-lg px-3 py-2 text-sm;
+  @apply bg-[var(--card)];
+  @apply border border-[var(--border)];
+  @apply text-[var(--foreground)];
+  @apply transition-colors duration-200;
+  @apply focus:border-[var(--ring)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)];
+  @apply hover:border-[var(--brand)];
   @apply cursor-pointer;
 }
 
 .select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
+  @apply border-[var(--ring)] ring-2 ring-[var(--ring)];
 }
 
 .select-trigger-disabled {
-  @apply cursor-not-allowed bg-gray-100 opacity-60 dark:bg-dark-900;
+  @apply cursor-not-allowed opacity-60 bg-[var(--card)];
 }
 
 .select-value {
@@ -333,31 +333,31 @@ onUnmounted(() => {
 }
 
 .select-icon {
-  @apply flex-shrink-0 text-gray-400 dark:text-dark-400;
+  @apply flex-shrink-0 text-[var(--muted-foreground)];
 }
 
 .select-dropdown {
   @apply absolute z-[100] mt-2 w-full;
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
+  @apply bg-[var(--card)];
+  @apply rounded-lg;
+  @apply border border-[var(--border)];
   @apply shadow-lg shadow-black/10 dark:shadow-black/30;
   @apply overflow-hidden;
 }
 
 .select-header {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b border-gray-100 dark:border-dark-700;
+  @apply border-b border-[var(--border)];
 }
 
 .select-search {
-  @apply flex flex-1 items-center gap-2;
+  @apply flex min-w-0 flex-1 items-center gap-2;
 }
 
 .select-search-input {
-  @apply flex-1 bg-transparent text-sm;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
+  @apply min-w-0 flex-1 bg-transparent text-sm;
+  @apply text-[var(--foreground)];
+  @apply placeholder:text-[var(--muted-foreground)];
   @apply focus:outline-none;
 }
 
@@ -375,14 +375,14 @@ onUnmounted(() => {
 .select-option {
   @apply flex items-center justify-between gap-2;
   @apply px-4 py-2.5 text-sm;
-  @apply text-gray-700 dark:text-gray-300;
+  @apply text-[var(--foreground)];
   @apply cursor-pointer transition-colors duration-150;
-  @apply hover:bg-gray-50 dark:hover:bg-dark-700;
+  @apply hover:bg-[var(--surface-2)];
 }
 
 .select-option-selected {
-  @apply bg-primary-50 dark:bg-primary-900/20;
-  @apply text-primary-700 dark:text-primary-300;
+  @apply bg-[var(--accent)];
+  @apply text-[var(--brand-text)];
 }
 
 .select-option-label {
@@ -391,7 +391,7 @@ onUnmounted(() => {
 
 .select-empty {
   @apply px-4 py-8 text-center text-sm;
-  @apply text-gray-500 dark:text-dark-400;
+  @apply text-[var(--muted-foreground)];
 }
 
 .test-btn {

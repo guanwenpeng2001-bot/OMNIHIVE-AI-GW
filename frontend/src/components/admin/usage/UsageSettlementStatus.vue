@@ -30,9 +30,9 @@ onMounted(() => { void load() })
 <template>
   <section class="card space-y-3 p-4" :aria-label="t('admin.usage.settlement.title')">
     <details class="text-sm">
-      <summary class="cursor-pointer">
+      <summary class="cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">
         <span class="font-semibold">{{ t('admin.usage.settlement.title') }}</span>
-        <span v-if="status" class="mt-1 block">
+        <span v-if="status" class="mt-2 block text-xs leading-6 tabular-nums text-[var(--muted-foreground)]">
           {{ t('admin.usage.settlement.pending') }}: {{ status.pending }} · {{ t('admin.usage.settlement.review') }}: {{ status.needs_review }} ·
           {{ t('admin.usage.settlement.failures') }}: {{ status.persistence_unconfirmed }} · {{ t('admin.usage.settlement.historical') }}: {{ status.historical_zero_review }}
         </span>
@@ -47,7 +47,7 @@ onMounted(() => { void load() })
         <div v-if="status && status.needs_review > 0" class="max-h-56 overflow-auto text-sm" aria-live="polite">
           <p v-if="!status.items.length">{{ t('admin.usage.settlement.empty') }}</p>
           <ul v-else class="space-y-2">
-            <li v-for="item in status.items" :key="item.id" class="break-all font-mono">
+            <li v-for="item in status.items" :key="item.id" class="break-all rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono text-xs">
               {{ item.request_id }} · key={{ item.api_key_id }} · user={{ item.user_id }} · {{ item.state }} / {{ item.pricing_state }} · {{ item.created_at }}
             </li>
           </ul>

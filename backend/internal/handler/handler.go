@@ -48,6 +48,7 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	MCP              *MCPGrantHandler
 	ModelAccess      *ModelAccessHandler
 	Workspace        *WorkspaceHandler
 	Auth             *AuthHandler

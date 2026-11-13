@@ -1,8 +1,28 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="users-workbench">
       <!-- Single Row: Search, Filters, and Actions -->
       <template #filters>
+        <section class="user-overview mb-3" aria-label="用户管理工作台">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-sm font-semibold">用户管理工作台</h1>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">授权、余额与配额集中管理</p>
+            </div>
+            <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+              <span>当前页 / 筛选结果总用户 <b class="font-mono tabular-nums">{{ loading ? '—' : `${users.length} / ${pagination.total}` }}</b></span>
+              <span>本页活跃 <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.active }}</b></span>
+              <span>本页管理员 <b class="font-mono tabular-nums">{{ loading ? '—' : userOverview.admins }}</b></span>
+            </div>
+          </div>
+          <div class="mt-3 flex flex-wrap items-center gap-2" aria-label="用户快捷筛选">
+            <span class="text-xs text-[var(--muted-foreground)]">快捷筛选</span>
+            <button type="button" class="user-filter-pill" :aria-pressed="!filters.role && !filters.status" @click="applyQuickUserFilter('all')">不限角色 / 状态</button>
+            <button type="button" class="user-filter-pill" :aria-pressed="filters.status === 'active'" @click="applyQuickUserFilter('active')">活跃用户</button>
+            <button type="button" class="user-filter-pill" :aria-pressed="filters.role === 'admin'" @click="applyQuickUserFilter('admin')">管理员</button>
+            <span class="text-xs text-[var(--muted-foreground)]">保留搜索与分组条件</span>
+          </div>
+        </section>
         <div class="flex flex-wrap items-center gap-3">
           <!-- Left: Search + Active Filters -->
           <div class="flex flex-1 flex-wrap items-center gap-3">
@@ -11,7 +31,7 @@
               <Icon
                 name="search"
                 size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
               />
               <input
                 v-model="searchQuery"
@@ -149,42 +169,42 @@
                 <!-- Dropdown menu -->
                 <div
                   v-if="showFilterDropdown"
-                  class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  class="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
                 >
                   <!-- Built-in filters -->
                   <button
                     v-for="filter in builtInFilters"
                     :key="filter.key"
                     @click="toggleBuiltInFilter(filter.key)"
-                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
                   >
                     <span>{{ filter.name }}</span>
                     <Icon
                       v-if="visibleFilters.has(filter.key)"
                       name="check"
                       size="sm"
-                      class="text-primary-500"
+                      class="text-[var(--brand-text)]"
                       :stroke-width="2"
                     />
                   </button>
                   <!-- Divider if custom attributes exist -->
                   <div
                     v-if="filterableAttributes.length > 0"
-                    class="my-1 border-t border-gray-100 dark:border-dark-700"
+                    class="my-1 border-t border-[var(--border)]"
                   ></div>
                   <!-- Custom attribute filters -->
                   <button
                     v-for="attr in filterableAttributes"
                     :key="attr.id"
                     @click="toggleAttributeFilter(attr)"
-                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
                   >
                     <span>{{ attr.name }}</span>
                     <Icon
                       v-if="visibleFilters.has(`attr_${attr.id}`)"
                       name="check"
                       size="sm"
-                      class="text-primary-500"
+                      class="text-[var(--brand-text)]"
                       :stroke-width="2"
                     />
                   </button>
@@ -205,7 +225,7 @@
                 <!-- Dropdown menu -->
                 <div
                   v-if="showColumnDropdown"
-                  class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
                 >
                   <button
                     v-for="col in toggleableColumns"
@@ -215,8 +235,8 @@
                     :class="[
                       'flex w-full items-center justify-between px-4 py-2 text-left text-sm',
                       isForcedVisibleColumn(col.key)
-                        ? 'cursor-not-allowed text-gray-400 dark:text-gray-500'
-                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'
+                        ? 'cursor-not-allowed text-[var(--muted-foreground)]'
+                        : 'text-[var(--foreground)] hover:bg-[var(--surface-2)]'
                     ]"
                     :title="isForcedVisibleColumn(col.key) ? t('admin.users.columnAlwaysVisible') : ''"
                   >
@@ -225,7 +245,7 @@
                       v-if="isColumnVisible(col.key)"
                       name="check"
                       size="sm"
-                      :class="isForcedVisibleColumn(col.key) ? 'text-gray-400 dark:text-gray-500' : 'text-primary-500'"
+                      :class="isForcedVisibleColumn(col.key) ? 'text-[var(--muted-foreground)]' : 'text-[var(--brand-text)]'"
                       :stroke-width="2"
                     />
                   </button>
@@ -242,27 +262,6 @@
               </button>
             </div>
 
-            <button
-              v-if="selectedCount > 0"
-              class="btn btn-secondary flex-1 md:flex-initial"
-              data-test="bulk-edit-limits"
-              @click="showBulkEditModal = true"
-            >
-              <Icon name="users" size="md" class="mr-2" />
-              {{ t('admin.users.bulkLimits.action', { count: selectedCount }) }}
-            </button>
-
-            <button
-              v-if="selectedCount > 0"
-              class="btn btn-danger flex-1 md:flex-initial"
-              data-test="bulk-delete-users"
-              :disabled="bulkDeleting"
-              @click="bulkDeleteIds = [...selectedIds]"
-            >
-              <Icon name="trash" size="md" class="mr-2" />
-              {{ t('admin.users.bulkDelete.action', { count: selectedCount }) }}
-            </button>
-
             <!-- Create User Button (full width on mobile, auto width on desktop) -->
             <button @click="showCreateModal = true" class="btn btn-primary flex-1 md:flex-initial">
               <Icon name="plus" size="md" class="mr-2" />
@@ -274,6 +273,31 @@
 
       <!-- Users Table -->
       <template #table>
+        <div v-if="selectedCount > 0" class="bulk-bar-real" aria-label="用户批量操作">
+          <span class="text-xs">已选择 <b class="font-mono tabular-nums">{{ selectedCount }}</b> 位用户</span>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="bulkDeleting" @click="clearSelection">清除选择</button>
+          <div class="flex flex-1 flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              data-test="bulk-edit-limits"
+              @click="showBulkEditModal = true"
+            >
+              <Icon name="users" size="sm" class="mr-1.5" />
+              {{ t('admin.users.bulkLimits.action', { count: selectedCount }) }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-danger btn-sm"
+              data-test="bulk-delete-users"
+              :disabled="bulkDeleting"
+              @click="bulkDeleteIds = [...selectedIds]"
+            >
+              <Icon name="trash" size="sm" class="mr-1.5" />
+              {{ t('admin.users.bulkDelete.action', { count: selectedCount }) }}
+            </button>
+          </div>
+        </div>
         <DataTable
           :columns="columns"
           :data="sortedUsers"
@@ -293,18 +317,18 @@
           <template #cell-email="{ value }">
             <div class="flex items-center gap-2">
               <div
-                class="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30"
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)]"
               >
-                <span class="text-sm font-medium text-primary-700 dark:text-primary-300">
+                <span class="text-sm font-medium text-[var(--brand-text)]">
                   {{ value.charAt(0).toUpperCase() }}
                 </span>
               </div>
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span class="font-medium text-[var(--foreground)]">{{ value }}</span>
             </div>
           </template>
 
           <template #cell-username="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ value || '-' }}</span>
+            <span class="text-sm text-[var(--foreground)]">{{ value || '-' }}</span>
           </template>
 
           <template #cell-notes="{ value }">
@@ -312,11 +336,11 @@
               <span
                 v-if="value"
                 :title="value.length > 30 ? value : undefined"
-                class="block truncate text-sm text-gray-600 dark:text-gray-400"
+                class="block truncate text-sm text-[var(--muted-foreground)]"
               >
                 {{ value.length > 30 ? value.substring(0, 25) + '...' : value }}
               </span>
-              <span v-else class="text-sm text-gray-400">-</span>
+              <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
             </div>
           </template>
 
@@ -328,7 +352,7 @@
           >
             <div class="max-w-xs">
               <span
-                class="block truncate text-sm text-gray-700 dark:text-gray-300"
+                class="block truncate text-sm text-[var(--foreground)]"
                 :title="getAttributeValue(row.id, def.id)"
               >
                 {{ getAttributeValue(row.id, def.id) }}
@@ -352,13 +376,13 @@
               >
                 <Icon name="shield" size="xs" class="h-3.5 w-3.5 text-purple-500 dark:text-purple-400" />
                 <span class="font-medium text-purple-600 dark:text-purple-400">{{ getUserGroups(row).exclusive.length }}</span>
-                <span class="text-gray-500 dark:text-dark-400">{{ t('admin.users.exclusiveLabel') }}</span>
+                <span class="text-[var(--muted-foreground)]">{{ t('admin.users.exclusiveLabel') }}</span>
                 <!-- Hover tooltip（操作菜单未打开时显示） -->
                 <div
                   v-if="expandedGroupUserId !== row.id"
-                  class="pointer-events-none absolute left-0 top-full z-50 mt-1.5 rounded bg-gray-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity duration-75 group-hover/ex:opacity-100 dark:bg-dark-600"
+                  class="pointer-events-none absolute left-0 top-full z-50 mt-1.5 rounded bg-[var(--foreground)] px-2.5 py-1.5 text-xs text-[var(--background)] opacity-0 shadow-lg transition-opacity duration-75 group-hover/ex:opacity-100"
                 >
-                  <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-dark-600"></div>
+                  <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-zinc-700"></div>
                   <div class="flex flex-col gap-0.5 whitespace-nowrap">
                     <span v-for="g in getUserGroups(row).exclusive" :key="g.id">{{ g.name }}</span>
                   </div>
@@ -366,15 +390,15 @@
                 <!-- 点击展开分组操作菜单 -->
                 <div
                   v-if="expandedGroupUserId === row.id"
-                  class="absolute left-0 top-full z-50 mt-1.5 min-w-[160px] overflow-hidden rounded-lg border border-gray-200 bg-white py-1 text-xs shadow-xl dark:border-dark-600 dark:bg-dark-700"
+                  class="absolute left-0 top-full z-50 mt-1.5 min-w-[160px] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 text-xs shadow-xl"
                 >
-                  <div class="border-b border-gray-100 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:border-dark-600 dark:text-dark-400">
+                  <div class="border-b border-[var(--border)] px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
                     {{ t('admin.users.clickToReplace') }}
                   </div>
                   <div
                     v-for="g in getUserGroups(row).exclusive"
                     :key="g.id"
-                    class="flex cursor-pointer items-center gap-2 px-3 py-2 text-gray-700 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:text-dark-200 dark:hover:bg-primary-900/30 dark:hover:text-primary-400"
+                    class="flex cursor-pointer items-center gap-2 px-3 py-2 text-[var(--foreground)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--brand-text)]"
                     @click.stop="openGroupReplace(row, g)"
                   >
                     <Icon name="swap" size="xs" class="h-3.5 w-3.5 flex-shrink-0 opacity-50" />
@@ -387,12 +411,12 @@
                 v-if="getUserGroups(row).publicGroups.length > 0"
                 class="group/pub relative inline-flex cursor-default items-center gap-1 whitespace-nowrap text-xs"
               >
-                <Icon name="globe" size="xs" class="h-3.5 w-3.5 text-gray-400 dark:text-dark-500" />
-                <span class="font-medium text-gray-600 dark:text-dark-300">{{ getUserGroups(row).publicGroups.length }}</span>
-                <span class="text-gray-400 dark:text-dark-500">{{ t('admin.users.publicLabel') }}</span>
+                <Icon name="globe" size="xs" class="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                <span class="font-medium text-[var(--muted-foreground)]">{{ getUserGroups(row).publicGroups.length }}</span>
+                <span class="text-[var(--muted-foreground)]">{{ t('admin.users.publicLabel') }}</span>
                 <!-- Tooltip: 向下弹出 -->
-                <div class="pointer-events-none absolute left-0 top-full z-50 mt-1.5 rounded bg-gray-900 px-2.5 py-1.5 text-xs text-white opacity-0 shadow-lg transition-opacity duration-75 group-hover/pub:opacity-100 dark:bg-dark-600">
-                  <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-dark-600"></div>
+                <div class="pointer-events-none absolute left-0 top-full z-50 mt-1.5 rounded bg-[var(--foreground)] px-2.5 py-1.5 text-xs text-[var(--background)] opacity-0 shadow-lg transition-opacity duration-75 group-hover/pub:opacity-100">
+                  <div class="absolute left-4 bottom-full border-4 border-transparent border-b-gray-900 dark:border-b-zinc-700"></div>
                   <div class="flex flex-col gap-0.5 whitespace-nowrap">
                     <span v-for="g in getUserGroups(row).publicGroups" :key="g.id">{{ g.name }}</span>
                   </div>
@@ -401,10 +425,10 @@
               <!-- 都没有 -->
               <span
                 v-if="getUserGroups(row).exclusive.length === 0 && getUserGroups(row).publicGroups.length === 0"
-                class="text-xs text-gray-400 dark:text-dark-500"
+                class="text-xs text-[var(--muted-foreground)]"
               >-</span>
             </div>
-            <span v-else class="text-xs text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="text-xs text-[var(--muted-foreground)]">-</span>
           </template>
 
           <template #cell-subscriptions="{ row }">
@@ -425,7 +449,7 @@
             </div>
             <span
               v-else
-              class="inline-flex items-center gap-1.5 rounded-md bg-gray-50 px-2 py-1 text-xs text-gray-400 dark:bg-dark-700/50 dark:text-dark-500"
+              class="inline-flex items-center gap-1.5 rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--muted-foreground)]"
             >
               <Icon name="ban" size="xs" class="h-3.5 w-3.5" />
               <span>{{ t('admin.users.noSubscription') }}</span>
@@ -436,15 +460,15 @@
             <div class="flex items-center gap-2">
               <div class="group relative">
                 <button
-                  class="font-medium text-gray-900 underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:text-primary-600 dark:text-white dark:decoration-dark-500 dark:hover:text-primary-400"
+                  class="font-mono font-medium tabular-nums text-[var(--foreground)] underline decoration-dashed decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:text-[var(--brand-text)]"
                   @click="handleBalanceHistory(row)"
                 >
                   ${{ value.toFixed(2) }}
                 </button>
                 <!-- Instant tooltip -->
-                <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity duration-75 group-hover:opacity-100 dark:bg-dark-600">
+                <div class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded bg-[var(--foreground)] px-2 py-1 text-xs text-[var(--background)] opacity-0 shadow-lg transition-opacity duration-75 group-hover:opacity-100">
                   {{ t('admin.users.balanceHistoryTip') }}
-                  <div class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-dark-600"></div>
+                  <div class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-gray-900 dark:border-t-zinc-700"></div>
                 </div>
               </div>
               <button
@@ -460,7 +484,7 @@
           <template #cell-balance_platform_quota="{ row }">
             <button
               type="button"
-              class="block text-left underline decoration-dashed decoration-gray-300 underline-offset-4 transition-colors hover:decoration-primary-400 dark:decoration-dark-500"
+              class="user-quota-cell block text-left font-mono tabular-nums underline decoration-dashed decoration-[var(--border-strong)] underline-offset-4 transition-colors hover:decoration-primary-400"
               :title="t('admin.users.platformQuota.cellColumnTooltip')"
               @click="handlePlatformQuota(row)"
             >
@@ -481,10 +505,10 @@
               <div class="usage-sort-trigger relative">
                 <button
                   type="button"
-                  class="flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-gray-200 dark:hover:bg-dark-700"
+                  class="flex items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-[var(--surface-2)]"
                   :class="usageSort && usageSort.key === usageKey
-                    ? 'text-primary-600 dark:text-primary-400'
-                    : 'text-gray-400 dark:text-dark-500'"
+                    ? 'text-[var(--brand-text)]'
+                    : 'text-[var(--muted-foreground)]'"
                   :title="t('admin.users.sortBy')"
                   :data-test="`usage-sort-trigger-${usageKey}`"
                   @click.stop="toggleUsageSortMenu(usageKey)"
@@ -513,16 +537,16 @@
                 <!-- 弹出菜单：今日 / 近30天，点击进行三态循环切换。 -->
                 <div
                   v-if="openUsageSortMenu === usageKey"
-                  class="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                  class="absolute right-0 top-full z-50 mt-1 min-w-[120px] rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
                 >
                   <button
                     v-for="metric in (['today', 'total'] as const)"
                     :key="metric"
                     type="button"
-                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs normal-case tracking-normal hover:bg-gray-100 dark:hover:bg-dark-700"
+                    class="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs normal-case tracking-normal hover:bg-[var(--surface-2)]"
                     :class="isUsageSortActive(usageKey, metric)
-                      ? 'font-medium text-primary-600 dark:text-primary-400'
-                      : 'text-gray-700 dark:text-gray-300'"
+                      ? 'font-medium text-[var(--brand-text)]'
+                      : 'text-[var(--foreground)]'"
                     :data-test="`usage-sort-${usageKey}-${metric}`"
                     @click.stop="toggleUsageSort(usageKey, metric)"
                   >
@@ -541,7 +565,7 @@
                       />
                     </svg>
                   </button>
-                  <div class="mt-1 border-t border-gray-100 px-3 py-1 text-[10px] normal-case tracking-normal text-gray-400 dark:border-dark-700 dark:text-dark-500">
+                  <div class="mt-1 border-t border-[var(--border)] px-3 py-1 text-[10px] normal-case tracking-normal text-[var(--muted-foreground)]">
                     {{ t('admin.users.sortCurrentPageOnly') }}
                   </div>
                 </div>
@@ -643,24 +667,24 @@
                   value === 'active' ? 'bg-green-500' : 'bg-red-500'
                 ]"
               ></span>
-              <span class="text-sm text-gray-700 dark:text-gray-300">
+              <span class="text-sm text-[var(--foreground)]">
                 {{ value === 'active' ? t('common.active') : t('admin.users.disabled') }}
               </span>
             </div>
           </template>
 
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+            <span class="text-sm text-[var(--muted-foreground)]">{{ formatDateTime(value) }}</span>
           </template>
 
           <template #cell-last_used_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">
+            <span class="text-sm text-[var(--muted-foreground)]">
               {{ value ? formatDateTime(value) : '-' }}
             </span>
           </template>
 
           <template #cell-last_active_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">
+            <span class="text-sm text-[var(--muted-foreground)]">
               {{ value ? formatDateTime(value) : '-' }}
             </span>
           </template>
@@ -670,7 +694,7 @@
               <!-- Edit Button -->
               <button
                 @click="handleEdit(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t('common.edit') }}</span>
@@ -681,7 +705,7 @@
                 v-if="row.role !== 'admin'"
                 @click="handleToggleStatus(row)"
                 :class="[
-                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors',
+                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors',
                   row.status === 'active'
                     ? 'hover:bg-orange-50 hover:text-orange-600 dark:hover:bg-orange-900/20 dark:hover:text-orange-400'
                     : 'hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
@@ -695,8 +719,8 @@
               <!-- More Actions Menu Trigger -->
               <button
                 @click="openActionMenu(row, $event)"
-                class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white"
-                :class="{ 'bg-gray-100 text-gray-900 dark:bg-dark-700 dark:text-white': activeMenuId === row.id }"
+                class="action-menu-trigger flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+                :class="{ 'bg-[var(--surface-2)] text-[var(--foreground)]': activeMenuId === row.id }"
               >
                 <Icon name="more" size="sm" />
                 <span class="text-xs">{{ t('common.more') }}</span>
@@ -732,7 +756,7 @@
     <Teleport to="body">
       <div
         v-if="activeMenuId !== null && menuPosition"
-        class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
+        class="action-menu-content fixed z-[9999] w-48 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg"
         :style="{ top: menuPosition.top + 'px', left: menuPosition.left + 'px' }"
       >
         <div class="py-1">
@@ -741,27 +765,27 @@
               <!-- View API Keys -->
               <button
                 @click="handleViewApiKeys(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
-                <Icon name="key" size="sm" class="text-gray-400" :stroke-width="2" />
+                <Icon name="key" size="sm" class="text-[var(--muted-foreground)]" :stroke-width="2" />
                 {{ t('admin.users.apiKeys') }}
               </button>
 
               <!-- Allowed Groups -->
               <button
                 @click="handleAllowedGroups(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
-                <Icon name="users" size="sm" class="text-gray-400" :stroke-width="2" />
+                <Icon name="users" size="sm" class="text-[var(--muted-foreground)]" :stroke-width="2" />
                 {{ t('admin.users.groups') }}
               </button>
 
-              <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+              <div class="my-1 border-t border-[var(--border)]"></div>
 
               <!-- Deposit -->
               <button
                 @click="handleDeposit(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
                 <Icon name="plus" size="sm" class="text-emerald-500" :stroke-width="2" />
                 {{ t('admin.users.deposit') }}
@@ -770,7 +794,7 @@
               <!-- Withdraw -->
               <button
                 @click="handleWithdraw(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
                 <svg class="h-4 w-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
@@ -781,22 +805,22 @@
               <!-- Platform Quotas -->
               <button
                 @click="handlePlatformQuota(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
-                <Icon name="chartBar" size="sm" class="text-gray-400" :stroke-width="2" />
+                <Icon name="chartBar" size="sm" class="text-[var(--muted-foreground)]" :stroke-width="2" />
                 {{ t('admin.users.platformQuota.menuItem') }}
               </button>
 
               <!-- Balance History -->
               <button
                 @click="handleBalanceHistory(user); closeActionMenu()"
-                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center gap-2 px-4 py-2 text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
-                <Icon name="dollar" size="sm" class="text-gray-400" :stroke-width="2" />
+                <Icon name="dollar" size="sm" class="text-[var(--muted-foreground)]" :stroke-width="2" />
                 {{ t('admin.users.balanceHistory') }}
               </button>
 
-              <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+              <div class="my-1 border-t border-[var(--border)]"></div>
 
               <!-- Delete (not for admin) -->
               <button
@@ -1117,6 +1141,10 @@ const columns = computed<Column[]>(() =>
 )
 
 const users = ref<AdminUser[]>([])
+const userOverview = computed(() => ({
+  active: users.value.filter(user => user.status === 'active').length,
+  admins: users.value.filter(user => user.role === 'admin').length
+}))
 const loading = ref(false)
 const searchQuery = ref('')
 const USER_SORT_STORAGE_KEY = 'admin-users-table-sort'
@@ -1823,6 +1851,21 @@ const applyFilter = () => {
   loadUsers()
 }
 
+function applyQuickUserFilter(filter: 'all' | 'active' | 'admin') {
+  if (filter === 'all') {
+    filters.role = ''
+    filters.status = ''
+  } else if (filter === 'active') {
+    filters.status = filters.status === 'active' ? '' : 'active'
+    visibleFilters.add('status')
+  } else {
+    filters.role = filters.role === 'admin' ? '' : 'admin'
+    visibleFilters.add('role')
+  }
+  pagination.page = 1
+  applyFilter()
+}
+
 const handleEdit = (user: AdminUser) => {
   editingUser.value = user
   showEditModal.value = true
@@ -2002,3 +2045,52 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+
+<style scoped>
+.user-overview {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand, #f59e0b);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.user-filter-pill {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--card);
+}
+
+.user-filter-pill[aria-pressed='true'] {
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--border));
+  background: color-mix(in srgb, var(--brand) 10%, var(--card));
+  color: var(--brand-text);
+}
+
+.user-filter-pill:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.bulk-bar-real {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 10px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+}
+
+.users-workbench :deep(td) {
+  font-variant-numeric: tabular-nums;
+}
+
+.user-quota-cell :deep(*) {
+  font-variant-numeric: tabular-nums;
+}
+</style>

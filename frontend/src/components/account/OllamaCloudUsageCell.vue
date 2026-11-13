@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="state?.eligible"
-    class="min-w-0 max-w-full space-y-1"
+    class="min-w-0 max-w-full space-y-1.5"
     data-testid="ollama-cloud-usage-cell"
   >
     <UsageProgressBar
@@ -23,7 +23,7 @@
     <div v-if="state.configured" class="flex items-center pt-0.5">
       <button
         type="button"
-        class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+        class="usage-action inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 hover:border-[var(--brand)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="refreshing"
         data-testid="ollama-cloud-usage-query"
         @click="refreshUsage"
@@ -46,7 +46,7 @@
       </button>
     </div>
   </div>
-  <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+  <span v-else class="text-[11px] text-[var(--muted-foreground)]">-</span>
 </template>
 
 <script setup lang="ts">
@@ -81,3 +81,14 @@ const refreshUsage = async () => {
   }
 }
 </script>
+
+<style scoped>
+.usage-action {
+  color: var(--foreground);
+}
+
+.usage-action:hover {
+  background: var(--surface-2);
+  color: var(--brand-text);
+}
+</style>

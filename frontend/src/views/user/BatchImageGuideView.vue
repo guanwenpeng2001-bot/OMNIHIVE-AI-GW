@@ -1,55 +1,64 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="batch-page w-full min-w-0">
       <template #filters>
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
-            <div class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[260px_160px_144px_152px] 2xl:w-auto">
+        <div class="flex flex-col gap-4">
+          <header class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h1 class="text-2xl font-bold tracking-tight text-[var(--foreground)]">{{ t('nav.batchImage') }}</h1>
+              <p class="mt-1 text-sm leading-6 text-[var(--muted-foreground)]">{{ copy('提交多条提示词异步并发生成图像，支持子项进度追踪、失败重试与结果打包下载。', 'Generate images asynchronously from multiple prompts, track items, retry failures, and download results together.') }}</p>
+            </div>
+            <div class="flex shrink-0 gap-2">
+              <button type="button" class="btn btn-secondary" @click="showGuideModal = true">
+                <Icon name="book" size="sm" class="mr-2" />{{ t('batchImage.actions.usageGuide') }}
+              </button>
+              <button type="button" class="btn btn-primary" :disabled="loadingKeys || !hasAnyActiveKey" @click="openCreateModal">
+                <Icon name="plus" size="sm" class="mr-2" />{{ isZhLocale() ? '创建任务' : t('batchImage.actions.createJob') }}
+              </button>
+            </div>
+          </header>
+          <div v-if="!loadingKeys && !hasAnyActiveKey" class="card flex flex-wrap items-center gap-3 bg-[var(--surface-2)] p-3 text-sm text-[var(--muted-foreground)]" role="status">
+            <span>{{ copy('当前尚无可用 API 密钥', 'No active API key is available yet.') }}</span>
+            <a href="/keys" class="btn btn-secondary btn-sm">{{ copy('管理密钥', 'Manage keys') }}</a>
+          </div>
+          <div v-else-if="!loadingKeys && !hasGeminiBatchKey && credentialedKeys.length" class="card flex flex-wrap items-center gap-2 p-3 text-sm text-[var(--muted-foreground)]" role="status">
+            <Icon name="key" size="sm" />
+            {{ copy('可选择当前活跃密钥创建任务，可用模型与权限由服务端确认。', 'Choose an active key to create a job. Available models and permissions are checked by the server.') }}
+          </div>
+          <div v-if="!loadingKeys && hasAnyActiveKey && !credentialedKeys.length" class="card flex flex-wrap items-center gap-3 p-3 text-sm text-[var(--muted-foreground)]" role="status">
+            {{ copy('密钥列表仅显示脱敏值，请在创建任务中输入完整密钥以加载任务与模型。', 'Keys are masked in the list. Enter a full key in Create job to load its jobs and models.') }}
+            <button type="button" class="btn btn-secondary btn-sm" @click="openCreateModal">{{ copy('连接密钥', 'Connect key') }}</button>
+          </div>
+          <div class="card flex flex-col gap-2 p-3 xl:flex-row xl:items-center">
+            <div class="filter-grid batch-filter-grid w-full min-w-0 xl:flex-1">
               <div class="min-w-0">
                 <SearchInput
                   v-model="filters.taskName"
                   :placeholder="t('batchImage.filters.searchTaskName')"
+                  :aria-label="t('batchImage.filters.searchTaskName')"
                   class="w-full"
                   @search="applyFilters"
                 />
               </div>
-              <Select v-model="filters.apiKeyId" :options="apiKeyFilterOptions" class="w-full" @change="applyFilters" />
-              <Select v-model="filters.status" :options="statusFilterOptions" class="w-full" @change="applyFilters" />
-              <Select v-model="filters.downloaded" :options="downloadFilterOptions" class="w-full" @change="applyFilters" />
+              <Select v-model="filters.apiKeyId" :options="apiKeyFilterOptions" :aria-label="copy('密钥', 'API key')" class="w-full" @change="applyFilters" />
+              <Select v-model="filters.status" :options="statusFilterOptions" :aria-label="t('common.status')" class="w-full" @change="applyFilters" />
+              <Select v-model="filters.downloaded" :options="downloadFilterOptions" :aria-label="t('batchImage.columns.downloadStatus')" class="w-full" @change="applyFilters" />
             </div>
-            <div class="flex flex-wrap items-center justify-start gap-2 sm:justify-end 2xl:flex-shrink-0">
-              <button type="button" class="btn btn-secondary" :disabled="loadingJobs" @click="resetFilters">
-                {{ t('common.reset') }}
+            <div class="flex shrink-0 items-center gap-2">
+              <button type="button" class="btn btn-secondary h-9 w-9 !p-0" :disabled="loadingJobs" :title="t('common.reset')" :aria-label="t('common.reset')" @click="resetFilters">
+                <Icon name="x" size="sm" />
               </button>
-              <button type="button" class="btn btn-secondary" :disabled="loadingKeys || loadingJobs" :title="t('common.refresh')" @click="refreshPage">
-                <Icon name="refresh" size="md" :class="loadingKeys || loadingJobs ? 'animate-spin' : ''" />
-              </button>
-              <button type="button" class="btn btn-secondary" @click="showGuideModal = true">
-                <Icon name="book" size="md" class="mr-2" />
-                {{ t('batchImage.actions.usageGuide') }}
-              </button>
-              <button type="button" class="btn btn-primary" @click="openCreateModal">
-                <Icon name="plus" size="md" class="mr-2" />
-                {{ t('batchImage.actions.createJob') }}
+              <button type="button" class="btn btn-secondary h-9 w-9 !p-0" :disabled="loadingKeys || loadingJobs" :title="t('common.refresh')" :aria-label="t('common.refresh')" @click="refreshPage">
+                <Icon name="refresh" size="md" :class="loadingKeys || loadingJobs ? 'motion-safe:animate-spin' : ''" />
               </button>
             </div>
           </div>
 
-          <div
-            v-if="selectedJobIds.size"
-            class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm dark:border-dark-700 dark:bg-dark-800"
-          >
-            <i18n-t
-              keypath="batchImage.list.selectedJobs"
-              tag="span"
-              scope="global"
-              :plural="selectedJobIds.size"
-              class="text-sm text-gray-600 dark:text-gray-300"
-            >
-              <template #count>
-                <span class="font-medium text-gray-900 dark:text-white">{{ selectedJobIds.size }}</span>
-              </template>
-            </i18n-t>
+          <div class="card flex flex-wrap items-center gap-3 p-3 text-sm" data-test="batch-selection-bar">
+            <span class="text-[var(--muted-foreground)]" aria-live="polite">
+              {{ copy('已选择', 'Selected') }} <b class="font-semibold text-[var(--foreground)]">{{ selectedJobIds.size }}</b>
+              {{ copy('个任务（筛选后仍保留）', 'jobs (kept across filters)') }}
+            </span>
             <div class="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -57,19 +66,20 @@
                 :disabled="bulkDownloading || selectedDownloadableRows.length === 0"
                 @click="downloadSelectedJobs"
               >
-                <Icon :name="bulkDownloading ? 'refresh' : 'download'" size="sm" class="mr-1.5" :class="bulkDownloading ? 'animate-spin' : ''" />
-                {{ t('batchImage.actions.downloadSelected') }}
+                <Icon :name="bulkDownloading ? 'refresh' : 'download'" size="sm" class="mr-1.5" :class="bulkDownloading ? 'motion-safe:animate-spin' : ''" />
+                {{ copy('打包下载所选 ZIP', 'Download selected ZIPs') }}
               </button>
               <button
                 type="button"
                 class="btn btn-secondary btn-sm text-red-600 hover:text-red-700 dark:text-red-400"
-                :disabled="bulkDeleting"
+                :disabled="bulkDeleting || !selectedRows.some(row => canDeleteRecord(row))"
                 @click="deleteSelectedJobs"
               >
-                <Icon :name="bulkDeleting ? 'refresh' : 'trash'" size="sm" class="mr-1.5" :class="bulkDeleting ? 'animate-spin' : ''" />
-                {{ t('batchImage.actions.deleteRecords') }}
+                <Icon :name="bulkDeleting ? 'refresh' : 'trash'" size="sm" class="mr-1.5" :class="bulkDeleting ? 'motion-safe:animate-spin' : ''" />
+                {{ copy('删除所选记录', 'Delete selected records') }}
               </button>
             </div>
+            <span class="text-xs text-[var(--muted-foreground)] xl:ml-auto">{{ copy('支持批量导出生成图像与 JSONL 结果清单', 'Export generated images and JSONL result manifests in bulk') }}</span>
           </div>
         </div>
       </template>
@@ -85,18 +95,21 @@
           <template #header-select>
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="allVisibleSelected"
               :indeterminate="someVisibleSelected"
+              :aria-label="copy('选择当前页父任务', 'Select parent jobs on this page')"
               @change="toggleAllVisible(($event.target as HTMLInputElement).checked)"
             />
           </template>
 
           <template #cell-select="{ row }">
             <input
+              v-if="!row.is_child"
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="selectedJobIds.has(row.id)"
+              :aria-label="copy('选择任务 ', 'Select job ') + row.task_name"
               @change="toggleJobSelection(row.id, ($event.target as HTMLInputElement).checked)"
               @click.stop
             />
@@ -107,120 +120,101 @@
 	              <button
 	                v-if="row.child_count > 0 && !row.is_child"
 	                type="button"
-	                class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 dark:text-gray-400 dark:hover:bg-dark-700 dark:hover:text-white"
+	                class="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] dark:hover:text-white"
 	                :title="expandedParentIds.has(row.id) ? t('batchImage.list.collapseChildren') : t('batchImage.list.expandChildren', { n: row.child_count }, row.child_count)"
+                    :aria-expanded="expandedParentIds.has(row.id)"
 	                @click.stop="toggleChildRows(row.id)"
 	              >
 	                <Icon :name="expandedParentIds.has(row.id) ? 'chevronDown' : 'chevronRight'" size="xs" />
 	              </button>
 	              <span v-else class="w-6 flex-shrink-0" />
-	              <button type="button" class="min-w-0 flex-1 rounded-lg py-1 text-left transition-colors hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 dark:hover:bg-dark-700" @click="selectJob(row.id)">
+	              <button type="button" class="min-w-0 flex-1 rounded-lg py-1 text-left transition-colors hover:bg-[var(--surface-2)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]" @click="selectJob(row.id)">
 	                <span
 	                  class="flex min-w-0 items-center gap-2 text-sm font-medium"
-	                  :class="row.task_name ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
+	                  :class="row.task_name ? 'text-[var(--foreground)] ' : 'text-[var(--muted-foreground)] '"
                 >
                   <span class="min-w-0 truncate">{{ row.task_name || defaultTaskName(row.created_at) }}</span>
-                  <span v-if="row.child_count > 0 && !row.is_child" class="flex-shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-600 dark:bg-dark-700 dark:text-gray-300">
+                  <span v-if="row.child_count > 0 && !row.is_child" class="flex-shrink-0 rounded-full bg-[var(--surface-2)] px-2 py-0.5 text-xs font-normal text-[var(--muted-foreground)]">
                     {{ t('batchImage.list.childCount', { n: row.child_count }, row.child_count) }}
                   </span>
                   <span v-if="row.is_child" class="flex-shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-normal text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
                     {{ t('batchImage.list.childBadge') }}
                   </span>
 	                </span>
-	                <span class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
-	                  <span>{{ formatDate(row.created_at) }}</span>
+	                <span class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted-foreground)]">
+	                  <span class="truncate font-mono" :title="row.id">{{ row.id }}</span>
 	                </span>
 	              </button>
 	            </div>
 	          </template>
 
           <template #cell-model="{ row }">
-	            <div class="mx-auto max-w-[180px] text-center">
-	              <p class="truncate text-sm text-gray-700 dark:text-gray-300" :title="row.model">{{ row.model }}</p>
+	            <div class="max-w-[220px] text-left">
+	              <p class="truncate text-sm text-[var(--foreground)]" :title="row.model">{{ row.model }}</p>
+                  <p class="mt-1 truncate text-xs text-[var(--muted-foreground)]" :title="row.api_key_name">{{ row.api_key_name || t('batchImage.list.keyNotRecorded') }}</p>
 	            </div>
 	          </template>
 
-          <template #cell-api_key_name="{ value }">
-            <span class="block truncate text-center text-sm text-gray-700 dark:text-gray-300">
-              {{ value || t('batchImage.list.keyNotRecorded') }}
-            </span>
-          </template>
-
           <template #cell-status="{ row }">
-            <div class="flex justify-center">
-              <span :class="statusBadgeClass(displayJob(row))" class="badge">
+            <div class="flex justify-start">
+              <span :class="statusBadgeClass(displayJob(row))" class="badge gap-1.5 whitespace-nowrap">
+                <span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
                 {{ statusLabel(displayJob(row)) }}
               </span>
             </div>
           </template>
 
           <template #cell-counts="{ row }">
-            <div class="flex items-center justify-center gap-2 text-sm tabular-nums">
-              <span class="text-emerald-600 dark:text-emerald-300">{{ displayJob(row).success_count }}</span>
-              <span class="text-gray-300 dark:text-dark-500">/</span>
-              <span :class="displayJob(row).fail_count > 0 ? 'text-red-600 dark:text-red-300' : 'text-gray-400 dark:text-gray-500'">{{ displayJob(row).fail_count }}</span>
-              <span class="text-xs text-gray-400 dark:text-gray-500">{{ t('batchImage.list.totalCount', { n: displayJob(row).item_count }) }}</span>
+            <div class="text-left text-sm tabular-nums">
+              <p class="font-mono">{{ displayJob(row).success_count }} / {{ displayJob(row).item_count }}</p>
+              <p class="mt-1 text-xs" :class="displayJob(row).fail_count > 0 ? 'text-red-600 dark:text-red-300' : 'text-[var(--muted-foreground)]'">{{ copy('失败', 'Failed') }} {{ displayJob(row).fail_count }}</p>
             </div>
           </template>
 
-          <template #cell-cost="{ row }">
-            <span class="block text-center text-sm text-gray-700 dark:text-gray-300">
-              {{ costLabel(displayJob(row)) }}
-            </span>
-          </template>
-
           <template #cell-downloaded="{ row }">
-            <span class="block text-center text-sm" :class="row.downloaded_at ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-500 dark:text-gray-400'">
-              {{ row.downloaded_at ? formatDate(row.downloaded_at) : t('batchImage.list.notDownloaded') }}
+            <span class="block text-left text-xs" :title="row.downloaded_at ? formatDate(row.downloaded_at) : ''" :class="row.downloaded_at ? 'text-emerald-700 dark:text-emerald-300' : 'text-[var(--muted-foreground)] '">
+              {{ row.downloaded_at ? t('batchImage.filters.downloaded') : t('batchImage.list.notDownloaded') }}
             </span>
           </template>
 
 	          <template #cell-actions="{ row }">
-	            <div class="flex items-center justify-center gap-1">
+	            <div class="flex flex-wrap items-center justify-start gap-1">
               <button
                 type="button"
-                class="batch-row-action flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                class="btn btn-ghost btn-sm batch-row-action"
                 :title="t('batchImage.actions.viewDetail')"
                 @click="selectJob(row.id)"
               >
-                <Icon name="eye" size="sm" />
-                <span class="text-xs">{{ t('common.view') }}</span>
+                {{ copy('详情', 'Details') }}
+              </button>
+              <button v-if="canRetry(row)" type="button" class="btn btn-secondary btn-sm batch-row-action" :disabled="!!retryingBatchId" @click="retryFailedJob(row)">
+                {{ t('batchImage.actions.retryFailedItems') }}
               </button>
               <button
                 type="button"
-                class="batch-row-action flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30"
-                :class="canDownload(row) ? 'text-gray-500 hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400' : 'text-gray-300 dark:text-dark-500'"
+                class="btn btn-secondary btn-sm batch-row-action"
+                :class="canDownload(row) ? 'text-[var(--muted-foreground)] hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400' : 'text-[var(--muted-foreground)] '"
                 :disabled="!canDownload(row) || downloading"
                 :title="t('batchImage.actions.downloadZip')"
                 @click="downloadJob(row)"
               >
-                <Icon
+                <Icon v-if="isDownloadingJob(row.id)"
                   :name="isDownloadingJob(row.id) ? 'refresh' : 'download'"
 	                  size="sm"
-	                  :class="isDownloadingJob(row.id) ? 'animate-spin' : ''"
+	                  :class="isDownloadingJob(row.id) ? 'motion-safe:animate-spin' : ''"
 	                />
-                <span class="text-xs">{{ t('batchImage.actions.download') }}</span>
+                <span>{{ t('batchImage.actions.downloadZip') }}</span>
 	              </button>
-              <div v-if="canRetry(row) || canDeleteRecord(row)">
-                <button
-                  type="button"
-                  class="batch-row-action flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 dark:hover:bg-dark-700 dark:hover:text-white"
-                  :class="{ 'bg-gray-100 text-gray-900 dark:bg-dark-700 dark:text-white': openMoreJobId === row.id }"
-                  :title="t('batchImage.actions.moreActions')"
-                  @click.stop="toggleMoreMenu(row, $event)"
-                >
-                  <Icon name="more" size="sm" />
-                  <span class="text-xs">{{ t('common.more') }}</span>
-                </button>
-              </div>
+              <button v-if="canCancel(row)" type="button" class="btn btn-ghost btn-sm batch-row-action" :disabled="cancelling" @click="cancelJob(row)">{{ t('common.cancel') }}</button>
+              <button v-if="canDeleteRecord(row)" type="button" class="btn btn-ghost btn-sm batch-row-action text-red-600 dark:text-red-400" :disabled="!!deletingBatchId || bulkDeleting" @click="deleteJob(row)">{{ t('batchImage.actions.deleteRecords') }}</button>
 	            </div>
 	          </template>
 
           <template #empty>
             <div class="flex min-h-[260px] flex-col items-center justify-center py-6 md:min-h-[300px]">
-              <Icon name="sparkles" size="xl" class="mb-4 h-12 w-12 text-gray-400 dark:text-dark-500" />
-              <p class="text-lg font-medium text-gray-900 dark:text-gray-100">{{ t('batchImage.list.empty') }}</p>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <Icon name="sparkles" size="xl" class="mb-4 h-12 w-12 text-[var(--muted-foreground)]" />
+              <p class="text-lg font-medium text-[var(--foreground)]">{{ t('batchImage.list.empty') }}</p>
+              <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                 {{ t('batchImage.list.emptyHint') }}
               </p>
             </div>
@@ -230,20 +224,11 @@
 
       <template #pagination>
         <div
-          v-if="visibleBatchJobs.length > 0 || pagination.page > 1"
-          class="flex flex-col gap-3 border-t border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-800 sm:flex-row sm:items-center sm:justify-between sm:px-6"
+          class="flex flex-col gap-3 border-t border-[var(--border)] bg-[var(--card)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6"
         >
-          <div class="flex flex-wrap items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
-            <i18n-t keypath="batchImage.pagination.pageNumber" tag="span" scope="global">
-              <template #page>
-                <span class="font-medium">{{ pagination.page }}</span>
-              </template>
-            </i18n-t>
-            <i18n-t keypath="batchImage.pagination.pageItems" tag="span" scope="global">
-              <template #count>
-                <span class="font-medium">{{ visibleBatchJobs.length }}</span>
-              </template>
-            </i18n-t>
+          <div class="flex flex-wrap items-center gap-3 text-sm text-[var(--foreground)]">
+            <span class="text-xs text-[var(--muted-foreground)]">{{ copy('显示', 'Showing') }} {{ visibleParentJobs.length }} / {{ parentJobs.length }} {{ copy('个父任务', 'parent jobs') }}</span>
+            <span class="text-xs text-[var(--muted-foreground)]">{{ pagination.page }} / {{ totalPages }}</span>
             <div class="flex items-center gap-2">
               <span>{{ t('pagination.perPage') }}</span>
               <Select
@@ -280,57 +265,23 @@
 
     <Teleport to="body">
       <div
-        v-if="openMoreJobId"
-        class="fixed z-[9999] w-44 overflow-hidden rounded-xl bg-white py-1 text-sm shadow-lg ring-1 ring-black/5 dark:bg-dark-800 dark:ring-white/10"
-        :style="moreMenuStyle"
-        @click.stop
-      >
-        <template v-for="job in batchJobs" :key="job.id">
-          <template v-if="job.id === openMoreJobId">
-            <button
-              v-if="canRetry(job)"
-              type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-left text-gray-700 transition-colors hover:bg-amber-50 hover:text-amber-700 disabled:opacity-60 dark:text-gray-200 dark:hover:bg-amber-900/20 dark:hover:text-amber-300"
-              :disabled="retryingBatchId === job.id"
-              @click="retryFailedJob(job)"
-            >
-              <Icon name="refresh" size="sm" :class="retryingBatchId === job.id ? 'animate-spin' : ''" />
-              {{ t('batchImage.actions.retryFailedItems') }}
-            </button>
-            <button
-              v-if="canDeleteRecord(job)"
-              type="button"
-              class="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:text-red-400 dark:hover:bg-red-900/20"
-              :disabled="deletingBatchId === job.id"
-              @click="deleteJob(job)"
-            >
-              <Icon :name="deletingBatchId === job.id ? 'refresh' : 'trash'" size="sm" :class="deletingBatchId === job.id ? 'animate-spin' : ''" />
-              {{ t('batchImage.actions.deleteRecords') }}
-            </button>
-          </template>
-        </template>
-      </div>
-    </Teleport>
-
-    <Teleport to="body">
-      <div
         v-if="promptPopover.visible"
-        class="batch-prompt-popover fixed z-[9999] rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-800 shadow-xl ring-1 ring-black/5 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-100 dark:ring-white/10"
+        class="batch-prompt-popover fixed z-[9999] rounded-lg border border-[var(--border)] bg-[var(--popover)] p-3 text-sm text-[var(--popover-foreground)] shadow-xl"
         :style="promptPopover.style"
         @mouseenter="cancelPromptPopoverClose"
         @mouseleave="schedulePromptPopoverClose"
       >
         <div class="mb-2 flex items-center justify-between gap-3">
-          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('batchImage.promptPopover.title') }}</span>
+          <span class="text-xs font-medium text-[var(--muted-foreground)]">{{ t('batchImage.promptPopover.title') }}</span>
           <button
             type="button"
-            class="rounded-md px-2 py-1 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/30 dark:text-primary-300 dark:hover:bg-primary-900/20"
+            class="rounded-md px-2 py-1 text-xs font-medium text-[var(--brand-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
             @click="copyPromptPopover"
           >
             {{ t('common.copy') }}
           </button>
         </div>
-        <p class="max-h-48 overflow-y-auto whitespace-pre-wrap break-words leading-6 selection:bg-primary-100 selection:text-primary-900 dark:selection:bg-primary-900/60 dark:selection:text-primary-100">
+        <p class="max-h-48 overflow-y-auto whitespace-pre-wrap break-words leading-6 selection:bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] selection:text-[var(--brand-text)]">
           {{ promptPopover.text }}
         </p>
       </div>
@@ -338,31 +289,38 @@
 
     <BaseDialog :show="!!currentJob" :title="t('batchImage.detail.title')" width="extra-wide" @close="closeDetail">
       <div v-if="currentJob" class="space-y-4">
-        <div class="rounded-lg border border-gray-200 bg-gray-50/70 px-4 py-3 dark:border-dark-700 dark:bg-dark-900/40">
+        <div>
+          <h3 class="text-lg font-semibold">{{ currentJob.task_name || defaultTaskName(currentJob.created_at) }}</h3>
+          <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">{{ currentJob.id }}</p>
+          <p class="mt-2 text-sm text-[var(--muted-foreground)]">{{ currentJob.model }} · {{ keyForSelectedBatch()?.name }}</p>
+        </div>
+        <div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-4 tabular-nums">
           <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
             <div class="min-w-0 text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.status') }}</p>
+              <p class="text-xs text-[var(--muted-foreground)]">{{ t('common.status') }}</p>
               <div class="mt-1 flex justify-center">
                 <span :class="statusBadgeClass(currentDisplayJob || currentJob)" class="badge whitespace-nowrap">
+                  <span class="mr-1.5 h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
                   {{ statusLabel(currentDisplayJob || currentJob) }}
                 </span>
               </div>
             </div>
             <div class="min-w-0 text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ hasChildJobs(currentJob.id) ? t('batchImage.detail.aggregatedResult') : t('batchImage.detail.result') }}</p>
+              <p class="text-xs text-[var(--muted-foreground)]">{{ hasChildJobs(currentJob.id) ? t('batchImage.detail.aggregatedResult') : t('batchImage.detail.result') }}</p>
               <p class="mt-1 flex items-center justify-center gap-2 font-medium tabular-nums">
               <span class="text-emerald-600 dark:text-emerald-300">{{ (currentDisplayJob || currentJob).success_count }}</span>
-              <span class="text-gray-300 dark:text-dark-500">/</span>
-              <span :class="(currentDisplayJob || currentJob).fail_count > 0 ? 'text-red-600 dark:text-red-300' : 'text-gray-400 dark:text-gray-500'">{{ (currentDisplayJob || currentJob).fail_count }}</span>
+              <span class="text-[var(--muted-foreground)]">/</span>
+              <span>{{ (currentDisplayJob || currentJob).item_count }}</span>
             </p>
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ copy('失败', 'Failed') }} {{ (currentDisplayJob || currentJob).fail_count }}</p>
             </div>
             <div class="min-w-0 text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('batchImage.detail.cost') }}</p>
-              <p class="mt-1 truncate font-medium text-gray-900 dark:text-white">{{ costLabel(currentDisplayJob || currentJob) }}</p>
+              <p class="text-xs text-[var(--muted-foreground)]">{{ t('batchImage.detail.cost') }}</p>
+              <p class="mt-1 truncate font-medium text-[var(--foreground)]">{{ costLabel(currentDisplayJob || currentJob) }}</p>
             </div>
             <div class="min-w-0 text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('batchImage.detail.downloadStatus') }}</p>
-              <p class="mt-1 truncate font-medium text-gray-900 dark:text-white">
+              <p class="text-xs text-[var(--muted-foreground)]">{{ t('batchImage.detail.downloadStatus') }}</p>
+              <p class="mt-1 truncate font-medium text-[var(--foreground)]">
               {{ currentJob.downloaded_at ? formatDate(currentJob.downloaded_at) : t('batchImage.list.notDownloaded') }}
             </p>
             </div>
@@ -370,15 +328,15 @@
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('batchImage.detail.items') }}</h3>
+          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('batchImage.detail.items') }}</h3>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing || loadingItems" @click="refreshDetail">
-            <Icon name="refresh" size="sm" class="mr-1.5" :class="refreshing || loadingItems ? 'animate-spin' : ''" />
+            <Icon name="refresh" size="sm" class="mr-1.5" :class="refreshing || loadingItems ? 'motion-safe:animate-spin' : ''" />
             {{ t('common.refresh') }}
           </button>
         </div>
 
-        <div v-if="items.length" class="overflow-x-auto rounded-lg border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
-          <table class="w-full min-w-[860px] table-fixed divide-y divide-gray-200 text-sm dark:divide-dark-700">
+        <div v-if="items.length" class="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)]">
+          <table class="w-full min-w-[860px] table-fixed divide-y divide-[var(--border)] text-sm">
             <colgroup>
               <col class="w-[18%]" />
               <col class="w-[34%]" />
@@ -386,16 +344,16 @@
               <col class="w-[10%]" />
               <col class="w-[26%]" />
             </colgroup>
-            <thead class="bg-gray-50 dark:bg-dark-800/80">
+            <thead class="bg-[var(--surface-2)]">
               <tr>
-                <th class="px-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400">Custom ID</th>
-                <th class="px-3 py-3 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Prompt</th>
-                <th class="px-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400">{{ t('common.status') }}</th>
-                <th class="px-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400">{{ t('batchImage.detail.preview') }}</th>
-                <th class="px-3 py-3 text-center text-sm font-medium text-gray-500 dark:text-gray-400">{{ t('batchImage.detail.result') }}</th>
+                <th class="px-3 py-3 text-center text-sm font-medium text-[var(--muted-foreground)]">Custom ID</th>
+                <th class="px-3 py-3 text-left text-sm font-medium text-[var(--muted-foreground)]">Prompt</th>
+                <th class="px-3 py-3 text-center text-sm font-medium text-[var(--muted-foreground)]">{{ t('common.status') }}</th>
+                <th class="px-3 py-3 text-center text-sm font-medium text-[var(--muted-foreground)]">{{ t('batchImage.detail.preview') }}</th>
+                <th class="px-3 py-3 text-center text-sm font-medium text-[var(--muted-foreground)]">{{ t('batchImage.detail.result') }}</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+            <tbody class="divide-y divide-[var(--border)]">
               <tr
                 v-for="item in items"
                 :key="itemPreviewKey(item)"
@@ -405,13 +363,13 @@
                 <td class="px-3 py-2.5 text-center">
                   <span
                     class="block min-w-0 truncate font-mono text-sm"
-                    :class="isRecoveredOriginalFailure(item) ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-white'"
+                    :class="isRecoveredOriginalFailure(item) ? 'text-[var(--muted-foreground)] ' : 'text-[var(--foreground)] '"
                     :title="item.custom_id"
                   >
                     {{ item.custom_id }}
                   </span>
                 </td>
-                <td class="px-3 py-2.5 text-left" :class="isRecoveredOriginalFailure(item) ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'">
+                <td class="px-3 py-2.5 text-left" :class="isRecoveredOriginalFailure(item) ? 'text-[var(--muted-foreground)] ' : 'text-[var(--foreground)] '">
                   <div
                     class="batch-prompt-trigger cursor-default truncate rounded px-1 text-sm leading-6 focus:outline-none"
                     tabindex="0"
@@ -433,7 +391,7 @@
                   </span>
                 </td>
                 <td class="px-3 py-2.5 text-center">
-                  <div class="mx-auto h-12 w-12 overflow-hidden rounded-md border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-800">
+                  <div class="mx-auto h-12 w-12 overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-2)]">
                     <button
                       v-if="itemPreviewUrls[itemPreviewKey(item)] && !previewErrorIds.has(itemPreviewKey(item))"
                       type="button"
@@ -451,21 +409,21 @@
                     <button
                       v-else-if="canLoadItemPreview(item)"
                       type="button"
-                      class="flex h-full w-full items-center justify-center text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 disabled:cursor-wait disabled:opacity-70 dark:text-gray-400 dark:hover:bg-dark-700"
+                      class="flex h-full w-full items-center justify-center text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)] disabled:cursor-wait disabled:opacity-70"
                       :disabled="previewLoadingIds.has(itemPreviewKey(item))"
                       :title="previewErrorIds.has(itemPreviewKey(item)) ? t('batchImage.detail.previewReload') : t('batchImage.detail.previewLoad')"
                       @click="loadItemPreview(item)"
                     >
-                      <Icon :name="previewLoadingIds.has(itemPreviewKey(item)) ? 'refresh' : 'eye'" size="sm" :class="previewLoadingIds.has(itemPreviewKey(item)) ? 'animate-spin' : ''" />
+                      <Icon :name="previewLoadingIds.has(itemPreviewKey(item)) ? 'refresh' : 'eye'" size="sm" :class="previewLoadingIds.has(itemPreviewKey(item)) ? 'motion-safe:animate-spin' : ''" />
                     </button>
-                    <div v-else class="flex h-full w-full items-center justify-center text-gray-400" :title="item.image_count > 0 ? t('batchImage.detail.previewUnavailable') : t('batchImage.detail.noImage')">
+                    <div v-else class="flex h-full w-full items-center justify-center text-[var(--muted-foreground)]" :title="item.image_count > 0 ? t('batchImage.detail.previewUnavailable') : t('batchImage.detail.noImage')">
                       <Icon name="document" size="sm" />
                     </div>
                   </div>
                 </td>
                 <td class="px-3 py-2.5 text-center">
                   <span
-                    class="inline-flex max-w-full items-center justify-center truncate rounded-md px-2.5 py-1 text-xs font-medium leading-5 ring-1 ring-inset"
+                    class="inline-flex max-w-full items-center justify-center whitespace-normal break-words rounded-md px-2.5 py-1 text-left text-xs font-medium leading-5 ring-1 ring-inset"
                     :class="itemResultClass(item)"
                     :title="itemResultLabel(item)"
                   >
@@ -476,21 +434,21 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="rounded-lg border border-dashed border-gray-200 py-10 text-center dark:border-dark-700">
-          <Icon name="refresh" size="lg" class="mx-auto mb-3 text-gray-400" :class="loadingItems ? 'animate-spin' : ''" />
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-200">
+        <div v-else class="rounded-lg border border-dashed border-[var(--border)] py-10 text-center">
+          <Icon name="refresh" size="lg" class="mx-auto mb-3 text-[var(--muted-foreground)]" :class="loadingItems ? 'motion-safe:animate-spin' : ''" />
+          <p class="text-sm font-medium text-[var(--foreground)]">
             {{ loadingItems ? t('batchImage.detail.loadingItems') : t('batchImage.detail.noItems') }}
           </p>
-          <p v-if="!loadingItems" class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p v-if="!loadingItems" class="mt-1 text-sm text-[var(--muted-foreground)]">
             {{ t('batchImage.detail.noItemsHint') }}
           </p>
         </div>
       </div>
 
       <template #footer>
-        <div class="flex justify-end gap-3">
+        <div class="flex flex-wrap justify-end gap-2">
 	          <button type="button" class="btn btn-secondary" :disabled="!currentJob || !canCancel(currentJob) || cancelling" @click="cancelSelected">
-	            <Icon v-if="cancelling" name="refresh" size="sm" class="mr-2 animate-spin" />
+	            <Icon v-if="cancelling" name="refresh" size="sm" class="mr-2 motion-safe:animate-spin" />
 	            {{ t('batchImage.actions.cancelJob') }}
 	          </button>
 	          <button
@@ -500,7 +458,7 @@
 	            :disabled="retryingBatchId === currentJob.id"
 	            @click="retrySelected"
 	          >
-	            <Icon name="refresh" size="sm" class="mr-2" :class="currentJob && retryingBatchId === currentJob.id ? 'animate-spin' : ''" />
+	            <Icon name="refresh" size="sm" class="mr-2" :class="currentJob && retryingBatchId === currentJob.id ? 'motion-safe:animate-spin' : ''" />
 	            {{ t('batchImage.actions.retryFailedItems') }}
 	          </button>
 	          <button
@@ -513,7 +471,7 @@
               :name="currentJob && isDownloadingJob(currentJob.id) ? 'refresh' : 'download'"
               size="sm"
               class="mr-2"
-              :class="currentJob && isDownloadingJob(currentJob.id) ? 'animate-spin' : ''"
+              :class="currentJob && isDownloadingJob(currentJob.id) ? 'motion-safe:animate-spin' : ''"
             />
             {{ t('batchImage.actions.downloadZip') }}
           </button>
@@ -526,7 +484,7 @@
         <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
           {{ t('batchImage.imagePreview.notice') }}
         </div>
-        <div class="flex min-h-[420px] items-center justify-center rounded-lg bg-gray-50 p-4 dark:bg-dark-900">
+        <div class="flex min-h-[420px] items-center justify-center rounded-lg bg-[var(--surface-2)] p-4">
           <img
             v-if="previewImageUrl"
             :src="previewImageUrl"
@@ -538,11 +496,12 @@
     </BaseDialog>
 
     <BaseDialog :show="showCreateModal" :title="t('batchImage.create.title')" width="wide" @close="closeCreateModal">
-      <form class="space-y-5" @submit.prevent="submitJob">
-        <div class="grid gap-4 md:grid-cols-2">
+      <form class="batch-create-form space-y-3" @submit.prevent="submitJob">
+        <fieldset :disabled="submitting || readingReferences" class="grid min-w-0 gap-3 sm:grid-cols-2">
           <div class="md:col-span-2">
-            <label class="input-label">{{ t('batchImage.create.taskName') }}</label>
+            <label for="batch-task-name" class="input-label">{{ t('batchImage.create.taskName') }}</label>
             <input
+              id="batch-task-name"
               v-model="form.taskName"
               type="text"
               maxlength="255"
@@ -551,22 +510,22 @@
             />
           </div>
 
-          <div class="md:col-span-2">
-            <label class="input-label">API Key</label>
-            <select v-model.number="form.apiKeyId" class="input" :disabled="loadingKeys">
-              <option :value="0">{{ loadingKeys ? t('batchImage.create.loadingKeys') : t('batchImage.create.selectKeyPlaceholder') }}</option>
-              <option v-for="key in geminiApiKeys" :key="key.id" :value="key.id">
-                {{ key.name }} · {{ key.group?.name || 'Gemini' }}
+          <div>
+            <label for="batch-api-key" class="input-label">API Key</label>
+            <select id="batch-api-key" v-model.number="form.apiKeyId" class="input" :disabled="loadingKeys">
+              <option :value="0">{{ loadingKeys ? t('batchImage.create.loadingKeys') : copy('请选择活跃 API Key', 'Select an active API key') }}</option>
+              <option v-for="key in activeApiKeys" :key="key.id" :value="key.id">
+                {{ key.name }}{{ key.group?.name ? ` · ${key.group.name}` : '' }}
               </option>
             </select>
-            <p v-if="!loadingKeys && geminiApiKeys.length === 0" class="input-hint text-amber-600 dark:text-amber-400">
-              {{ t('batchImage.create.noKeysHint') }}
+            <p v-if="!loadingKeys && !hasAnyActiveKey" class="input-hint">
+              {{ copy('当前尚无可用 API 密钥', 'No active API key is available yet.') }}
             </p>
           </div>
 
           <div>
-            <label class="input-label">{{ t('batchImage.create.model') }}</label>
-            <select v-model="form.model" class="input" :disabled="loadingModels || availableBatchImageModels.length === 0">
+            <label for="batch-model" class="input-label">{{ t('batchImage.create.model') }}</label>
+            <select id="batch-model" v-model="form.model" class="input" :disabled="loadingModels || availableBatchImageModels.length === 0">
               <option v-if="loadingModels" value="">{{ batchImageText('loadingModels') }}</option>
               <option v-else-if="availableBatchImageModels.length === 0" value="">{{ batchImageText('noModels') }}</option>
               <option v-for="model in availableBatchImageModels" :key="model.value" :value="model.value">
@@ -581,54 +540,66 @@
             </p>
           </div>
 
-          <div>
-            <label class="input-label">{{ t('batchImage.create.imageSize') }}</label>
-            <div class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-900 dark:text-gray-300">
-              1K
+          <div v-if="selectedKeyNeedsSecret" class="sm:col-span-2">
+            <label for="batch-key-secret" class="input-label">{{ copy('完整 API Key', 'Full API key') }}</label>
+            <div class="flex gap-2">
+              <input id="batch-key-secret" v-model="credentialDraft" type="password" autocomplete="off" spellcheck="false" class="input min-w-0 flex-1" :placeholder="copy('粘贴创建密钥时保存的完整值', 'Paste the full key saved when it was created')" @keydown.enter.prevent="connectApiKey" />
+              <button type="button" class="btn btn-secondary" :disabled="!credentialDraft.trim() || loadingModels" @click="connectApiKey">{{ copy('连接', 'Connect') }}</button>
             </div>
-            <p class="input-hint">{{ t('batchImage.create.imageSizeHint') }}</p>
+            <p class="input-hint">{{ copy('仅在当前页面内存中使用，离开后清除，不写入浏览器存储。', 'Used only in this page’s memory; cleared when you leave and never persisted in browser storage.') }}</p>
           </div>
 
           <div>
-            <label class="input-label">{{ t('batchImage.create.outputFormat') }}</label>
-            <select v-model="form.responseMimeType" class="input">
+            <label for="batch-image-size" class="input-label">{{ t('batchImage.create.imageSize') }}</label>
+            <select id="batch-image-size" v-model="form.imageSize" class="input">
+              <option>1K</option><option>2K</option><option>4K</option>
+            </select>
+            <p v-if="form.imageSize !== '1K'" class="input-hint">{{ copy('此尺寸需服务端支持；如被拒绝，请选择 1K。', 'This size requires server support. Choose 1K if rejected.') }}</p>
+          </div>
+
+          <div>
+            <label for="batch-output-format" class="input-label">{{ t('batchImage.create.outputFormat') }}</label>
+            <select id="batch-output-format" v-model="form.responseMimeType" class="input">
               <option value="image/png">PNG</option>
               <option value="image/jpeg">JPEG</option>
               <option value="image/webp">WebP</option>
             </select>
           </div>
 
-          <div>
-            <label class="input-label">{{ t('batchImage.create.estimatedOutput') }}</label>
-            <div class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-900 dark:text-gray-300">
-              {{ t('batchImage.create.estimatedOutputValue', { images: estimatedOutputCount, prompts: promptRows.length }) }}
-            </div>
-          </div>
-        </div>
+        </fieldset>
 
         <div class="space-y-3">
           <div class="flex items-center justify-between gap-3">
-            <label class="input-label mb-0">Prompt</label>
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('batchImage.create.promptAdded', { count: promptRows.length }) }}</span>
+            <label for="batch-prompts" class="input-label mb-0">{{ copy('Prompt（每行一条）', 'Prompts (one per line)') }}</label>
+            <span class="text-xs tabular-nums text-[var(--muted-foreground)]">{{ estimatedOutputCount }} / {{ BATCH_IMAGE_MAX_OUTPUTS_PER_JOB }} {{ copy('张输出', 'images') }}</span>
           </div>
-          <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-700">
+          <div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
             <textarea
+              id="batch-prompts"
               v-model="promptDraft"
-              rows="3"
-              class="h-[76px] w-full resize-y rounded-md border border-gray-300 px-3 py-2 text-sm leading-5 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900/40"
-              :placeholder="t('batchImage.create.promptPlaceholder')"
+              :disabled="submitting"
+              rows="4"
+              class="input w-full resize-y text-sm leading-5"
+              :placeholder="copy('每行输入一个提示词，可直接粘贴多行', 'Enter one prompt per line, or paste multiple lines')"
             />
-            <div class="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_112px_132px_112px] md:items-center">
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <label for="batch-custom-id" class="text-xs text-[var(--muted-foreground)]">Custom ID {{ copy('前缀（可选）', 'prefix (optional)') }}
               <input
+                id="batch-custom-id"
                 v-model="customIdDraft"
+                :disabled="submitting"
                 type="text"
-                maxlength="255"
-                class="input h-9 text-sm"
-                :placeholder="t('batchImage.create.customIdPlaceholder')"
+                maxlength="120"
+                class="input mt-1 h-9 text-sm"
+                placeholder="img"
               />
+              </label>
+              <label for="batch-output-count" class="text-xs text-[var(--muted-foreground)]">{{ t('batchImage.create.outputCountPerPrompt') }}
               <select
+                id="batch-output-count"
                 v-model.number="outputCountDraft"
-                class="batch-output-count-select input h-9 text-sm"
+                :disabled="submitting"
+                class="batch-output-count-select input mt-1 h-9 text-sm"
                 :title="t('batchImage.create.outputCountPerPrompt')"
                 :aria-label="t('batchImage.create.outputCountPerPrompt')"
               >
@@ -636,8 +607,11 @@
                   {{ t('batchImage.create.outputCountOption', { n: count }, count) }}
                 </option>
               </select>
+              </label>
+            </div>
+            <div class="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[var(--border)] p-3" :class="{ 'bg-[var(--card)]': draggingReferences }" @dragover.prevent="draggingReferences = true" @dragleave.prevent="draggingReferences = false" @drop.prevent="dropReferenceImages">
               <label
-                class="btn btn-secondary h-9 cursor-pointer justify-center text-sm"
+                class="btn btn-secondary relative h-9 cursor-pointer justify-center text-sm focus-within:ring-2 focus-within:ring-[var(--ring)]"
                 :class="referenceImageDrafts.length >= selectedModelReferenceLimit ? 'pointer-events-none opacity-60' : ''"
               >
                 <Icon name="upload" size="sm" class="mr-1.5" />
@@ -646,12 +620,14 @@
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   multiple
-                  class="hidden"
-                  :disabled="referenceImageDrafts.length >= selectedModelReferenceLimit"
+                  class="absolute inset-0 w-full cursor-pointer opacity-0"
+                  :aria-label="t('batchImage.create.referenceImage')"
+                  :disabled="submitting || readingReferences || referenceImageDrafts.length >= selectedModelReferenceLimit"
                   @change="handleReferenceImageFiles"
                 />
               </label>
-              <button type="button" class="btn btn-secondary h-9 justify-center whitespace-nowrap px-4 text-sm" :disabled="!promptDraft.trim()" @click="addPromptRow">
+              <span class="flex-1 text-xs text-[var(--muted-foreground)]">{{ readingReferences ? copy('正在读取参考图…', 'Reading images…') : copy('拖拽或选择 PNG / JPEG / WebP，每张 ≤ 10 MB', 'Drop or choose PNG / JPEG / WebP, up to 10 MB each') }}</span>
+              <button type="button" class="btn btn-secondary h-9 justify-center whitespace-nowrap px-4 text-sm" :disabled="submitting || readingReferences || !promptDraft.trim()" @click="addPromptRow">
                 <Icon name="plus" size="sm" class="mr-1.5" />
                 {{ t('common.add') }}
               </button>
@@ -660,43 +636,41 @@
               <span
                 v-for="(ref, refIndex) in referenceImageDrafts"
                 :key="`${ref.name}-${refIndex}`"
-                class="inline-flex max-w-full items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-200"
+                class="inline-flex max-w-full items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--foreground)]"
               >
+                <img :src="`data:${ref.mime_type};base64,${ref.data}`" :alt="ref.name" class="h-10 w-10 rounded object-cover" />
                 <span class="max-w-[180px] truncate">{{ ref.name }}</span>
-                <button type="button" class="text-gray-400 hover:text-red-600" :title="t('batchImage.create.removeReferenceImage')" @click="removeReferenceImageDraft(refIndex)">
+                <button type="button" class="text-[var(--muted-foreground)] hover:text-red-600" :disabled="submitting || readingReferences" :aria-label="t('batchImage.create.removeReferenceImage') + ' ' + ref.name" :title="t('batchImage.create.removeReferenceImage')" @click="removeReferenceImageDraft(refIndex)">
                   <Icon name="x" size="xs" />
                 </button>
               </span>
             </div>
-            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-2 text-xs text-[var(--muted-foreground)]">
               {{ t('batchImage.create.limitsHint', { maxPerItem: BATCH_IMAGE_MAX_OUTPUTS_PER_ITEM, maxPerJob: BATCH_IMAGE_MAX_OUTPUTS_PER_JOB, refLimit: selectedModelReferenceLimit }) }}
             </p>
           </div>
-          <div v-if="promptRows.length" class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
+          <div v-if="promptRows.length" class="max-h-36 overflow-y-auto rounded-lg border border-[var(--border)]">
             <div
               v-for="(row, index) in promptRows"
               :key="row.localId"
-              class="flex items-center gap-3 border-b border-gray-100 px-3 py-2 last:border-b-0 dark:border-dark-700"
+              class="flex items-center gap-3 border-b border-[var(--border)] px-3 py-2 last:border-b-0"
             >
-              <span class="w-20 flex-shrink-0 font-mono text-xs text-gray-500 dark:text-gray-400">{{ row.custom_id }}</span>
-              <p class="min-w-0 flex-1 truncate text-sm text-gray-800 dark:text-gray-100">{{ row.prompt }}</p>
-              <span v-if="row.output_count > 1" class="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
+              <span class="w-20 flex-shrink-0 font-mono text-xs text-[var(--muted-foreground)]">{{ row.custom_id }}</span>
+              <p class="min-w-0 flex-1 truncate text-sm text-[var(--foreground)]">{{ row.prompt }}</p>
+              <span v-if="row.output_count > 1" class="flex-shrink-0 text-xs text-[var(--muted-foreground)]">
                 x{{ row.output_count }}
               </span>
-              <span v-if="row.reference_images.length" class="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
+              <span v-if="row.reference_images.length" class="flex-shrink-0 text-xs text-[var(--muted-foreground)]">
                 {{ t('batchImage.create.referenceCount', { n: row.reference_images.length }, row.reference_images.length) }}
               </span>
-              <button type="button" class="btn-ghost btn-icon flex-shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20" :title="t('common.delete')" @click="removePromptRow(index)">
+              <button type="button" class="btn-ghost btn-icon flex-shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20" :disabled="submitting" :title="t('common.delete')" @click="removePromptRow(index)">
                 <Icon name="trash" size="sm" />
               </button>
             </div>
           </div>
-          <div v-else class="rounded-lg border border-dashed border-gray-200 px-3 py-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-gray-400">
-            {{ t('batchImage.create.noPrompts') }}
-          </div>
         </div>
 
-	        <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+	        <div class="text-xs leading-5 text-[var(--muted-foreground)]">
 	          {{ t('batchImage.create.cancelNotice') }}
 	        </div>
 	        <div v-if="submitting" class="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm leading-6 text-sky-800 dark:border-sky-800 dark:bg-sky-950/30 dark:text-sky-100">
@@ -707,8 +681,8 @@
       <template #footer>
         <div class="flex justify-end gap-3">
           <button type="button" class="btn btn-secondary" :disabled="submitting" @click="closeCreateModal">{{ t('common.cancel') }}</button>
-	          <button type="button" class="btn btn-primary inline-flex min-w-[120px] justify-center" :disabled="submitting || loadingModels || (parsedItems.length === 0 && !promptDraft.trim()) || !selectedApiKey || !form.model" @click="submitJob">
-            <Icon v-if="submitting" name="refresh" size="sm" class="mr-2 animate-spin" />
+	          <button type="button" class="btn btn-primary inline-flex min-w-[120px] justify-center" :disabled="submitting || readingReferences || loadingModels || estimatedOutputCount > BATCH_IMAGE_MAX_OUTPUTS_PER_JOB || (parsedItems.length === 0 && !promptDraft.trim()) || !selectedApiKey || !form.model" @click="submitJob">
+            <Icon v-if="submitting" name="refresh" size="sm" class="mr-2 motion-safe:animate-spin" />
             {{ submitting ? t('common.submitting') : t('batchImage.actions.submitJob') }}
           </button>
         </div>
@@ -718,23 +692,35 @@
     <BaseDialog :show="showGuideModal" :title="t('batchImage.guide.title')" width="wide" @close="showGuideModal = false">
 	      <div class="space-y-5">
 	        <section class="space-y-3">
-	          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('batchImage.guide.uiTitle') }}</h3>
-	          <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm leading-6 text-gray-700 dark:border-dark-700 dark:bg-dark-900/50 dark:text-gray-200">
-	            <p>{{ t('batchImage.guide.step1') }}</p>
-	            <p>{{ t('batchImage.guide.step2') }}</p>
+	          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('batchImage.guide.uiTitle') }}</h3>
+	          <div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm leading-7 text-[var(--foreground)]">
+	            <p>{{ copy('1. 选择活跃 API Key，再选择该密钥可用的图像模型；服务端会检查分组权限。', '1. Choose an active API key and an available image model. The server checks group permissions.') }}</p>
+	            <p>{{ copy('2. 每行填写一条 Prompt，设置 Custom ID 前缀与每条 1–4 张输出，总计最多 200 张。参考图应用于本次添加的每条 Prompt。', '2. Enter one prompt per line, an optional Custom ID prefix, and 1–4 images per prompt (up to 200 total). Reference images apply to each prompt added together.') }}</p>
 	            <p>{{ t('batchImage.guide.step3') }}</p>
-	            <p>{{ t('batchImage.guide.step4') }}</p>
+	            <p>{{ copy('4. 完成后下载含图像与 JSONL 清单的 ZIP；失败项可直接重试并追踪独立子任务。筛选与翻页会保留所选父任务。', '4. Download ZIPs containing images and JSONL manifests. Retry failed items as child jobs. Selected parent jobs persist across filters and pages.') }}</p>
 	          </div>
 	        </section>
+            <section class="space-y-2 text-sm">
+              <h3 class="font-semibold">{{ copy('API 调用', 'API requests') }}</h3>
+              <p class="text-xs text-[var(--muted-foreground)]">{{ copy('通过 Authorization: Bearer <API_KEY> 认证，提交时附带唯一 Idempotency-Key。', 'Authenticate with Authorization: Bearer <API_KEY> and use a unique Idempotency-Key for submissions.') }}</p>
+              <pre class="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs leading-6">GET    /v1/images/batches/models
+POST   /v1/images/batches
+GET    /v1/images/batches/{id}
+GET    /v1/images/batches/{id}/items
+GET    /v1/images/batches/{id}/items/{custom_id}/content
+GET    /v1/images/batches/{id}/download
+POST   /v1/images/batches/{id}/cancel
+DELETE /v1/images/batches/{id}</pre>
+            </section>
 	        <section class="space-y-3">
 	          <div class="flex flex-wrap items-center justify-between gap-3">
-	            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('batchImage.guide.skillTitle') }}</h3>
-	            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('batchImage.guide.skillDesc') }}</p>
+	            <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('batchImage.guide.skillTitle') }}</h3>
+	            <p class="text-xs text-[var(--muted-foreground)]">{{ t('batchImage.guide.skillDesc') }}</p>
 	          </div>
 	        <textarea
 	          :value="agentInstruction"
 	          readonly
-	          class="min-h-[420px] w-full resize-y rounded-md border border-gray-200 bg-gray-50 p-4 font-mono text-sm leading-6 text-gray-800 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-dark-600 dark:bg-dark-900 dark:text-gray-100 dark:focus:border-primary-500 dark:focus:ring-primary-900/40"
+	          class="min-h-[420px] w-full resize-y rounded-lg border border-white/10 bg-[#161616] p-4 font-mono text-xs leading-6 text-[#f4f4f5] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
 	        />
 	        </section>
 	      </div>
@@ -765,6 +751,7 @@ import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize, setPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useAppStore } from '@/stores/app'
 import { keysAPI } from '@/api'
+import { buildGatewayUrl } from '@/api/client'
 import {
   cancelBatchImageJob,
   deleteBatchImageJobRecord,
@@ -778,7 +765,6 @@ import {
   submitBatchImageJob,
   type BatchImageItem,
   type BatchImageJob,
-  type BatchImageJobsListOptions,
   type BatchImageReferenceImage,
   type BatchImageStatus,
   type BatchImageSubmitItem,
@@ -831,23 +817,27 @@ const PREVIEW_CACHE_MAX_ENTRIES = 120
 const PREVIEW_CACHE_MAX_BYTES = 48 * 1024 * 1024
 const BATCH_IMAGE_MAX_OUTPUTS_PER_ITEM = 4
 const BATCH_IMAGE_MAX_OUTPUTS_PER_JOB = 200
+const ZIP_CRC_TABLE = Array.from({ length: 256 }, (_, value) => {
+  let checksum = value
+  for (let bit = 0; bit < 8; bit += 1) checksum = (checksum >>> 1) ^ ((checksum & 1) ? 0xedb88320 : 0)
+  return checksum >>> 0
+})
 const outputCountOptions = Array.from({ length: BATCH_IMAGE_MAX_OUTPUTS_PER_ITEM }, (_, index) => index + 1)
 const batchPageSizeOptions: SelectOption[] = [20, 50, 100].map(size => ({ value: size, label: String(size) }))
 
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
 const { t, locale } = useI18n()
+const copy = (zh: string, en: string) => isZhLocale() ? zh : en
 
 const columns = computed<Column[]>(() => [
   { key: 'select', label: '', sortable: false, class: 'w-12 text-center' },
-  { key: 'id', label: t('batchImage.columns.taskName'), sortable: false, class: 'w-[240px] max-w-[240px]' },
-  { key: 'model', label: t('batchImage.columns.model'), sortable: false, class: 'w-[180px] max-w-[180px] text-center' },
-  { key: 'api_key_name', label: t('batchImage.columns.apiKey'), sortable: false, class: 'w-40 max-w-40 text-center' },
-  { key: 'status', label: t('common.status'), sortable: false, class: 'w-28 text-center' },
-  { key: 'counts', label: t('batchImage.columns.result'), sortable: false, class: 'w-32 text-center' },
-  { key: 'cost', label: t('batchImage.columns.cost'), sortable: false, class: 'w-36 text-center' },
-  { key: 'downloaded', label: t('batchImage.columns.downloadStatus'), sortable: false, class: 'w-40 text-center' },
-  { key: 'actions', label: t('common.actions'), sortable: false, class: 'w-40 text-center' },
+  { key: 'id', label: copy('任务', 'Task'), sortable: false, class: 'w-[240px] max-w-[240px] text-left' },
+  { key: 'model', label: copy('模型 / Key', 'Model / Key'), sortable: false, class: 'w-[220px] max-w-[220px] text-left' },
+  { key: 'status', label: t('common.status'), sortable: false, class: 'w-28 text-left' },
+  { key: 'counts', label: t('batchImage.columns.result'), sortable: false, class: 'w-24 text-left' },
+  { key: 'downloaded', label: copy('下载', 'Download'), sortable: false, class: 'w-24 text-left' },
+  { key: 'actions', label: t('common.actions'), sortable: false, class: 'w-[300px] text-left' },
 ])
 
 const statusFilterOptions = computed<SelectOption[]>(() => [
@@ -857,7 +847,8 @@ const statusFilterOptions = computed<SelectOption[]>(() => [
   { value: 'processing_results', label: t('batchImage.status.processingResults') },
   { value: 'settling', label: t('batchImage.status.settling') },
   { value: 'completed', label: t('batchImage.status.completed') },
-  { value: 'failed', label: t('batchImage.status.failed') },
+  { value: 'partial', label: t('batchImage.status.partialSuccess') },
+  { value: 'failed', label: copy('已失败', t('batchImage.status.failed')) },
   { value: 'cancelled', label: t('batchImage.status.cancelled') },
   { value: 'output_deleted', label: t('batchImage.status.outputDeleted') },
 ])
@@ -872,6 +863,7 @@ const form = reactive({
   apiKeyId: 0,
   taskName: '',
   model: '',
+  imageSize: '1K',
   responseMimeType: 'image/png',
 })
 
@@ -889,6 +881,8 @@ const pagination = reactive({
 })
 
 const apiKeys = ref<ApiKey[]>([])
+const sessionCredentials = reactive<Record<number, string>>({})
+const credentialDraft = ref('')
 const loadingKeys = ref(false)
 const loadingJobs = ref(false)
 const submitting = ref(false)
@@ -916,20 +910,24 @@ const promptDraft = ref('')
 const customIdDraft = ref('')
 const outputCountDraft = ref(1)
 const referenceImageDrafts = ref<ReferenceImageDraft[]>([])
+const readingReferences = ref(false)
+const draggingReferences = ref(false)
 const itemPreviewUrls = reactive<Record<string, string>>({})
 const previewLoadingIds = ref(new Set<string>())
 const previewErrorIds = ref(new Set<string>())
 const previewImageItem = ref<BatchImageItem | null>(null)
 const availableBatchImageModels = ref<Array<{ value: string; label: string }>>([])
 const modelLoadError = ref('')
-const openMoreJobId = ref('')
-const moreMenuStyle = ref<Record<string, string>>({})
 const promptPopover = reactive({
   visible: false,
   text: '',
   style: {} as Record<string, string>,
 })
 let modelRequestSeq = 0
+let jobsRequestSeq = 0
+let detailRequestSeq = 0
+let itemsRequestSeq = 0
+let previewGeneration = 0
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let previewCacheDBPromise: Promise<IDBDatabase | null> | null = null
 let previewCacheCleanupTimer: ReturnType<typeof setInterval> | null = null
@@ -937,27 +935,41 @@ let promptPopoverCloseTimer: ReturnType<typeof setTimeout> | null = null
 let promptPopoverOpenTimer: ReturnType<typeof setTimeout> | null = null
 let activePromptPopoverTarget: HTMLElement | null = null
 
-const geminiApiKeys = computed(() =>
-  apiKeys.value.filter((key) =>
-    key.status === 'active' &&
-    key.group?.platform === 'gemini' &&
-    key.group?.allow_batch_image_generation === true,
-  ),
-)
+const activeApiKeys = computed(() => apiKeys.value.filter(key => key.status === 'active')
+  .map(key => ({ ...key, key: sessionCredentials[key.id] || key.key })))
+const credentialedKeys = computed(() => activeApiKeys.value.filter(key => !isMaskedCredential(key.key)))
+const hasAnyActiveKey = computed(() => activeApiKeys.value.length > 0)
+const hasGeminiBatchKey = computed(() => activeApiKeys.value.some(key =>
+  key.group?.platform === 'gemini' && key.group?.allow_batch_image_generation === true,
+))
 
 const selectedApiKey = computed(() =>
-  geminiApiKeys.value.find((key) => key.id === Number(form.apiKeyId)) || null,
+  activeApiKeys.value.find((key) => key.id === Number(form.apiKeyId)) || null,
 )
+const selectedKeyNeedsSecret = computed(() => !!selectedApiKey.value && isMaskedCredential(selectedApiKey.value.key))
 
-const filteredApiKeys = computed(() => {
-  const selectedFilterID = Number(filters.apiKeyId || 0)
-  if (!selectedFilterID) return geminiApiKeys.value
-  return geminiApiKeys.value.filter(key => key.id === selectedFilterID)
-})
+function isMaskedCredential(value: string | undefined) {
+  return !value || /[*•…]|\.\.\./.test(value)
+}
+
+async function connectApiKey() {
+  if (!selectedApiKey.value || !credentialDraft.value.trim() || loadingModels.value) return
+  const keyId = selectedApiKey.value.id
+  const secret = credentialDraft.value.trim()
+  if (isMaskedCredential(secret)) return
+  sessionCredentials[keyId] = secret
+  credentialDraft.value = ''
+  await loadAvailableModels()
+  if (modelLoadError.value) {
+    delete sessionCredentials[keyId]
+    return
+  }
+  await loadBatchJobs()
+}
 
 const apiKeyFilterOptions = computed<SelectOption[]>(() => [
-  { value: '', label: t('batchImage.filters.allApiKeys') },
-  ...geminiApiKeys.value.map(key => ({
+  { value: '', label: copy('全部 Key', 'All keys') },
+  ...activeApiKeys.value.map(key => ({
     value: String(key.id),
     label: key.name || `API Key #${key.id}`,
   })),
@@ -981,9 +993,24 @@ const childrenByParent = computed(() => {
   return groups
 })
 
+const parentJobs = computed(() => batchJobs.value.filter(job => !job.parent_batch_id))
+const filteredParentJobs = computed(() => parentJobs.value.filter(job => {
+  const display = displayJob(job)
+  const partial = display.status === 'completed' && display.success_count > 0 && display.fail_count > 0
+  return (!filters.taskName.trim() || job.task_name.toLocaleLowerCase().includes(filters.taskName.trim().toLocaleLowerCase()))
+    && (!filters.apiKeyId || job.api_key_id === Number(filters.apiKeyId))
+    && (!filters.status || (filters.status === 'partial' ? partial : display.status === filters.status))
+    && (!filters.downloaded || Boolean(job.downloaded_at) === (filters.downloaded === 'true'))
+}))
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredParentJobs.value.length / pagination.page_size)))
+const visibleParentJobs = computed(() => filteredParentJobs.value.slice(
+  (pagination.page - 1) * pagination.page_size, pagination.page * pagination.page_size,
+))
+
 const visibleBatchJobs = computed(() => {
   const rows: BatchImageJobRow[] = []
-  for (const job of batchJobs.value.filter(item => !item.parent_batch_id)) {
+  for (const job of visibleParentJobs.value) {
     rows.push(job)
     if (expandedParentIds.value.has(job.id)) {
       rows.push(...(childrenByParent.value.get(job.id) || []).map(child => ({ ...child, is_child: true })))
@@ -993,15 +1020,15 @@ const visibleBatchJobs = computed(() => {
 })
 
 const selectedDownloadableRows = computed(() =>
-  selectedRows.value.filter(job => canDownload(job)),
+  selectedRows.value.flatMap(job => downloadableRows(job.id)),
 )
 
 const allVisibleSelected = computed(() =>
-  visibleBatchJobs.value.length > 0 && visibleBatchJobs.value.every(job => selectedJobIds.value.has(job.id)),
+  visibleParentJobs.value.length > 0 && visibleParentJobs.value.every(job => selectedJobIds.value.has(job.id)),
 )
 
 const someVisibleSelected = computed(() =>
-  visibleBatchJobs.value.some(job => selectedJobIds.value.has(job.id)) && !allVisibleSelected.value,
+  visibleParentJobs.value.some(job => selectedJobIds.value.has(job.id)) && !allVisibleSelected.value,
 )
 
 const previewImageUrl = computed(() => {
@@ -1031,13 +1058,14 @@ const endpointBase = computed(() => {
   const configured = appStore.apiBaseUrl?.trim()
   if (configured) return configured.replace(/\/+$/, '')
   if (typeof window !== 'undefined') return window.location.origin.replace(/\/+$/, '')
-  return '<你的 Sub2API API 端点>'
+  return '<你的 OmniHive API 端点>'
 })
 
 const selectedModelReferenceLimit = computed(() => referenceImageLimitForModel(form.model))
 
 const estimatedOutputCount = computed(() =>
-  promptRows.value.reduce((sum, row) => sum + normalizeOutputCount(row.output_count), 0),
+  promptRows.value.reduce((sum, row) => sum + normalizeOutputCount(row.output_count), 0)
+    + promptDraft.value.split(/\r?\n/).filter(line => line.trim()).length * normalizeOutputCount(outputCountDraft.value),
 )
 
 const parsedItems = computed<BatchImageSubmitItem[]>(() => {
@@ -1066,7 +1094,7 @@ function referenceImageLimitForModel(model: string) {
 }
 
 const agentInstruction = computed(() => `---
-name: sub2api-batch-image
+name: omnihive-batch-image
 description: 当用户希望用 Gemini/Vertex 批量生成图片、批量跑提示词、下载批量生图结果、重试失败图片时使用。
 ---
 
@@ -1155,20 +1183,28 @@ function normalizeOutputCount(value: unknown): number {
 }
 
 function addPromptRow() {
-  const prompt = promptDraft.value.trim()
-  if (!prompt) return
+  if (submitting.value || readingReferences.value) return
+  const prompts = promptDraft.value.split(/\r?\n/).map(prompt => prompt.trim()).filter(Boolean)
+  if (!prompts.length) return
+  if (estimatedOutputCount.value > BATCH_IMAGE_MAX_OUTPUTS_PER_JOB) {
+    appStore.showError(batchImageText('tooManyOutputImages'))
+    return
+  }
   const outputCount = normalizeOutputCount(outputCountDraft.value)
   const used = new Set(promptRows.value.map(row => row.custom_id))
-  const customID = uniqueCustomID(customIdDraft.value || `img_${String(promptRows.value.length + 1).padStart(3, '0')}`, used, promptRows.value.length)
   promptRows.value = [
     ...promptRows.value,
-    {
-      localId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      custom_id: customID,
-      prompt,
-      output_count: outputCount,
-      reference_images: referenceImageDrafts.value.map(({ name: _name, size: _size, ...ref }) => ref),
-    },
+    ...prompts.map((prompt, index) => {
+      const position = promptRows.value.length + index
+      const customID = uniqueCustomID(`${customIdDraft.value.trim() || 'img'}_${String(position + 1).padStart(3, '0')}`, used, position)
+      return {
+        localId: `${Date.now()}-${customID}`,
+        custom_id: customID,
+        prompt,
+        output_count: outputCount,
+        reference_images: referenceImageDrafts.value.map(({ name: _name, size: _size, ...reference }) => reference),
+      }
+    }),
   ]
   promptDraft.value = ''
   customIdDraft.value = ''
@@ -1188,6 +1224,16 @@ async function handleReferenceImageFiles(event: Event) {
   const input = event.target as HTMLInputElement
   const files = Array.from(input.files || [])
   input.value = ''
+  await addReferenceImages(files)
+}
+
+async function dropReferenceImages(event: DragEvent) {
+  draggingReferences.value = false
+  await addReferenceImages(Array.from(event.dataTransfer?.files || []))
+}
+
+async function addReferenceImages(files: File[]) {
+  if (submitting.value || readingReferences.value) return
   if (files.length === 0) return
   const limit = selectedModelReferenceLimit.value
   if (limit <= 0) {
@@ -1204,7 +1250,10 @@ async function handleReferenceImageFiles(event: Event) {
     appStore.showError(t('batchImage.create.refLimitExceededIgnored', { limit }))
   }
   const next: ReferenceImageDraft[] = []
-  for (const file of accepted) {
+  const selectedModel = form.model
+  readingReferences.value = true
+  try {
+    for (const file of accepted) {
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
       appStore.showError(t('batchImage.create.refFormatUnsupported'))
       continue
@@ -1222,8 +1271,15 @@ async function handleReferenceImageFiles(event: Event) {
       name: file.name,
       size: file.size,
     })
+    }
+    if (showCreateModal.value && form.model === selectedModel) {
+      referenceImageDrafts.value = [...referenceImageDrafts.value, ...next].slice(0, selectedModelReferenceLimit.value)
+    }
+  } catch {
+    appStore.showError(copy('参考图读取失败，请重新选择文件。', 'Could not read the reference image. Choose the file again.'))
+  } finally {
+    readingReferences.value = false
   }
-  referenceImageDrafts.value = [...referenceImageDrafts.value, ...next]
 }
 
 function readFileAsBase64(file: File): Promise<string> {
@@ -1241,12 +1297,20 @@ function readFileAsBase64(file: File): Promise<string> {
 async function loadApiKeys() {
   loadingKeys.value = true
   try {
-    const response = await keysAPI.list(1, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
-    apiKeys.value = response.items || []
-    if (!selectedApiKey.value && geminiApiKeys.value.length > 0) {
-      form.apiKeyId = geminiApiKeys.value[0].id
+    const keys: ApiKey[] = []
+    let page = 1
+    while (true) {
+      const response = await keysAPI.list(page, 100, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
+      keys.push(...(response.items || []))
+      if (page >= (response.pages || 1) || !response.items?.length) break
+      page += 1
     }
-    if (filters.apiKeyId && !geminiApiKeys.value.some(key => String(key.id) === filters.apiKeyId)) {
+    if (!viewActive) return
+    apiKeys.value = keys
+    if (!selectedApiKey.value) {
+      form.apiKeyId = activeApiKeys.value[0]?.id || 0
+    }
+    if (filters.apiKeyId && !activeApiKeys.value.some(key => String(key.id) === filters.apiKeyId)) {
       filters.apiKeyId = ''
     }
     if (!selectedApiKey.value) {
@@ -1266,7 +1330,10 @@ async function loadAvailableModels() {
   modelLoadError.value = ''
   availableBatchImageModels.value = []
   form.model = ''
-  if (!key) return
+  if (!key || isMaskedCredential(key.key)) {
+    loadingModels.value = false
+    return
+  }
 
   loadingModels.value = true
   try {
@@ -1294,13 +1361,12 @@ async function loadAvailableModels() {
 
 async function refreshPage() {
   await loadApiKeys()
-  await loadBatchJobs()
+  if (!viewActive) return
+  await Promise.all([loadAvailableModels(), loadBatchJobs()])
 }
 
 function applyFilters() {
   pagination.page = 1
-  selectedJobIds.value = new Set()
-  void loadBatchJobs()
 }
 
 function resetFilters() {
@@ -1309,17 +1375,6 @@ function resetFilters() {
   filters.status = ''
   filters.downloaded = ''
   applyFilters()
-}
-
-function listOptions(): BatchImageJobsListOptions {
-  const options: BatchImageJobsListOptions = {
-    limit: pagination.page_size,
-    cursor: String((pagination.page - 1) * pagination.page_size),
-  }
-  if (filters.taskName.trim()) options.taskName = filters.taskName.trim()
-  if (filters.status) options.status = filters.status
-  if (filters.downloaded) options.downloaded = filters.downloaded
-  return options
 }
 
 function toJobRow(job: BatchImageJob, key = selectedApiKey.value): BatchImageJobRow {
@@ -1364,7 +1419,8 @@ function displayJob<T extends Pick<BatchImageJob, 'id' | 'parent_batch_id' | 'st
   const childActual = children.reduce((sum, child) => sum + (child.actual_cost || 0), 0)
   const childActualReady = children.every(child => child.actual_cost !== null)
   const successCount = Math.min(job.item_count, job.success_count + childSuccess)
-  const failCount = Math.max(0, job.item_count - successCount)
+  const failCount = Math.max(0, job.fail_count - childSuccess)
+  const runningChild = children.find(child => !TERMINAL_STATUSES.has(child.status))
   const actualCost = job.actual_cost === null
     ? (childActualReady ? childActual : null)
     : job.actual_cost + childActual
@@ -1373,7 +1429,7 @@ function displayJob<T extends Pick<BatchImageJob, 'id' | 'parent_batch_id' | 'st
     ...job,
     success_count: successCount,
     fail_count: failCount,
-    status: failCount === 0 && TERMINAL_STATUSES.has(job.status) ? 'completed' : job.status,
+    status: runningChild?.status || (successCount === job.item_count && job.status !== 'output_deleted' ? 'completed' : job.status),
     estimated_cost: job.estimated_cost + childEstimated,
     hold_amount: job.hold_amount + childHold,
     actual_cost: actualCost,
@@ -1389,29 +1445,6 @@ function toggleChildRows(batchId: string) {
   if (next.has(batchId)) next.delete(batchId)
   else next.add(batchId)
   expandedParentIds.value = next
-}
-
-function closeMoreMenu() {
-  openMoreJobId.value = ''
-}
-
-function toggleMoreMenu(job: BatchImageJobRow, event: MouseEvent) {
-  if (openMoreJobId.value === job.id) {
-    closeMoreMenu()
-    return
-  }
-  const trigger = event.currentTarget as HTMLElement | null
-  const rect = trigger?.getBoundingClientRect()
-  if (!rect) return
-  const menuWidth = 176
-  const margin = 8
-  const left = Math.max(margin, Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - margin))
-  const top = Math.min(rect.bottom + margin, window.innerHeight - 96)
-  moreMenuStyle.value = {
-    left: `${left}px`,
-    top: `${Math.max(margin, top)}px`,
-  }
-  openMoreJobId.value = job.id
 }
 
 function cancelPromptPopoverClose() {
@@ -1495,38 +1528,50 @@ function copyPromptPopover() {
 }
 
 async function loadBatchJobs() {
-  const keys = filteredApiKeys.value
+  const requestID = ++jobsRequestSeq
+  const keys = credentialedKeys.value
   if (!keys.length) {
     batchJobs.value = []
+    selectedJobIds.value = new Set()
+    loadingJobs.value = false
     pagination.has_more = false
+    stopPolling()
     return
   }
   loadingJobs.value = true
-  closeMoreMenu()
   try {
-    const options = listOptions()
-    const results = await Promise.all(keys.map(async (key) => {
-      const result = await listBatchImageJobs(key.key, options)
-      return {
-        hasMore: Boolean(result.has_more),
-        rows: (result.data || []).map(job => toJobRow(job, key)),
+    const results = await Promise.allSettled(keys.map(async (key) => {
+      const rows = new Map<string, BatchImageJobRow>()
+      let offset = 0
+      while (true) {
+        const result = await listBatchImageJobs(key.key, { limit: 100, cursor: String(offset) })
+        if (requestID !== jobsRequestSeq) return []
+        const previousSize = rows.size
+        for (const job of result.data || []) rows.set(job.id, toJobRow(job, key))
+        if (!result.has_more || rows.size === previousSize) break
+        offset += result.data.length
       }
+      return [...rows.values()]
     }))
+    if (requestID !== jobsRequestSeq) return
+    const failures = results.filter(result => result.status === 'rejected')
+    if (failures.length) {
+      appStore.showError(batchImageErrorMessage((failures[0] as PromiseRejectedResult).reason, batchImageText('loadJobsFailed')))
+    }
     batchJobs.value = applyChildCounts(results
-      .flatMap(result => result.rows)
-      .sort((a, b) => b.created_at - a.created_at)
-      .slice(0, pagination.page_size))
-    pagination.has_more = results.some(result => result.hasMore)
-    selectedJobIds.value = new Set([...selectedJobIds.value].filter(id => visibleBatchJobs.value.some(job => job.id === id)))
+      .flatMap((result, index) => result.status === 'fulfilled' ? result.value : batchJobs.value.filter(job => job.api_key_id === keys[index].id))
+      .sort((first, second) => second.created_at - first.created_at))
+    selectedJobIds.value = new Set([...selectedJobIds.value].filter(id => batchJobs.value.some(job => job.id === id)))
+    startPolling()
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('loadJobsFailed')))
   } finally {
-    loadingJobs.value = false
+    if (requestID === jobsRequestSeq) loadingJobs.value = false
   }
 }
 
-function upsertJob(job: BatchImageJob) {
-  const next = toJobRow(job)
+function upsertJob(job: BatchImageJob, key = keyForSelectedBatch() || selectedApiKey.value) {
+  const next = toJobRow(job, key)
   const index = batchJobs.value.findIndex(item => item.id === job.id)
   if (index >= 0) {
     const rows = [...batchJobs.value]
@@ -1534,14 +1579,12 @@ function upsertJob(job: BatchImageJob) {
     batchJobs.value = applyChildCounts(rows)
     return
   }
-  batchJobs.value = applyChildCounts([next, ...batchJobs.value].slice(0, pagination.page_size))
+  batchJobs.value = applyChildCounts([next, ...batchJobs.value])
 }
 
 function handlePageChange(page: number) {
-  if (page < 1 || page === pagination.page) return
+  if (page < 1 || page > totalPages.value || page === pagination.page) return
   pagination.page = page
-  selectedJobIds.value = new Set()
-  void loadBatchJobs()
 }
 
 function handlePageSizeChange(value: string | number | boolean | null) {
@@ -1550,8 +1593,6 @@ function handlePageSizeChange(value: string | number | boolean | null) {
   pagination.page_size = nextSize
   pagination.page = 1
   setPersistedPageSize(nextSize)
-  selectedJobIds.value = new Set()
-  void loadBatchJobs()
 }
 
 function openCreateModal() {
@@ -1570,14 +1611,18 @@ function closeCreateModal() {
 function resetCreateDraft() {
   form.taskName = ''
   form.responseMimeType = 'image/png'
+  form.imageSize = '1K'
   promptRows.value = []
   promptDraft.value = ''
   customIdDraft.value = ''
   outputCountDraft.value = 1
   referenceImageDrafts.value = []
+  credentialDraft.value = ''
 }
 
 function closeDetail() {
+  detailRequestSeq += 1
+  itemsRequestSeq += 1
   closePromptPopover()
   currentJob.value = null
   selectedBatchId.value = ''
@@ -1588,14 +1633,14 @@ function closeDetail() {
 
 function keyForSelectedBatch(): ApiKey | null {
   if (selectedBatchApiKeyId.value) {
-    const key = geminiApiKeys.value.find(item => item.id === selectedBatchApiKeyId.value)
+    const key = activeApiKeys.value.find(item => item.id === selectedBatchApiKeyId.value)
     if (key) return key
   }
   return selectedApiKey.value
 }
 
 function requireApiKey(): ApiKey | null {
-  if (!selectedApiKey.value) {
+  if (!selectedApiKey.value || isMaskedCredential(selectedApiKey.value.key)) {
     appStore.showError(batchImageText('selectApiKey'))
     return null
   }
@@ -1625,7 +1670,11 @@ function validateForm(): boolean {
 }
 
 async function submitJob() {
-  if (submitting.value) return
+  if (submitting.value || readingReferences.value || loadingModels.value) return
+  if (estimatedOutputCount.value > BATCH_IMAGE_MAX_OUTPUTS_PER_JOB) {
+    appStore.showError(batchImageText('tooManyOutputImages'))
+    return
+  }
   if (promptDraft.value.trim()) addPromptRow()
   if (!validateForm()) return
   const key = requireApiKey()
@@ -1637,7 +1686,7 @@ async function submitJob() {
 	      {
 	        model: form.model,
         task_name: form.taskName.trim() || defaultTaskName(),
-        image_size: '1K',
+        image_size: form.imageSize,
         response_mime_type: form.responseMimeType,
         items: parsedItems.value,
 	      },
@@ -1662,18 +1711,21 @@ async function submitJob() {
 
 async function refreshSelected() {
   if (!selectedBatchId.value) return
+  const batchId = selectedBatchId.value
+  const requestID = ++detailRequestSeq
   const key = keyForSelectedBatch() || requireApiKey()
   if (!key) return
   refreshing.value = true
   try {
-    const job = await getBatchImageJob(key.key, selectedBatchId.value)
+    const job = await getBatchImageJob(key.key, batchId)
+    if (requestID !== detailRequestSeq || selectedBatchId.value !== batchId) return
     currentJob.value = job
-    upsertJob(job)
-    if (TERMINAL_STATUSES.has(job.status)) stopPolling()
+    upsertJob(job, key)
+    startPolling()
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('refreshFailed')))
   } finally {
-    refreshing.value = false
+    if (requestID === detailRequestSeq) refreshing.value = false
   }
 }
 
@@ -1686,8 +1738,7 @@ async function refreshDetail() {
 
 function selectJob(batchId: string) {
   const row = batchJobs.value.find(job => job.id === batchId)
-  if (row?.api_key_id && geminiApiKeys.value.some(key => key.id === row.api_key_id)) {
-    form.apiKeyId = row.api_key_id
+  if (row?.api_key_id && activeApiKeys.value.some(key => key.id === row.api_key_id)) {
     selectedBatchApiKeyId.value = row.api_key_id
   } else {
     selectedBatchApiKeyId.value = 0
@@ -1695,19 +1746,43 @@ function selectJob(batchId: string) {
   selectedBatchId.value = batchId
   currentJob.value = null
   items.value = []
+  clearItemPreviews()
   void refreshSelected()
   void loadItems()
 }
 
 function startPolling() {
-  stopPolling()
-  pollTimer = setInterval(() => {
-    if (!currentJob.value || TERMINAL_STATUSES.has(currentJob.value.status)) {
-      stopPolling()
-      return
-    }
-    void refreshSelected()
-  }, 8000)
+  if (!batchJobs.value.some(job => canCancel(job))) {
+    stopPolling()
+    return
+  }
+  if (!pollTimer) pollTimer = setInterval(() => { void pollJobs() }, 8000)
+}
+
+let pollingJobs = false
+async function pollJobs() {
+  if (pollingJobs) return
+  pollingJobs = true
+  const activeJobs = batchJobs.value.filter(job => canCancel(job))
+  try {
+    await Promise.all(activeJobs.map(async row => {
+      const key = apiKeyForJob(row)
+      if (!key) return
+      try {
+        const job = await getBatchImageJob(key.key, row.id)
+        if (!viewActive) return
+        upsertJob(job, key)
+        if (selectedBatchId.value === job.id) currentJob.value = job
+      } catch (error) {
+        if (viewActive) appStore.showError(batchImageErrorMessage(error, batchImageText('refreshFailed')))
+      }
+    }))
+    if (!viewActive) return
+    if (selectedBatchId.value) await loadItems()
+    if (!batchJobs.value.some(job => canCancel(job))) stopPolling()
+  } finally {
+    pollingJobs = false
+  }
 }
 
 function stopPolling() {
@@ -1721,8 +1796,15 @@ function canCancel(job: Pick<BatchImageJob, 'status'>) {
   return !TERMINAL_STATUSES.has(job.status)
 }
 
-function canDownload(job: Pick<BatchImageJob, 'status' | 'success_count'>) {
-  return job.status === 'completed' && job.success_count > 0
+function canDownload(job: Pick<BatchImageJob, 'status' | 'success_count'> & { id?: string }) {
+  return (job.status === 'completed' && job.success_count > 0)
+    || (!!job.id && (childrenByParent.value.get(job.id) || []).some(child => child.status === 'completed' && child.success_count > 0))
+}
+
+function downloadableRows(batchId: string) {
+  const row = batchJobs.value.find(job => job.id === batchId)
+  return [...(row ? [row] : []), ...(childrenByParent.value.get(batchId) || [])]
+    .filter(job => job.status === 'completed' && job.success_count > 0)
 }
 
 function canRetry(job: Pick<BatchImageJob, 'status' | 'fail_count'>) {
@@ -1734,17 +1816,10 @@ function isDownloadingJob(batchId: string) {
   return downloading.value && downloadingBatchId.value === batchId
 }
 
-function applyJobApiKey(job: BatchImageJobRow | Pick<BatchImageJob, 'id'>) {
-  if ('api_key_id' in job && job.api_key_id && geminiApiKeys.value.some(key => key.id === job.api_key_id)) {
-    form.apiKeyId = job.api_key_id
-  }
-}
-
 function apiKeyForJob(job: BatchImageJobRow | Pick<BatchImageJob, 'id'>): ApiKey | null {
-  if ('api_key_id' in job && job.api_key_id) {
-    return geminiApiKeys.value.find(key => key.id === job.api_key_id) || null
-  }
-  return selectedApiKey.value
+  const row = 'api_key_id' in job ? job : batchJobs.value.find(item => item.id === job.id)
+  if (row?.api_key_id) return activeApiKeys.value.find(key => key.id === row.api_key_id) || null
+  return keyForSelectedBatch()
 }
 
 function toggleJobSelection(batchId: string, checked: boolean) {
@@ -1756,27 +1831,34 @@ function toggleJobSelection(batchId: string, checked: boolean) {
 
 function toggleAllVisible(checked: boolean) {
   const next = new Set(selectedJobIds.value)
-  for (const job of visibleBatchJobs.value) {
+  for (const job of visibleParentJobs.value) {
     if (checked) next.add(job.id)
     else next.delete(job.id)
   }
   selectedJobIds.value = next
 }
 
-function canDeleteRecord(job: Pick<BatchImageJob, 'status'>) {
+function canDeleteRecord(job: Pick<BatchImageJob, 'status'> & { id?: string }) {
   return TERMINAL_STATUSES.has(job.status)
+    && (!job.id || !(childrenByParent.value.get(job.id) || []).some(child => canCancel(child)))
 }
 
 async function cancelSelected() {
   if (!currentJob.value) return
-  const key = keyForSelectedBatch() || requireApiKey()
+  await cancelJob(currentJob.value)
+}
+
+async function cancelJob(target: BatchImageJobRow | BatchImageJob) {
+  if (cancelling.value || !canCancel(target)) return
+  const key = apiKeyForJob(target)
   if (!key) return
   if (!window.confirm(batchImageText('cancelConfirm'))) return
   cancelling.value = true
   try {
-    const job = await cancelBatchImageJob(key.key, currentJob.value.id)
-    currentJob.value = job
-    upsertJob(job)
+    const job = await cancelBatchImageJob(key.key, target.id)
+    if (selectedBatchId.value === job.id) currentJob.value = job
+    upsertJob(job, key)
+    startPolling()
     appStore.showSuccess(batchImageText('cancelled'))
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('cancelFailed')))
@@ -1797,7 +1879,6 @@ async function retrySelected() {
 
 async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
   if (!canRetry(job) || retryingBatchId.value) return
-  closeMoreMenu()
   const key = apiKeyForJob(job) || keyForSelectedBatch() || requireApiKey()
   if (!key) return
   retryingBatchId.value = job.id
@@ -1828,7 +1909,7 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
     selectedBatchId.value = retryJob.id
     selectedBatchApiKeyId.value = key.id
     items.value = []
-    upsertJob(retryJob)
+    upsertJob(retryJob, key)
     if (retryJob.parent_batch_id) {
       expandedParentIds.value = new Set([...expandedParentIds.value, retryJob.parent_batch_id])
     }
@@ -1843,11 +1924,28 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
 }
 
 async function ensureItemsForRetry(apiKey: string, batchId: string) {
-  if (selectedBatchId.value === batchId && items.value.length > 0) {
-    return items.value
+  const source = await listAllItems(apiKey, batchId)
+  const children = childrenByParent.value.get(batchId) || []
+  const childItems = await Promise.all(children.map(child => listAllItems(apiKey, child.id)))
+  const recovered = new Set(childItems.flat().filter(isSuccessfulImageItem).map(item => retrySourceCustomID(item.custom_id)))
+  return source.filter(item => !recovered.has(retrySourceCustomID(item.custom_id)))
+}
+
+async function listAllItems(apiKey: string, batchId: string): Promise<BatchImageItem[]> {
+  let result = await listBatchImageItems(apiKey, batchId)
+  const collected = [...(result.data || [])]
+  while (result.has_more && result.data.length) {
+    const response = await fetch(buildGatewayUrl(`/v1/images/batches/${encodeURIComponent(batchId)}/items?limit=500&cursor=${collected.length}`), {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    })
+    if (!response.ok) throw Object.assign(new Error(batchImageText('loadItemsFailed')), { status: response.status })
+    result = await response.json()
+    const known = new Set(collected.map(item => item.custom_id))
+    const nextItems = result.data.filter(item => !known.has(item.custom_id))
+    if (!nextItems.length) break
+    collected.push(...nextItems)
   }
-  const result = await listBatchImageItems(apiKey, batchId)
-  return result.data || []
+  return collected
 }
 
 function retryCustomID(customID: string) {
@@ -1861,15 +1959,18 @@ function rootBatchIdForRetry(job: BatchImageJobRow | BatchImageJob) {
 
 async function downloadJob(job: (BatchImageJobRow | Pick<BatchImageJob, 'id'>)) {
   if (downloading.value) return
-  closeMoreMenu()
-  applyJobApiKey(job)
   const key = apiKeyForJob(job) || requireApiKey()
   if (!key) return
   downloading.value = true
   downloadingBatchId.value = job.id
   try {
-    const blob = await downloadBatchImageZip(key.key, job.id)
-    saveBlob(blob, `${job.id}.zip`)
+    const rows = downloadableRows(job.id)
+    if (rows.some(row => row.id !== job.id)) {
+      await downloadJobBundle(rows, `${job.id}.zip`)
+    } else {
+      const blob = await downloadBatchImageZip(key.key, job.id)
+      saveBlob(blob, `${job.id}.zip`)
+    }
     markJobDownloaded(job.id)
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('downloadFailed')))
@@ -1880,18 +1981,13 @@ async function downloadJob(job: (BatchImageJobRow | Pick<BatchImageJob, 'id'>)) 
 }
 
 async function downloadSelectedJobs() {
-  if (bulkDownloading.value || selectedDownloadableRows.value.length === 0) return
+  if (bulkDownloading.value || downloading.value || selectedDownloadableRows.value.length === 0) return
   bulkDownloading.value = true
+  const rows = [...selectedDownloadableRows.value]
+  const parents = [...selectedRows.value]
   try {
-    for (const row of selectedDownloadableRows.value) {
-      const key = apiKeyForJob(row)
-      if (!key) continue
-      downloading.value = true
-      downloadingBatchId.value = row.id
-      const blob = await downloadBatchImageZip(key.key, row.id)
-      saveBlob(blob, `${row.id}.zip`)
-      markJobDownloaded(row.id)
-    }
+    await downloadJobBundle(rows, `batch-images-${Date.now()}.zip`)
+    parents.filter(row => canDownload(row)).forEach(row => markJobDownloaded(row.id))
     appStore.showSuccess(batchImageText('batchDownloadStarted'))
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('downloadFailed')))
@@ -1902,9 +1998,82 @@ async function downloadSelectedJobs() {
   }
 }
 
+async function downloadJobBundle(rows: BatchImageJobRow[], filename: string) {
+    const files: Array<{ name: string; data: Uint8Array }> = []
+    let totalBytes = 0
+    for (const row of rows) {
+      const key = apiKeyForJob(row)
+      if (!key) throw new Error(batchImageText('authRequired'))
+      downloading.value = true
+      downloadingBatchId.value = row.id
+      const blob = await downloadBatchImageZip(key.key, row.id)
+      totalBytes += blob.size
+      if (totalBytes > 256 * 1024 * 1024) throw new Error(batchImageText('downloadTooLarge'))
+      files.push({ name: `${encodeURIComponent(row.id)}.zip`, data: new Uint8Array(await blob.arrayBuffer()) })
+    }
+    files.push({
+      name: 'tasks.jsonl',
+      data: new TextEncoder().encode(rows.map(row => JSON.stringify({
+        batch_id: row.id, task_name: row.task_name, model: row.model,
+        success_count: row.success_count, fail_count: row.fail_count,
+        archive: `${encodeURIComponent(row.id)}.zip`,
+      })).join('\n') + '\n'),
+    })
+    saveBlob(packZip(files), filename)
+    rows.forEach(row => markJobDownloaded(row.id))
+}
+
+function packZip(files: Array<{ name: string; data: Uint8Array }>): Blob {
+  const entries: BlobPart[] = []
+  const directory: BlobPart[] = []
+  let offset = 0
+  let directorySize = 0
+  for (const file of files) {
+    const name = new TextEncoder().encode(file.name)
+    let checksum = 0xffffffff
+    for (const byte of file.data) {
+      checksum = (checksum >>> 8) ^ ZIP_CRC_TABLE[(checksum ^ byte) & 0xff]
+    }
+    checksum = (checksum ^ 0xffffffff) >>> 0
+    const local = new Uint8Array(30)
+    const header = new DataView(local.buffer)
+    header.setUint32(0, 0x04034b50, true)
+    header.setUint16(4, 20, true)
+    header.setUint16(6, 0x0800, true)
+    header.setUint16(12, 33, true)
+    header.setUint32(14, checksum, true)
+    header.setUint32(18, file.data.length, true)
+    header.setUint32(22, file.data.length, true)
+    header.setUint16(26, name.length, true)
+    const central = new Uint8Array(46)
+    const record = new DataView(central.buffer)
+    record.setUint32(0, 0x02014b50, true)
+    record.setUint16(4, 20, true)
+    record.setUint16(6, 20, true)
+    record.setUint16(8, 0x0800, true)
+    record.setUint16(14, 33, true)
+    record.setUint32(16, checksum, true)
+    record.setUint32(20, file.data.length, true)
+    record.setUint32(24, file.data.length, true)
+    record.setUint16(28, name.length, true)
+    record.setUint32(42, offset, true)
+    entries.push(local, name, file.data)
+    directory.push(central, name)
+    offset += local.length + name.length + file.data.length
+    directorySize += central.length + name.length
+  }
+  const end = new Uint8Array(22)
+  const footer = new DataView(end.buffer)
+  footer.setUint32(0, 0x06054b50, true)
+  footer.setUint16(8, files.length, true)
+  footer.setUint16(10, files.length, true)
+  footer.setUint32(12, directorySize, true)
+  footer.setUint32(16, offset, true)
+  return new Blob([...entries, ...directory, end], { type: 'application/zip' })
+}
+
 async function deleteJob(job: BatchImageJobRow) {
   if (!canDeleteRecord(job) || deletingBatchId.value) return
-  closeMoreMenu()
   const key = apiKeyForJob(job)
   if (!key) return
   if (!window.confirm(batchImageText('deleteConfirm'))) return
@@ -1951,9 +2120,10 @@ function markJobDownloaded(batchId: string) {
 }
 
 function removeJobFromList(batchId: string) {
-  batchJobs.value = batchJobs.value.filter(job => job.id !== batchId)
-  toggleJobSelection(batchId, false)
-  if (currentJob.value?.id === batchId) closeDetail()
+  const removed = new Set([batchId, ...(childrenByParent.value.get(batchId) || []).map(job => job.id)])
+  batchJobs.value = applyChildCounts(batchJobs.value.filter(job => !removed.has(job.id)))
+  selectedJobIds.value = new Set([...selectedJobIds.value].filter(id => !removed.has(id)))
+  if (currentJob.value && removed.has(currentJob.value.id)) closeDetail()
 }
 
 function canLoadItemPreview(item: BatchImageItem) {
@@ -1989,9 +2159,9 @@ function isRecoveredOriginalFailure(item: BatchImageDetailItem) {
 
 function detailItemRowClass(item: BatchImageDetailItem) {
   if (isRecoveredOriginalFailure(item)) {
-    return 'bg-gray-50/80 text-gray-400 hover:bg-gray-100/80 dark:bg-dark-900/60 dark:text-gray-500 dark:hover:bg-dark-800/70'
+    return 'bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:bg-[var(--surface-2)]   '
   }
-  return 'hover:bg-gray-50/70 dark:hover:bg-dark-800/60'
+  return 'hover:bg-[var(--surface-2)] '
 }
 
 function previewCacheSupported() {
@@ -2051,6 +2221,7 @@ async function getCachedPreviewBlob(cacheKey: string): Promise<Blob | null> {
 }
 
 async function hydrateCachedItemPreviews(detailItems: BatchImageDetailItem[]) {
+  const generation = previewGeneration
   const previewableItems = detailItems.filter(item => canLoadItemPreview(item))
   if (!previewableItems.length || !previewCacheSupported()) return
 
@@ -2059,6 +2230,7 @@ async function hydrateCachedItemPreviews(detailItems: BatchImageDetailItem[]) {
     const previewKey = itemPreviewKey(item)
     if (!batchId || itemPreviewUrls[previewKey] || previewErrorIds.value.has(previewKey)) return
     const cached = await getCachedPreviewBlob(previewCacheKey(batchId, item.custom_id, 0)).catch(() => null)
+    if (generation !== previewGeneration) return
     if (!cached || itemPreviewUrls[previewKey]) return
     itemPreviewUrls[previewKey] = URL.createObjectURL(cached)
   }))
@@ -2188,29 +2360,30 @@ async function loadPreviewImageSource(blob: Blob): Promise<{ image: PreviewImage
 }
 
 async function loadItems() {
+  const requestID = ++itemsRequestSeq
   const batchId = selectedBatchId.value || currentJob.value?.id || ''
   if (!batchId) return
   const key = keyForSelectedBatch() || requireApiKey()
   if (!key) return
   loadingItems.value = true
   try {
-    clearItemPreviews()
     const jobs = detailJobsForBatch(batchId)
     const results = await Promise.all(jobs.map(async (job) => {
-      const result = await listBatchImageItems(key.key, job.id)
-      return (result.data || []).map(item => ({
+      const result = await listAllItems(key.key, job.id)
+      return result.map(item => ({
         ...item,
         batch_id: job.id,
         source_task_name: detailSourceName(job, batchId),
       }))
     }))
     const detailItems = results.flat()
+    if (requestID !== itemsRequestSeq || selectedBatchId.value !== batchId) return
     items.value = detailItems
     void hydrateCachedItemPreviews(detailItems)
   } catch (error: any) {
     appStore.showError(batchImageErrorMessage(error, batchImageText('loadItemsFailed')))
   } finally {
-    loadingItems.value = false
+    if (requestID === itemsRequestSeq) loadingItems.value = false
   }
 }
 
@@ -2229,6 +2402,7 @@ function detailSourceName(job: Pick<BatchImageJobRow, 'id' | 'task_name' | 'pare
 }
 
 async function loadItemPreview(item: BatchImageItem) {
+  const generation = previewGeneration
   const batchId = item.batch_id || selectedBatchId.value || currentJob.value?.id || ''
   const previewKey = itemPreviewKey(item)
   if (!batchId || !canLoadItemPreview(item) || (itemPreviewUrls[previewKey] && !previewErrorIds.value.has(previewKey))) return
@@ -2243,17 +2417,20 @@ async function loadItemPreview(item: BatchImageItem) {
       delete itemPreviewUrls[previewKey]
     }
     const cached = await getCachedPreviewBlob(cacheKey)
+    if (generation !== previewGeneration) return
     if (cached) {
       itemPreviewUrls[previewKey] = URL.createObjectURL(cached)
       return
     }
     const blob = await getBatchImageItemContent(key.key, batchId, item.custom_id, 0)
     const thumbnail = await createThumbnailBlob(blob).catch(() => blob)
+    if (generation !== previewGeneration) return
     itemPreviewUrls[previewKey] = URL.createObjectURL(thumbnail)
     if (thumbnail !== blob || thumbnail.size <= 1024 * 1024) {
       void putCachedPreviewBlob(cacheKey, thumbnail)
     }
   } catch (error: any) {
+    if (generation !== previewGeneration) return
     previewErrorIds.value = new Set([...previewErrorIds.value, previewKey])
     appStore.showError(batchImageErrorMessage(error, batchImageText('loadPreviewFailed')))
   } finally {
@@ -2282,6 +2459,7 @@ function handlePreviewError(customID: string) {
 }
 
 function clearItemPreviews() {
+  previewGeneration += 1
   closePromptPopover()
   for (const url of Object.values(itemPreviewUrls)) {
     if (url) URL.revokeObjectURL(url)
@@ -2302,8 +2480,9 @@ function statusLabel(jobOrStatus: BatchImageStatus | Pick<BatchImageJob, 'status
   const status = typeof jobOrStatus === 'string' ? jobOrStatus : jobOrStatus.status
   if (typeof jobOrStatus !== 'string' && status === 'completed' && jobOrStatus.fail_count > 0) {
     if (jobOrStatus.success_count > 0) return t('batchImage.status.partialSuccess')
-    return t('batchImage.status.allFailed')
+    return copy('已失败', t('batchImage.status.allFailed'))
   }
+  if (status === 'failed') return copy('已失败', t('batchImage.status.failed'))
   const statusKeys: Record<string, string> = {
     queued: 'queued',
     running: 'running',
@@ -2371,10 +2550,10 @@ function itemResultLabel(item: BatchImageDetailItem) {
 }
 
 function itemResultClass(item: BatchImageDetailItem) {
-  if (isRecoveredOriginalFailure(item)) return 'bg-gray-100 text-gray-500 ring-gray-200 dark:bg-dark-800 dark:text-gray-400 dark:ring-dark-700'
+  if (isRecoveredOriginalFailure(item)) return 'bg-[var(--surface-2)] text-[var(--muted-foreground)] ring-[var(--border)]   '
   if (item.error || item.status === 'failed' || item.status === 'cancelled') return 'bg-red-50 text-red-700 ring-red-100 dark:bg-red-950/30 dark:text-red-300 dark:ring-red-900/50'
   if (item.status === 'succeeded' || item.status === 'success') return 'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:ring-emerald-900/50'
-  return 'bg-gray-50 text-gray-500 ring-gray-200 dark:bg-dark-800 dark:text-gray-400 dark:ring-dark-700'
+  return 'bg-[var(--surface-2)] text-[var(--muted-foreground)] ring-[var(--border)]   '
 }
 
 function friendlyItemError(error: BatchImageItem['error']) {
@@ -2606,9 +2785,6 @@ onMounted(() => {
   previewCacheCleanupTimer = setInterval(() => {
     void cleanupPreviewCache()
   }, 60 * 60 * 1000)
-  document.addEventListener('click', closeMoreMenu)
-  window.addEventListener('resize', closeMoreMenu)
-  window.addEventListener('scroll', closeMoreMenu, true)
   window.addEventListener('resize', closePromptPopover)
   window.addEventListener('scroll', closePromptPopover, true)
 })
@@ -2616,6 +2792,7 @@ onMounted(() => {
 watch(
   () => form.apiKeyId,
   () => {
+    credentialDraft.value = ''
     void loadAvailableModels()
   },
 )
@@ -2634,43 +2811,95 @@ watch(
   },
 )
 
+watch([totalPages, () => pagination.page], () => {
+  pagination.page = Math.min(pagination.page, totalPages.value)
+  pagination.has_more = pagination.page < totalPages.value
+})
+
+let viewActive = true
 onBeforeUnmount(() => {
+  viewActive = false
+  jobsRequestSeq += 1
+  modelRequestSeq += 1
+  detailRequestSeq += 1
+  itemsRequestSeq += 1
+  for (const keyId of Object.keys(sessionCredentials)) delete sessionCredentials[Number(keyId)]
+  credentialDraft.value = ''
   stopPolling()
   if (previewCacheCleanupTimer) {
     clearInterval(previewCacheCleanupTimer)
     previewCacheCleanupTimer = null
   }
   clearItemPreviews()
-  document.removeEventListener('click', closeMoreMenu)
-  window.removeEventListener('resize', closeMoreMenu)
-  window.removeEventListener('scroll', closeMoreMenu, true)
   window.removeEventListener('resize', closePromptPopover)
   window.removeEventListener('scroll', closePromptPopover, true)
 })
 </script>
 
 <style scoped>
+.batch-filter-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: minmax(200px, 1.6fr) repeat(3, minmax(150px, 1fr));
+}
+.batch-page :deep(td) {
+  padding-block: 0.625rem;
+}
+.batch-page :deep(.badge) {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 500;
+}
 .batch-row-action {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 42px;
-  line-height: 1;
-  outline: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0.25rem 0.5rem;
+  font-size: 12px;
+  line-height: 1.25rem;
+  white-space: nowrap;
 }
 
-.batch-row-action:focus {
-  outline: none;
+.batch-row-action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
-.batch-row-action :deep(svg) {
-  margin-right: 0 !important;
+.batch-page .btn-primary {
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
 }
 
-.batch-prompt-trigger:focus {
-  outline: none;
-  box-shadow: none;
+.batch-page :deep(th) {
+  text-transform: none;
+}
+
+.batch-create-form .input-label {
+  margin-bottom: 0.25rem;
+  font-size: 12px;
+}
+
+.batch-create-form .input {
+  min-height: 36px;
+}
+
+@media (max-width: 900px) {
+  .batch-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .batch-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.batch-prompt-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .batch-prompt-popover {

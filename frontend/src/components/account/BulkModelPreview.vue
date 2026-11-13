@@ -75,7 +75,7 @@ const addCommonModels = () => {
 </script>
 
 <template>
-  <section class="mb-3 space-y-2" data-testid="bulk-model-preview">
+  <section class="mb-3 space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3" data-testid="bulk-model-preview">
     <p class="text-sm text-secondary">{{ t(filtered ? 'admin.accounts.modelSync.bulkSelectIds' : 'admin.accounts.modelSync.bulkSavedScope') }}</p>
     <div class="flex flex-wrap gap-2">
       <button type="button" class="btn btn-secondary" data-testid="preview-each-account" :disabled="!active || filtered || running || !rows.length" @click="preview()">{{ t('admin.accounts.modelSync.previewEach') }}</button>
@@ -86,13 +86,13 @@ const addCommonModels = () => {
     <p v-if="complete && !commonModels.length" role="status">{{ t('admin.accounts.modelSync.noCommonModels') }}</p>
     <p v-else-if="rows.length && !complete" class="text-sm text-secondary">{{ t('admin.accounts.modelSync.commonRequiresComplete') }}</p>
     <div class="max-h-80 space-y-2 overflow-y-auto">
-      <div v-for="row in rows" :key="row.accountId" :data-account-id="row.accountId" class="rounded border p-2">
-        <div class="flex items-center justify-between gap-2">
+      <div v-for="row in rows" :key="row.accountId" :data-account-id="row.accountId" class="rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
           <span>#{{ row.accountId }} · {{ t(`admin.accounts.modelSync.batchState.${row.state}`) }}</span>
           <button type="button" class="btn btn-secondary" :disabled="!active || running" @click="preview(row.accountId)">{{ t(row.state === 'failed' ? 'common.tryAgain' : 'admin.accounts.syncUpstreamModels') }}</button>
         </div>
         <p v-if="row.errorKey" role="alert">{{ t(`admin.accounts.${row.errorKey}`) }}</p>
-        <p v-if="row.result" class="break-all text-sm">{{ (row.result.candidate_models ?? row.result.discovered_models ?? []).join(', ') }}</p>
+        <p v-if="row.result" class="break-all font-mono text-xs">{{ (row.result.candidate_models ?? row.result.discovered_models ?? []).join(', ') }}</p>
         <p v-if="row.result && row.state !== 'ready'" role="status">{{ t('admin.accounts.modelSync.previousPreview') }}</p>
         <ModelCatalogDetails v-if="row.result" :stale="row.state !== 'ready'" :result="row.result" :candidate-count="null" />
       </div>

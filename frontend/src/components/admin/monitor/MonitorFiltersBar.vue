@@ -1,12 +1,12 @@
 <template>
   <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
     <!-- Left: Search + Filters -->
-    <div class="flex flex-1 flex-wrap items-center gap-3">
-      <div class="relative w-full sm:w-64">
+    <div class="filter-grid w-full min-w-0 flex-1">
+      <div class="relative min-w-0">
         <Icon
           name="search"
           size="md"
-          class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+          class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
         />
         <input
           v-model="search"
@@ -21,7 +21,7 @@
         v-model="provider"
         :options="providerFilterOptions"
         :placeholder="t('admin.channelMonitor.allProviders')"
-        class="w-44"
+        class="w-full min-w-0"
         @change="$emit('reload')"
       />
 
@@ -29,7 +29,7 @@
         v-model="enabled"
         :options="enabledFilterOptions"
         :placeholder="t('admin.channelMonitor.enabledFilter')"
-        class="w-40"
+        class="w-full min-w-0"
         @change="$emit('reload')"
       />
     </div>

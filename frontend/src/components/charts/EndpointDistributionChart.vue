@@ -1,21 +1,21 @@
 <template>
-  <div class="card p-4">
-    <DistributionCaption :values="displayEndpointStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="metric" />
+  <div class="card min-w-0 border border-[var(--border)] bg-[var(--card)] p-4 tabular-nums">
+    <DistributionCaption v-if="!loading" :values="displayEndpointStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="metric" />
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+      <h3 class="text-sm font-semibold text-[var(--foreground)]">
         {{ title || t('usage.endpointDistribution') }}
       </h3>
       <div class="flex flex-wrap items-center justify-end gap-2">
         <div
           v-if="showSourceToggle"
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+          class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5"
         >
           <button
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'inbound'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'inbound')"
           >
             {{ t('usage.inbound') }}
@@ -24,8 +24,8 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'upstream'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'upstream')"
           >
             {{ t('usage.upstream') }}
@@ -34,8 +34,8 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'path'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'path')"
           >
             {{ t('usage.path') }}
@@ -44,14 +44,14 @@
 
         <div
           v-if="showMetricToggle"
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+          class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5"
         >
           <button
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="metric === 'tokens'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:metric', 'tokens')"
           >
             {{ t('admin.dashboard.metricTokens') }}
@@ -60,8 +60,8 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="metric === 'actual_cost'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:metric', 'actual_cost')"
           >
             {{ t('admin.dashboard.metricActualCost') }}
@@ -79,7 +79,7 @@
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="text-gray-500 dark:text-gray-400">
+            <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('usage.endpoint') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -88,29 +88,30 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="item in displayEndpointStats" :key="item.endpoint">
+            <template v-for="(item, index) in displayEndpointStats" :key="item.endpoint">
               <tr
-                class="border-t border-gray-100 transition-colors dark:border-dark-700"
-                :class="enableBreakdown ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-700/40' : ''"
+                class="border-t border-[var(--border)] transition-colors"
+                :class="enableBreakdown ? 'cursor-pointer hover:bg-[var(--surface-2)] ' : ''"
                 @click="enableBreakdown && toggleBreakdown(item.endpoint)"
               >
-                <td class="max-w-[180px] truncate py-1.5 font-medium" :class="enableBreakdown ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-gray-900 dark:text-white'" :title="item.endpoint">
+                <td class="max-w-[180px] truncate py-1.5 font-medium" :class="enableBreakdown ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-[var(--foreground)] '" :title="item.endpoint">
                   <span class="inline-flex items-center gap-1">
+                    <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ backgroundColor: chartColors[index % chartColors.length] }" aria-hidden="true" />
                     <svg v-if="enableBreakdown && expandedKey === item.endpoint" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     <svg v-else-if="enableBreakdown" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     {{ item.endpoint }}
                   </span>
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatNumber(item.requests) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatTokens(item.total_tokens) }}
                 </td>
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
                   USD {{ formatCost(item.actual_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   USD {{ formatCost(item.cost) }}
                 </td>
               </tr>
@@ -127,8 +128,9 @@
         </table>
       </div>
     </div>
-    <div v-else class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-      {{ t('admin.dashboard.noDataAvailable') }}
+    <div v-else class="flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]" role="status">
+      <div class="w-full space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${64 - row * 9}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
+      <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
   </div>
 </template>
@@ -214,20 +216,7 @@ const toggleBreakdown = async (endpoint: string) => {
   }
 }
 
-const chartColors = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#14b8a6',
-  '#f97316',
-  '#6366f1',
-  '#84cc16',
-  '#06b6d4',
-  '#a855f7'
-]
+const chartColors = ['#d97706', '#059669', '#6366f1', '#fbbf24', '#34d399', '#a5b4fc', '#b45309', '#047857', '#4338ca', '#f59e0b', '#10b981', '#818cf8']
 
 const displayEndpointStats = computed(() => {
   const sourceStats = props.source === 'upstream'
@@ -251,7 +240,7 @@ const chartData = computed(() => {
         data: displayEndpointStats.value.map((item) =>
           props.metric === 'actual_cost' ? item.actual_cost : item.total_tokens
         ),
-        backgroundColor: chartColors.slice(0, displayEndpointStats.value.length),
+        backgroundColor: displayEndpointStats.value.map((_, index) => chartColors[index % chartColors.length]),
         borderWidth: 0
       }
     ]
@@ -261,6 +250,8 @@ const chartData = computed(() => {
 const doughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '72%',
+  animation: false as const,
   plugins: {
     legend: {
       display: false

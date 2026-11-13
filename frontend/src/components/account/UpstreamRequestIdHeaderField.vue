@@ -30,7 +30,7 @@ const examples = computed<HeaderExample[]>(() => {
   const items: HeaderExample[] = []
   if (props.type === 'apikey') {
     items.push({
-      label: 'sub2api',
+      label: 'OmniHive',
       header: 'X-Client-Request-ID',
       note: t('admin.accounts.upstreamRequestIdHeaderHelp.sub2apiNote')
     })
@@ -71,7 +71,7 @@ const examples = computed<HeaderExample[]>(() => {
       v-model="model"
       data-testid="upstream-request-id-header"
       type="text"
-      class="input"
+      class="input font-mono text-sm"
       :placeholder="t('admin.accounts.upstreamRequestIdHeaderPlaceholder')"
     />
   </div>

@@ -1,6 +1,6 @@
 <template>
   <span
-    class="inline-flex items-center gap-1.5 tabular-nums"
+    class="pill pill-ghost inline-flex items-center gap-1.5 tabular-nums"
     :class="rankClass"
     :title="titleText"
   >
@@ -42,7 +42,7 @@
     <span v-if="showTrophy" class="sr-only">{{ ariaLabel }}</span>
     <span
       class="text-xs font-semibold"
-      :class="showTrophy ? rankClass : 'text-gray-500 dark:text-dark-300'"
+      :class="showTrophy ? rankClass : 'text-[var(--muted-foreground)]'"
     >
       {{ label }}
     </span>
@@ -115,7 +115,7 @@ const titleText = computed(() => ariaLabel.value)
 
 const rankClass = computed(() => {
   if (rankNum.value === 1) return 'text-amber-600 dark:text-amber-400'
-  if (rankNum.value === 2) return 'text-slate-500 dark:text-slate-300'
+  if (rankNum.value === 2) return 'text-[var(--muted-foreground)]'
   if (rankNum.value === 3) return 'text-amber-800 dark:text-amber-600'
   return ''
 })

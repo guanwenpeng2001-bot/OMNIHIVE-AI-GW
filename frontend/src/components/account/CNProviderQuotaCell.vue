@@ -2,7 +2,7 @@
   <div
     v-if="visible"
     data-test="cn-provider-quota"
-    class="min-w-[220px] space-y-1"
+    class="w-full min-w-[220px] max-w-[248px] space-y-1"
   >
     <!-- Tier rows: 5h + weekly utilization bars (snapshot renders on mount).
          复用账号页 UsageProgressBar：同阈值配色、同倒计时格式。 -->
@@ -18,42 +18,42 @@
       />
     </div>
 
-    <template v-if="['volcengine', 'byteplus'].includes(account.platform)">
-      <p data-test="quota-source" class="text-[10px] text-gray-500">{{ t(`admin.accounts.cnProviders.${account.platform}Quota.source`) }}</p>
-      <p v-if="observationTime" data-test="quota-observed-at" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.observedAt') }}: {{ observationTime }}</p>
-      <p v-if="!observedTiers.length && !loading" data-test="quota-unknown" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.usageUnknown') }}</p>
-    </template>
+    <div v-if="['volcengine', 'byteplus'].includes(account.platform)" class="quota-chips flex flex-wrap items-center gap-1">
+      <p data-test="quota-source">{{ t(`admin.accounts.cnProviders.${account.platform}Quota.source`) }}</p>
+      <p v-if="observationTime" data-test="quota-observed-at">{{ t('admin.accounts.cnProviders.observedAt') }}: {{ observationTime }}</p>
+      <p v-if="!observedTiers.length && !loading" data-test="quota-unknown">{{ t('admin.accounts.cnProviders.usageUnknown') }}</p>
+    </div>
 
-    <div v-if="data?.success && data.token_plan" data-test="token-plan" class="space-y-1 text-xs">
+    <div v-if="data?.success && data.token_plan" data-test="token-plan" class="quota-chips flex flex-wrap items-center gap-1">
       <p>{{ t('admin.accounts.tencentQuota.title') }} · {{ data.token_plan.product_type }} · {{ data.token_plan.unit }}</p>
       <dl v-if="data.token_plan.package_info" data-test="token-plan-package">
-        <template v-for="(value, field) in data.token_plan.package_info" :key="field">
+        <div v-for="(value, field) in data.token_plan.package_info" :key="field">
           <dt>{{ t(`admin.accounts.tencentQuota.fields.${field}`) }}</dt><dd>{{ value }}</dd>
-        </template>
+        </div>
       </dl>
       <template v-if="data.token_plan.token_summary">
         <dl>
-          <template v-for="field in cycleFields" :key="field">
+          <div v-for="field in cycleFields" :key="field">
             <dt>{{ t(`admin.accounts.tencentQuota.fields.${field}`) }}</dt><dd>{{ data.token_plan.token_summary[field] ?? t('admin.accounts.cnProviders.usageUnknown') }}</dd>
-          </template>
+          </div>
         </dl>
         <p v-for="(item, index) in data.token_plan.token_summary.billing_items" :key="index" data-test="token-plan-billing">
           {{ item.billing_item || t('admin.accounts.cnProviders.usageUnknown') }}: {{ item.total_qty ?? t('admin.accounts.cnProviders.usageUnknown') }}
         </p>
       </template>
     </div>
-    <template v-if="account.platform === 'commandcode'">
-      <p v-if="data?.success" class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}<span v-if="observationTime"> · {{ observationTime }}</span></p>
-      <p v-if="data?.plan_level" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.commandCodePlan') }}: {{ planName }}</p>
-      <p v-for="(value, bucket) in data?.credits" :key="bucket" class="text-[10px] text-gray-500">
+    <div v-if="account.platform === 'commandcode'" class="quota-chips flex flex-wrap items-center gap-1">
+      <p v-if="data?.success">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}<span v-if="observationTime"> · {{ observationTime }}</span></p>
+      <p v-if="data?.plan_level">{{ t('admin.accounts.cnProviders.commandCodePlan') }}: {{ planName }}</p>
+      <p v-for="(value, bucket) in data?.credits" :key="bucket">
         {{ t(`admin.accounts.cnProviders.${bucket}`) }}: {{ value.toFixed(2) }}
       </p>
-      <p v-if="!data?.success" data-test="commandcode-local-fallback" class="text-[10px] text-gray-400">
+      <p v-if="!data?.success" data-test="commandcode-local-fallback">
         {{ t('admin.accounts.cnProviders.commandCodeLocal') }}
       </p>
-    </template>
+    </div>
 
-    <p v-if="missingAgentSeat && !error" role="status" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.volcengineQuota.status.missing_seat') }}</p>
+    <p v-if="missingAgentSeat && !error" role="status" class="text-[10px] text-[var(--muted-foreground)]">{{ t('admin.accounts.cnProviders.volcengineQuota.status.missing_seat') }}</p>
 
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): a verb label tells users this chip is clickable. The previous
@@ -63,7 +63,7 @@
       <button
         type="button"
         data-test="cn-provider-quota-probe"
-        class="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium leading-4 text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+        class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="loading"
         :aria-busy="loading"
         :title="t('admin.accounts.cnProviders.probeTooltip')"
@@ -90,7 +90,7 @@
     <div
       v-if="error"
       role="status"
-      class="truncate text-[10px] leading-4 text-red-600 dark:text-red-400"
+      class="max-w-[260px] truncate rounded border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 text-[10px] leading-4 text-[var(--bad-text)]"
       :title="error"
     >
       {{ truncatedError }}
@@ -106,6 +106,32 @@ const commandCodeLastProbeAt = new Map<number, number>()
 const AUTO_PROBE_MAX_CONCURRENT = 2
 let autoProbeInflight = 0
 </script>
+
+<style scoped>
+.quota-chips p,
+.quota-chips dl > div {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  padding: 0.125rem 0.375rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.quota-chips dl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+</style>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'

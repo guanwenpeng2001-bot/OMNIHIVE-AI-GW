@@ -1,26 +1,24 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.welcomeBack') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.signInToAccount') }}
         </p>
       </div>
       <!-- Login Form -->
-      <form @submit.prevent="handleLogin" class="space-y-5">
+      <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
+      <form @submit.prevent="handleLogin" class="space-y-3">
         <!-- Email Input -->
         <div>
           <label for="email" class="input-label">
             {{ t('auth.emailLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="mail" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="email"
               v-model="formData.email"
@@ -29,7 +27,7 @@
               autofocus
               autocomplete="email"
               :disabled="authActionDisabled"
-              class="input pl-11"
+              class="input"
               :class="{ 'input-error': errors.email }"
               :placeholder="t('auth.emailPlaceholder')"
             />
@@ -42,9 +40,6 @@
             {{ t('auth.passwordLabel') }}
           </label>
           <div class="relative">
-            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
-              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
-            </div>
             <input
               id="password"
               v-model="formData.password"
@@ -52,32 +47,38 @@
               required
               autocomplete="current-password"
               :disabled="authActionDisabled"
-              class="input pl-11 pr-11"
+              class="input pr-11"
               :class="{ 'input-error': errors.password }"
               :placeholder="t('auth.passwordPlaceholder')"
             />
             <button
               type="button"
               @click="showPassword = !showPassword"
+              :aria-label="t('auth.passwordLabel')"
+              :aria-pressed="showPassword"
               :disabled="authActionDisabled"
-              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-[var(--muted-foreground)] transition-colors hover:text-[var(--muted-foreground)]"
             >
               <Icon v-if="showPassword" name="eyeOff" size="md" />
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
-          <div class="mt-1 flex items-center justify-between">
-            <span></span>
-            <router-link
-              v-if="passwordResetEnabled && !backendModeEnabled"
-              to="/forgot-password"
-              class="text-sm font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
-            >
-              {{ t('auth.forgotPassword') }}
-            </router-link>
-          </div>
         </div>
 
+        <LoginAgreementPrompt
+          :accepted="agreementAccepted"
+          :documents="loginAgreementDocuments"
+          :mode="loginAgreementMode"
+          :updated-at="loginAgreementUpdatedAt"
+          :visible="showAgreementModal"
+          @accept="acceptLoginAgreement"
+          @reject="rejectLoginAgreement"
+          @open="showAgreementModal = true"
+        />
+        <label class="flex items-center gap-2 text-[13px]" title="在此设备记住登录邮箱">
+          <input v-model="rememberMe" type="checkbox" class="h-4 w-4" />
+          {{ t('auth.rememberMe') }}
+        </label>
         <!-- Turnstile Widget -->
         <div v-if="captchaEnabled">
           <TurnstileWidget
@@ -98,6 +99,7 @@
         </div>
 
         <!-- Submit Button -->
+        <div class="auth-actions">
         <button
           type="submit"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
@@ -105,7 +107,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -126,32 +128,24 @@
           <Icon v-else name="login" size="md" class="mr-2" />
           {{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}
         </button>
-
-        <LoginAgreementPrompt
-          v-if="loginAgreementEnabled"
-          :accepted="agreementAccepted"
-          :documents="loginAgreementDocuments"
-          :mode="loginAgreementMode"
-          :updated-at="loginAgreementUpdatedAt"
-          :visible="showAgreementModal"
-          @accept="acceptLoginAgreement"
-          @reject="rejectLoginAgreement"
-          @open="showAgreementModal = true"
-        />
+        <router-link v-if="passwordResetEnabled && !backendModeEnabled" :to="{ path: '/forgot-password', query: router.currentRoute.value.query }" class="btn btn-outline">
+          {{ t('auth.forgotPassword') }}
+        </router-link>
+        </div>
 
         <div v-if="showPasskeyLogin || showOAuthLogin" class="space-y-3 pt-1">
           <div class="flex items-center gap-3">
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
-            <span class="text-xs text-gray-500 dark:text-dark-400">
+            <div class="h-px flex-1 bg-[var(--border)]"></div>
+            <span class="text-xs text-[var(--muted-foreground)]">
               {{ t('auth.oauthOrContinue') }}
             </span>
-            <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
+            <div class="h-px flex-1 bg-[var(--border)]"></div>
           </div>
 
           <button
             v-if="showPasskeyLogin"
             type="button"
-            class="btn btn-secondary w-full"
+            class="btn btn-secondary btn-outline w-full"
             :disabled="authActionDisabled"
             @click="handlePasskeyLogin"
           >
@@ -159,37 +153,16 @@
             {{ passkeyLoading ? t('auth.passkeySigningIn') : t('auth.passkeySignIn') }}
           </button>
 
-          <EmailOAuthButtons
+          <OAuthLoginSections
+            v-if="showOAuthLogin"
             :disabled="authActionDisabled"
             :github-enabled="githubOAuthEnabled"
             :google-enabled="googleOAuthEnabled"
-            :show-divider="false"
-            @start="handleOAuthStart"
-          />
-
-          <LinuxDoOAuthSection
-            v-if="linuxdoOAuthEnabled"
-            :disabled="authActionDisabled"
-            :show-divider="false"
-            @start="handleOAuthStart"
-          />
-          <DingTalkOAuthSection
-            v-if="dingtalkOAuthEnabled"
-            :disabled="authActionDisabled"
-            :show-divider="false"
-            @start="handleOAuthStart"
-          />
-          <WechatOAuthSection
-            v-if="wechatOAuthEnabled"
-            :disabled="authActionDisabled"
-            :show-divider="false"
-            @start="handleOAuthStart"
-          />
-          <OidcOAuthSection
-            v-if="oidcOAuthEnabled"
-            :disabled="authActionDisabled"
-            :provider-name="oidcOAuthProviderName"
-            :show-divider="false"
+            :linuxdo-enabled="linuxdoOAuthEnabled"
+            :dingtalk-enabled="dingtalkOAuthEnabled"
+            :wechat-enabled="wechatOAuthEnabled"
+            :oidc-enabled="oidcOAuthEnabled"
+            :oidc-provider-name="oidcOAuthProviderName"
             @start="handleOAuthStart"
           />
         </div>
@@ -198,15 +171,12 @@
 
     <!-- Footer -->
     <template v-if="!backendModeEnabled && publicSettingsLoaded && registrationEnabled" #footer>
-      <p class="text-gray-500 dark:text-dark-400">
-        {{ t('auth.dontHaveAccount') }}
         <router-link
-          to="/register"
-          class="font-medium text-primary-600 transition-colors hover:text-primary-500 dark:text-primary-400 dark:hover:text-primary-300"
+          :to="{ path: '/register', query: router.currentRoute.value.query }"
+          class="btn btn-outline w-full"
         >
-          {{ t('auth.signUp') }}
+          {{ t('auth.createAccount') }}<span class="sr-only">{{ t('auth.signUp') }}</span>
         </router-link>
-      </p>
     </template>
   </AuthLayout>
 
@@ -226,11 +196,7 @@ import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
-import LinuxDoOAuthSection from '@/components/auth/LinuxDoOAuthSection.vue'
-import DingTalkOAuthSection from '@/components/auth/DingTalkOAuthSection.vue'
-import OidcOAuthSection from '@/components/auth/OidcOAuthSection.vue'
-import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
-import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
+import OAuthLoginSections from '@/components/auth/OAuthLoginSections.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -268,6 +234,7 @@ const passkeyLoading = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 const publicSettingsLoaded = ref<boolean>(false)
+const rememberMe = ref(false)
 
 // Public settings
 const registrationEnabled = ref<boolean>(false)
@@ -345,12 +312,10 @@ const agreementGateActive = computed(
 )
 
 const authActionDisabled = computed(
-  () => isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value || agreementGateActive.value
+  () => isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value || (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
 )
 
-const showPasskeyLogin = computed(
-  () => passkeyEnabled.value && typeof window.PublicKeyCredential !== 'undefined'
-)
+const showPasskeyLogin = computed(() => passkeyEnabled.value)
 
 const showOAuthLogin = computed(
   () =>
@@ -372,6 +337,15 @@ watch(validationToastMessage, (value, previousValue) => {
 // ==================== Lifecycle ====================
 
 onMounted(async () => {
+  try {
+    const rememberedEmail = localStorage.getItem('auth_remembered_email')
+    if (rememberedEmail) {
+      formData.email = rememberedEmail
+      rememberMe.value = true
+    }
+  } catch {
+    rememberMe.value = false
+  }
   const expiredFlag = sessionStorage.getItem('auth_expired')
   if (expiredFlag) {
     sessionStorage.removeItem('auth_expired')
@@ -561,6 +535,7 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleLogin(): Promise<void> {
+  if (isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value) return
   // Clear previous error
   errorMessage.value = ''
 
@@ -588,6 +563,7 @@ async function handleLogin(): Promise<void> {
         : undefined
     })
 
+    persistRememberedEmail()
     // Check if 2FA is required
     if (isTotp2FARequired(response)) {
       const totpResponse = response as TotpLoginResponse
@@ -619,6 +595,7 @@ async function handleLogin(): Promise<void> {
 }
 
 async function handlePasskeyLogin(): Promise<void> {
+  if (isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value) return
   if (agreementGateActive.value) {
     appStore.showWarning(t('legal.loginAgreementPrompt.loginRequiredWarning'))
     if (loginAgreementMode.value !== 'checkbox') {
@@ -629,6 +606,9 @@ async function handlePasskeyLogin(): Promise<void> {
 
   passkeyLoading.value = true
   try {
+    if (typeof window.PublicKeyCredential === 'undefined') {
+      throw new Error(t('auth.passkeyFailed'))
+    }
     let proof: ActionCaptchaRequestProof | undefined
     if (actionCaptchaEnabled.value) {
       const result = await turnstileRef.value?.verifyAction()
@@ -660,8 +640,27 @@ async function handlePasskeyLogin(): Promise<void> {
   }
 }
 
+function persistRememberedEmail(): void {
+  try {
+    if (rememberMe.value) {
+      localStorage.setItem('auth_remembered_email', formData.email.trim())
+    } else {
+      localStorage.removeItem('auth_remembered_email')
+    }
+  } catch {
+    rememberMe.value = false
+  }
+}
+
 async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
   if (authActionDisabled.value) return
+  if (agreementGateActive.value) {
+    appStore.showWarning(t('legal.loginAgreementPrompt.loginRequiredWarning'))
+    if (loginAgreementMode.value !== 'checkbox') {
+      showAgreementModal.value = true
+    }
+    return
+  }
 
   if (!actionCaptchaEnabled.value) {
     window.location.href = buildOAuthLoginStartURL(request)
@@ -734,6 +733,52 @@ function handle2FACancel(): void {
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -743,5 +788,12 @@ function handle2FACancel(): void {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

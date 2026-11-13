@@ -1,16 +1,16 @@
 <template>
-  <section class="mx-auto w-full max-w-6xl space-y-5 px-1 py-2 sm:px-2">
+  <section class="w-full min-w-0 space-y-4 py-2">
     <header
-      class="page-header mb-0 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6"
+      class="page-header card mb-0 flex flex-wrap items-center justify-between gap-3 p-5"
     >
       <div class="min-w-0">
-        <h2 class="page-title flex items-center gap-2 text-xl font-black text-gray-900 dark:text-white">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400">
+        <h2 class="page-title flex items-center gap-2 text-xl font-black text-[var(--foreground)]">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)]">
             <Icon name="chart" size="sm" />
           </span>
           {{ t('channelMonitorV2.settings.title') }}
         </h2>
-        <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="page-description mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t('channelMonitorV2.settings.description') }}
         </p>
       </div>
@@ -53,17 +53,17 @@
 
     <div
       v-if="loading"
-      class="card flex min-h-[200px] items-center justify-center !rounded-3xl !border-0 text-sm text-gray-400 shadow-sm ring-1 ring-gray-900/5 dark:ring-dark-700"
+      class="card flex min-h-[200px] items-center justify-center text-sm text-[var(--muted-foreground)]"
     >
       <span class="animate-pulse">{{ t('channelMonitorV2.settings.loading') }}</span>
     </div>
 
     <template v-else-if="draft">
-      <div class="card divide-y divide-gray-100 !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:divide-dark-700 dark:!bg-dark-800 dark:ring-dark-700">
+      <div class="card divide-y divide-[var(--border)]">
         <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
           <div>
-            <strong class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.enableTitle') }}</strong>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+            <strong class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.enableTitle') }}</strong>
+            <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
               {{ t('channelMonitorV2.settings.enableHint') }}
             </p>
           </div>
@@ -71,22 +71,22 @@
         </div>
         <div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
           <div>
-            <strong class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.refreshTitle') }}</strong>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">{{ t('channelMonitorV2.settings.refreshHint') }}</p>
+            <strong class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.refreshTitle') }}</strong>
+            <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">{{ t('channelMonitorV2.settings.refreshHint') }}</p>
           </div>
-          <div class="tabs inline-flex w-auto" role="group" :aria-label="t('channelMonitorV2.settings.refreshAria')">
+          <div class="tabs segmented inline-flex w-auto" role="group" :aria-label="t('channelMonitorV2.settings.refreshAria')">
             <button
               type="button"
-              class="tab"
-              :class="draft.refresh_interval_seconds === 60 ? 'tab-active' : ''"
+              class="tab seg-btn"
+              :class="draft.refresh_interval_seconds === 60 ? 'tab-active seg-active' : ''"
               @click="draft.refresh_interval_seconds = 60"
             >
               1 min
             </button>
             <button
               type="button"
-              class="tab"
-              :class="draft.refresh_interval_seconds === 300 ? 'tab-active' : ''"
+              class="tab seg-btn"
+              :class="draft.refresh_interval_seconds === 300 ? 'tab-active seg-active' : ''"
               @click="draft.refresh_interval_seconds = 300"
             >
               5 min
@@ -95,21 +95,21 @@
         </div>
       </div>
 
-      <div class="card overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
+      <div class="card overflow-hidden">
         <div class="card-header !py-3">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.platformsTitle') }}</h3>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.platformsTitle') }}</h3>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t('channelMonitorV2.settings.platformsHint') }}
           </p>
         </div>
-        <div class="divide-y divide-gray-100 dark:divide-dark-700">
+        <div class="divide-y divide-[var(--border)]">
           <div
             v-for="platform in draft.platforms"
             :key="platform.platform"
             class="grid grid-cols-1 items-center gap-3 px-5 py-3 sm:grid-cols-[auto_7rem_minmax(0,1fr)_auto]"
           >
             <Toggle v-model="platform.enabled" />
-            <strong class="text-sm font-medium text-gray-900 dark:text-white">{{ platformLabel(platform.platform) }}</strong>
+            <strong class="text-sm font-medium text-[var(--foreground)]">{{ platformLabel(platform.platform) }}</strong>
             <input
               class="input"
               :value="platform.models.join(', ')"
@@ -131,11 +131,11 @@
         </div>
       </div>
 
-      <div class="card overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
+      <div class="card overflow-hidden">
         <div class="card-header flex flex-wrap items-center justify-between gap-2 !py-3">
           <div>
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.groupsTitle') }}</h3>
-            <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+            <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.groupsTitle') }}</h3>
+            <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
               {{
                 draft.group_ids.length
                   ? t('channelMonitorV2.settings.groupsSelected', { count: draft.group_ids.length })
@@ -157,7 +157,7 @@
             <label
               v-for="group in groups"
               :key="group.id"
-              class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition hover:bg-gray-50 dark:hover:bg-dark-800/60"
+              class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
             >
               <input
                 type="checkbox"
@@ -165,18 +165,18 @@
                 :checked="draft.group_ids.includes(group.id)"
                 @change="toggleGroup(group.id)"
               />
-              <span class="min-w-0 flex-1 truncate font-medium text-gray-800 dark:text-gray-100">{{ group.name }}</span>
-              <small class="shrink-0 text-xs text-gray-400">{{ platformLabel(group.platform) }} · #{{ group.id }}</small>
+              <span class="min-w-0 flex-1 truncate font-medium text-[var(--foreground)]">{{ group.name }}</span>
+              <small class="shrink-0 text-xs text-[var(--muted-foreground)]">{{ platformLabel(group.platform) }} · #{{ group.id }}</small>
             </label>
           </div>
-          <p v-if="groups.length === 0" class="empty-state py-8 text-sm text-gray-400">{{ t('channelMonitorV2.settings.groupsEmpty') }}</p>
+          <p v-if="groups.length === 0" class="empty-state py-8 text-sm text-[var(--muted-foreground)]">{{ t('channelMonitorV2.settings.groupsEmpty') }}</p>
         </div>
       </div>
 
-      <div class="card overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
+      <div class="card overflow-hidden">
         <div class="card-header !py-3">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.errorsTitle') }}</h3>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.errorsTitle') }}</h3>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t('channelMonitorV2.settings.errorsHint') }}
           </p>
         </div>
@@ -185,7 +185,7 @@
             <label
               v-for="category in errorCategories"
               :key="category"
-              class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition hover:bg-gray-50 dark:hover:bg-dark-800/60"
+              class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--surface-2)]"
             >
               <input
                 type="checkbox"
@@ -193,14 +193,14 @@
                 :checked="isCategoryIgnored(category)"
                 @change="toggleIgnoredCategory(category)"
               />
-              <span class="min-w-0 flex-1 truncate font-medium text-gray-800 dark:text-gray-100">
+              <span class="min-w-0 flex-1 truncate font-medium text-[var(--foreground)]">
                 {{ categoryLabel(category) }}
               </span>
-              <small class="shrink-0 font-mono text-[10px] text-gray-400">{{ category }}</small>
+              <small class="shrink-0 font-mono text-[10px] text-[var(--muted-foreground)]">{{ category }}</small>
             </label>
           </div>
         </div>
-        <div class="border-t border-gray-100 px-5 py-3 text-xs text-gray-500 dark:border-dark-700 dark:text-dark-400">
+        <div class="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--muted-foreground)]">
           {{
             t('channelMonitorV2.settings.ignoredSummary', {
               ignored: draft.ignored_error_categories?.length || 0,
@@ -210,10 +210,10 @@
         </div>
       </div>
 
-      <div class="card overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
+      <div class="card overflow-hidden">
         <div class="card-header !py-3">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.healthTitle') }}</h3>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('channelMonitorV2.settings.healthTitle') }}</h3>
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t('channelMonitorV2.settings.healthHint') }}
           </p>
         </div>
@@ -262,8 +262,8 @@
             {{ t('channelMonitorV2.settings.namedModelsCount', { count: namedModelCount }) }}
           </template>
         </div>
-        <div class="rounded-2xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-xs text-gray-600 dark:border-dark-600 dark:bg-dark-800/50 dark:text-gray-300">
-          <p class="font-medium text-gray-800 dark:text-gray-100">{{ t('channelMonitorV2.settings.userContractTitle') }}</p>
+        <div class="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-xs text-[var(--foreground)]">
+          <p class="font-medium text-[var(--foreground)]">{{ t('channelMonitorV2.settings.userContractTitle') }}</p>
           <ul class="mt-1.5 list-disc space-y-0.5 pl-4">
             <li>{{ t('channelMonitorV2.settings.userContract.health') }}</li>
             <li>{{ t('channelMonitorV2.settings.userContract.trend') }}</li>

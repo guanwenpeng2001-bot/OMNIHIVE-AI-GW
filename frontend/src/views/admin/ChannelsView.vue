@@ -1,8 +1,23 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="channel-workbench">
       <template #filters>
-        <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+        <section class="channel-overview mb-3" aria-label="渠道定价工作台">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-sm font-semibold">渠道定价工作台</h1>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">统一模型映射、计费规则与分组绑定</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" aria-haspopup="dialog" @click="openPricingDiagnosisDrawer()">定价规则快速诊断 ›</button>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs">
+            <span>筛选结果总渠道 <b class="font-mono tabular-nums">{{ loading ? '—' : pagination.total }}</b></span>
+            <span>本页启用 <b class="font-mono tabular-nums">{{ loading ? '—' : channelOverview.active }} / {{ channels.length }}</b></span>
+            <span>本页定价规则 <b class="font-mono tabular-nums">{{ loading ? '—' : channelOverview.pricing }}</b></span>
+            <span>本页未绑定分组 <b class="font-mono tabular-nums">{{ loading ? '—' : channelOverview.unbound }}</b></span>
+          </div>
+        </section>
+        <div class="channel-filter-panel flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
           <!-- Left: Search + Filters -->
           <div class="flex flex-1 flex-wrap items-center gap-3">
             <div class="relative w-full sm:w-64">
@@ -57,8 +72,15 @@
           default-sort-order="desc"
           @sort="handleSort"
         >
-          <template #cell-name="{ value }">
-            <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+          <template #cell-name="{ row }">
+            <button type="button" class="channel-identity" aria-haspopup="dialog" :aria-label="`${row.name} · 定价诊断`" @click="openPricingDiagnosisDrawer(row)">
+              <span class="pulse-dot" :class="row.status === 'active' ? 'pulse-ok' : 'pulse-warn'" aria-hidden="true"></span>
+              <span class="min-w-0">
+                <span class="block truncate font-medium">{{ row.name }}</span>
+                <span class="mt-0.5 block font-mono text-[10px] tabular-nums opacity-60">#{{ row.id }} · {{ row.status === 'active' ? '已启用' : '已停用' }}</span>
+              </span>
+              <span class="ml-auto opacity-40" aria-hidden="true">›</span>
+            </button>
           </template>
 
           <template #cell-description="{ value }">
@@ -74,7 +96,7 @@
 
           <template #cell-group_count="{ row }">
             <span
-              class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+              class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium text-gray-800 bg-[var(--surface-2)] dark:text-gray-300"
             >
               {{ (row.group_ids || []).length }}
               {{ t('admin.channels.groupsUnit', 'groups') }}
@@ -82,12 +104,16 @@
           </template>
 
           <template #cell-pricing_count="{ row }">
-            <span
-              class="inline-flex items-center rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+            <button
+              type="button"
+              class="pricing-count inline-flex items-center rounded border px-2 py-0.5 font-mono text-xs font-medium tabular-nums"
+              aria-haspopup="dialog"
+              :aria-label="`${row.name} · 定价规则诊断`"
+              @click="openPricingDiagnosisDrawer(row)"
             >
               {{ (row.model_pricing || []).length }}
               {{ t('admin.channels.pricingUnit', 'pricing rules') }}
-            </span>
+            </button>
           </template>
 
           <template #cell-created_at="{ value }">
@@ -100,7 +126,7 @@
             <div class="flex items-center gap-1">
               <button
                 @click="openEditDialog(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:text-primary-600 hover:bg-[var(--surface-2)] dark:hover:text-primary-400"
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t('common.edit', 'Edit') }}</span>
@@ -147,11 +173,13 @@
     >
       <div class="channel-dialog-body">
         <!-- Tab Bar -->
-        <div class="flex items-center border-b border-gray-200 dark:border-dark-700 flex-shrink-0 -mx-4 sm:-mx-6 px-4 sm:px-6 -mt-3 sm:-mt-4">
+        <div class="flex flex-wrap items-center border-b border-[var(--border)] flex-shrink-0 -mx-4 sm:-mx-6 px-4 sm:px-6 -mt-3 sm:-mt-4" aria-label="渠道配置分段">
           <!-- Basic Settings Tab -->
           <button
             type="button"
             @click="activeTab = 'basic'"
+            :aria-pressed="activeTab === 'basic'"
+            aria-controls="channel-form"
             class="channel-tab"
             :class="activeTab === 'basic' ? 'channel-tab-active' : 'channel-tab-inactive'"
           >
@@ -163,6 +191,8 @@
             :key="section.platform"
             type="button"
             @click="activeTab = section.platform"
+            :aria-pressed="activeTab === section.platform"
+            aria-controls="channel-form"
             class="channel-tab group"
             :class="activeTab === section.platform ? 'channel-tab-active' : 'channel-tab-inactive'"
           >
@@ -238,7 +268,7 @@
                   class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors"
                   :class="activePlatforms.includes(p)
                     ? 'bg-primary-50 border-primary-300 dark:bg-primary-900/20 dark:border-primary-700'
-                    : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"
+                    : 'border-[var(--border)] hover:bg-[var(--surface-2)]'"
                 >
                   <input
                     type="checkbox"
@@ -253,7 +283,7 @@
             </div>
 
             <!-- Apply Pricing to Account Stats (toggle only in basic settings) -->
-            <div class="border-t border-gray-200 pt-4 dark:border-dark-700">
+            <div class="border-t pt-4 border-[var(--border)]">
               <div class="flex items-center justify-between">
                 <div>
                   <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -286,7 +316,7 @@
                   ({{ t('admin.channels.form.selectedCount', { count: section.group_ids.length }) }})
                 </span>
               </label>
-              <div class="max-h-40 overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-900">
+              <div class="max-h-40 overflow-auto rounded-lg border p-2 border-[var(--border)] bg-[var(--card)]">
                 <div v-if="groupsLoading" class="py-2 text-center text-xs text-gray-500">
                   {{ t('common.loading', 'Loading...') }}
                 </div>
@@ -297,7 +327,7 @@
                   <label
                     v-for="group in getGroupsForPlatform(section.platform)"
                     :key="group.id"
-                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-gray-200 px-2 py-1 text-xs transition-colors hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700"
+                    class="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors border-[var(--border)] hover:bg-[var(--surface-2)]"
                     :class="[
                       section.group_ids.includes(group.id) ? 'bg-primary-50 border-primary-300 dark:bg-primary-900/20 dark:border-primary-700' : '',
                       isGroupInOtherChannel(group.id, section.platform) ? 'opacity-40' : ''
@@ -325,7 +355,7 @@
             </div>
 
             <!-- Web Search Emulation (Anthropic only, hidden when global disabled) -->
-            <div v-if="section.platform === 'anthropic' && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <div v-if="section.platform === 'anthropic' && webSearchGlobalEnabled" class="border-t pt-3 border-[var(--border)]">
               <div class="flex items-center justify-between">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -340,7 +370,7 @@
             </div>
 
             <!-- Codex Image Generation Bridge (OpenAI only) -->
-            <div v-if="section.platform === 'openai'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <div v-if="section.platform === 'openai'" class="border-t pt-3 border-[var(--border)]">
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -355,7 +385,7 @@
             </div>
 
             <!-- Bedrock CC Compatibility (Anthropic only) -->
-            <div v-if="section.platform === 'anthropic'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <div v-if="section.platform === 'anthropic'" class="border-t pt-3 border-[var(--border)]">
               <div class="flex items-center justify-between gap-4">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -379,7 +409,7 @@
               </div>
               <div
                 v-if="Object.keys(section.model_mapping).length === 0"
-                class="rounded border border-dashed border-gray-300 p-2 text-center text-xs text-gray-400 dark:border-dark-500"
+                class="rounded border border-dashed p-2 text-center text-xs text-gray-400 border-[var(--border)]"
               >
                 {{ t('admin.channels.form.noMappingRules', 'No mapping rules. Click "Add" to create one.') }}
               </div>
@@ -439,12 +469,13 @@
               </div>
               <div
                 v-if="section.model_pricing.length === 0"
-                class="rounded border border-dashed border-gray-300 p-2 text-center text-xs text-gray-400 dark:border-dark-500"
+                class="rounded border border-dashed p-2 text-center text-xs text-gray-400 border-[var(--border)]"
               >
                 {{ t('admin.channels.form.noPricingRules', 'No pricing rules yet. Click "Add" to create one.') }}
               </div>
               <div v-else class="space-y-2">
                 <PricingEntryCard
+                  class="channel-pricing-card"
                   v-for="(entry, idx) in section.model_pricing"
                   :key="idx"
                   :entry="entry"
@@ -462,7 +493,7 @@
             </div>
 
             <!-- Account Stats Pricing Rules (per-platform, always visible) -->
-            <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-700 space-y-3">
+            <div class="mt-4 border-t pt-4 border-[var(--border)] space-y-3">
               <div class="flex items-center justify-between">
                 <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.channels.form.accountStatsPricingRules') }}
@@ -487,7 +518,7 @@
               <div
                 v-for="(rule, ruleIndex) in section.account_stats_pricing_rules"
                 :key="ruleIndex"
-                class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+                class="space-y-3 rounded-lg border p-4 border-[var(--border)]"
               >
                 <div class="flex items-center justify-between">
                   <input
@@ -509,7 +540,7 @@
                       class="inline-flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors"
                       :class="rule.group_ids.includes(gid)
                         ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/20'
-                        : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"
+                        : 'border-[var(--border)] hover:bg-[var(--surface-2)]'"
                     >
                       <input type="checkbox" :checked="rule.group_ids.includes(gid)" class="h-3 w-3 rounded border-gray-300 text-primary-600 focus:ring-primary-500" @change="rule.group_ids.includes(gid) ? rule.group_ids.splice(rule.group_ids.indexOf(gid), 1) : rule.group_ids.push(gid)" />
                       <span :class="['font-medium', platformTextClass(section.platform)]">{{ getGroupNameById(gid) }}</span>
@@ -548,14 +579,14 @@
                     <!-- Search results dropdown -->
                     <div
                       v-if="showRuleAccountDropdown[`${section.platform}-${ruleIndex}`] && (ruleAccountSearchResults[`${section.platform}-${ruleIndex}`]?.length ?? 0) > 0"
-                      class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                      class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
                     >
                       <button
                         v-for="account in ruleAccountSearchResults[`${section.platform}-${ruleIndex}`]"
                         :key="account.id"
                         type="button"
                         @click="selectRuleAccount(rule, account, section.platform, ruleIndex)"
-                        class="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
+                        class="w-full px-3 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
                         :class="{ 'opacity-50': rule.account_ids.includes(account.id) }"
                         :disabled="rule.account_ids.includes(account.id)"
                       >
@@ -576,11 +607,12 @@
                       + {{ t('common.add') }}
                     </button>
                   </div>
-                  <div v-if="rule.pricing.length === 0" class="rounded border border-dashed border-gray-300 p-2 text-center text-xs text-gray-400 dark:border-dark-500">
+                  <div v-if="rule.pricing.length === 0" class="rounded border border-dashed p-2 text-center text-xs text-gray-400 border-[var(--border)]">
                     {{ t('admin.channels.form.noPricingRules') }}
                   </div>
                   <div v-else class="space-y-2">
                     <PricingEntryCard
+                      class="channel-pricing-card"
                       v-for="(entry, pIdx) in rule.pricing"
                       :key="pIdx"
                       :entry="entry"
@@ -665,9 +697,11 @@ import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
+import { useThemeDirection } from '@/composables/useThemeDirection'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { openDrawer } = useThemeDirection()
 
 // Web Search global enabled state (loaded once on mount)
 const webSearchGlobalEnabled = ref(false)
@@ -734,6 +768,48 @@ const billingModelSourceOptions = computed(() => [
 
 // ── State ──
 const channels = ref<Channel[]>([])
+const channelOverview = computed(() => ({
+  active: channels.value.filter(channel => channel.status === 'active').length,
+  pricing: channels.value.reduce((total, channel) => total + (channel.model_pricing || []).length, 0),
+  unbound: channels.value.filter(channel => !channel.group_ids?.length).length
+}))
+
+function escapeDiagnosisHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[character] || character))
+}
+
+function openPricingDiagnosisDrawer(channel?: Channel) {
+  const rows = channel ? [channel] : channels.value
+  const details = rows.map(item => {
+    const rules = item.model_pricing || []
+    const seenModels = new Set<string>()
+    let duplicates = 0
+    for (const rule of rules) {
+      for (const model of rule.models || []) {
+        const key = `${rule.platform}:${model.trim()}`
+        if (seenModels.has(key)) duplicates++
+        seenModels.add(key)
+      }
+    }
+    const metrics = [
+      ['绑定分组', item.group_ids?.length || 0],
+      ['独立定价规则', rules.length],
+      ['阶梯 / 时段规则', `${rules.filter(rule => rule.intervals?.length).length} / ${rules.filter(rule => rule.time_pricing?.periods?.length).length}`],
+      ['账号统计规则', item.account_stats_pricing_rules?.length || 0],
+      ['空模型规则 / 重复模型项', `${rules.filter(rule => !rule.models?.length).length} / ${duplicates}`],
+      ['模型访问限制', item.restrict_models ? '已开启' : '未开启']
+    ]
+    return `<section class="rounded-lg border p-3" style="border-color:var(--border);border-left:3px solid var(--brand)"><h3 class="mb-3 font-semibold">${escapeDiagnosisHtml(item.name)}</h3><dl class="space-y-2">${metrics.map(([label, value]) => `<div class="flex justify-between gap-3"><dt class="opacity-60">${label}</dt><dd class="font-mono tabular-nums">${escapeDiagnosisHtml(value)}</dd></div>`).join('')}</dl>${!item.group_ids?.length ? '<p class="mt-3 text-xs" style="color:var(--warn-text,var(--brand-text))">尚未绑定分组，请在渠道编辑器中检查适用范围。</p>' : ''}${!rules.length ? '<p class="mt-2 text-xs opacity-60">尚未设置独立定价，请核对分组与默认定价来源。</p>' : ''}</section>`
+  }).join('')
+  openDrawer(
+    channel ? `${channel.name} · 定价规则诊断` : '渠道定价 · 快速诊断',
+    `<p class="mb-4 text-xs opacity-60">${channel ? '当前渠道' : '当前筛选页'}配置快照；重复项仅检查同平台精确模型名，实际计费请使用规则编辑器中的预览。</p><div class="space-y-3">${details || '<p>当前筛选没有渠道。可清除筛选或创建渠道后配置定价。</p>'}</div>`,
+    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/groups">检查分组</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-action="close">返回定价工作台</button></div>'
+  )
+}
+
 const loading = ref(false)
 const searchQuery = ref('')
 const filters = reactive<{ status: ChannelStatus | '' }>({ status: '' })
@@ -1699,6 +1775,84 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+#channel-form :deep(input[type="number"]),
+#channel-form :deep(textarea) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+#channel-form :deep(.rounded-lg.border),
+#channel-form :deep(.rounded-xl.border) {
+  border-color: var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.channel-overview,
+.channel-filter-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  background: var(--card);
+}
+
+.channel-overview {
+  border-left: 3px solid var(--brand, #f59e0b);
+}
+
+.channel-workbench :deep(.table-scroll-container) {
+  box-shadow: none;
+}
+
+.channel-workbench :deep(td) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.channel-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 160px;
+  max-width: 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand, #f59e0b);
+  border-radius: 8px;
+  background: var(--card);
+  text-align: left;
+}
+
+.channel-identity:hover,
+.pricing-count:hover {
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+}
+
+.channel-identity:focus-visible,
+.pricing-count:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.pricing-count {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+
+.channel-pricing-card {
+  border-color: var(--border);
+  border-left: 3px solid var(--brand, #f59e0b);
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+
 .channel-dialog-body {
   display: flex;
   flex-direction: column;

@@ -54,19 +54,19 @@ async function perform(save: boolean) {
 </script>
 
 <template>
-  <section class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
+  <section class="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <details :open="!!error || undefined" class="space-y-3" data-testid="model-access-rules">
-    <summary class="cursor-pointer py-2 font-medium">{{ t('modelAccess.title') }}</summary>
+    <summary class="cursor-pointer rounded py-2 font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">{{ t('modelAccess.title') }}</summary>
     <p class="input-hint">{{ t('modelAccess.explanation') }}</p>
     <template v-if="loaded">
       <Select v-model="selected" :options="options" :disabled="busy" :placeholder="t('modelAccess.inherit')" />
       <label class="flex items-center gap-2 text-sm"><input v-model="limited" type="checkbox" :disabled="busy" />{{ t('modelAccess.limit') }}</label>
-      <label v-if="limited" class="block"><span class="input-label">{{ t('modelAccess.include') }}</span><textarea v-model="includeText" class="input" rows="3" :disabled="busy" /></label>
-      <label class="block"><span class="input-label">{{ t('modelAccess.exclude') }}</span><textarea v-model="excludeText" class="input" rows="2" :disabled="busy" /></label>
-      <div class="flex gap-2"><button type="button" class="btn btn-secondary" :disabled="busy" @click="perform(false)">{{ t('modelAccess.preview') }}</button><button type="button" class="btn btn-primary" :disabled="busy" @click="perform(true)">{{ t('modelAccess.save') }}</button></div>
+      <label v-show="limited" class="block"><span class="input-label">{{ t('modelAccess.include') }}</span><textarea v-model="includeText" class="input font-mono text-xs" rows="3" :disabled="busy" /></label>
+      <label class="block"><span class="input-label">{{ t('modelAccess.exclude') }}</span><textarea v-model="excludeText" class="input font-mono text-xs" rows="2" :disabled="busy" /></label>
+      <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary" :disabled="busy" @click="perform(false)">{{ t('modelAccess.preview') }}</button><button type="button" class="btn btn-primary" :disabled="busy" @click="perform(true)">{{ t('modelAccess.save') }}</button></div>
       <p v-if="saved" role="status" class="input-hint">{{ t('modelAccess.saved') }}</p>
-      <div v-if="impact" class="input-hint" role="status"><p>{{ t('modelAccess.impact', { count: impact.models.length }) }}</p><p v-if="!impact.fully_enumerable">{{ t('modelAccess.partial') }}</p><p class="max-h-32 overflow-auto break-all">{{ impact.models.join(', ') || t('modelAccess.empty') }}</p></div>
+      <div v-if="impact" class="input-hint space-y-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-3" role="status"><p>{{ t('modelAccess.impact', { count: impact.models.length }) }}</p><p v-if="!impact.fully_enumerable">{{ t('modelAccess.partial') }}</p><p class="max-h-32 overflow-auto break-all font-mono text-xs">{{ impact.models.join(', ') || t('modelAccess.empty') }}</p></div>
     </template>
     </details>
   </section>

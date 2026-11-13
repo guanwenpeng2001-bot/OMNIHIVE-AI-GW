@@ -2,51 +2,177 @@
   <AppLayout>
     <div
       data-testid="profile-shell"
-      class="mx-auto max-w-[950px] space-y-6"
+      class="w-full space-y-6"
     >
-      <ProfileInfoCard
-        :user="user"
-        :linuxdo-enabled="linuxdoOAuthEnabled"
-        :dingtalk-enabled="dingtalkOAuthEnabled"
-        :oidc-enabled="oidcOAuthEnabled"
-        :oidc-provider-name="oidcOAuthProviderName"
-        :wechat-enabled="wechatOAuthEnabled"
-        :wechat-open-enabled="wechatOAuthOpenEnabled"
-        :wechat-mp-enabled="wechatOAuthMPEnabled"
-      />
+      <!-- 界面风格「账户与安全中心」工作台概览横幅 -->
+      <section
+        class="card oh-profile-banner relative overflow-hidden p-5 sm:p-6"
+        aria-label="账户与安全中心概览"
+      >
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div class="min-w-0 space-y-2">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <h1 class="text-xl font-bold tracking-tight text-[var(--foreground)] sm:text-2xl">
+                账户与安全中心
+              </h1>
+              <span class="chip text-xs font-medium">
+                <span
+                  class="pulse-dot"
+                  :class="user?.status === 'active' ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                <span>{{ user?.status === 'active' ? '安全状态正常' : '安全防护巡检' }}</span>
+              </span>
+              <span class="pill pill-ghost font-mono text-[11px] uppercase">
+                {{ user?.role || 'user' }}
+              </span>
+            </div>
+            <p class="text-xs text-[var(--muted-foreground)] sm:text-sm">
+              集中管理身份资料、OAuth 绑定、账单时间线、密码凭证与多重身份验证（2FA / Passkey）
+            </p>
 
+            <!-- 安全状态徽章组 -->
+            <div class="flex flex-wrap items-center gap-2 pt-1">
+              <span class="chip text-xs">
+                <span class="pulse-dot pulse-ok" aria-hidden="true" />
+                <span>登录密码保护</span>
+              </span>
+              <span class="chip text-xs">
+                <span
+                  class="pulse-dot"
+                  :class="userTotpEnabled ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                <span>TOTP 2FA · {{ userTotpEnabled ? '已开启' : '可配置' }}</span>
+              </span>
+              <span class="chip text-xs">
+                <span
+                  class="pulse-dot"
+                  :class="passkeyEnabled ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                <span>Passkey · {{ passkeyEnabled ? '已就绪' : '按需启用' }}</span>
+              </span>
+              <span v-if="balanceLowNotifyEnabled" class="chip text-xs">
+                <span
+                  class="pulse-dot"
+                  :class="(user?.balance_notify_enabled ?? true) ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                <span>余额预警 · {{ (user?.balance_notify_enabled ?? true) ? '开启' : '关闭' }}</span>
+              </span>
+            </div>
+          </div>
+
+          <div
+            v-if="user"
+            class="flex shrink-0 items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"
+          >
+            <div>
+              <div class="text-[11px] text-[var(--muted-foreground)]">当前可用余额</div>
+              <div class="font-mono text-lg font-bold tabular-nums text-[var(--foreground)]">
+                ${{ (user.balance ?? 0).toFixed(2) }}
+              </div>
+            </div>
+            <div class="h-7 w-px bg-[var(--surface-2)]" aria-hidden="true" />
+            <div>
+              <div class="text-[11px] text-[var(--muted-foreground)]">并发配额</div>
+              <div class="font-mono text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                {{ user.concurrency ?? 0 }} 路
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 快捷锚点导航条 -->
+        <nav
+          class="mt-4 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-3.5"
+          aria-label="账户与安全分区快捷导航"
+        >
+          <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
+            JUMP TO
+          </span>
+          <a
+            v-for="anchor in sectionAnchors"
+            :key="anchor.id"
+            :href="`#${anchor.id}`"
+            class="oh-anchor-pill"
+          >
+            <span class="font-mono text-[10px] opacity-60">#</span>
+            <span>{{ anchor.label }}</span>
+          </a>
+        </nav>
+      </section>
+
+      <div id="profile-section-info" class="scroll-mt-20">
+        <ProfileInfoCard
+          :user="user"
+          :linuxdo-enabled="linuxdoOAuthEnabled"
+          :dingtalk-enabled="dingtalkOAuthEnabled"
+          :oidc-enabled="oidcOAuthEnabled"
+          :oidc-provider-name="oidcOAuthProviderName"
+          :wechat-enabled="wechatOAuthEnabled"
+          :wechat-open-enabled="wechatOAuthOpenEnabled"
+          :wechat-mp-enabled="wechatOAuthMPEnabled"
+        />
+      </div>
+
+      <!-- 界面琥珀金微光联系客服卡片 -->
       <div
         v-if="contactInfo"
-        class="card border-primary-200 bg-primary-50 p-6 dark:bg-primary-900/20"
+        class="card oh-amber-support-card relative overflow-hidden p-5 sm:p-6"
       >
-        <div class="flex items-center gap-4">
-          <div class="rounded-xl bg-primary-100 p-3 text-primary-600">
-            <Icon name="chat" size="lg" />
-          </div>
-          <div>
-            <h3 class="font-semibold text-primary-800 dark:text-primary-200">
-              {{ t('common.contactSupport') }}
-            </h3>
-            <p class="text-sm font-medium">{{ contactInfo }}</p>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="flex items-center gap-4">
+            <div class="oh-amber-icon-box flex h-11 w-11 shrink-0 items-center justify-center rounded-xl">
+              <Icon name="chat" size="lg" />
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="font-semibold text-amber-950 dark:text-amber-200">
+                  {{ t('common.contactSupport') }}
+                </h3>
+                <span class="pill pill-ghost font-mono text-[11px]">
+                  <span class="pulse-dot pulse-warn" aria-hidden="true" />
+                  <span>SUPPORT</span>
+                </span>
+              </div>
+              <p class="mt-1 font-mono text-sm font-medium text-amber-900 dark:text-amber-100">
+                {{ contactInfo }}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <ProfileBillingTimelineCard />
+      <div id="profile-section-billing" class="scroll-mt-20">
+        <ProfileBillingTimelineCard />
+      </div>
 
-      <ProfilePasswordForm />
+      <div id="profile-section-password" class="scroll-mt-20">
+        <ProfilePasswordForm />
+      </div>
 
-      <ProfileBalanceNotifyCard
+      <div
         v-if="user && balanceLowNotifyEnabled"
-        :enabled="user.balance_notify_enabled ?? true"
-        :threshold="user.balance_notify_threshold"
-        :extra-emails="user.balance_notify_extra_emails ?? []"
-        :system-default-threshold="systemDefaultThreshold"
-        :user-email="user.email"
-      />
+        id="profile-section-notify"
+        class="scroll-mt-20"
+      >
+        <ProfileBalanceNotifyCard
+          :enabled="user.balance_notify_enabled ?? true"
+          :threshold="user.balance_notify_threshold"
+          :extra-emails="user.balance_notify_extra_emails ?? []"
+          :system-default-threshold="systemDefaultThreshold"
+          :user-email="user.email"
+        />
+      </div>
 
-      <ProfileTotpCard />
-      <ProfilePasskeyCard :enabled="passkeyEnabled" />
+      <div id="profile-section-totp" class="scroll-mt-20">
+        <ProfileTotpCard />
+      </div>
+      <div id="profile-section-passkey" class="scroll-mt-20">
+        <ProfilePasskeyCard :enabled="passkeyEnabled" />
+      </div>
     </div>
   </AppLayout>
 </template>
@@ -70,6 +196,9 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const user = computed(() => authStore.user)
+const userTotpEnabled = computed(() =>
+  Boolean((user.value as Record<string, unknown> | null)?.totp_enabled)
+)
 
 const contactInfo = ref('')
 const balanceLowNotifyEnabled = ref(false)
@@ -82,6 +211,22 @@ const wechatOAuthMPEnabled = ref<boolean | undefined>(undefined)
 const oidcOAuthEnabled = ref(false)
 const oidcOAuthProviderName = ref('OIDC')
 const passkeyEnabled = ref(false)
+
+const sectionAnchors = computed(() => {
+  const items = [
+    { id: 'profile-section-info', label: '基本资料' },
+    { id: 'profile-section-billing', label: '账单时间线' },
+    { id: 'profile-section-password', label: '修改密码' },
+  ]
+  if (user.value && balanceLowNotifyEnabled.value) {
+    items.push({ id: 'profile-section-notify', label: '余额预警' })
+  }
+  items.push(
+    { id: 'profile-section-totp', label: '两步验证 (2FA)' },
+    { id: 'profile-section-passkey', label: 'Passkey 通行密钥' }
+  )
+  return items
+})
 
 onMounted(async () => {
   const profileRefresh = authStore.refreshUser().catch((error) => {
@@ -116,3 +261,44 @@ onMounted(async () => {
   await Promise.all([profileRefresh, settingsLoad])
 })
 </script>
+
+<style scoped>
+.oh-profile-banner {
+  background:
+    radial-gradient(460px circle at 100% 0%, color-mix(in srgb, var(--brand, #f59e0b) 10%, transparent), transparent 70%),
+    var(--card, #ffffff);
+}
+
+.oh-anchor-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground, #6f6f78);
+  background: var(--surface-2, #f4f4f5);
+  border: 1px solid var(--border, #e9e9ee);
+  transition: all 0.16s var(--ease, ease);
+}
+
+.oh-anchor-pill:hover {
+  color: var(--brand-text, #92610a);
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 45%, var(--border, #e9e9ee));
+  background: color-mix(in srgb, var(--brand, #f59e0b) 10%, var(--card, #ffffff));
+}
+
+.oh-amber-support-card {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 42%, var(--border, #e9e9ee));
+  background:
+    radial-gradient(360px circle at 0% 50%, color-mix(in srgb, var(--brand, #f59e0b) 16%, transparent), transparent 75%),
+    color-mix(in srgb, var(--brand, #f59e0b) 7%, var(--card, #ffffff));
+}
+
+.oh-amber-icon-box {
+  background: color-mix(in srgb, var(--brand, #f59e0b) 18%, var(--card, #ffffff));
+  color: var(--brand-text, #92610a);
+  border: 1px solid color-mix(in srgb, var(--brand, #f59e0b) 35%, transparent);
+}
+</style>

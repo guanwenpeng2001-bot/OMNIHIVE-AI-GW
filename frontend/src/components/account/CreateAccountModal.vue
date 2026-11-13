@@ -26,34 +26,26 @@
     </section>
     <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
     <!-- Step Indicator for OAuth accounts -->
-    <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
-      <div class="flex items-center space-x-4">
-        <div class="flex items-center">
-          <div
+    <div v-if="isOAuthFlow" class="mb-4 flex items-center justify-center">
+      <div class="inline-flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/70 px-4 py-1.5 text-xs">
+        <div class="flex items-center gap-2">
+          <span
             :class="[
-              'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
-              step >= 1 ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
+              'flex h-5 w-5 items-center justify-center rounded-md font-mono text-[11px] font-bold',
+              step >= 1 ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)]'
             ]"
-          >
-            1
-          </div>
-          <span class="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">{{
-            t('admin.accounts.oauth.authMethod')
-          }}</span>
+          >1</span>
+          <span class="font-semibold text-[var(--foreground)]">{{ t('admin.accounts.oauth.authMethod') }}</span>
         </div>
-        <div class="h-0.5 w-8 bg-gray-300 dark:bg-dark-600" />
-        <div class="flex items-center">
-          <div
+        <span class="h-px w-6 bg-[var(--border)]" />
+        <div class="flex items-center gap-2">
+          <span
             :class="[
-              'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
-              step >= 2 ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
+              'flex h-5 w-5 items-center justify-center rounded-md font-mono text-[11px] font-bold',
+              step >= 2 ? 'bg-[var(--brand)] text-zinc-950' : 'border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)]'
             ]"
-          >
-            2
-          </div>
-          <span class="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">{{
-            oauthStepTitle
-          }}</span>
+          >2</span>
+          <span :class="step >= 2 ? 'font-semibold text-[var(--foreground)]' : 'text-[var(--muted-foreground)]'">{{ oauthStepTitle }}</span>
         </div>
       </div>
     </div>
@@ -63,28 +55,52 @@
       v-if="step === 1"
       id="create-account-form"
       @submit.prevent="handleSubmit"
-      class="space-y-5"
+      class="space-y-4"
     >
-      <div>
-        <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
-        <input
-          v-model="form.name"
-          type="text"
-          :required="!isGrokSSOInputMethod"
-          class="input"
-          :placeholder="t('admin.accounts.enterAccountName')"
-          data-tour="account-form-name"
-        />
+      <!-- OmniHive 分段工作台导航栏 -->
+      <div class="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)]/95 p-2 shadow-2xs backdrop-blur-md">
+        <div class="segmented flex-wrap">
+          <button type="button" :class="{ on: activeFormTab === 'basic' }" @click="activeFormTab = 'basic'">基础与平台</button>
+          <button type="button" :class="{ on: activeFormTab === 'quota' }" @click="activeFormTab = 'quota'">配额与限流</button>
+          <button type="button" :class="{ on: activeFormTab === 'schedule' }" @click="activeFormTab = 'schedule'">调度与高级</button>
+          <button type="button" :class="{ on: activeFormTab === 'groups' }" @click="activeFormTab = 'groups'">
+            分组与归属
+            <span class="ml-1 font-mono text-[10px] opacity-75">({{ form.group_ids.length }})</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm text-xs"
+          :class="activeFormTab === 'all' ? 'bg-[var(--accent)] text-[var(--brand-text)] font-semibold' : ''"
+          @click="activeFormTab = activeFormTab === 'all' ? 'basic' : 'all'"
+        >
+          {{ activeFormTab === 'all' ? '收起分段' : '展开全部' }}
+        </button>
       </div>
-      <div>
-        <label class="input-label">{{ t('admin.accounts.notes') }}</label>
-        <textarea
-          v-model="form.notes"
-          rows="3"
-          class="input"
-          :placeholder="t('admin.accounts.notesPlaceholder')"
-        ></textarea>
-        <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
+
+      <div v-show="activeFormTab === 'all' || activeFormTab === 'basic'" class="space-y-4">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
+          <input
+            v-model="form.name"
+            type="text"
+            :required="!isGrokSSOInputMethod"
+            class="input"
+            :placeholder="t('admin.accounts.enterAccountName')"
+            data-tour="account-form-name"
+          />
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.notes') }}</label>
+          <textarea
+            v-model="form.notes"
+            rows="1"
+            class="input min-h-[36px] resize-y"
+            :placeholder="t('admin.accounts.notesPlaceholder')"
+          ></textarea>
+          <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
+        </div>
       </div>
 
       <!-- Platform Selection - Segmented Control Style -->
@@ -104,7 +120,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'oauth-based'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
-                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+                : 'hover:border-zinc-400 border-[var(--border)] dark:hover:border-zinc-600'
             ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
@@ -112,7 +128,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'oauth-based'
                   ? 'bg-zinc-900 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="sparkles" size="sm" />
@@ -130,7 +146,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
-                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+                : 'hover:border-zinc-400 border-[var(--border)] dark:hover:border-zinc-600'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
@@ -138,7 +154,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'apikey'
                   ? 'bg-zinc-900 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -156,7 +172,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'upstream'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
-                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+                : 'hover:border-zinc-400 border-[var(--border)] dark:hover:border-zinc-600'
             ]" role="radio" :aria-checked="accountCategory === 'upstream'" :tabindex="accountCategory === 'upstream' ? 0 : -1"
           >
             <div
@@ -164,7 +180,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'upstream'
                   ? 'bg-zinc-900 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="server" size="sm" />
@@ -179,7 +195,7 @@
       <!-- Account Type (Command Code): 只读说明，无模式切换、无伪造额度 -->
       <div v-if="form.platform === 'commandcode'" data-tour="account-form-type">
         <p class="input-label">{{ t('admin.accounts.platformDetails.commandcodeConnectionMethodLabel') }}</p>
-        <div data-testid="commandcode-account-type-card" role="note" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700/40">
+        <div data-testid="commandcode-account-type-card" role="note" class="rounded-lg border p-3 border-[var(--border)] bg-[var(--surface-2)]">
           <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
         </div>
@@ -196,7 +212,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
@@ -204,7 +220,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'apikey'
                   ? cnAccentIconClass
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -224,32 +240,32 @@
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.supplier.authenticationMethod') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
+        <div class="mt-2 grid grid-cols-2 gap-2.5 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.supplier.authenticationMethod')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
             :class="[
-              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              'flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all',
               accountCategory === 'oauth-based'
-                ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
-                : 'border-gray-200 hover:border-orange-300 dark:border-dark-600 dark:hover:border-orange-700'
+                ? 'border-[var(--brand)] bg-[var(--accent)]/50 ring-1 ring-[var(--brand)]/25'
+                : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--brand)]/40 hover:bg-[var(--surface-2)]/50'
             ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
                 accountCategory === 'oauth-based'
-                  ? 'bg-orange-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  ? 'border-[var(--brand)]/40 bg-[var(--primary)] text-[var(--primary-foreground)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]'
               ]"
             >
               <Icon name="sparkles" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{
+              <span class="block text-xs font-semibold text-[var(--foreground)]">{{
                 t('admin.accounts.claudeCode')
               }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{
+              <span class="text-[11px] text-[var(--muted-foreground)]">{{
                 t('admin.accounts.oauthSetupToken')
               }}</span>
             </div>
@@ -259,27 +275,27 @@
             type="button"
             @click="accountCategory = 'apikey'"
             :class="[
-              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              'flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all',
               accountCategory === 'apikey'
-                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                ? 'border-[var(--brand)] bg-[var(--accent)]/50 ring-1 ring-[var(--brand)]/25'
+                : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--brand)]/40 hover:bg-[var(--surface-2)]/50'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
                 accountCategory === 'apikey'
-                  ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  ? 'border-[var(--brand)]/40 bg-[var(--primary)] text-[var(--primary-foreground)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]'
               ]"
             >
               <Icon name="key" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{
+              <span class="block text-xs font-semibold text-[var(--foreground)]">{{
                 t('admin.accounts.claudeConsole')
               }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{
+              <span class="text-[11px] text-[var(--muted-foreground)]">{{
                 t('admin.accounts.apiKey')
               }}</span>
             </div>
@@ -289,27 +305,27 @@
             type="button"
             @click="accountCategory = 'bedrock'"
             :class="[
-              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              'flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all',
               accountCategory === 'bedrock'
-                ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-                : 'border-gray-200 hover:border-amber-300 dark:border-dark-600 dark:hover:border-amber-700'
+                ? 'border-[var(--brand)] bg-[var(--accent)]/50 ring-1 ring-[var(--brand)]/25'
+                : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--brand)]/40 hover:bg-[var(--surface-2)]/50'
             ]" role="radio" :aria-checked="accountCategory === 'bedrock'" :tabindex="accountCategory === 'bedrock' ? 0 : -1"
           >
             <div
               :class="[
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
                 accountCategory === 'bedrock'
-                  ? 'bg-amber-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  ? 'border-[var(--brand)]/40 bg-[var(--primary)] text-[var(--primary-foreground)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]'
               ]"
             >
               <Icon name="cloud" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{
+              <span class="block text-xs font-semibold text-[var(--foreground)]">{{
                 t('admin.accounts.bedrockLabel')
               }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{
+              <span class="text-[11px] text-[var(--muted-foreground)]">{{
                 t('admin.accounts.bedrockDesc')
               }}</span>
             </div>
@@ -319,25 +335,25 @@
             type="button"
             @click="accountCategory = 'service_account'"
             :class="[
-              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              'flex items-center gap-2.5 rounded-xl border p-3 text-left transition-all',
               accountCategory === 'service_account'
-                ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
-                : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
+                ? 'border-[var(--brand)] bg-[var(--accent)]/50 ring-1 ring-[var(--brand)]/25'
+                : 'border-[var(--border)] bg-[var(--card)] hover:border-[var(--brand)]/40 hover:bg-[var(--surface-2)]/50'
             ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
               :class="[
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors',
                 accountCategory === 'service_account'
-                  ? 'bg-sky-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  ? 'border-[var(--brand)]/40 bg-[var(--primary)] text-[var(--primary-foreground)]'
+                  : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]'
               ]"
             >
               <Icon name="cloud" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">Vertex</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">Service Account</span>
+              <span class="block text-xs font-semibold text-[var(--foreground)]">Vertex</span>
+              <span class="text-[11px] text-[var(--muted-foreground)]">Service Account</span>
             </div>
           </button>
 
@@ -362,7 +378,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'oauth-based'
                 ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                : 'border-gray-200 hover:border-green-300 dark:border-dark-600 dark:hover:border-green-700'
+                : 'hover:border-green-300 border-[var(--border)] dark:hover:border-green-700'
             ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
@@ -370,7 +386,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'oauth-based'
                   ? 'bg-green-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -388,7 +404,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
@@ -396,7 +412,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'apikey'
                   ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -421,7 +437,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'oauth-based'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
-                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+                : 'hover:border-zinc-400 border-[var(--border)] dark:hover:border-zinc-600'
             ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
@@ -429,7 +445,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'oauth-based'
                   ? 'bg-zinc-900 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <PlatformIcon platform="grok" size="sm" />
@@ -448,7 +464,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
@@ -456,7 +472,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'apikey'
                   ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -480,13 +496,13 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               openCodeAccountMode === 'zen'
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="openCodeAccountMode === 'zen'" :tabindex="openCodeAccountMode === 'zen' ? 0 : -1"
           >
             <div
               :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                openCodeAccountMode === 'zen' ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                openCodeAccountMode === 'zen' ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="creditCard" size="sm" />
@@ -503,13 +519,13 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               openCodeAccountMode === 'go'
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="openCodeAccountMode === 'go'" :tabindex="openCodeAccountMode === 'go' ? 0 : -1"
           >
             <div
               :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                openCodeAccountMode === 'go' ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                openCodeAccountMode === 'go' ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="bolt" size="sm" />
@@ -535,7 +551,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountMode === 'payg'
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="accountMode === 'payg'" :tabindex="accountMode === 'payg' ? 0 : -1"
           >
             <div
@@ -543,7 +559,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountMode === 'payg'
                   ? cnAccentIconClass
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="creditCard" size="sm" />
@@ -562,7 +578,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountMode === 'coding'
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="accountMode === 'coding'" :tabindex="accountMode === 'coding' ? 0 : -1"
           >
             <div
@@ -570,7 +586,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountMode === 'coding'
                   ? cnAccentIconClass
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="bolt" size="sm" />
@@ -602,7 +618,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               apiProtocol === opt.value
                 ? cnAccentActiveClass
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]" role="radio" :aria-checked="apiProtocol === opt.value" :tabindex="apiProtocol === opt.value ? 0 : -1"
           >
             <div
@@ -610,7 +626,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 apiProtocol === opt.value
                   ? cnAccentIconClass
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon :name="opt.value === 'adaptive' ? 'swap' : opt.value === 'anthropic' ? 'sparkles' : opt.value === 'responses' ? 'terminal' : 'chat'" size="sm" />
@@ -692,7 +708,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'oauth-based'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                : 'border-gray-200 hover:border-blue-300 dark:border-dark-600 dark:hover:border-blue-700'
+                : 'hover:border-blue-300 border-[var(--border)] dark:hover:border-blue-700'
             ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
@@ -700,7 +716,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'oauth-based'
                   ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -722,7 +738,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
             ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
@@ -730,7 +746,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'apikey'
                   ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <svg
@@ -764,7 +780,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'service_account'
                 ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
-                : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
+                : 'hover:border-sky-300 border-[var(--border)] dark:hover:border-sky-700'
             ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
@@ -772,7 +788,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 accountCategory === 'service_account'
                   ? 'bg-sky-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="cloud" size="sm" />
@@ -824,7 +840,7 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 geminiOAuthType === 'google_one'
                   ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                  : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                  : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
               ]"
             >
               <div
@@ -832,7 +848,7 @@
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                   geminiOAuthType === 'google_one'
                     ? 'bg-purple-500 text-white'
-                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                    : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
                 ]"
               >
                 <Icon name="user" size="sm" />
@@ -867,7 +883,7 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 geminiOAuthType === 'code_assist'
                   ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-gray-200 hover:border-blue-300 dark:border-dark-600 dark:hover:border-blue-700'
+                  : 'hover:border-blue-300 border-[var(--border)] dark:hover:border-blue-700'
               ]"
             >
               <div
@@ -875,7 +891,7 @@
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                   geminiOAuthType === 'code_assist'
                     ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                    : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
                 ]"
               >
                 <Icon name="cloud" size="sm" />
@@ -951,7 +967,7 @@
                 !geminiAIStudioOAuthEnabled ? 'cursor-not-allowed opacity-60' : '',
                 geminiOAuthType === 'ai_studio'
                   ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-                  : 'border-gray-200 hover:border-amber-300 dark:border-dark-600 dark:hover:border-amber-700'
+                  : 'hover:border-amber-300 border-[var(--border)] dark:hover:border-amber-700'
               ]"
             >
               <div
@@ -959,7 +975,7 @@
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                   geminiOAuthType === 'ai_studio'
                     ? 'bg-amber-500 text-white'
-                    : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                    : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
                 ]"
               >
                 <svg
@@ -1071,7 +1087,7 @@
           <label class="input-label">{{ t('admin.accounts.openai.planType') }}
             <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.openai.planType')" @keydown="navigateAccountChoices">
               <button v-for="option in createPlanTypeOptions" :key="option.value" type="button" @click="createPlanType = option.value"
-                :class="['rounded-lg border-2 p-3 text-left text-sm', createPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-dark-600']" role="radio" :aria-checked="createPlanType === option.value" :tabindex="createPlanType === option.value ? 0 : -1">{{ option.label }}</button>
+                :class="['rounded-lg border-2 p-3 text-left text-sm', createPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-[var(--border)]']" role="radio" :aria-checked="createPlanType === option.value" :tabindex="createPlanType === option.value ? 0 : -1">{{ option.label }}</button>
             </div>
             <input v-model="createPlanType" class="input mt-2" :aria-label="t('admin.accounts.openai.planType')" />
           </label>
@@ -1103,7 +1119,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               antigravityAccountType === 'oauth'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
             ]" role="radio" :aria-checked="antigravityAccountType === 'oauth'" :tabindex="antigravityAccountType === 'oauth' ? 0 : -1"
           >
             <div
@@ -1111,7 +1127,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 antigravityAccountType === 'oauth'
                   ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="key" size="sm" />
@@ -1129,7 +1145,7 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               antigravityAccountType === 'upstream'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
-                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+                : 'hover:border-purple-300 border-[var(--border)] dark:hover:border-purple-700'
             ]" role="radio" :aria-checked="antigravityAccountType === 'upstream'" :tabindex="antigravityAccountType === 'upstream' ? 0 : -1"
           >
             <div
@@ -1137,7 +1153,7 @@
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
                 antigravityAccountType === 'upstream'
                   ? 'bg-purple-500 text-white'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]"
             >
               <Icon name="cloud" size="sm" />
@@ -1187,7 +1203,7 @@
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
         <!-- 上游倍率自动探测：antigravity upstream 也是 API-key 账号 -->
-        <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-center justify-between gap-4 border-t pt-4 border-[var(--border)]">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1218,7 +1234,7 @@
               'rounded-lg border-2 border-dashed px-4 py-5 transition-colors',
               vertexServiceAccountDragActive
                 ? 'border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
-                : 'border-gray-300 bg-gray-50 hover:border-sky-400 hover:bg-sky-50/60 dark:border-dark-500 dark:bg-dark-700/40 dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
+                : 'hover:border-sky-400 hover:bg-sky-50/60 border-[var(--border)] bg-[var(--surface-2)] dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
             ]"
             @dragenter.prevent="vertexServiceAccountDragActive = true"
             @dragover.prevent="vertexServiceAccountDragActive = true"
@@ -1246,7 +1262,7 @@
             </div>
             <div
               v-if="vertexClientEmail"
-              class="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 dark:bg-dark-800 dark:text-sky-200"
+              class="mt-3 rounded-md border border-sky-200 px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 bg-[var(--card)] dark:text-sky-200"
             >
               <div class="truncate">Project ID: <span class="font-mono">{{ vertexProjectId }}</span></div>
               <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
@@ -1387,7 +1403,7 @@
 
         <!-- Only verified billing-probe platforms expose this control. -->
         <div v-if="!selectedCompatibleProvider"
-          class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+          class="flex items-center justify-between gap-4 border-t pt-4 border-[var(--border)]"
         >
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
@@ -1413,7 +1429,7 @@
         </div>
 
         <!-- Pool Mode Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -1426,7 +1442,7 @@
               @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                poolModeEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -1440,7 +1456,7 @@
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
               <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
-              {{ t('admin.accounts.poolModeInfo') }}
+              {{ t('admin.accounts.poolModeInfo').replace(/sub2api/gi, 'OmniHive') }}
             </p>
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
@@ -1477,7 +1493,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -1490,7 +1506,7 @@
               @click="customErrorCodesEnabled = !customErrorCodesEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customErrorCodesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                customErrorCodesEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -1521,7 +1537,7 @@
                   'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   selectedErrorCodes.includes(code.value)
                     ? 'bg-red-100 text-red-700 ring-1 ring-red-500 dark:bg-red-900/30 dark:text-red-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                    : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                 ]"
               >
                 {{ code.value }} {{ code.label }}
@@ -1577,7 +1593,7 @@
         <!-- Header Override Section (eligible API-key platforms) -->
         <div
           v-if="isHeaderOverrideCapable(form.platform, 'apikey')"
-          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+          class="border-t pt-4 border-[var(--border)]"
         >
           <div class="mb-3 flex items-center justify-between">
             <div>
@@ -1591,7 +1607,7 @@
               @click="headerOverrideEnabled = !headerOverrideEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                headerOverrideEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -1703,7 +1719,7 @@
             <input
               v-model="bedrockForceGlobal"
               type="checkbox"
-              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+              class="rounded text-primary-600 focus:ring-primary-500 border-[var(--border)]"
             />
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockForceGlobal') }}</span>
           </label>
@@ -1711,7 +1727,7 @@
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -1724,7 +1740,7 @@
               @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                poolModeEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -1738,7 +1754,7 @@
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
               <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
-              {{ t('admin.accounts.poolModeInfo') }}
+              {{ t('admin.accounts.poolModeInfo').replace(/sub2api/gi, 'OmniHive') }}
             </p>
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
@@ -1774,11 +1790,13 @@
           </div>
         </div>
       </div>
+      </div>
 
+      <div v-show="activeFormTab === 'all' || activeFormTab === 'quota'" class="space-y-4">
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
         v-if="form.platform === 'anthropic' && (form.type === 'apikey' || form.type === 'bedrock')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -1830,7 +1848,7 @@
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
         v-else-if="form.type === 'apikey' || form.type === 'bedrock'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -1882,7 +1900,7 @@
       <!-- Grok OAuth Custom Upstream URL (仅改写转发端点，OAuth 授权/刷新不受影响) -->
       <div
         v-if="form.platform === 'grok' && isOAuthFlow"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="mb-3 flex items-center justify-between">
           <div>
@@ -1897,7 +1915,7 @@
             @click="grokOAuthCustomBaseUrlEnabled = !grokOAuthCustomBaseUrlEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1923,7 +1941,7 @@
       <!-- Grok OAuth / Cursor relay Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
         v-if="(form.platform === 'grok' && isOAuthFlow) || isCursorRelay"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="mb-3 flex items-center justify-between">
           <div>
@@ -1937,7 +1955,7 @@
             @click="headerOverrideEnabled = !headerOverrideEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              headerOverrideEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1965,7 +1983,7 @@
       </div>
 
       <!-- Temp Unschedulable Rules -->
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <div class="border-t pt-4 border-[var(--border)] space-y-4">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.tempUnschedulable.title') }}</label>
@@ -1978,7 +1996,7 @@
             @click="tempUnschedEnabled = !tempUnschedEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              tempUnschedEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              tempUnschedEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2004,7 +2022,7 @@
               :key="preset.label"
               type="button"
               @click="addTempUnschedRule(preset.rule)"
-              class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+              class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors bg-[var(--surface-2)] dark:text-gray-300 hover:bg-[var(--surface-2)]"
             >
               + {{ preset.label }}
             </button>
@@ -2014,7 +2032,7 @@
             <div
               v-for="(rule, index) in tempUnschedRules"
               :key="getTempUnschedRuleKey(rule)"
-              class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+              class="rounded-lg border p-3 border-[var(--border)]"
             >
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -2097,7 +2115,7 @@
           <button
             type="button"
             @click="addTempUnschedRule()"
-            class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
+            class="w-full rounded-lg border-2 border-dashed px-4 py-2 text-sm text-gray-600 transition-colors hover:text-gray-700 border-[var(--border)] dark:text-gray-400 hover:border-[var(--border)] dark:hover:text-gray-300"
           >
             <svg
               class="mr-1 inline h-4 w-4"
@@ -2115,7 +2133,7 @@
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
         v-if="form.platform === 'anthropic' || form.platform === 'antigravity'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2131,7 +2149,7 @@
             @click="interceptWarmupRequests = !interceptWarmupRequests"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              interceptWarmupRequests ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              interceptWarmupRequests ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2147,7 +2165,7 @@
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'oauth-based'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -2157,7 +2175,7 @@
         </div>
 
         <!-- Window Cost Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.windowCost.label') }}</label>
@@ -2170,7 +2188,7 @@
               @click="windowCostEnabled = !windowCostEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                windowCostEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2217,7 +2235,7 @@
         </div>
 
         <!-- Session Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.sessionLimit.label') }}</label>
@@ -2230,7 +2248,7 @@
               @click="sessionLimitEnabled = !sessionLimitEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                sessionLimitEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2274,7 +2292,7 @@
         </div>
 
         <!-- RPM Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.rpmLimit.label') }}</label>
@@ -2287,7 +2305,7 @@
               @click="rpmLimitEnabled = !rpmLimitEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                rpmLimitEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2324,7 +2342,7 @@
                     'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
                     rpmStrategy === 'tiered'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                      : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                   ]" role="radio" :aria-checked="rpmStrategy === 'tiered'" :tabindex="rpmStrategy === 'tiered' ? 0 : -1"
                 >
                   <div class="text-center">
@@ -2339,7 +2357,7 @@
                     'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
                     rpmStrategy === 'sticky_exempt'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                      : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                   ]" role="radio" :aria-checked="rpmStrategy === 'sticky_exempt'" :tabindex="rpmStrategy === 'sticky_exempt' ? 0 : -1"
                 >
                   <div class="text-center">
@@ -2371,15 +2389,11 @@
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
               {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
             </p>
-            <div class="flex space-x-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint')" @keydown="navigateAccountChoices">
+            <div class="segmented" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint')" @keydown="navigateAccountChoices">
               <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
                 @click="userMsgQueueMode = opt.value"
-                :class="[
-                  'px-3 py-1.5 text-sm rounded-md border transition-colors',
-                  userMsgQueueMode === opt.value
-                    ? 'bg-primary-600 text-white border-primary-600'
-                    : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
-                ]" role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
+                :class="{ on: userMsgQueueMode === opt.value }"
+                role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
                 {{ opt.label }}
               </button>
             </div>
@@ -2387,7 +2401,7 @@
         </div>
 
         <!-- TLS Fingerprint -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
@@ -2400,7 +2414,7 @@
               @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2422,7 +2436,7 @@
         </div>
 
         <!-- Session ID Masking -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.sessionIdMasking.label') }}</label>
@@ -2435,7 +2449,7 @@
               @click="sessionIdMaskingEnabled = !sessionIdMaskingEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2449,7 +2463,7 @@
         </div>
 
         <!-- Cache TTL Override -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.cacheTTLOverride.label') }}</label>
@@ -2462,7 +2476,7 @@
               @click="cacheTTLOverrideEnabled = !cacheTTLOverrideEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                cacheTTLOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                cacheTTLOverrideEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2477,7 +2491,7 @@
             <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.cacheTTLOverride.target') }}</label>
             <select
               v-model="cacheTTLOverrideTarget"
-              class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700 dark:text-white"
+              class="mt-1 block w-full rounded-md border px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)] dark:text-white"
             >
               <option value="5m">5m</option>
               <option value="1h">1h</option>
@@ -2489,7 +2503,7 @@
         </div>
 
         <!-- Custom Base URL Relay -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.customBaseUrl.label') }}</label>
@@ -2502,7 +2516,7 @@
               @click="customBaseUrlEnabled = !customBaseUrlEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                customBaseUrlEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2523,7 +2537,9 @@
           </div>
         </div>
       </div>
+      </div>
 
+      <div v-show="activeFormTab === 'all' || activeFormTab === 'schedule'" class="space-y-4">
       <div>
         <div class="mb-1 flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
@@ -2569,7 +2585,7 @@
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div class="border-t pt-4 border-[var(--border)]">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
         <div class="mt-2 flex gap-2">
@@ -2589,7 +2605,7 @@
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="form.platform === 'openai'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2603,7 +2619,7 @@
             @click="openaiPassthroughEnabled = !openaiPassthroughEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2619,7 +2635,7 @@
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="form.platform === 'openai' && form.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2634,7 +2650,7 @@
             @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2651,7 +2667,7 @@
       <div
         v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         data-testid="create-openai-ws-mode"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2672,7 +2688,7 @@
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2686,7 +2702,7 @@
             @click="anthropicPassthroughEnabled = !anthropicPassthroughEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2701,7 +2717,7 @@
 
       <div
         v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -2720,7 +2736,7 @@
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
         v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey' && webSearchGlobalEnabled"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2740,7 +2756,7 @@
       <!-- OpenAI API 长上下文计费开关 -->
       <div
         v-if="form.platform === 'openai' && !hideAccountLongContextBilling && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -2757,7 +2773,7 @@
             @click="toggleOpenAILongContextBilling"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2772,7 +2788,7 @@
 
       <div
         v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2786,7 +2802,7 @@
             @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2799,7 +2815,7 @@
         </div>
         <div
           v-if="codexCLIOnlyEnabled"
-          class="mt-4 flex items-center justify-between border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+          class="mt-4 flex items-center justify-between border-l-2 pl-4 border-[var(--border)]"
         >
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAppServer') }}</label>
@@ -2812,7 +2828,7 @@
             @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2828,7 +2844,7 @@
       <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
@@ -2846,7 +2862,7 @@
       <!-- OpenAI Compact 能力配置 -->
       <div
         v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -2885,7 +2901,7 @@
       <!-- OpenAI APIKey Responses API support mode -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
-        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="space-y-4 border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -2916,11 +2932,11 @@
             <label
               v-for="option in openAIEndpointCapabilityOptions"
               :key="option.value"
-              class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
+              class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm border-[var(--border)]"
             >
               <input
                 type="checkbox"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                class="rounded text-primary-600 focus:ring-primary-500 border-[var(--border)]"
                 :data-testid="`openai-endpoint-capability-${option.value}`"
                 :checked="openAIEndpointCapabilities.includes(option.value)"
                 @change="toggleOpenAIEndpointCapability(option.value, $event)"
@@ -2935,7 +2951,7 @@
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="flex items-center justify-between gap-4 border-t pt-4 border-[var(--border)]"
       >
         <div>
           <label class="input-label mb-0">{{ t('admin.accounts.openai.imagesUrlToB64Json') }}</label>
@@ -2951,7 +2967,7 @@
           @click="openAIImagesUrlToB64JsonEnabled = !openAIImagesUrlToB64JsonEnabled"
           :class="[
             'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-            openAIImagesUrlToB64JsonEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            openAIImagesUrlToB64JsonEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
           ]"
         >
           <span
@@ -2978,7 +2994,7 @@
             @click="autoPauseOnExpired = !autoPauseOnExpired"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              autoPauseOnExpired ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2991,14 +3007,14 @@
         </div>
       </div>
 
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div class="border-t pt-4 border-[var(--border)]">
         <!-- Mixed Scheduling (only for antigravity accounts) -->
         <div v-if="form.platform === 'antigravity'" class="flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               v-model="mixedScheduling"
-              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              class="h-4 w-4 rounded text-primary-500 focus:ring-primary-500 border-[var(--border)]"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.mixedScheduling') }}
@@ -3006,7 +3022,7 @@
           </label>
           <div class="group relative">
             <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-xs text-gray-500 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]"
             >
               ?
             </span>
@@ -3026,7 +3042,7 @@
             <input
               type="checkbox"
               v-model="allowOverages"
-              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              class="h-4 w-4 rounded text-primary-500 focus:ring-primary-500 border-[var(--border)]"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.allowOverages') }}
@@ -3034,7 +3050,7 @@
           </label>
           <div class="group relative">
             <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-xs text-gray-500 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]"
             >
               ?
             </span>
@@ -3048,7 +3064,10 @@
             </div>
           </div>
         </div>
+      </div>
+      </div>
 
+      <div v-show="activeFormTab === 'all' || activeFormTab === 'basic' || activeFormTab === 'groups'" class="border-t border-[var(--border)] pt-4">
         <!-- Group Selection - 仅标准模式显示 -->
         <GroupSelector
           v-model="form.group_ids"
@@ -3264,7 +3283,7 @@
       </div>
 
       <!-- Quota Policy Section -->
-      <div class="border-t border-gray-200 pt-6 dark:border-dark-600">
+      <div class="border-t pt-6 border-[var(--border)]">
         <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
           {{ t('admin.accounts.gemini.quotaPolicy.title') }}
         </h3>
@@ -3273,7 +3292,7 @@
         </p>
         <div class="overflow-x-auto">
           <table class="w-full text-xs">
-            <thead class="bg-gray-50 dark:bg-dark-600">
+            <thead class="bg-[var(--surface-2)]">
               <tr>
                 <th class="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.accounts.gemini.quotaPolicy.columns.channel') }}
@@ -3286,7 +3305,7 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-dark-600">
+            <tbody class="divide-y divide-[var(--border)]">
               <tr>
                 <td class="px-3 py-2 text-gray-900 dark:text-white">
                   {{ t('admin.accounts.gemini.quotaPolicy.rows.googleOne.channel') }}
@@ -3374,7 +3393,7 @@
       </div>
 
       <!-- API Key Links Section -->
-      <div class="border-t border-gray-200 pt-6 dark:border-dark-600">
+      <div class="border-t pt-6 border-[var(--border)]">
         <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
           {{ t('admin.accounts.gemini.helpDialog.apiKeySection') }}
         </h3>
@@ -3737,6 +3756,7 @@ interface TempUnschedRuleForm {
 
 // State
 const step = ref(1)
+const activeFormTab = ref<'basic' | 'quota' | 'schedule' | 'groups' | 'all'>('basic')
 const proxySelectionValid = ref(true)
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account' | 'upstream'>('oauth-based') // UI selection for account category
@@ -6992,3 +7012,25 @@ const handleCookieAuth = async (sessionKey: string) => {
 }
 watch(() => form.platform, () => { usageCredentials.value = usageQueryDraft() })
 </script>
+
+<style scoped>
+#create-account-form :deep(input[type="number"]),
+#create-account-form :deep(input[type="password"]),
+#create-account-form :deep(input[type="url"]),
+#create-account-form :deep(textarea) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+#create-account-form :deep(.border-t) {
+  border-color: var(--border);
+}
+
+#create-account-form :deep(.rounded-lg.border),
+#create-account-form :deep(.rounded-xl.border),
+#create-account-form :deep(.rounded-lg.border-2) {
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+</style>

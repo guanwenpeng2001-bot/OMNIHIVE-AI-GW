@@ -1,20 +1,20 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.oidc.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.oidc.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div class="flex items-center justify-between">
         <div>
-          <label class="font-medium text-gray-900 dark:text-white">{{
+          <label class="font-medium text-[var(--foreground)]">{{
             t("admin.settings.oidc.enable")
           }}</label>
-          <p class="text-sm text-gray-500 dark:text-gray-400">
+          <p class="text-sm text-[var(--muted-foreground)]">
             {{ t("admin.settings.oidc.enableHint") }}
           </p>
         </div>
@@ -23,12 +23,12 @@
 
       <div
         v-if="form.oidc_connect_enabled"
-        class="space-y-6 border-t border-gray-100 pt-4 dark:border-dark-700"
+        class="space-y-6 border-t border-[var(--border)] pt-4"
       >
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.providerName") }}
             </label>
@@ -42,7 +42,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.clientId") }}
             </label>
@@ -56,7 +56,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.clientSecret") }}
             </label>
@@ -70,7 +70,7 @@
                   : t('admin.settings.oidc.clientSecretPlaceholder')
               "
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.oidc_connect_client_secret_configured
                   ? t("admin.settings.oidc.clientSecretConfiguredHint")
@@ -83,7 +83,7 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.issuerUrl") }}
             </label>
@@ -97,7 +97,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.discoveryUrl") }}
             </label>
@@ -111,7 +111,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.authorizeUrl") }}
             </label>
@@ -125,7 +125,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.tokenUrl") }}
             </label>
@@ -139,7 +139,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.userinfoUrl") }}
             </label>
@@ -153,7 +153,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.jwksUrl") }}
             </label>
@@ -169,7 +169,7 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.scopes") }}
             </label>
@@ -179,14 +179,14 @@
               class="input font-mono text-sm"
               :placeholder="t('admin.settings.oidc.scopesPlaceholder')"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.oidc.scopesHint") }}
             </p>
           </div>
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.redirectUrl") }}
             </label>
@@ -208,19 +208,19 @@
               </button>
               <code
                 v-if="oidcRedirectUrlSuggestion"
-                class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+                class="select-all break-all rounded bg-[var(--surface-2)] px-2 py-1 font-mono text-xs text-[var(--muted-foreground)]"
               >
                 {{ oidcRedirectUrlSuggestion }}
               </code>
             </div>
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.oidc.redirectUrlHint") }}
             </p>
           </div>
 
           <div class="lg:col-span-2">
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.frontendRedirectUrl") }}
             </label>
@@ -232,7 +232,7 @@
                 t('admin.settings.oidc.frontendRedirectUrlPlaceholder')
               "
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.oidc.frontendRedirectUrlHint") }}
             </p>
           </div>
@@ -241,7 +241,7 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.tokenAuthMethod") }}
             </label>
@@ -257,7 +257,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.clockSkewSeconds") }}
             </label>
@@ -272,7 +272,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.allowedSigningAlgs") }}
             </label>
@@ -289,10 +289,10 @@
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div
-            class="flex items-center justify-between rounded border border-gray-200 px-4 py-3 dark:border-dark-700"
+            class="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3"
           >
             <div>
-              <label class="font-medium text-gray-900 dark:text-white">
+              <label class="font-medium text-[var(--foreground)]">
                 {{ t("admin.settings.oidc.usePkce") }}
               </label>
             </div>
@@ -303,10 +303,10 @@
           </div>
 
           <div
-            class="flex items-center justify-between rounded border border-gray-200 px-4 py-3 dark:border-dark-700"
+            class="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3"
           >
             <div>
-              <label class="font-medium text-gray-900 dark:text-white">
+              <label class="font-medium text-[var(--foreground)]">
                 {{ t("admin.settings.oidc.validateIdToken") }}
               </label>
             </div>
@@ -317,10 +317,10 @@
           </div>
 
           <div
-            class="flex items-center justify-between rounded border border-gray-200 px-4 py-3 dark:border-dark-700"
+            class="flex items-center justify-between rounded border border-[var(--border)] px-4 py-3"
           >
             <div>
-              <label class="font-medium text-gray-900 dark:text-white">
+              <label class="font-medium text-[var(--foreground)]">
                 {{ t("admin.settings.oidc.requireEmailVerified") }}
               </label>
             </div>
@@ -331,7 +331,7 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.userinfoEmailPath") }}
             </label>
@@ -347,7 +347,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.userinfoIdPath") }}
             </label>
@@ -361,7 +361,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.oidc.userinfoUsernamePath") }}
             </label>

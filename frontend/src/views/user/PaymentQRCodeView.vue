@@ -1,11 +1,11 @@
 <template>
   <AppLayout>
-    <div class="mx-auto flex max-w-md flex-col items-center space-y-6 py-8">
-      <h2 class="text-xl font-semibold text-gray-900 dark:text-white">
+    <div class="card mx-auto my-6 flex w-full max-w-md flex-col items-center space-y-6 p-5 sm:p-8">
+      <h2 class="text-center text-xl font-semibold tracking-tight text-[var(--foreground)]">
         {{ qrUrl ? scanTitle : t('payment.qr.payInNewWindow') }}
       </h2>
-      <div v-if="qrUrl" class="rounded-2xl bg-white p-6 shadow-lg dark:bg-dark-800">
-        <canvas ref="qrCanvas" class="mx-auto"></canvas>
+      <div v-if="qrUrl" class="max-w-full rounded-lg border border-[var(--border)] bg-white p-4">
+        <canvas ref="qrCanvas" class="mx-auto !h-auto !max-w-full"></canvas>
       </div>
       <!-- Scan prompt for QR code -->
       <p v-if="qrUrl && !expired && scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">

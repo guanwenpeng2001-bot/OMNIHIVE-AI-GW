@@ -151,6 +151,6 @@ const sizeClass = computed(() => {
     md: 'w-4 h-4',
     lg: 'w-5 h-5'
   }
-  return sizes[props.size] + ' flex-shrink-0'
+  return sizes[props.size] + ' flex-shrink-0 align-middle'
 })
 </script>

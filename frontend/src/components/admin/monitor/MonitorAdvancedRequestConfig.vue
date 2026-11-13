@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-4">
+  <div class="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 text-[var(--foreground)]">
     <!-- Headers key-value rows -->
     <div>
       <label class="input-label">{{ t('admin.channelMonitor.advanced.headers') }}</label>
@@ -7,14 +7,14 @@
         <div
           v-for="(row, i) in headerRows"
           :key="i"
-          class="flex items-center gap-2"
+          class="flex flex-wrap items-center gap-2 sm:flex-nowrap"
         >
           <input
             v-model="row.name"
             type="text"
             spellcheck="false"
             :placeholder="t('admin.channelMonitor.advanced.headerNamePlaceholder')"
-            class="input w-52 flex-none font-mono text-xs"
+            class="input w-full min-w-0 font-mono text-xs sm:w-44 sm:flex-none"
             @blur="commitHeaders"
           />
           <input
@@ -22,12 +22,12 @@
             type="text"
             spellcheck="false"
             :placeholder="t('admin.channelMonitor.advanced.headerValuePlaceholder')"
-            class="input flex-1 font-mono text-xs"
+            class="input min-w-0 flex-1 font-mono text-xs"
             @blur="commitHeaders"
           />
           <button
             type="button"
-            class="flex-none rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
+            class="flex-none rounded p-1 text-[var(--muted-foreground)] hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10 dark:hover:text-red-400"
             :title="t('common.delete')"
             @click="removeRow(i)"
           >
@@ -38,7 +38,7 @@
         </div>
         <button
           type="button"
-          class="inline-flex items-center gap-1 rounded border border-dashed border-gray-300 px-2 py-1 text-xs text-gray-500 hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+          class="inline-flex items-center gap-1 rounded border border-dashed border-[var(--border)] px-2 py-1 text-xs text-[var(--muted-foreground)] hover:border-[var(--brand)] hover:text-[var(--brand-text)]"
           @click="addRow"
         >
           <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,7 +48,7 @@
         </button>
       </div>
       <p v-if="headersError" class="mt-1 text-xs text-red-500">{{ headersError }}</p>
-      <p v-else class="mt-1 text-xs text-gray-400">
+      <p v-else class="mt-1 text-xs text-[var(--muted-foreground)]">
         {{ t('admin.channelMonitor.advanced.headersHint') }}
       </p>
     </div>
@@ -56,19 +56,19 @@
     <!-- Body mode radio -->
     <div>
       <label class="input-label">{{ t('admin.channelMonitor.advanced.bodyMode') }}</label>
-      <div class="grid grid-cols-3 gap-3">
+      <div class="segmented flex w-full flex-wrap">
         <button
           v-for="opt in bodyModeOptions"
           :key="opt.value"
           type="button"
-          class="rounded-lg border-2 px-3 py-2 text-sm font-medium transition-colors"
-          :class="bodyModeButtonClass(opt.value)"
+          class="seg-btn flex-1"
+          :class="[bodyModeButtonClass(opt.value), { 'seg-active': bodyOverrideMode === opt.value }]"
           @click="updateBodyMode(opt.value)"
         >
           {{ opt.label }}
         </button>
       </div>
-      <p class="mt-1 text-xs text-gray-400">
+      <p class="mt-1 text-xs text-[var(--muted-foreground)]">
         {{ bodyModeHint }}
       </p>
     </div>
@@ -79,7 +79,7 @@
         <label class="input-label !mb-0">{{ t('admin.channelMonitor.advanced.bodyJson') }}</label>
         <button
           type="button"
-          class="text-xs text-primary-600 hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline dark:text-primary-400"
+          class="text-xs text-[var(--brand-text)] hover:underline disabled:cursor-not-allowed disabled:text-[var(--muted-foreground)] disabled:no-underline"
           :disabled="!bodyText.trim()"
           @click="formatBody"
         >
@@ -96,7 +96,7 @@
         @blur="commitBody"
       />
       <p v-if="bodyError" class="mt-1 text-xs text-red-500">{{ bodyError }}</p>
-      <p v-else class="mt-1 text-xs text-gray-400">
+      <p v-else class="mt-1 text-xs text-[var(--muted-foreground)]">
         {{ t('admin.channelMonitor.advanced.bodyJsonHint') }}
       </p>
     </div>
@@ -286,9 +286,9 @@ const bodyModeOptions = computed<{ value: BodyOverrideMode; label: string }[]>((
 function bodyModeButtonClass(mode: BodyOverrideMode): string {
   const active = props.bodyOverrideMode === mode
   if (active) {
-    return 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-500/15 dark:text-primary-300 dark:border-primary-400'
+    return 'border-[var(--brand)] bg-[var(--surface-2)] text-[var(--brand-text)]'
   }
-  return 'border-gray-200 bg-white text-gray-600 hover:border-primary-300 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400'
+  return 'border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:border-[var(--brand)]'
 }
 
 const bodyModeHint = computed(() => {

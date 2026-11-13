@@ -1,8 +1,8 @@
 <template>
-  <div class="card p-4">
-    <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
+  <div class="card min-w-0 border border-[var(--border)] bg-[var(--card)] p-4 tabular-nums">
+    <h3 class="mb-4 text-sm font-semibold text-[var(--foreground)]">
       {{ t('admin.dashboard.tokenUsageTrend') }}
-      <span class="ml-2 font-normal text-gray-500 dark:text-gray-400">{{ t('common.displayTimeZone', { timezone: timeZone || getBrowserTimeZone() }) }}</span>
+      <span class="ml-2 font-normal text-[var(--muted-foreground)]">{{ t('common.displayTimeZone', { timezone: timeZone || getBrowserTimeZone() }) }}</span>
     </h3>
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
@@ -12,20 +12,22 @@
     </div>
     <div
       v-else
-      class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+      class="trend-empty flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]"
+      role="status"
     >
-      {{ t('admin.dashboard.noDataAvailable') }}
+      <div class="space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${60 - row * 8}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
+      <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
     <div v-if="!loading && chartData" class="mt-4 max-h-64 overflow-auto">
       <table class="w-full whitespace-nowrap text-right text-xs" data-testid="trend-data-table">
-        <caption class="mb-2 text-left text-gray-600 dark:text-gray-400">{{ tableDescription }}</caption>
+        <caption class="mb-2 text-left text-[var(--muted-foreground)]">{{ tableDescription }}</caption>
         <thead><tr>
           <th scope="col" class="p-2 text-left">{{ t('usage.time') }} ({{ timeZone || getBrowserTimeZone() }})</th>
           <th v-for="dataset in chartData.datasets" :key="dataset.label" scope="col" class="p-2">{{ dataset.label }}</th>
           <th scope="col" class="p-2">{{ t('dashboard.actual') }} (USD)</th>
           <th scope="col" class="p-2">{{ t('dashboard.standard') }} (USD)</th>
         </tr></thead>
-        <tbody><tr v-for="(point, index) in trendData" :key="`${point.date}-${index}`" class="border-t border-gray-100 dark:border-dark-700">
+        <tbody><tr v-for="(point, index) in trendData" :key="`${point.date}-${index}`" class="border-t border-[var(--border)]">
           <th scope="row" class="p-2 text-left font-normal">{{ chartData.labels[index] }}</th>
           <td v-for="dataset in chartData.datasets" :key="dataset.label" class="p-2">{{ formatTableValue(dataset.data[index], dataset.yAxisID === 'yPercent') }}</td>
           <td class="p-2">{{ formatCost(point.actual_cost) }}</td>
@@ -39,7 +41,7 @@
 <script setup lang="ts">
 import { formatLedgerAmount as formatCost } from '@/utils/money'
 import { getBrowserTimeZone } from '@/utils/format'
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { getLocale } from '@/i18n'
 import { useI18n } from 'vue-i18n'
 import {
@@ -82,18 +84,31 @@ const props = defineProps<{
   timeZone?: string
 }>()
 
-const isDarkMode = computed(() => {
-  return document.documentElement.classList.contains('dark')
+const themeColors = ref({ text: '#71717a', grid: '#e4e4e7', card: '#ffffff', foreground: '#18181b' })
+let themeObserver: MutationObserver | undefined
+onMounted(() => {
+  const updateColors = () => {
+    const styles = getComputedStyle(document.documentElement)
+    themeColors.value = {
+      text: styles.getPropertyValue('--muted-foreground').trim() || '#71717a',
+      grid: styles.getPropertyValue('--border').trim() || '#e4e4e7',
+      card: styles.getPropertyValue('--card').trim() || '#ffffff',
+      foreground: styles.getPropertyValue('--foreground').trim() || '#18181b'
+    }
+  }
+  updateColors()
+  themeObserver = new MutationObserver(updateColors)
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-theme', 'data-style'] })
 })
-
+onBeforeUnmount(() => themeObserver?.disconnect())
 const chartColors = computed(() => ({
-  text: isDarkMode.value ? '#e5e7eb' : '#374151',
-  grid: isDarkMode.value ? '#374151' : '#e5e7eb',
-  input: '#3b82f6',
-  output: '#10b981',
-  cacheCreation: '#f59e0b',
-  cacheRead: '#06b6d4',
-  cacheHitRate: '#8b5cf6'
+  text: themeColors.value.text,
+  grid: themeColors.value.grid,
+  input: '#6366f1',
+  output: '#059669',
+  cacheCreation: '#d97706',
+  cacheRead: '#34d399',
+  cacheHitRate: '#a5b4fc'
 }))
 
 const chartData = computed(() => {
@@ -106,7 +121,7 @@ const chartData = computed(() => {
         label: 'Input',
         data: props.trendData.map((d) => d.input_tokens),
         borderColor: chartColors.value.input,
-        backgroundColor: `${chartColors.value.input}20`,
+        backgroundColor: `${chartColors.value.input}0f`,
         fill: true,
         tension: 0.3
       },
@@ -114,7 +129,7 @@ const chartData = computed(() => {
         label: 'Output',
         data: props.trendData.map((d) => d.output_tokens),
         borderColor: chartColors.value.output,
-        backgroundColor: `${chartColors.value.output}20`,
+        backgroundColor: `${chartColors.value.output}0f`,
         fill: true,
         tension: 0.3
       },
@@ -122,7 +137,7 @@ const chartData = computed(() => {
         label: 'Cache Creation',
         data: props.trendData.map((d) => d.cache_creation_tokens),
         borderColor: chartColors.value.cacheCreation,
-        backgroundColor: `${chartColors.value.cacheCreation}20`,
+        backgroundColor: `${chartColors.value.cacheCreation}0f`,
         fill: true,
         tension: 0.3
       },
@@ -130,7 +145,7 @@ const chartData = computed(() => {
         label: 'Cache Read',
         data: props.trendData.map((d) => d.cache_read_tokens),
         borderColor: chartColors.value.cacheRead,
-        backgroundColor: `${chartColors.value.cacheRead}20`,
+        backgroundColor: `${chartColors.value.cacheRead}0f`,
         fill: true,
         tension: 0.3
       },
@@ -155,6 +170,8 @@ const chartData = computed(() => {
 const lineOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  animation: false as const,
+  elements: { point: { radius: 0, hitRadius: 10, hoverRadius: 4 }, line: { borderWidth: 1.5 } },
   interaction: {
     intersect: false,
     mode: 'index' as const
@@ -173,6 +190,13 @@ const lineOptions = computed(() => ({
       }
     },
     tooltip: {
+      backgroundColor: themeColors.value.card,
+      titleColor: themeColors.value.foreground,
+      bodyColor: themeColors.value.foreground,
+      footerColor: themeColors.value.text,
+      borderColor: themeColors.value.grid,
+      borderWidth: 1,
+      padding: 12,
       callbacks: {
         label: (context: any) => {
           if (context.dataset.yAxisID === 'yPercent') {
@@ -193,6 +217,7 @@ const lineOptions = computed(() => ({
   },
   scales: {
     x: {
+      border: { display: false, dash: [3, 4] },
       grid: {
         color: chartColors.value.grid
       },
@@ -204,6 +229,8 @@ const lineOptions = computed(() => ({
       }
     },
     y: {
+      beginAtZero: true,
+      border: { display: false, dash: [3, 4] },
       grid: {
         color: chartColors.value.grid
       },
@@ -216,6 +243,7 @@ const lineOptions = computed(() => ({
       }
     },
     yPercent: {
+      border: { display: false },
       position: 'right' as const,
       min: 0,
       max: 100,

@@ -950,7 +950,7 @@ export default {
     },
     "notes": {
       "behavior": "按空行分隔 SSE 事件，忽略保活注释。HTTP 200 后仍可能失败；工具参数片段需保留到调用完整。",
-      "compatibility": "中断输出不会续成一份完整答案。重发前先查用量或已有任务；并非所有重试都具备幂等性。PowerShell 快速开始仅演示非流式 JSON。"
+      "compatibility": "中断输出不会续成一份完整答案。重发前先查用量或已有任务；并非所有重试都具备幂等性。PowerShell 快速开始仅展示非流式 JSON。"
     }
   },
   "tools": {

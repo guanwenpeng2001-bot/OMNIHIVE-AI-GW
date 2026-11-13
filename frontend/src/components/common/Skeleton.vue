@@ -1,11 +1,12 @@
 <template>
   <div
     :class="[
-      'animate-pulse bg-gray-200 dark:bg-dark-700',
+      'skeleton-shape motion-safe:animate-pulse bg-[var(--surface-2)]',
       variant === 'circle' ? 'rounded-full' : 'rounded-lg',
       customClass
     ]"
     :style="style"
+    aria-hidden="true"
   ></div>
 </template>
 
@@ -44,3 +45,7 @@ const style = computed(() => {
   return s
 })
 </script>
+
+<style scoped>
+.skeleton-shape { border: 1px solid var(--border); background: color-mix(in srgb, var(--border) 45%, var(--surface-2)); }
+</style>

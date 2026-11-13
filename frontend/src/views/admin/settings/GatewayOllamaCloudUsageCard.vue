@@ -1,17 +1,17 @@
 <template>
-  <div class="card" data-testid="ollama-cloud-usage-global-settings">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none" data-testid="ollama-cloud-usage-global-settings">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.ollamaCloudUsage.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.ollamaCloudUsage.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div
         v-if="ollamaCloudUsageLoading"
-        class="flex items-center gap-2 text-gray-500"
+        class="flex items-center gap-2 text-[var(--muted-foreground)]"
       >
         <LoadingSpinner size="sm" color="primary" />
         {{ t("common.loading") }}
@@ -19,10 +19,10 @@
       <template v-else>
         <div class="flex items-center justify-between gap-4">
           <div>
-            <label class="font-medium text-gray-900 dark:text-white">
+            <label class="font-medium text-[var(--foreground)]">
               {{ t("admin.settings.ollamaCloudUsage.enabled") }}
             </label>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.ollamaCloudUsage.enabledHint") }}
             </p>
           </div>
@@ -34,11 +34,11 @@
         </div>
         <div
           v-if="ollamaCloudUsageForm.enabled"
-          class="space-y-4 border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="space-y-4 border-t border-[var(--border)] pt-4"
         >
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               for="ollama-cloud-usage-debounce"
             >
               {{ t("admin.settings.ollamaCloudUsage.debounceMinutes") }}
@@ -53,13 +53,13 @@
               data-testid="ollama-cloud-usage-global-debounce"
               @keydown.enter.prevent="saveOllamaCloudUsageSettings"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.ollamaCloudUsage.debounceHint") }}
             </p>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               for="ollama-cloud-usage-interval"
             >
               {{ t("admin.settings.ollamaCloudUsage.intervalMinutes") }}
@@ -74,13 +74,13 @@
               data-testid="ollama-cloud-usage-global-interval"
               @keydown.enter.prevent="saveOllamaCloudUsageSettings"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.ollamaCloudUsage.intervalHint") }}
             </p>
           </div>
         </div>
         <div
-          class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="flex justify-end border-t border-[var(--border)] pt-4"
         >
           <button
             type="button"

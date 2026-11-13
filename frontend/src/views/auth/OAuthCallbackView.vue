@@ -1,26 +1,26 @@
 <template>
-  <div class="min-h-screen bg-gray-50 px-4 py-10 dark:bg-dark-900">
-    <div class="mx-auto max-w-2xl">
-      <div v-if="isProcessing" class="card p-6 text-center">
-        <div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
-        <h1 class="mt-4 text-lg font-semibold text-gray-900 dark:text-white">
+  <AuthLayout>
+    <div class="space-y-4">
+      <div v-if="isProcessing" role="status">
+        <div class="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent"></div>
+        <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
-        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p class="auth-intro">
           {{ t('auth.oauth.callbackHint') }}
         </p>
       </div>
 
-      <div v-else-if="needsRegistrationCompletion" class="card p-6">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
+      <div v-else-if="needsRegistrationCompletion">
+        <h1 class="auth-title">
           {{ t('auth.oidc.callbackTitle', { providerName }) }}
         </h1>
-        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p class="auth-intro">
           {{ registrationHint }}
         </p>
 
-        <div class="mt-6 space-y-4">
-          <div>
+        <div class="space-y-3">
+          <div class="auth-summary">
             <label class="input-label">{{ t('auth.emailLabel') }}</label>
             <input
               class="input w-full"
@@ -68,6 +68,7 @@
           <p v-if="registrationError" class="text-sm text-red-600 dark:text-red-400">
             {{ registrationError }}
           </p>
+          <div class="auth-actions">
           <button
             class="btn btn-primary w-full"
             type="button"
@@ -76,35 +77,40 @@
           >
             {{ isSubmitting ? t('common.processing') : t('auth.oidc.completeRegistration') }}
           </button>
+          <button type="button" class="btn btn-outline" :disabled="isSubmitting" @click="router.replace('/login')">{{ t('auth.backToLogin') }}</button>
+          </div>
         </div>
       </div>
 
-      <div v-else-if="invalidCallback" class="card p-6 text-center">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
+      <div v-else-if="invalidCallback">
+        <h1 class="auth-title">
           {{ t('auth.oauth.invalidCallbackTitle') }}
         </h1>
-        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p class="auth-summary">
           {{ t('auth.oauth.invalidCallbackHint') }}
         </p>
-        <button class="btn btn-primary mt-6" type="button" @click="router.replace('/login')">
+        <div class="auth-actions">
+        <button class="btn btn-primary" type="button" @click="router.replace('/login')">
           {{ t('auth.backToLogin') }}
         </button>
+        <router-link to="/home" class="btn btn-outline">← 首页</router-link>
+        </div>
       </div>
 
-      <div v-else class="card p-6">
-        <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
+      <div v-else>
+        <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
-        <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p class="auth-intro">
           {{ t('auth.oauth.callbackHint') }}
         </p>
 
-        <div class="mt-6 space-y-4">
+        <div class="auth-summary space-y-3">
           <div>
             <label class="input-label">{{ t('auth.oauth.code') }}</label>
             <div class="flex gap-2">
               <input class="input flex-1 font-mono text-sm" :value="code" readonly />
-              <button class="btn btn-secondary" type="button" :disabled="!code" @click="copy(code)">
+              <button class="btn btn-secondary btn-outline" type="button" :disabled="!code" @click="copy(code)">
                 {{ t('common.copy') }}
               </button>
             </div>
@@ -115,7 +121,7 @@
             <div class="flex gap-2">
               <input class="input flex-1 font-mono text-sm" :value="state" readonly />
               <button
-                class="btn btn-secondary"
+                class="btn btn-secondary btn-outline"
                 type="button"
                 :disabled="!state"
                 @click="copy(state)"
@@ -130,7 +136,7 @@
             <div class="flex gap-2">
               <input class="input flex-1 font-mono text-xs" :value="fullUrl" readonly />
               <button
-                class="btn btn-secondary"
+                class="btn btn-secondary btn-outline"
                 type="button"
                 :disabled="!fullUrl"
                 @click="copy(fullUrl)"
@@ -142,10 +148,11 @@
         </div>
       </div>
     </div>
-  </div>
+  </AuthLayout>
 </template>
 
 <script setup lang="ts">
+import AuthLayout from '@/components/layout/AuthLayout.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
 
@@ -386,3 +393,66 @@ const copy = (value: string) => {
   copyToClipboard(value)
 }
 </script>
+
+<style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+div.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
+}
+</style>

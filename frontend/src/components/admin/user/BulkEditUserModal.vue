@@ -6,12 +6,12 @@
     @close="emit('close')"
   >
     <form id="bulk-edit-user-limits-form" class="space-y-5" @submit.prevent="handleSubmit">
-      <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+      <p class="pill pill-ghost w-fit font-mono tabular-nums text-[var(--foreground)]">
         {{ t('admin.users.bulkLimits.selectedCount', { count: selectedIds.length }) }}
       </p>
 
-      <div class="divide-y divide-gray-200 border-y border-gray-200 dark:divide-dark-700 dark:border-dark-700">
-        <div class="space-y-3 py-4">
+      <div class="space-y-3">
+        <div class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
           <div class="flex items-center justify-between gap-4">
             <label for="bulk-concurrency" class="input-label mb-0">
               {{ t('admin.users.columns.concurrency') }}
@@ -29,12 +29,12 @@
             type="number"
             min="0"
             step="1"
-            class="input"
+            class="input font-mono tabular-nums"
             data-test="concurrency-input"
           />
         </div>
 
-        <div class="space-y-3 py-4">
+        <div class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
           <div class="flex items-center justify-between gap-4">
             <label for="bulk-rpm-limit" class="input-label mb-0">
               {{ t('admin.users.form.rpmLimit') }}
@@ -52,7 +52,7 @@
               type="number"
               min="0"
               step="1"
-              class="input"
+              class="input font-mono tabular-nums"
               data-test="rpm-limit-input"
             />
             <p v-if="parsedRPMLimit === 0" class="input-hint">
@@ -62,16 +62,16 @@
         </div>
       </div>
 
-      <p v-if="hasInvalidValue" class="text-sm text-red-600 dark:text-red-400">
+      <p v-if="hasInvalidValue" class="text-sm text-[var(--bad-text)]" role="alert">
         {{ t('admin.users.bulkLimits.nonNegativeInteger') }}
       </p>
-      <p v-if="selectionTooLarge" class="text-sm text-red-600 dark:text-red-400">
+      <p v-if="selectionTooLarge" class="text-sm text-[var(--bad-text)]" role="alert">
         {{ t('admin.users.bulkLimits.selectionLimit', { max: MAX_BATCH_USER_IDS }) }}
       </p>
     </form>
 
     <template #footer>
-      <div class="flex justify-end gap-3">
+      <div class="flex flex-wrap justify-end gap-2">
         <button type="button" class="btn btn-secondary" @click="emit('close')">
           {{ t('common.cancel') }}
         </button>

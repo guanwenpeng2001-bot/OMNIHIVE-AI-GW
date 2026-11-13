@@ -1,5 +1,6 @@
 <template>
   <ProfileIdentityBindingsSection
+    class="account-bindings-surface"
     :user="user"
     :linuxdo-enabled="linuxdoEnabled"
     :dingtalk-enabled="dingtalkEnabled"
@@ -37,3 +38,8 @@ withDefaults(
   }
 )
 </script>
+
+<style scoped>
+.account-bindings-surface { border: 1px solid var(--border); background: var(--card); color: var(--foreground); border-radius: 8px; }
+.account-bindings-surface :deep(button:focus-visible) { outline: 2px solid var(--brand); outline-offset: 3px; }
+</style>

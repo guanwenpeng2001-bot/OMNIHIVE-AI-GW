@@ -1,6 +1,6 @@
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-gray-50 px-4 dark:bg-dark-900">
-    <div class="w-full max-w-md space-y-6">
+  <div class="flex min-h-screen items-center justify-center bg-[var(--background)] p-4 text-[var(--foreground)]">
+    <div class="w-full max-w-md space-y-6 py-6">
       <!-- Loading -->
       <div v-if="loading" class="flex items-center justify-center py-20">
         <LoadingSpinner size="md" color="primary" />
@@ -9,18 +9,18 @@
         <!-- Status Icon -->
         <div class="text-center">
           <div v-if="isSuccess"
-            class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+            class="mx-auto flex h-20 w-20 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
             <svg class="h-10 w-10 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"
               stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
           <div v-else-if="isPending || resumeLookupUnavailable"
-            class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-900/30">
+            class="mx-auto flex h-20 w-20 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
             <LoadingSpinner size="md" color="primary" />
           </div>
           <div v-else
-            class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            class="mx-auto flex h-20 w-20 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
             <svg class="h-10 w-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -33,7 +33,7 @@
           </p>
         </div>
         <!-- Order Info -->
-        <div v-if="order" class="rounded-xl bg-white p-5 shadow-sm dark:bg-dark-800">
+        <div v-if="order" class="card p-5 tabular-nums">
           <div class="space-y-3 text-sm">
             <div v-if="hasOrderId(order)" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderId') }}</span>
@@ -70,7 +70,7 @@
           </div>
         </div>
         <!-- EasyPay return info (when no order loaded) -->
-        <div v-else-if="returnInfo" class="rounded-xl bg-white p-5 shadow-sm dark:bg-dark-800">
+        <div v-else-if="returnInfo" class="card p-5 tabular-nums">
           <div class="space-y-3 text-sm">
             <div v-if="returnInfo.outTradeNo" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderId') }}</span>
@@ -87,7 +87,7 @@
           </div>
         </div>
         <!-- Actions -->
-        <div class="flex gap-3">
+        <div class="flex flex-wrap gap-3">
           <button class="btn btn-secondary flex-1" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
           <button class="btn btn-primary flex-1" @click="router.push('/orders')">{{ t('payment.result.viewOrders') }}</button>
         </div>

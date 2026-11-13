@@ -218,6 +218,7 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		MCP:              NewMCPGrantHandler(),
 		ModelAccess:      modelAccessHandler,
 		Workspace:        workspaceHandler,
 		Auth:             authHandler,

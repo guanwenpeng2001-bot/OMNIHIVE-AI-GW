@@ -2,15 +2,15 @@
   <BaseDialog :show="show" :title="t('keys.secretOnce.title')" width="normal" @close="emit('close')">
     <div class="space-y-4">
       <div
-        class="flex items-start gap-3 rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20"
+        class="flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"
       >
-        <p class="text-sm font-medium text-green-800 dark:text-green-200">
+        <p class="text-sm font-medium text-[var(--foreground)]">
           {{ t('keys.secretOnce.warning') }}
         </p>
       </div>
 
-      <div class="flex items-center gap-2">
-        <code class="code flex-1 break-all text-xs">{{ secret }}</code>
+      <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+        <code class="min-w-0 flex-1 break-all rounded-lg border border-white/10 bg-[#161616] p-4 font-mono text-xs leading-6 text-[#f4f4f5]">{{ secret }}</code>
         <button type="button" class="btn btn-secondary shrink-0" @click="copySecret">
           {{ copied ? t('keys.copied') : t('keys.copyToClipboard') }}
         </button>

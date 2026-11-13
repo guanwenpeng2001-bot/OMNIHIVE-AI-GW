@@ -3,7 +3,7 @@
     <HelpTooltip class="-ml-1" width-class="w-max max-w-[calc(100vw-2rem)]" data-testid="upstream-billing-details">
       <template #trigger>
         <span
-          class="cursor-help border-b border-dotted border-gray-300 text-sm font-medium dark:border-dark-600"
+          class="cursor-help border-b border-dotted text-sm font-medium border-[var(--border)]"
           :class="hasEffectiveRate ? 'font-mono text-gray-800 dark:text-gray-200' : statusClass || 'text-gray-400 dark:text-gray-500'"
           data-testid="upstream-billing-rate"
         >
@@ -70,7 +70,7 @@
     </span>
     <button
       type="button"
-      class="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+      class="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
       :disabled="probing"
       :aria-label="t('admin.accounts.upstreamBilling.manualProbe')"
       :title="t('admin.accounts.upstreamBilling.manualProbe')"
@@ -80,7 +80,7 @@
       <Icon name="refresh" size="xs" :class="{ 'animate-spin': probing }" />
     </button>
   </div>
-  <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+  <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
 </template>
 
 <script setup lang="ts">

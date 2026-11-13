@@ -1,10 +1,18 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="w-full min-w-0">
       <template #filters>
-        <div class="flex flex-wrap items-center gap-3">
+        <section class="mb-3 flex w-full flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+          <h1 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.redeem.title') }}</h1>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]" role="status">
+            <span class="pulse-dot" :class="loading ? 'pulse-warn' : 'bg-[var(--muted-foreground)]'" aria-hidden="true"></span>
+            {{ loading ? t('common.loading') : t('common.view') }}
+          </span>
+          <span class="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">{{ t('common.total') }} <strong class="font-mono tabular-nums text-[var(--foreground)]">{{ loading ? '—' : pagination.total }}</strong></span>
+        </section>
+        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
           <!-- Left: Search + Filters -->
-          <div class="flex-1 sm:max-w-64">
+          <div class="w-full sm:w-64">
             <input
               v-model="searchQuery"
               type="text"
@@ -16,13 +24,13 @@
           <Select
             v-model="filters.type"
             :options="filterTypeOptions"
-            class="w-36"
+            class="w-full sm:w-36"
             @change="loadCodes"
           />
           <Select
             v-model="filters.status"
             :options="filterStatusOptions"
-            class="w-36"
+            class="w-full sm:w-36"
             @change="loadCodes"
           />
 
@@ -31,24 +39,24 @@
             <button
               @click="loadCodes"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary btn-sm"
               :title="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
-            <button @click="handleExportCodes" class="btn btn-secondary">
+            <button @click="handleExportCodes" class="btn btn-secondary btn-sm">
               {{ t('admin.redeem.exportCsv') }}
             </button>
             <button
               data-test="batch-update-open"
               @click="openBatchUpdateDialog"
               :disabled="selectedCount === 0 || batchUpdating"
-              class="btn btn-secondary"
+              class="btn btn-secondary btn-sm"
             >
               <Icon name="edit" size="md" class="mr-2" />
               {{ t('admin.redeem.batchUpdate') }}
             </button>
-            <button @click="showGenerateDialog = true" class="btn btn-primary">
+            <button @click="showGenerateDialog = true" class="btn btn-primary btn-sm">
               {{ t('admin.redeem.generateCodes') }}
             </button>
           </div>
@@ -69,7 +77,7 @@
             <input
               data-test="select-all-codes"
               type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              class="h-4 w-4 cursor-pointer rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="allVisibleSelected"
               @click.stop
               @change="toggleSelectAllVisible($event)"
@@ -80,7 +88,7 @@
             <input
               data-test="select-code"
               type="checkbox"
-              class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              class="h-4 w-4 cursor-pointer rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
               :checked="selectedCodeIds.has(row.id)"
               @click.stop
               @change="toggleSelectRow(row.id, $event)"
@@ -89,14 +97,14 @@
 
           <template #cell-code="{ value }">
             <div class="flex items-center space-x-2">
-              <code class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ value }}</code>
+              <code class="font-mono text-sm tabular-nums text-[var(--foreground)]">{{ value }}</code>
               <button
                 @click="copyToClipboard(value)"
                 :class="[
                   'flex items-center transition-colors',
                   copiedCode === value
                     ? 'text-green-500'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]'
                 ]"
                 :title="copiedCode === value ? t('admin.redeem.copied') : t('keys.copyToClipboard')"
               >
@@ -129,11 +137,11 @@
           </template>
 
           <template #cell-value="{ value, row }">
-            <span class="text-sm font-medium text-gray-900 dark:text-white">
+            <span class="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
               <template v-if="row.type === 'balance'">${{ value.toFixed(2) }}</template>
               <template v-else-if="row.type === 'subscription'">
                 {{ row.validity_days || 30 }} {{ t('admin.redeem.days') }}
-                <span v-if="row.group" class="ml-1 text-xs text-gray-500 dark:text-gray-400"
+                <span v-if="row.group" class="ml-1 text-xs text-[var(--muted-foreground)]"
                   >({{ row.group.name }})</span
                 >
               </template>
@@ -157,13 +165,13 @@
           </template>
 
           <template #cell-used_by="{ value, row }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">
+            <span class="text-sm text-[var(--muted-foreground)]">
               {{ row.user?.email || (value ? t('admin.redeem.userPrefix', { id: value }) : '-') }}
             </span>
           </template>
 
           <template #cell-used_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{
+            <span class="font-mono text-sm tabular-nums text-[var(--muted-foreground)]">{{
               value ? formatDateTime(value) : '-'
             }}</span>
           </template>
@@ -171,10 +179,10 @@
           <template #cell-expires_at="{ value, row }">
             <span
               :class="[
-                'text-sm',
+                'font-mono text-sm tabular-nums',
                 row.status === 'expired'
                   ? 'text-red-600 dark:text-red-400'
-                  : 'text-gray-500 dark:text-dark-400'
+                  : 'text-[var(--muted-foreground)]'
               ]"
             >
               {{ value ? formatDateTime(value) : t('admin.redeem.neverExpires') }}
@@ -186,7 +194,7 @@
               <button
                 v-if="row.status === 'unused'"
                 @click="handleDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                class="btn btn-ghost btn-sm text-[var(--bad-text)]"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -198,7 +206,7 @@
                 </svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
-              <span v-else class="text-gray-400 dark:text-dark-500">-</span>
+              <span v-else class="text-[var(--muted-foreground)]">-</span>
             </div>
           </template>
         </DataTable>
@@ -207,15 +215,15 @@
       <template #pagination>
         <div
           v-if="selectedCount > 0"
-          class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-primary-50 p-3 dark:bg-primary-900/20"
+          class="bulk-bar-real mb-3 justify-between"
         >
-          <span class="text-sm font-medium text-primary-900 dark:text-primary-100">
+          <span class="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
             {{ t('admin.redeem.selectedCount', { count: selectedCount }) }}
           </span>
           <div class="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              class="text-xs font-medium text-primary-700 hover:text-primary-800 dark:text-primary-300 dark:hover:text-primary-200"
+              class="btn btn-ghost btn-sm"
               @click="clearSelectedCodes"
             >
               {{ t('admin.redeem.clearSelection') }}
@@ -240,8 +248,8 @@
         />
 
         <!-- Batch Actions -->
-        <div v-if="filters.status === 'unused'" class="flex justify-end">
-          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
+        <div v-if="filters.status === 'unused'" class="bulk-bar-real mt-3 justify-end">
+          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger btn-sm">
             {{ t('admin.redeem.deleteAllUnused') }}
           </button>
         </div>
@@ -277,9 +285,9 @@
       <div v-if="showGenerateDialog" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="fixed inset-0 bg-black/50" @click="showGenerateDialog = false"></div>
         <div
-          class="relative z-10 w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-dark-800"
+          class="relative z-10 w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
         >
-          <h2 class="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 class="mb-4 text-lg font-semibold text-[var(--foreground)]">
             {{ t('admin.redeem.generateCodesTitle') }}
           </h2>
           <form @submit.prevent="handleGenerateCodes" class="space-y-4">
@@ -328,7 +336,7 @@
                       :subscription-type="(option as unknown as GroupOption).subscriptionType"
                       :rate-multiplier="(option as unknown as GroupOption).rate"
                     />
-                    <span v-else class="text-gray-400">{{
+                    <span v-else class="text-[var(--muted-foreground)]">{{
                       t('admin.redeem.selectGroupPlaceholder')
                     }}</span>
                   </template>
@@ -367,8 +375,8 @@
                   :class="[
                     'rounded-lg border px-3 py-2 text-sm transition-colors',
                     generateForm.expiry_option === option.value
-                      ? 'border-primary-500 bg-primary-50 text-primary-700 dark:border-primary-400 dark:bg-primary-900/20 dark:text-primary-300'
-                      : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'
+                      ? 'border-[var(--brand)] bg-[var(--accent)] text-[var(--brand-text)]'
+                      : 'border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--surface-2)]'
                   ]"
                 >
                   {{ option.label }}
@@ -417,23 +425,23 @@
       >
         <div class="fixed inset-0 bg-black/50" @click="closeBatchUpdateDialog"></div>
         <div
-          class="relative z-10 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-dark-800"
+          class="relative z-10 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-xl"
         >
-          <h2 class="mb-1 text-lg font-semibold text-gray-900 dark:text-white">
+          <h2 class="mb-1 text-lg font-semibold text-[var(--foreground)]">
             {{ t('admin.redeem.batchUpdateTitle') }}
           </h2>
-          <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">
+          <p class="mb-4 text-sm text-[var(--muted-foreground)]">
             {{ t('admin.redeem.selectedCount', { count: selectedCount }) }}
           </p>
 
           <form data-test="batch-update-form" class="space-y-4" @submit.prevent="handleBatchUpdate">
             <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label class="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
                 <input
                   data-test="batch-field-status"
                   v-model="batchUpdateForm.update_status"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
                 />
                 {{ t('admin.redeem.batchFields.status') }}
               </label>
@@ -446,11 +454,11 @@
             </div>
 
             <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label class="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
                 <input
                   v-model="batchUpdateForm.update_expires_at"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
                 />
                 {{ t('admin.redeem.batchFields.expiresAt') }}
               </label>
@@ -469,12 +477,12 @@
             </div>
 
             <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label class="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
                 <input
                   data-test="batch-field-notes"
                   v-model="batchUpdateForm.update_notes"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
                 />
                 {{ t('admin.redeem.batchFields.notes') }}
               </label>
@@ -489,11 +497,11 @@
             </div>
 
             <div class="space-y-2">
-              <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label class="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
                 <input
                   v-model="batchUpdateForm.update_group_id"
                   type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  class="h-4 w-4 rounded border-[var(--border)] text-[var(--brand-text)] focus:ring-[var(--brand)]"
                 />
                 {{ t('admin.redeem.batchFields.group') }}
               </label>
@@ -527,14 +535,14 @@
     <Teleport to="body">
       <div v-if="showResultDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="fixed inset-0 bg-black/50" @click="closeResultDialog"></div>
-        <div class="relative z-10 w-full max-w-lg rounded-xl bg-white shadow-xl dark:bg-dark-800">
+        <div class="relative z-10 w-full max-w-lg rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-xl">
           <!-- Header -->
           <div
-            class="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-dark-600"
+            class="flex items-center justify-between border-b border-[var(--border)] px-5 py-4"
           >
             <div class="flex items-center gap-3">
               <div
-                class="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30"
+                class="flex items-center justify-center"
               >
                 <svg
                   class="h-5 w-5 text-green-600 dark:text-green-400"
@@ -551,17 +559,17 @@
                 </svg>
               </div>
               <div>
-                <h2 class="text-base font-semibold text-gray-900 dark:text-white">
+                <h2 class="text-base font-semibold text-[var(--foreground)]">
                   {{ t('admin.redeem.generatedSuccessfully') }}
                 </h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-[var(--muted-foreground)]">
                   {{ t('admin.redeem.codesCreated', { count: generatedCodes.length }) }}
                 </p>
               </div>
             </div>
             <button
               @click="closeResultDialog"
-              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+              class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="x" size="md" :stroke-width="2" />
             </button>
@@ -573,13 +581,13 @@
                 readonly
                 :value="generatedCodesText"
                 :style="{ height: textareaHeight }"
-                class="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-800 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
+                class="w-full resize-none rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 font-mono tabular-nums text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
               ></textarea>
             </div>
           </div>
           <!-- Footer -->
           <div
-            class="flex justify-end gap-2 rounded-b-xl border-t border-gray-200 bg-gray-50 px-5 py-4 dark:border-dark-600 dark:bg-dark-700/50"
+            class="flex justify-end gap-2 rounded-b-xl border-t border-[var(--border)] bg-[var(--surface-2)] px-5 py-4"
           >
             <button
               @click="copyGeneratedCodes"
@@ -1197,3 +1205,32 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+
+<style scoped>
+.btn {
+  border-radius: var(--radius-sm);
+  background-image: none;
+  box-shadow: none;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-secondary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.btn-danger {
+  background: color-mix(in srgb, var(--bad) 8%, var(--card));
+  color: var(--bad-text);
+}
+.btn-ghost:hover {
+  background: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+</style>

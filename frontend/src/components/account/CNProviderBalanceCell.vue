@@ -1,21 +1,21 @@
 <template>
-  <div v-if="visible" class="space-y-1">
+  <div v-if="visible" class="min-w-0 max-w-[260px] space-y-1.5">
     <!-- Balance value row: static display (snapshot or probe result) -->
-    <div v-if="budget" data-test="project-budget" class="text-xs" aria-live="polite">
+    <div v-if="budget" data-test="project-budget" class="balance-details flex flex-wrap items-center gap-1 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]" aria-live="polite">
       <div>{{ t('admin.accounts.compatibleUsage.projectBudget') }}</div>
       <div v-if="budget.project_id != null && budget.ram_user_id != null">{{ t('admin.accounts.compatibleUsage.project') }}: {{ budget.project_id }} · {{ t('admin.accounts.compatibleUsage.member') }}: {{ budget.ram_user_id }}</div>
       <div>{{ t('admin.accounts.compatibleUsage.consumed') }}: {{ budget.consumed }} {{ budget.currency }}</div>
       <div>{{ t('admin.accounts.compatibleUsage.limit') }}: {{ budget.unlimited ? t('admin.accounts.compatibleUsage.unlimited') : budget.limit == null ? '—' : `${budget.limit} ${budget.currency}` }}</div>
       <div>{{ t(`admin.accounts.compatibleUsage.${budget.period_kind}`) }}: {{ budget.period_start }} – {{ budget.period_end }}</div>
     </div>
-    <div v-else-if="credits" data-test="account-credits" class="text-xs" aria-live="polite">
+    <div v-else-if="credits" data-test="account-credits" class="balance-details flex flex-wrap items-center gap-1 font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]" aria-live="polite">
       <div>{{ t('admin.accounts.usageQuery.totalCredits') }}: {{ credits.total_credits }} {{ credits.unit }}</div>
       <div>{{ t('admin.accounts.usageQuery.totalUsage') }}: {{ credits.total_usage }} {{ credits.unit }}</div>
     </div>
     <div v-else class="flex flex-wrap items-center gap-1.5">
       <span
         data-test="cn-provider-balance-value"
-        :class="['text-[10px] font-medium leading-4', platformTextClass(account.platform)]"
+        class="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_80%,transparent)] px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-[var(--foreground)]"
         :title="t('admin.accounts.cnProviders.balanceProbeTooltip')"
       >
         {{ balanceLabel }}
@@ -24,17 +24,17 @@
       <!-- Low balance badge (reactive 402/429 marker or probe-detected) -->
       <span
         v-if="balanceLow"
-        class="inline-flex items-center rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300"
+        class="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--bad-text)]"
       >
         {{ t('admin.accounts.cnProviders.balanceLow') }}
       </span>
     </div>
 
-    <div v-if="data?.success && data.used != null" data-test="management-used" class="text-[10px] text-gray-500">{{ t('admin.accounts.usageQuery.used') }}: {{ data.used }} {{ data.currency }}</div>
-    <div v-if="account.platform === 'minimax'" class="text-[10px] text-gray-500">{{ t('admin.accounts.cnProviders.minimaxBalanceHint') }}</div>
-    <div v-if="queryCredentialReason && !error" data-test="query-credentials-hint" class="text-[10px] text-gray-500">{{ t(`admin.accounts.compatibleUsage.reasons.${queryCredentialReason}`) }}</div>
-    <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(account.platform)" class="text-[10px] text-gray-500">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
-    <div v-if="stale" class="text-[10px] text-amber-600">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
+    <div v-if="data?.success && data.used != null" data-test="management-used" class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">{{ t('admin.accounts.usageQuery.used') }}: {{ data.used }} {{ data.currency }}</div>
+    <div v-if="account.platform === 'minimax'" class="max-w-[220px] truncate text-[10px] text-[var(--muted-foreground)]" :title="t('admin.accounts.cnProviders.minimaxBalanceHint')">{{ t('admin.accounts.cnProviders.minimaxBalanceHint') }}</div>
+    <div v-if="queryCredentialReason && !error" data-test="query-credentials-hint" class="max-w-[220px] truncate text-[10px] text-[var(--muted-foreground)]" :title="t(`admin.accounts.compatibleUsage.reasons.${queryCredentialReason}`)">{{ t(`admin.accounts.compatibleUsage.reasons.${queryCredentialReason}`) }}</div>
+    <div v-if="['atlascloud', 'stepfun_api', 'stepfun_api_intl', 'teamorouter', 'teamorouter_com', 'aihubmix', 'dmxapi', 'crazyrouter', 'crazyrouter_intl'].includes(account.platform)" class="max-w-[220px] truncate text-[10px] text-[var(--muted-foreground)]" :title="t('admin.accounts.compatibleUsage.accountBalance')">{{ t('admin.accounts.compatibleUsage.accountBalance') }}</div>
+    <div v-if="stale" class="inline-flex rounded border border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--warn-text)]">{{ t('admin.accounts.compatibleUsage.stale') }}</div>
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): the old chip doubled as the data display and a hidden click
          target, which users could not discover. The verb label makes the
@@ -43,7 +43,7 @@
       <button
         type="button"
         data-test="cn-provider-balance-probe"
-        class="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium leading-4 text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+        class="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10px] font-medium text-[var(--foreground)] shadow-sm transition-colors hover:border-[var(--brand)] hover:text-[var(--brand-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] disabled:cursor-not-allowed disabled:opacity-50"
         :disabled="loading"
         :title="t('admin.accounts.cnProviders.balanceProbeTooltip')"
         @click="handleProbe"
@@ -66,7 +66,7 @@
       </button>
     </div>
 
-    <div v-if="error" role="alert" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="error">
+    <div v-if="error" role="alert" class="truncate rounded border border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--bad-text)]" :title="error">
       {{ truncatedError }}
     </div>
   </div>
@@ -81,7 +81,6 @@ import { adminAPI } from '@/api/admin'
 import type { CNProviderBalanceEntry, CNProviderBalanceResult } from '@/api/admin/cnProviders'
 import type { Account } from '@/types'
 import { accountQueryIdentity } from '@/utils/accountQueryIdentity'
-import { platformTextClass } from '@/utils/platformColors'
 import { cnBalanceCellVisible } from './credentialsBuilder'
 import { compatibleBalanceVisible, compatibleFailureReason, compatibleUsageCapability } from './compatibleBalance'
 import { compatibleProvider } from '@/constants/compatibleProviders'
@@ -220,3 +219,14 @@ watch(
 )
 onBeforeUnmount(() => { requestGeneration++ })
 </script>
+
+<style scoped>
+.balance-details > div {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--surface-2);
+  padding: 0.125rem 0.375rem;
+}
+</style>

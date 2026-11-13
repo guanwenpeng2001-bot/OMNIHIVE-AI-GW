@@ -37,11 +37,31 @@ onMounted(load)
 
 <template>
   <BaseDialog :show="true" :title="t('admin.proxyGroups.bindings')" width="wide" @close="!busy && emit('close')">
-    <p class="mb-4 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.resetConfirm') }}</p>
-    <p v-if="error" role="alert" class="text-red-600 dark:text-red-400">{{ error }}</p><p v-if="notice" role="status" class="text-sm text-primary-600 dark:text-primary-400">{{ notice }}</p>
+    <div class="proxy-group-bindings space-y-4 text-[var(--foreground)]">
+    <p class="mb-4 text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.resetConfirm') }}</p>
+    <p v-if="error" role="alert" class="text-[var(--bad-text)]">{{ error }}</p><p v-if="notice" role="status" class="text-sm text-[var(--brand-text)]">{{ notice }}</p>
     <p v-if="busy" role="status">{{ t('common.loading') }}</p>
-    <div v-else class="space-y-3"><p v-if="!items.length && !error">{{ t('admin.proxyGroups.noBindings') }}</p><article v-for="item in items" :key="item.account_id" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"><h4 class="break-words font-medium">{{ item.account_name }} #{{ item.account_id }}</h4><dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm"><dt>{{ t('admin.proxyGroups.node') }}</dt><dd class="break-words">{{ item.proxy_name || (item.proxy_id ? `#${item.proxy_id}` : t('admin.proxyGroups.unbound')) }}</dd><dt>{{ t('admin.proxyGroups.expires') }}</dt><dd>{{ item.expires_at ? new Date(item.expires_at).toLocaleString() : '—' }}</dd><dt>{{ t('common.status') }}</dt><dd :class="!item.eligible && 'text-amber-700 dark:text-amber-400'">{{ t(item.eligible ? 'admin.proxyGroups.eligible' : 'admin.proxyGroups.ineligible') }}</dd></dl></article></div>
+    <div v-else class="space-y-3"><p v-if="!items.length && !error" class="rounded-lg border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.noBindings') }}</p><article v-for="item in items" :key="item.account_id" class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"><h4 class="break-words text-sm font-semibold">{{ item.account_name }} <span class="font-mono text-xs text-[var(--muted-foreground)]">#{{ item.account_id }}</span></h4><dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-sm"><dt class="text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.node') }}</dt><dd class="break-words">{{ item.proxy_name || (item.proxy_id ? `#${item.proxy_id}` : t('admin.proxyGroups.unbound')) }}</dd><dt class="text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.expires') }}</dt><dd class="tabular-nums">{{ item.expires_at ? new Date(item.expires_at).toLocaleString() : '—' }}</dd><dt class="text-[var(--muted-foreground)]">{{ t('common.status') }}</dt><dd :class="!item.eligible && 'text-[var(--warn-text)]'"><span class="pill pill-ghost"><span class="pulse-dot" :class="item.eligible ? 'bg-[var(--ok)]' : 'bg-[var(--warn)]'" aria-hidden="true" />{{ t(item.eligible ? 'admin.proxyGroups.eligible' : 'admin.proxyGroups.ineligible') }}</span></dd></dl></article></div>
+    </div>
     <template #footer><button class="btn btn-secondary" :disabled="busy" @click="load">{{ t('common.refresh') }}</button><button class="btn btn-danger" :disabled="busy || !items.length" @click="confirm = true">{{ t('admin.proxyGroups.reset') }}</button></template>
   </BaseDialog>
   <ConfirmDialog :show="confirm" :title="t('admin.proxyGroups.reset')" :message="t('admin.proxyGroups.resetConfirm')" danger @cancel="confirm = false" @confirm="reset" />
 </template>
+
+<style scoped>
+:global(.oh-modal-overlay:has(.proxy-group-bindings)) {
+  justify-content: flex-end;
+  padding: 0;
+}
+
+:global(.oh-modal-content:has(.proxy-group-bindings)) {
+  width: min(100%, 36rem);
+  max-width: 36rem;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  border-radius: 0;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+}
+</style>

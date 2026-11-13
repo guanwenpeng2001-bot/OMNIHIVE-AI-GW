@@ -1,28 +1,30 @@
 <template>
-  <div v-if="loading || error || historyGap || !stats" data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-    <div v-for="label in ['usage.totalRequests', 'usage.totalTokens', 'usage.totalCost', 'usage.avgDuration']" :key="label" class="card p-4">
-      <p class="text-xs font-medium text-gray-500">{{ t(label) }}</p>
-      <p class="text-xl font-bold" role="status">{{ loading ? t('common.loading') : historyGap ? '—' : t('usage.failedToLoad') }}</p>
-      <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
+  <div v-if="loading || error || historyGap || !stats" data-testid="usage-stats" :aria-busy="loading" class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div v-for="label in ['usage.totalRequests', 'usage.totalTokens', 'usage.totalCost', 'usage.avgDuration']" :key="label" class="card metric-card">
+      <div class="metric-label">
+        <p>{{ t(label) }}</p>
+        <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="error ? 'bg-[var(--bad)]' : 'bg-[var(--muted-foreground)]'" aria-hidden="true"></span>
+      </div>
+      <p class="metric-value font-mono text-2xl font-bold tabular-nums" role="status">{{ loading ? t('common.loading') : historyGap ? '—' : t('usage.failedToLoad') }}</p>
+      <p class="metric-note">{{ t('usage.inSelectedRange') }}</p>
     </div>
   </div>
-  <div v-else data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-    <div class="card p-4 flex items-center gap-3">
-      <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30 text-blue-600">
-        <Icon name="document" size="md" />
+  <div v-else data-testid="usage-stats" :aria-busy="loading" class="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="card metric-card">
+      <div class="metric-label">
+        <p>{{ t('usage.totalRequests') }}</p>
+        <Icon name="document" size="sm" aria-hidden="true" />
       </div>
-      <div>
-        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalRequests') }}</p>
-        <p class="text-xl font-bold">{{ stats?.total_requests?.toLocaleString() || '0' }}</p>
-        <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
-      </div>
+      <p class="metric-value font-mono text-2xl font-bold tabular-nums">{{ stats?.total_requests?.toLocaleString() || '0' }}</p>
+      <p class="metric-note">{{ t('usage.inSelectedRange') }}</p>
     </div>
-    <div class="card p-4 flex items-center gap-3">
-      <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30 text-amber-600"><svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" /></svg></div>
-      <div>
-        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalTokens') }}</p>
-        <p class="text-xl font-bold">{{ formatTokens(stats?.total_tokens || 0) }}</p>
-        <p class="flex flex-wrap items-center gap-x-1 text-xs text-gray-500">
+    <div class="card metric-card">
+      <div class="metric-label">
+        <p>{{ t('usage.totalTokens') }}</p>
+        <Icon name="chart" size="sm" aria-hidden="true" />
+      </div>
+        <p class="metric-value font-mono text-2xl font-bold tabular-nums">{{ formatTokens(stats?.total_tokens || 0) }}</p>
+        <p class="metric-note flex flex-wrap items-center gap-x-1 font-mono tabular-nums">
           <span>{{ t('usage.in') }}: {{ formatTokens(stats?.total_input_tokens || 0) }}</span>
           <span>/</span>
           <span>{{ t('usage.out') }}: {{ formatTokens(stats?.total_output_tokens || 0) }}</span>
@@ -30,7 +32,7 @@
           <span class="group relative inline-flex cursor-help items-center gap-0.5" tabindex="0">
             <span>{{ cacheLabel() }}: {{ formatTokens(stats?.total_cache_tokens || 0) }}</span>
             <svg
-              class="h-3.5 w-3.5 text-gray-400"
+              class="h-3.5 w-3.5 text-[var(--muted-foreground)]"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -43,55 +45,56 @@
               />
             </svg>
             <span
-              class="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-56 -translate-x-1/2 rounded-lg border border-gray-200 bg-white p-3 text-left text-xs text-gray-700 shadow-lg group-hover:block group-focus:block dark:border-dark-600 dark:bg-dark-800 dark:text-dark-200"
+              class="pointer-events-none absolute left-1/2 top-full z-30 mt-2 hidden w-56 -translate-x-1/2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-left text-xs text-[var(--foreground)] shadow-lg group-hover:block group-focus:block"
             >
-              <span class="mb-2 block font-medium text-gray-900 dark:text-white">
+              <span class="mb-2 block font-medium text-[var(--foreground)]">
                 {{ cacheDetailLabel() }}
               </span>
               <span class="flex items-center justify-between gap-3">
                 <span>{{ t('usage.cacheCreationTokensLabel') }}</span>
-                <span class="tabular-nums">
+                <span class="font-mono tabular-nums">
                   {{ formatTokens(stats?.total_cache_creation_tokens || 0) }}
                 </span>
               </span>
               <span class="mt-1 flex items-center justify-between gap-3">
                 <span>{{ t('usage.cacheReadTokensLabel') }}</span>
-                <span class="tabular-nums">
+                <span class="font-mono tabular-nums">
                   {{ formatTokens(stats?.total_cache_read_tokens || 0) }}
                 </span>
               </span>
             </span>
           </span>
         </p>
-      </div>
     </div>
-    <div class="card p-4 flex items-center gap-3">
-      <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30 text-green-600">
-        <Icon name="dollar" size="md" />
+    <div class="card metric-card">
+      <div class="metric-label">
+        <p>{{ t('usage.totalCost') }} · {{ t('usage.userBilled') }} · USD</p>
+        <Icon name="dollar" size="sm" class="shrink-0" aria-hidden="true" />
       </div>
-      <div class="min-w-0 flex-1">
-        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalCost') }} · {{ t('usage.userBilled') }} · USD</p>
-        <p class="text-xl font-bold text-green-600">
-          {{ formatLedgerAmount(stats?.total_actual_cost) }}
+        <p class="metric-value text-xl">
+          <span class="font-mono text-2xl font-bold tabular-nums">{{ formatLedgerAmount(stats?.total_actual_cost) }}</span>
         </p>
-        <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
-        <p class="text-xs text-gray-400">
+      <div class="metric-note">
+        <p>{{ t('usage.inSelectedRange') }}</p>
+        <p class="mt-1">
           <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} USD {{ formatLedgerAmount(totalAccountCost) }}</span>
+            <span>{{ t('usage.accountCost') }} <span class="font-mono tabular-nums">USD {{ formatLedgerAmount(totalAccountCost) }}</span></span>
             <span> · </span>
           </template>
           <span>
             {{ t('usage.standardCost') }}
-            <span :class="{ 'line-through': strikeStandardCost }">USD {{ formatLedgerAmount(stats?.total_cost) }}</span>
+            <span class="font-mono tabular-nums" :class="{ 'line-through': strikeStandardCost }">USD {{ formatLedgerAmount(stats?.total_cost) }}</span>
           </span>
         </p>
       </div>
     </div>
-    <div class="card p-4 flex items-center gap-3">
-      <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30 text-purple-600">
-        <Icon name="clock" size="md" />
+    <div class="card metric-card">
+      <div class="metric-label">
+        <p>{{ t('usage.avgDuration') }}</p>
+        <Icon name="clock" size="sm" aria-hidden="true" />
       </div>
-      <div><p class="text-xs font-medium text-gray-500">{{ t('usage.avgDuration') }}</p><p class="text-xl font-bold">{{ formatDuration(stats?.average_duration_ms || 0) }}</p></div>
+      <p class="metric-value font-mono text-2xl font-bold tabular-nums">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
+      <p class="metric-note">{{ t('usage.inSelectedRange') }}</p>
     </div>
   </div>
 </template>
@@ -138,3 +141,25 @@ const formatTokens = (value: number) => {
 const cacheLabel = () => t('usage.cacheTotal')
 const cacheDetailLabel = () => t('usage.cacheBreakdown')
 </script>
+
+<style scoped>
+.metric-card {
+  @apply flex min-w-0 flex-col gap-3 p-4;
+  border-radius: var(--radius-sm);
+  border-color: var(--border);
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+.metric-label {
+  @apply flex items-center justify-between gap-2 text-xs font-medium;
+  color: var(--muted-foreground);
+}
+.metric-value {
+  overflow-wrap: anywhere;
+}
+.metric-note {
+  @apply mt-auto text-xs;
+  color: var(--muted-foreground);
+}
+</style>

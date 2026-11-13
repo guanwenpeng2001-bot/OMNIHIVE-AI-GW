@@ -19,7 +19,7 @@ function select(value: string | null) {
 </script>
 
 <template>
-  <div class="space-y-2">
+  <div class="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
     <AccountChoiceCards data-testid="compatible-plan" :label="t('admin.accounts.supplier.planType')"
       :model-value="selected" :options="options" :columns="options.length > 4 ? 3 : 2"
       @update:model-value="select" />

@@ -1,21 +1,22 @@
 <template>
   <button
     type="button"
-    class="rounded-lg bg-primary-50 px-3 py-1 text-xs text-primary-700 transition-colors hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
+    class="rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs text-[var(--brand-text)] transition-colors hover:bg-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]"
+    :aria-expanded="showImportPanel"
     @click="toggleImportPanel"
   >
     {{ t('admin.accounts.headerOverride.importJson') }}
   </button>
   <button
     type="button"
-    class="rounded-lg bg-primary-50 px-3 py-1 text-xs text-primary-700 transition-colors hover:bg-primary-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
+    class="rounded-md border border-[var(--border)] bg-[var(--card)] px-3 py-1 text-xs text-[var(--brand-text)] transition-colors hover:bg-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)] disabled:cursor-not-allowed disabled:opacity-50"
     :disabled="!hasNamedRows"
     @click="copyAsJson"
   >
     {{ t('admin.accounts.headerOverride.copyJson') }}
   </button>
 
-  <div v-if="showImportPanel" ref="importPanelRef" class="w-full space-y-2">
+  <div v-show="showImportPanel" ref="importPanelRef" class="w-full space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
     <textarea
       ref="importTextareaRef"
       v-model="importText"
@@ -33,7 +34,7 @@
       </button>
       <button
         type="button"
-        class="rounded-lg bg-gray-100 px-3 py-1 text-xs text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+        class="rounded-lg px-3 py-1 text-xs text-gray-600 transition-colors bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]"
         @click="closeImportPanel"
       >
         {{ t('admin.accounts.headerOverride.importJsonCancel') }}

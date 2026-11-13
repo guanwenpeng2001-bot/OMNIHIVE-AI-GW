@@ -1,13 +1,13 @@
 <template>
   <BaseDialog :show="show" :title="t('keys.rotateKey')" width="normal" @close="emit('close')">
     <div class="space-y-4">
-      <p class="text-sm text-gray-600 dark:text-gray-400">
+      <p class="text-sm leading-6 text-[var(--muted-foreground)]">
         {{ t('keys.rotation.description', { name: apiKey?.name || '' }) }}
       </p>
 
-      <label class="flex items-start gap-3 cursor-pointer">
+      <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
         <input v-model="revokePrevious" type="checkbox" class="mt-0.5 h-4 w-4" />
-        <span class="text-sm text-gray-700 dark:text-gray-300">
+        <span class="text-sm text-[var(--foreground)]">
           {{ t('keys.rotation.revokePrevious') }}
         </span>
       </label>

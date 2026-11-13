@@ -1,23 +1,23 @@
 <template>
   <div
-    class="flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 dark:border-dark-700 dark:bg-dark-800 sm:px-6"
+    class="oh-pagination flex items-center justify-between border-t border-[var(--border)] bg-[var(--card)] px-4 py-3 sm:px-6"
   >
     <div class="flex flex-1 items-center justify-between sm:hidden">
       <!-- Mobile pagination -->
       <button
         @click="goToPage(page - 1)"
         :disabled="page === 1"
-        class="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
+        class="oh-page-btn relative inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {{ t('pagination.previous') }}
       </button>
-      <span class="text-sm text-gray-700 dark:text-gray-300">
+      <span class="font-mono text-sm tabular-nums text-gray-700 dark:text-gray-300">
         {{ t('pagination.pageOf', { page, total: totalPages }) }}
       </span>
       <button
         @click="goToPage(page + 1)"
         :disabled="page === totalPages"
-        class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
+        class="oh-page-btn relative ml-3 inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-3.5 py-1.5 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
       >
         {{ t('pagination.next') }}
       </button>
@@ -26,19 +26,19 @@
     <div class="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
       <!-- Desktop pagination info -->
       <div class="flex items-center space-x-4">
-        <p class="text-sm text-gray-700 dark:text-gray-300">
+        <p class="text-sm tabular-nums text-gray-600 dark:text-gray-300">
           {{ t('pagination.showing') }}
-          <span class="font-medium">{{ fromItem }}</span>
+          <span class="font-mono font-semibold text-gray-900 dark:text-white">{{ fromItem }}</span>
           {{ t('pagination.to') }}
-          <span class="font-medium">{{ toItem }}</span>
+          <span class="font-mono font-semibold text-gray-900 dark:text-white">{{ toItem }}</span>
           {{ t('pagination.of') }}
-          <span class="font-medium">{{ total }}</span>
+          <span class="font-mono font-semibold text-gray-900 dark:text-white">{{ total }}</span>
           {{ t('pagination.results') }}
         </p>
 
         <!-- Page size selector -->
         <div v-if="showPageSizeSelector" class="flex items-center space-x-2">
-          <span class="text-sm text-gray-700 dark:text-gray-300"
+          <span class="text-sm text-gray-600 dark:text-gray-300"
             >{{ t('pagination.perPage') }}:</span
           >
           <div class="page-size-select w-20">
@@ -52,18 +52,18 @@
         </div>
 
         <div v-if="showJump" class="flex items-center space-x-2">
-          <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('pagination.jumpTo') }}</span>
+          <span class="text-sm text-gray-600 dark:text-gray-300">{{ t('pagination.jumpTo') }}</span>
           <input
             v-model="jumpPage"
             type="number"
             min="1"
             :max="totalPages"
-            class="input w-20 text-sm"
+            class="input w-20 font-mono text-sm tabular-nums"
             :placeholder="t('pagination.jumpPlaceholder')"
             :aria-label="t('pagination.jumpTo')"
             @keyup.enter="submitJump"
           />
-          <button type="button" class="btn btn-ghost btn-sm" @click="submitJump">
+          <button type="button" class="btn btn-ghost btn-sm oh-jump-btn" @click="submitJump">
             {{ t('pagination.jumpAction') }}
           </button>
         </div>
@@ -71,14 +71,14 @@
 
       <!-- Desktop pagination buttons -->
       <nav
-        class="relative z-0 inline-flex -space-x-px rounded-md shadow-sm"
+        class="oh-pagination-nav relative z-0 inline-flex items-center gap-1"
         :aria-label="t('pagination.label')"
       >
         <!-- Previous button -->
         <button
           @click="goToPage(page - 1)"
           :disabled="page === 1"
-          class="relative inline-flex items-center rounded-l-md border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
+          class="oh-page-btn relative inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-sm font-medium text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
           :aria-label="t('pagination.previous')"
         >
           <Icon name="chevronLeft" size="md" />
@@ -91,10 +91,10 @@
           @click="typeof pageNum === 'number' && goToPage(pageNum)"
           :disabled="typeof pageNum !== 'number'"
           :class="[
-            'relative inline-flex items-center border px-4 py-2 text-sm font-medium',
+            'oh-page-btn relative inline-flex items-center rounded-lg border px-3.5 py-1.5 font-mono text-sm font-medium tabular-nums transition-all',
             pageNum === page
-              ? 'z-10 border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600',
+              ? 'oh-page-active z-10 border-amber-500/50 bg-amber-500/10 text-amber-800 dark:border-amber-400/50 dark:bg-amber-400/15 dark:text-amber-300'
+              : 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] hover:bg-[var(--surface-2)]',
             typeof pageNum !== 'number' && 'cursor-default'
           ]"
           :aria-label="
@@ -109,7 +109,7 @@
         <button
           @click="goToPage(page + 1)"
           :disabled="page === totalPages"
-          class="relative inline-flex items-center rounded-r-md border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
+          class="oh-page-btn relative inline-flex items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-1.5 text-sm font-medium text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
           :aria-label="t('pagination.next')"
         >
           <Icon name="chevronRight" size="md" />
@@ -245,5 +245,40 @@ const submitJump = () => {
 <style scoped>
 .page-size-select :deep(.select-trigger) {
   @apply px-3 py-1.5 text-sm;
+}
+
+.oh-pagination {
+  border-top-color: var(--border, #e9e9ee);
+  background: var(--card, #ffffff);
+}
+
+.dark .oh-pagination {
+  border-top-color: var(--border, #232329);
+  background: var(--card, #131316);
+}
+
+.oh-page-btn {
+  border-color: var(--border, #e9e9ee);
+  transition: all 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.dark .oh-page-btn {
+  border-color: var(--border, #232329);
+}
+
+.oh-page-btn:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 40%, var(--border, #e9e9ee));
+}
+
+.oh-page-active {
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 50%, var(--border, #e9e9ee)) !important;
+  background: color-mix(in srgb, var(--brand, #f59e0b) 13%, var(--card, #ffffff)) !important;
+  color: var(--brand-text, #92610a) !important;
+}
+
+.dark .oh-page-active {
+  color: var(--brand-text, #fbbf24) !important;
+  background: color-mix(in srgb, var(--brand, #fbbf24) 16%, var(--card, #131316)) !important;
 }
 </style>

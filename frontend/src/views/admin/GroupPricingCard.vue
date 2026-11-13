@@ -1,16 +1,16 @@
 <template>
-  <section class="space-y-2" data-testid="group-pricing-card">
+  <section class="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-[var(--foreground)]" data-testid="group-pricing-card">
     <template v-if="isReadOnlyGroupPricing(entry)">
-      <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+      <div class="rounded-md bg-[var(--surface-2)] p-3">
         <div class="flex items-center justify-between gap-2">
           <span class="text-sm font-medium">{{ entry.platform }} · {{ entry.models.join(', ') }}</span>
           <button type="button" class="btn btn-secondary" data-testid="remove-pricing-card" @click="emit('remove')">{{ t('common.delete') }}</button>
         </div>
-        <p class="mt-2 text-xs text-gray-500">{{ pricingText('pricingSummary.readOnly') }}</p>
+        <p class="mt-2 text-xs text-[var(--muted-foreground)]">{{ pricingText('pricingSummary.readOnly') }}</p>
         <p class="mt-1 text-xs">{{ summary }}</p>
         <details class="mt-2 text-xs">
           <summary>{{ pricingText('pricingSummary.details') }}</summary>
-          <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all">{{ JSON.stringify(entry.original, null, 2) }}</pre>
+          <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md border border-[var(--border)] bg-[var(--card)] p-3 font-mono">{{ JSON.stringify(entry.original, null, 2) }}</pre>
         </details>
       </div>
     </template>
@@ -19,7 +19,7 @@
         <option value="" disabled>{{ pricingText('pricingSummary.provider') }}</option>
         <option v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value" :value="option.value">{{ getPlatformLabel(option.value, t) }}</option>
       </select>
-      <p v-else class="text-xs">{{ entry.platform || platform }}</p>
+      <p v-else class="pill pill-ghost">{{ entry.platform || platform }}</p>
       <PricingEntryCard :entry="entry" :platform="entry.platform || platform" :disable-default-pricing="platform === 'composite'" hide-token-intervals @update="emit('update', { ...entry, ...$event })" @remove="emit('remove')" />
     </template>
   </section>

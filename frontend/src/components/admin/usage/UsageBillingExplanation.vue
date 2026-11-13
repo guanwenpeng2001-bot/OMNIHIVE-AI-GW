@@ -1,10 +1,10 @@
 <template>
   <details class="mt-1 max-w-sm text-xs" data-testid="billing-explanation">
-    <summary class="cursor-pointer text-primary-600 dark:text-primary-400">{{ t('usage.evidence.title') }} · {{ values[0] }} · {{ values[2] }}</summary>
-    <dl class="mt-2 space-y-1 rounded bg-gray-50 p-2 dark:bg-dark-800">
+    <summary class="cursor-pointer text-[var(--brand-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">{{ t('usage.evidence.title') }} · {{ values[0] }} · {{ values[2] }}</summary>
+    <dl class="mt-2 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
       <div v-for="(field, index) in billingEvidenceFields" :key="field">
-        <dt class="font-medium text-gray-500">{{ t(`usage.evidence.${field}`) }}</dt>
-        <dd class="whitespace-pre-wrap break-all text-gray-900 dark:text-gray-200">{{ values[index] }}</dd>
+        <dt class="font-medium text-[var(--muted-foreground)]">{{ t(`usage.evidence.${field}`) }}</dt>
+        <dd class="whitespace-pre-wrap break-all text-[var(--foreground)]">{{ values[index] }}</dd>
       </div>
     </dl>
   </details>

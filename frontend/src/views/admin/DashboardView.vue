@@ -1,7 +1,25 @@
 <template>
   <AppLayout>
+    <header class="dashboard-controls mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+      <div>
+        <h1 class="text-xl font-semibold tracking-tight">运行总览</h1>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">请求、费用和趋势与用量记录联动，运行脉搏来自运维监控</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <label class="refresh-switch flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
+          <input v-model="autoRefreshEnabled" type="checkbox" @change="refreshCountdown = 30" />
+          自动刷新 30s
+        </label>
+        <span class="min-w-14 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" role="status">
+          {{ refreshing ? '刷新中…' : autoRefreshEnabled ? `${refreshCountdown}s` : '已关闭' }}
+        </span>
+        <button type="button" class="btn btn-secondary btn-sm" :disabled="dashboardBusy" @click="refreshDashboard">
+          ↻ 刷新
+        </button>
+      </div>
+    </header>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -9,229 +27,383 @@
 
       <UsageStatsState v-else-if="!stats" :state="chartError ? 'error' : 'unknown'" />
       <template v-else-if="stats">
-        <p v-if="summaryScope !== 'all_time'" class="text-xs text-gray-500 dark:text-gray-400" data-testid="summary-scope">{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></p>
+        <p
+          v-if="summaryScope !== 'all_time'"
+          class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300"
+          style="border-color: var(--border); background: var(--surface-2)"
+          data-testid="summary-scope"
+        >
+          <span class="pulse-dot pulse-warn"></span>
+          <span>{{ summaryLabel }}<span v-if="summaryWindow"> · {{ summaryWindow }}</span></span>
+        </p>
+
+        <!-- 蜂巢运行脉搏 · 实时监控概览横幅卡片 -->
+        <button
+          type="button"
+          class="card pulse-banner w-full p-3 text-left transition-colors sm:p-4"
+          aria-haspopup="dialog"
+          @click="openPulseDiagnosisDrawer"
+          style="
+            background: var(--card);
+            border-color: var(--border);
+          "
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <span
+                class="pulse-dot"
+                :class="stats.error_accounts + stats.ratelimit_accounts + stats.overload_accounts > 0 ? 'pulse-warn' : 'pulse-ok'"
+              ></span>
+              <b class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">
+                运行脉搏
+              </b>
+              <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+                {{ stats.normal_accounts }}/{{ stats.total_accounts }} {{ t('common.active') }}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span
+                class="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                style="color: var(--brand-text)"
+              >
+                <span>查看诊断抽屉</span>
+                <span aria-hidden="true">›</span>
+              </span>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <div
+              class="cursor-pointer rounded-lg border p-3 transition-colors hover:border-amber-500/40"
+              style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
+            >
+              <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                <span>当前活跃账号率</span>
+                <span class="font-mono text-[11px] tabular-nums">{{ stats.normal_accounts }}/{{ stats.total_accounts }}</span>
+              </div>
+              <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ activeAccountRate }}
+              </b>
+              <div class="meter mt-2">
+                <span :style="{ width: activeAccountRate === '—' ? '0%' : activeAccountRate }"></span>
+              </div>
+            </div>
+
+            <div
+              class="cursor-pointer rounded-lg border p-3 transition-colors hover:border-amber-500/40"
+              style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
+            >
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.todayRequests') }}
+              </div>
+              <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ formatNumber(stats.today_requests) }}
+              </b>
+              <span class="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+                {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
+              </span>
+            </div>
+
+            <div
+              class="cursor-pointer rounded-lg border p-3 transition-colors hover:border-amber-500/40"
+              style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
+            >
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                当前 RPM / TPM
+              </div>
+              <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ formatTokens(stats.rpm) }}
+                <span class="text-xs font-normal text-gray-500 dark:text-gray-400">RPM</span>
+              </b>
+              <span class="mt-1 block font-mono text-[11px] tabular-nums text-violet-600 dark:text-violet-400">
+                {{ formatTokens(stats.tpm) }} TPM
+              </span>
+            </div>
+
+            <div
+              class="cursor-pointer rounded-lg border p-3 transition-colors hover:border-amber-500/40"
+              style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
+            >
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.avgResponse') }}
+              </div>
+              <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
+              </b>
+              <span class="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
+                点击查看实时诊断与监控入口
+              </span>
+            </div>
+          </div>
+        </button>
+
         <!-- Row 1: Core Stats -->
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
           <!-- Total API Keys -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30">
-                <Icon name="key" size="md" class="text-blue-600 dark:text-blue-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.apiKeys') }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats.total_api_keys }}
-                </p>
-                <p class="text-xs text-green-600 dark:text-green-400">
-                  {{ stats.active_api_keys }} {{ t('common.active') }}
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-info p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/users')"
+            @keydown.enter="router.push('/admin/users')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.apiKeys') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ stats.total_api_keys }}
+              </p>
+              <p class="mt-0.5 text-xs text-green-600 dark:text-green-400">
+                {{ stats.active_api_keys }} {{ t('common.active') }}
+              </p>
             </div>
           </div>
 
           <!-- Service Accounts -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-purple-100 p-2 dark:bg-purple-900/30">
-                <Icon name="server" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.accounts') }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats.total_accounts }}
-                </p>
-                <p class="text-xs">
-                  <span class="text-green-600 dark:text-green-400"
-                    >{{ stats.normal_accounts }} {{ t('common.active') }}</span
-                  >
-                  <span v-if="stats.error_accounts > 0" class="ml-1 text-red-500"
-                    >{{ stats.error_accounts }} {{ t('common.error') }}</span
-                  >
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-brand p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/accounts')"
+            @keydown.enter="router.push('/admin/accounts')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.accounts') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ stats.total_accounts }}
+              </p>
+              <p class="mt-0.5 text-xs">
+                <span class="text-green-600 dark:text-green-400"
+                  >{{ stats.normal_accounts }} {{ t('common.active') }}</span
+                >
+                <span v-if="stats.error_accounts > 0" class="ml-1 text-red-500"
+                  >{{ stats.error_accounts }} {{ t('common.error') }}</span
+                >
+              </p>
             </div>
           </div>
 
           <!-- Today Requests -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
-                <Icon name="chart" size="md" class="text-green-600 dark:text-green-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.todayRequests') }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats.today_requests }}
-                </p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-ok p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/usage')"
+            @keydown.enter="router.push('/admin/usage')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.todayRequests') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ stats.today_requests }}
+              </p>
+              <p class="mt-0.5 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                {{ summaryLabel }}: {{ summaryScope === 'unknown' ? '—' : formatNumber(stats.total_requests) }}
+              </p>
             </div>
           </div>
 
           <!-- New Users Today -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/30">
-                <Icon name="userPlus" size="md" class="text-emerald-600 dark:text-emerald-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.users') }}
-                </p>
-                <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                  +{{ stats.today_new_users }}
-                </p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('common.total') }}: {{ formatNumber(stats.total_users) }}
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-ok p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/users')"
+            @keydown.enter="router.push('/admin/users')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.users') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+                +{{ stats.today_new_users }}
+              </p>
+              <p class="mt-0.5 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400">
+                {{ t('common.total') }}: {{ formatNumber(stats.total_users) }}
+              </p>
             </div>
           </div>
         </div>
 
         <!-- Row 2: Token Stats -->
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
           <!-- Today Tokens -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
-                <Icon name="cube" size="md" class="text-amber-600 dark:text-amber-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.todayTokens') }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatTokens(stats.today_tokens) }}
-                </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >{{ t('admin.dashboard.actual') }} USD {{ formatCost(stats.today_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.today_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >{{ t('admin.dashboard.standard') }} USD {{ formatCost(stats.today_cost) }}</span
-                  >
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-warn p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/usage')"
+            @keydown.enter="router.push('/admin/usage')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.todayTokens') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ formatTokens(stats.today_tokens) }}
+              </p>
+              <p class="mt-0.5 font-mono text-xs tabular-nums">
+                <span
+                  class="text-green-600 dark:text-green-400"
+                  :title="t('admin.dashboard.actual')"
+                  >{{ t('admin.dashboard.actual') }} USD {{ formatCost(stats.today_actual_cost) }}</span
+                >
+                <span class="text-gray-400 dark:text-gray-500"> / </span>
+                <span
+                  class="text-orange-500 dark:text-orange-400"
+                  :title="t('admin.dashboard.accountCost')"
+                  >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.today_account_cost) }}</span
+                >
+                <span class="text-gray-400 dark:text-gray-500"> / </span>
+                <span
+                  class="text-gray-400 dark:text-gray-500"
+                  :title="t('admin.dashboard.standard')"
+                  >{{ t('admin.dashboard.standard') }} USD {{ formatCost(stats.today_cost) }}</span
+                >
+              </p>
             </div>
           </div>
 
           <!-- Total Tokens -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
-                <Icon name="database" size="md" class="text-indigo-600 dark:text-indigo-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + ' · Token' }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}
-                </p>
-                <p class="text-xs">
-                  <span
-                    class="text-green-600 dark:text-green-400"
-                    :title="t('admin.dashboard.actual')"
-                    >{{ t('admin.dashboard.actual') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_actual_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-orange-500 dark:text-orange-400"
-                    :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ summaryScope === 'unknown' ? '—' : formatAccountCost(stats.total_account_cost) }}</span
-                  >
-                  <span class="text-gray-400 dark:text-gray-500"> / </span>
-                  <span
-                    class="text-gray-400 dark:text-gray-500"
-                    :title="t('admin.dashboard.standard')"
-                    >{{ t('admin.dashboard.standard') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_cost) }}</span
-                  >
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-info p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/usage')"
+            @keydown.enter="router.push('/admin/usage')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + ' · Token' }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ summaryScope === 'unknown' ? '—' : formatTokens(stats.total_tokens) }}
+              </p>
+              <p class="mt-0.5 font-mono text-xs tabular-nums">
+                <span
+                  class="text-green-600 dark:text-green-400"
+                  :title="t('admin.dashboard.actual')"
+                  >{{ t('admin.dashboard.actual') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_actual_cost) }}</span
+                >
+                <span class="text-gray-400 dark:text-gray-500"> / </span>
+                <span
+                  class="text-orange-500 dark:text-orange-400"
+                  :title="t('admin.dashboard.accountCost')"
+                  >{{ t('admin.dashboard.accountCost') }} USD {{ summaryScope === 'unknown' ? '—' : formatAccountCost(stats.total_account_cost) }}</span
+                >
+                <span class="text-gray-400 dark:text-gray-500"> / </span>
+                <span
+                  class="text-gray-400 dark:text-gray-500"
+                  :title="t('admin.dashboard.standard')"
+                  >{{ t('admin.dashboard.standard') }} USD {{ summaryScope === 'unknown' ? '—' : formatCost(stats.total_cost) }}</span
+                >
+              </p>
             </div>
           </div>
 
           <!-- Performance (RPM/TPM) -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-violet-100 p-2 dark:bg-violet-900/30">
-                <Icon name="bolt" size="md" class="text-violet-600 dark:text-violet-400" :stroke-width="2" />
-              </div>
-              <div class="flex-1">
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.performance') }}
+          <div
+            class="card kpi-card kpi-tone-brand p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/ops')"
+            @keydown.enter="router.push('/admin/ops')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.performance') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <div class="flex items-baseline gap-2">
+                <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                  {{ formatTokens(stats.rpm) }}
                 </p>
-                <div class="flex items-baseline gap-2">
-                  <p class="text-xl font-bold text-gray-900 dark:text-white">
-                    {{ formatTokens(stats.rpm) }}
-                  </p>
-                  <span class="text-xs text-gray-500 dark:text-gray-400">RPM</span>
-                </div>
-                <div class="flex items-baseline gap-2">
-                  <p class="text-sm font-semibold text-violet-600 dark:text-violet-400">
-                    {{ formatTokens(stats.tpm) }}
-                  </p>
-                  <span class="text-xs text-gray-500 dark:text-gray-400">TPM</span>
-                </div>
+                <span class="text-xs text-gray-500 dark:text-gray-400">RPM</span>
+              </div>
+              <div class="mt-0.5 flex items-baseline gap-2">
+                <p class="font-mono text-xs font-semibold tabular-nums text-violet-600 dark:text-violet-400">
+                  {{ formatTokens(stats.tpm) }}
+                </p>
+                <span class="text-xs text-gray-500 dark:text-gray-400">TPM</span>
               </div>
             </div>
           </div>
 
           <!-- Avg Response Time -->
-          <div class="card p-4">
-            <div class="flex items-center gap-3">
-              <div class="rounded-lg bg-rose-100 p-2 dark:bg-rose-900/30">
-                <Icon name="clock" size="md" class="text-rose-600 dark:text-rose-400" :stroke-width="2" />
-              </div>
-              <div>
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.avgResponse') }}
-                </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
-                </p>
-                <p v-if="summaryScope === 'retained' || summaryScope === 'range'" class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}</p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
-                </p>
-              </div>
+          <div
+            class="card kpi-card kpi-tone-warn p-4"
+            role="button"
+            tabindex="0"
+            @click="router.push('/admin/ops')"
+            @keydown.enter="router.push('/admin/ops')"
+          >
+            <div class="flex items-start justify-between gap-2">
+              <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.avgResponse') }}
+              </p>
+              <span class="text-xs opacity-35" aria-hidden="true">›</span>
+            </div>
+            <div class="mt-1.5">
+              <p class="font-mono text-2xl font-bold tabular-nums text-gray-900 dark:text-white">
+                {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
+              </p>
+              <p v-if="summaryScope === 'retained' || summaryScope === 'range'" class="text-xs text-gray-500 dark:text-gray-400">{{ summaryLabel }}</p>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
+              </p>
             </div>
           </div>
         </div>
 
         <!-- Quick Actions -->
         <div class="card p-4">
-          <div class="mb-3 flex items-center justify-between">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.dashboard.quickActions') }}
             </h2>
+            <div class="flex flex-wrap gap-1.5">
+              <button
+                v-for="shortcut in workbenchShortcuts"
+                :key="shortcut.path"
+                type="button"
+                class="chip cursor-pointer transition-colors hover:border-amber-500/50 hover:bg-amber-500/5"
+                @click="router.push(shortcut.path)"
+              >
+                <Icon :name="shortcut.icon" size="xs" />
+                <span>{{ shortcut.label }}</span>
+                <span class="opacity-45" aria-hidden="true">→</span>
+              </button>
+            </div>
           </div>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <button
               v-if="canUseBatchImage"
               type="button"
-              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-sky-50 dark:bg-dark-800/50 dark:hover:bg-sky-900/20"
+              class="group flex items-center gap-3 rounded-lg bg-[var(--surface-2)] p-3 text-left transition-colors hover:bg-[var(--accent)]"
               @click="router.push('/batch-image')"
             >
               <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
@@ -249,7 +421,7 @@
             </button>
             <button
               type="button"
-              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-emerald-50 dark:bg-dark-800/50 dark:hover:bg-emerald-900/20"
+              class="group flex items-center gap-3 rounded-lg bg-[var(--surface-2)] p-3 text-left transition-colors hover:bg-[var(--accent)]"
               @click="router.push('/admin/groups')"
             >
               <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
@@ -390,6 +562,7 @@ import Select from '@/components/common/Select.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { useThemeDirection } from '@/composables/useThemeDirection'
 
 import {
   Chart as ChartJS,
@@ -419,8 +592,25 @@ const chartError = ref(false)
 const userTrendState = ref<'known' | 'unknown' | 'error'>('known')
 const appStore = useAppStore()
 const router = useRouter()
+const { openDrawer } = useThemeDirection()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const stats = ref<DashboardStats | null>(null)
+const activeAccountRate = computed(() => {
+  const total = stats.value?.total_accounts ?? 0
+  const normal = stats.value?.normal_accounts ?? 0
+  if (total <= 0) return '—'
+  return `${Math.min(100, Math.max(0, Math.round((normal / total) * 100)))}%`
+})
+
+const workbenchShortcuts = computed(() => [
+  { path: '/admin/ops', label: '运维实时监控', icon: 'bolt' as const },
+  { path: '/admin/channels/monitor', label: '渠道监控', icon: 'chart' as const },
+  { path: '/admin/accounts', label: t('admin.dashboard.manageAccounts'), icon: 'server' as const },
+  { path: '/admin/groups', label: t('admin.dashboard.groupPricing'), icon: 'grid' as const },
+  { path: '/admin/users', label: t('admin.dashboard.manageUsers'), icon: 'users' as const },
+  { path: '/admin/settings', label: t('admin.dashboard.systemSettings'), icon: 'cog' as const }
+])
+
 const summaryScope = computed(() => usageScope(stats.value?.coverage))
 const summaryLabel = computed(() => summaryScope.value === 'all_time' ? t('common.total')
   : t('dashboard.' + (summaryScope.value === 'retained' ? 'scopeRetained' : summaryScope.value === 'range' ? 'scopeRange' : 'scopeUnknown')))
@@ -436,6 +626,35 @@ const loading = ref(false)
 const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
+const autoRefreshEnabled = ref(false)
+const refreshCountdown = ref(30)
+const refreshing = ref(false)
+const dashboardBusy = computed(() => refreshing.value || loading.value || chartsLoading.value || userTrendLoading.value || rankingLoading.value)
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+
+function openPulseDiagnosisDrawer() {
+  const current = stats.value
+  if (!current) return
+  const metrics = [
+    ['当前活跃账号率', activeAccountRate.value],
+    ['正常 / 总账号', `${current.normal_accounts} / ${current.total_accounts}`],
+    ['异常账号', formatNumber(current.error_accounts)],
+    ['限流账号', formatNumber(current.ratelimit_accounts)],
+    ['过载账号', formatNumber(current.overload_accounts)],
+    ['今日请求', formatNumber(current.today_requests)],
+    ['当前 RPM / TPM', `${formatTokens(current.rpm)} / ${formatTokens(current.tpm)}`],
+    ['平均延迟', summaryScope.value === 'unknown' ? '—' : formatDuration(current.average_duration_ms)]
+  ]
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[character] || character))
+  openDrawer(
+    '蜂巢运行脉搏 · 实时诊断',
+    `<p class="mb-4 text-xs opacity-60">当前总览快照；平均延迟沿用总览统计范围，实时链路状态请进入运维监控。</p>
+    <dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex items-center justify-between gap-4 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono font-semibold tabular-nums">${escapeHtml(value)}</dd></div>`).join('')}</dl>`,
+    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">运维实时监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">上游账号池</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button></div>'
+  )
+}
 const rankingError = ref(false)
 const rankingUnknown = ref(false)
 
@@ -817,13 +1036,101 @@ const loadChartData = async () => {
   ])
 }
 
-onUnmounted(() => { chartLoadSeq++; usersTrendLoadSeq++; rankingLoadSeq++ })
+async function refreshDashboard() {
+  if (dashboardBusy.value) return
+  refreshing.value = true
+  try {
+    await loadDashboardStats()
+  } finally {
+    refreshing.value = false
+    refreshCountdown.value = 30
+  }
+}
+
+onUnmounted(() => {
+  chartLoadSeq++
+  usersTrendLoadSeq++
+  rankingLoadSeq++
+  clearInterval(refreshTimer)
+})
 
 onMounted(() => {
   void refreshBatchImageAccess()
   loadDashboardStats()
+  refreshTimer = setInterval(() => {
+    if (!autoRefreshEnabled.value || document.hidden || dashboardBusy.value) return
+    refreshCountdown.value = Math.max(0, refreshCountdown.value - 1)
+    if (refreshCountdown.value === 0) void refreshDashboard()
+  }, 1000)
 })
 </script>
 
 <style scoped>
+.refresh-switch {
+  border-color: var(--border);
+  background: var(--card);
+  accent-color: var(--brand);
+}
+
+.pulse-banner:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+.pulse-banner:hover {
+  box-shadow: inset 3px 0 var(--brand);
+}
+
+.kpi-card {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    transform 0.2s var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    box-shadow 0.2s var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    border-color 0.2s var(--ease, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--kpi-tone, var(--brand, #f59e0b));
+}
+
+.kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 42%, var(--border, #e5e7eb));
+}
+
+.kpi-tone-brand {
+  --kpi-tone: var(--brand, #f59e0b);
+}
+
+.kpi-tone-ok {
+  --kpi-tone: var(--ok, #16a34a);
+}
+
+.kpi-tone-warn {
+  --kpi-tone: var(--warn, #d97706);
+}
+
+.kpi-tone-info {
+  --kpi-tone: var(--info, #2563eb);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+
+  .kpi-card,
+  .kpi-card:hover {
+    transition: none;
+    transform: none;
+  }
+}
 </style>

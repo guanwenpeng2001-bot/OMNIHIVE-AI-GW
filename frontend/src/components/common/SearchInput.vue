@@ -1,13 +1,14 @@
 <template>
   <div class="relative w-full">
     <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-      <Icon name="search" size="md" class="text-gray-400" />
+      <Icon name="search" size="md" class="text-[var(--muted-foreground)]" />
     </div>
     <input
       v-model="searchValue"
       type="text"
       class="input pl-10"
       :placeholder="placeholder"
+      :aria-label="placeholder"
     />
   </div>
 </template>
@@ -43,3 +44,10 @@ const searchValue = computed({
   }
 })
 </script>
+
+<style scoped>
+.input { background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s, box-shadow .15s; }
+.input::placeholder { color: var(--muted-foreground); }
+.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+@media (prefers-reduced-motion: reduce) { .input { transition: none; } }
+</style>

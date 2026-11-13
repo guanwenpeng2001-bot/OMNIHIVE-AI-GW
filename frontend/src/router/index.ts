@@ -157,6 +157,15 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/oauth/mcp/authorize',
+    name: 'McpAuthorize',
+    component: () => import('@/views/auth/McpAuthorizeView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'MCP 授权同意页'
+    }
+  },
+  {
     path: '/forgot-password',
     name: 'ForgotPassword',
     component: () => import('@/views/auth/ForgotPasswordView.vue'),
@@ -310,6 +319,16 @@ const routes: RouteRecordRaw[] = [
       title: 'Profile',
       titleKey: 'profile.title',
       descriptionKey: 'profile.description'
+    }
+  },
+  {
+    path: '/settings/mcp',
+    name: 'McpSettings',
+    component: () => import('@/views/user/McpSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'MCP 授权'
     }
   },
   {
@@ -634,6 +653,16 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/backup',
+    name: 'AdminBackup',
+    component: () => import('@/views/admin/BackupView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: '备份与归档'
+    }
+  },
+  {
     path: '/admin/risk-control',
     name: 'AdminRiskControl',
     component: () => import('@/views/admin/RiskControlView.vue'),
@@ -757,6 +786,7 @@ const routes: RouteRecordRaw[] = [
     name: 'NotFound',
     component: () => import('@/views/NotFoundView.vue'),
     meta: {
+      requiresAuth: false,
       title: '404 Not Found'
     }
   }

@@ -1,11 +1,11 @@
 <template>
-  <div v-if="eligible" class="space-y-1 text-xs" :aria-busy="loading">
+  <div v-if="eligible" class="min-w-0 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2 text-xs tabular-nums" :aria-busy="loading">
     <div>{{ t('admin.accounts.atlasUsage.title') }}</div>
     <div class="text-[10px] text-gray-500">{{ t('admin.accounts.atlasUsage.scope') }}</div>
-    <fieldset :disabled="loading" class="space-y-1">
+    <fieldset :disabled="loading" class="min-w-0 space-y-1.5 [&_input]:max-w-full [&_input]:border-[var(--border)] [&_input]:px-1 [&_input]:py-0.5 [&_input]:font-mono [&_input]:text-[11px]">
       <legend class="text-[10px]">{{ t('admin.accounts.compatibleUsage.window') }} · UTC</legend>
       <div class="flex flex-wrap gap-2">
-        <button v-for="days in [1, 7, 30]" :key="days" type="button" class="text-blue-600" :data-test="`atlas-preset-${days}`" @click="preset(days)">{{ t(`admin.accounts.compatibleUsage.preset${days}`) }}</button>
+        <button v-for="days in [1, 7, 30]" :key="days" type="button" class="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono text-[var(--brand-text)] hover:bg-[var(--accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]" :data-test="`atlas-preset-${days}`" @click="preset(days)">{{ t(`admin.accounts.compatibleUsage.preset${days}`) }}</button>
       </div>
       <label class="block">{{ t('admin.accounts.compatibleUsage.start') }} <input v-model="startDate" data-test="atlas-start" type="date" class="rounded border bg-transparent" /></label>
       <label class="block">{{ t('admin.accounts.atlasUsage.endExclusive') }} <input v-model="endDate" data-test="atlas-end" type="date" class="rounded border bg-transparent" /></label>

@@ -216,8 +216,8 @@ export default {
     installationFailed: 'Installation failed',
     bootstrapToken: 'Local bootstrap token',
     bootstrapTokenHint: 'Read setup-bootstrap-token in the server data directory; this token rotates after each request and expires after 30 minutes.',
-    title: 'Sub2API Setup',
-    description: 'Configure your Sub2API instance',
+    title: 'OmniHive Setup',
+    description: 'Configure your OmniHive gateway instance',
     database: {
       title: 'Database Configuration',
       description: 'Connect to your PostgreSQL database',

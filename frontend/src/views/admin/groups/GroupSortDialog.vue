@@ -6,52 +6,29 @@
     @close="closeSortModal"
   >
     <div class="space-y-4">
-      <p class="text-sm text-gray-500 dark:text-gray-400">
+      <p class="text-sm text-[var(--muted-foreground)]">
         {{ t("admin.groups.sortOrderHint") }}
       </p>
       <VueDraggable v-model="sortableGroups" :animation="200" class="space-y-2">
         <div
           v-for="group in sortableGroups"
           :key="group.id"
-          class="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-dark-600 dark:bg-dark-700"
+          class="flex cursor-grab items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 transition-colors hover:bg-[var(--surface-2)] active:cursor-grabbing"
         >
-          <div class="text-gray-400">
+          <div class="text-[var(--muted-foreground)]">
             <Icon name="menu" size="md" />
           </div>
-          <div class="flex-1">
-            <div class="font-medium text-gray-900 dark:text-white">
+          <div class="min-w-0 flex-1 space-y-1">
+            <div class="break-words text-sm font-semibold text-[var(--foreground)]">
               {{ group.name }}
             </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">
-              <span
-                :class="[
-                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                  group.platform === 'anthropic'
-                    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                    : group.platform === 'openai'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : group.platform === 'antigravity'
-                        ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                        : group.platform === 'grok'
-                          ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                          : group.platform === 'kimi'
-                            ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-                            : group.platform === 'zhipu'
-                              ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                              : group.platform === 'deepseek'
-                                ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                                : group.platform === 'minimax'
-                                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-                                  : group.platform === 'opencode_go'
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-                ]"
-              >
+            <div class="text-xs text-[var(--muted-foreground)]">
+              <span class="pill pill-ghost">
                 {{ getPlatformLabel(group.platform, t) }}
               </span>
             </div>
           </div>
-          <div class="text-sm text-gray-400">#{{ group.id }}</div>
+          <div class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">#{{ group.id }}</div>
         </div>
       </VueDraggable>
     </div>

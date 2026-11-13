@@ -1,143 +1,223 @@
 <template>
   <AppLayout>
-    <section class="card mb-6 p-4 sm:p-6" aria-labelledby="pay-as-you-go-title">
-      <div class="flex flex-wrap items-center gap-3">
-        <h2 id="pay-as-you-go-title" class="text-lg font-semibold text-gray-900 dark:text-white">
-          {{ t('keys.payAsYouGo.title') }}
-        </h2>
-        <span class="rounded-full bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
-          {{ t('keys.payAsYouGo.mode') }}
-        </span>
-      </div>
-      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.description') }}</p>
-      <dl class="mt-4 space-y-3">
-        <div
-          v-for="endpoint in gatewayEndpoints"
-          :key="endpoint.protocol"
-          class="flex flex-col gap-2 rounded-lg bg-gray-50 p-3 dark:bg-dark-900 sm:flex-row sm:items-center sm:gap-4"
-        >
-          <dt class="shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
-            {{ t(endpoint.label) }}
-          </dt>
-          <dd class="flex min-w-0 flex-1 items-center gap-3">
-            <code class="min-w-0 flex-1 break-all text-sm text-gray-900 dark:text-gray-100">{{ endpoint.url }}</code>
-            <button
-              type="button"
-              class="btn btn-secondary shrink-0 p-2"
-              :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
-              @click="clipboardCopy(endpoint.url, t('keys.payAsYouGo.copied'))"
-            >
-              <Icon name="clipboard" size="sm" />
-            </button>
-          </dd>
-        </div>
-      </dl>
-      <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.addressHint') }}</p>
-      <!-- Generation endpoints are a different entry from the Messages protocol: an
-           Anthropic-compatible /v1/messages key sends text and vision input, it does
-           not generate images, videos or audio. -->
-      <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
-        <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ t('keys.payAsYouGo.generationTitle') }}</p>
-        <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t('keys.payAsYouGo.generationHint') }}</p>
-        <ul class="mt-2 space-y-1.5">
-          <li
-            v-for="endpoint in generationEndpoints"
-            :key="endpoint.path"
-            class="flex flex-wrap items-center gap-2"
-          >
-            <span class="text-xs font-medium text-amber-800 dark:text-amber-200">{{ t(endpoint.label) }}</span>
-            <code class="min-w-0 break-all text-xs text-amber-900 dark:text-amber-100">{{ endpoint.url }}</code>
-            <button
-              type="button"
-              class="rounded p-1 text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
-              :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
-              @click="clipboardCopy(endpoint.url, t('keys.payAsYouGo.copied'))"
-            >
-              <Icon name="clipboard" size="sm" />
-            </button>
-          </li>
-        </ul>
-      </div>
-    </section>
-    <TablePageLayout>
-      <template #filters>
-        <div class="flex flex-col gap-3">
-          <div class="flex flex-wrap items-center gap-3">
-            <SearchInput
-              v-model="filterSearch"
-              :placeholder="t('keys.searchPlaceholder')"
-              class="w-full sm:w-64"
-              @search="onFilterChange"
-            />
-            <Select
-              :model-value="filterGroupId"
-              class="w-40"
-              :options="groupFilterOptions"
-              @update:model-value="onGroupFilterChange"
-            />
-            <Select
-              :model-value="filterStatus"
-              class="w-40"
-              :options="statusFilterOptions"
-              @update:model-value="onStatusFilterChange"
-            />
+    <div class="oh-keys-workbench space-y-4">
+      <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <h2 id="pay-as-you-go-title" class="text-sm font-semibold tracking-tight text-[var(--foreground)]">
+              {{ t('keys.payAsYouGo.title') }}
+            </h2>
+            <span class="oh-amber-pill">
+              {{ t('keys.payAsYouGo.mode') }}
+            </span>
           </div>
-          <EndpointPopover
-            v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
-            :api-base-url="publicSettings?.api_base_url || ''"
-            :custom-endpoints="publicSettings?.custom_endpoints || []"
-          />
+          <span class="pill pill-ghost font-mono text-xs tabular-nums">
+            {{ gatewayEndpoints.length }} PROTOCOLS · {{ generationEndpoints.length }} GEN
+          </span>
         </div>
-      </template>
-
-      <template #actions>
-        <div class="flex justify-end gap-3">
-          <button
-            @click="loadApiKeys"
-            :disabled="loading"
-            class="btn btn-secondary"
-            :title="t('common.refresh')"
+        <p class="sr-only">{{ t('keys.payAsYouGo.description') }}</p>
+        <dl class="mt-2 grid grid-cols-1 gap-x-4 lg:grid-cols-3">
+          <div
+            v-for="endpoint in gatewayEndpoints"
+            :key="endpoint.protocol"
+            class="oh-endpoint-item flex min-w-0 items-center justify-between gap-2 py-2"
           >
-            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-          </button>
-          <div class="relative" ref="columnDropdownRef">
-            <button
-              @click="showColumnDropdown = !showColumnDropdown"
-              class="btn btn-secondary px-2 md:px-3"
-              :title="t('keys.columnSettings')"
-            >
-              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
-              </svg>
-              <span class="hidden md:inline">{{ t('keys.columnSettings') }}</span>
-            </button>
-            <div
-              v-if="showColumnDropdown"
-              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-            >
+            <dt class="w-20 shrink-0 font-mono text-[11px] font-semibold tracking-wide text-[var(--muted-foreground)]" :title="t(endpoint.label)">
+              <span aria-hidden="true">{{ endpoint.protocol.toUpperCase() }}</span>
+              <span class="sr-only">{{ t(endpoint.label) }}</span>
+            </dt>
+            <dd class="flex min-w-0 flex-1 items-center justify-end gap-2">
+              <code class="oh-endpoint-code min-w-0 flex-1 truncate font-mono text-xs tabular-nums" :title="endpoint.url">{{ endpoint.url }}</code>
               <button
-                v-for="col in toggleableColumns"
-                :key="col.key"
-                @click="toggleColumn(col.key)"
-                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                type="button"
+                class="btn btn-secondary btn-sm shrink-0 px-2 py-1"
+                :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
+                @click="copyEndpoint(endpoint.url)"
               >
-                <span>{{ col.label }}</span>
-                <Icon
-                  v-if="isColumnVisible(col.key)"
-                  name="check"
-                  size="sm"
-                  class="text-primary-500"
-                  :stroke-width="2"
+                <Icon :name="copiedEndpoint === endpoint.url ? 'check' : 'clipboard'" size="sm" />
+              </button>
+            </dd>
+          </div>
+        </dl>
+        <p v-if="copiedEndpoint" class="sr-only" role="status">{{ t('keys.payAsYouGo.copied') }}</p>
+        <!-- Generation endpoints are a different entry from the Messages protocol: an
+             Anthropic-compatible /v1/messages key sends text and vision input, it does
+             not generate images, videos or audio. -->
+        <details class="oh-gen-endpoints mt-2 border-t pt-2">
+          <summary class="flex cursor-pointer list-none flex-wrap items-baseline justify-between gap-2">
+            <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">{{ t('keys.payAsYouGo.generationTitle') }}</p>
+            <span class="text-xs text-[var(--muted-foreground)]" aria-hidden="true">▾</span>
+          </summary>
+          <p class="mt-2 text-xs text-[var(--muted-foreground)]">{{ t('keys.payAsYouGo.addressHint') }}</p>
+          <p class="mt-2 text-xs text-[var(--muted-foreground)]">{{ t('keys.payAsYouGo.generationHint') }}</p>
+          <ul class="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            <li
+              v-for="endpoint in generationEndpoints"
+              :key="endpoint.path"
+              class="oh-gen-endpoint-chip flex items-center justify-between gap-2 rounded-md px-2.5 py-1.5"
+            >
+              <span class="shrink-0 text-xs font-medium text-amber-900 dark:text-amber-200">{{ t(endpoint.label) }}</span>
+              <div class="flex min-w-0 items-center gap-1.5">
+                <code class="min-w-0 truncate font-mono text-[11px] tabular-nums text-[var(--foreground)]" :title="endpoint.url">{{ endpoint.url }}</code>
+                <button
+                  type="button"
+                  class="shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-300 dark:hover:text-amber-100"
+                  :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
+                  @click="copyEndpoint(endpoint.url)"
+                >
+                  <Icon :name="copiedEndpoint === endpoint.url ? 'check' : 'clipboard'" size="sm" />
+                </button>
+              </div>
+            </li>
+          </ul>
+        </details>
+      </section>
+
+      <TablePageLayout>
+        <template #filters>
+          <div class="flex flex-col gap-2.5">
+            <div class="oh-filter-bar card flex flex-wrap items-center justify-between gap-3 p-3">
+              <div class="flex flex-1 flex-wrap items-center gap-2.5">
+                <SearchInput
+                  v-model="filterSearch"
+                  :placeholder="t('keys.searchPlaceholder')"
+                  class="w-full sm:w-64"
+                  @search="onFilterChange"
                 />
+                <Select
+                  :model-value="filterGroupId"
+                  class="w-40"
+                  :options="groupFilterOptions"
+                  @update:model-value="onGroupFilterChange"
+                />
+                <Select
+                  :model-value="filterStatus"
+                  class="w-40"
+                  :options="statusFilterOptions"
+                  @update:model-value="onStatusFilterChange"
+                />
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="pill pill-ghost font-mono text-xs tabular-nums">
+                  {{ apiKeys.length }} / {{ pagination.total || apiKeys.length }}
+                </span>
+                <EndpointPopover
+                  v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
+                  :api-base-url="publicSettings?.api_base_url || ''"
+                  :custom-endpoints="publicSettings?.custom_endpoints || []"
+                />
+              </div>
+            </div>
+
+            <!-- Hive Aura 琥珀微光批量操作横条 (.bulk-bar-real) -->
+            <div
+              id="kbKeyBulkBar"
+              data-testid="keys-bulk-bar"
+              class="bulk-bar-real"
+              :class="{ 'has-selection': selectedKeyCount > 0 }"
+            >
+              <label class="inline-flex cursor-pointer items-center gap-2 text-xs font-medium">
+                <input
+                  type="checkbox"
+                  class="h-3.5 w-3.5 rounded border-amber-400/60 text-amber-600 focus:ring-amber-500"
+                  :checked="allVisibleKeysSelected"
+                  @change="toggleAllVisibleKeys(($event.target as HTMLInputElement).checked)"
+                />
+                <span>
+                  已选择 <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> 个密钥（筛选后仍保留）
+                </span>
+              </label>
+              <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+                启用 {{ activeKeyCount }} · 共 {{ pagination.total || apiKeys.length }}
+              </span>
+              <div class="flex-1" />
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="selectedKeyCount === 0 || bulkUpdating"
+                @click="bulkToggleSelectedKeys('active')"
+              >
+                批量启用
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="selectedKeyCount === 0 || bulkUpdating"
+                @click="bulkToggleSelectedKeys('inactive')"
+              >
+                批量停用
+              </button>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                :disabled="selectedKeyCount === 0"
+                @click="clearSelectedKeys"
+              >
+                清除选择
               </button>
             </div>
           </div>
-          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
-            <Icon name="plus" size="md" class="mr-2" />
-            {{ t('keys.createKey') }}
-          </button>
-        </div>
-      </template>
+        </template>
+
+        <template #actions>
+          <div class="oh-keys-toolbar flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+              <span class="oh-brand-bar" aria-hidden="true" />
+              <div>
+                <h1 class="text-lg font-bold tracking-tight text-[var(--foreground)] sm:text-xl">
+                  {{ t('keys.apiKey') }}
+                </h1>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-2.5">
+              <button
+                @click="loadApiKeys"
+                :disabled="loading"
+                class="btn btn-secondary"
+                :title="t('common.refresh')"
+              >
+                <Icon name="refresh" size="md" :class="loading ? 'motion-safe:animate-spin' : ''" />
+              </button>
+              <div class="relative" ref="columnDropdownRef">
+                <button
+                  @click="showColumnDropdown = !showColumnDropdown"
+                  class="btn btn-secondary px-2 md:px-3"
+                  :title="t('keys.columnSettings')"
+                >
+                  <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+                  </svg>
+                  <span class="hidden md:inline">{{ t('keys.columnSettings') }}</span>
+                </button>
+                <div
+                  v-if="showColumnDropdown"
+                  class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
+                >
+                  <button
+                    v-for="col in toggleableColumns"
+                    :key="col.key"
+                    @click="toggleColumn(col.key)"
+                    class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+                  >
+                    <span>{{ col.label }}</span>
+                    <Icon
+                      v-if="isColumnVisible(col.key)"
+                      name="check"
+                      size="sm"
+                      class="text-[var(--brand-text)]"
+                      :stroke-width="2"
+                    />
+                  </button>
+                </div>
+              </div>
+              <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+                <Icon name="plus" size="md" class="mr-1.5" />
+                {{ t('keys.createKey') }}
+              </button>
+            </div>
+          </div>
+        </template>
 
       <template #table>
         <DataTable
@@ -150,18 +230,24 @@
           @sort="handleSort"
         >
           <template #cell-id="{ value }">
-            <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+            <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">#{{ value }}</span>
           </template>
 
           <template #cell-key="{ value }">
-            <code class="code text-xs">
+            <code class="code oh-key-secret font-mono text-xs tabular-nums">
               {{ displayCredential(value) }}
             </code>
           </template>
 
           <template #cell-name="{ value, row }">
-            <div class="flex items-center gap-1.5">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+            <div class="flex items-center gap-2">
+              <input
+                type="checkbox"
+                class="h-3.5 w-3.5 rounded border-[var(--border)] text-amber-600 focus:ring-amber-500"
+                :checked="selectedKeyIds.has(row.id)"
+                @change="toggleKeySelection(row.id, ($event.target as HTMLInputElement).checked)"
+              />
+              <span class="font-semibold text-[var(--foreground)]">{{ value }}</span>
               <Icon
                 v-if="row.ip_whitelist?.length > 0 || row.ip_blacklist?.length > 0"
                 name="shield"
@@ -177,7 +263,7 @@
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
+                class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)]"
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
@@ -192,12 +278,12 @@
                   :peak-end="row.group.peak_end"
                   :peak-rate-multiplier="row.group.peak_rate_multiplier"
                 />
-                <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
+                <span v-else class="text-sm text-[var(--muted-foreground)]">{{
                   t('keys.noGroup')
                 }}</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
+                <span class="text-xs text-[var(--muted-foreground)]">{{ t('keys.selectGroup') }}</span>
                 <svg
-                  class="h-3.5 w-3.5 text-gray-400 opacity-60 transition-opacity group-hover/dropdown:opacity-100"
+                  class="h-3.5 w-3.5 text-[var(--muted-foreground)] opacity-60 transition-opacity group-hover/dropdown:opacity-100"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -216,10 +302,10 @@
           <template #cell-current_concurrency="{ value }">
             <span
               :class="[
-                'inline-flex min-w-8 items-center justify-center rounded px-2 py-1 text-sm font-semibold tabular-nums',
+                'inline-flex min-w-8 items-center justify-center rounded-md px-2 py-0.5 font-mono text-xs font-semibold tabular-nums stat-num',
                 (value ?? 0) > 0
                   ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
-                  : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-400'
+                  : 'bg-[var(--surface-2)] text-[var(--muted-foreground)]  '
               ]"
             >
               {{ value ?? 0 }}
@@ -227,42 +313,41 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <div class="text-sm">
+            <div class="text-sm tabular-nums stat-num">
               <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
-                  <span class="font-medium text-gray-900 dark:text-white">
+                  <span class="text-[var(--muted-foreground)]">{{ t('keys.today') }}:</span>
+                  <span class="font-mono font-medium tabular-nums text-[var(--foreground)]">
                     ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
                   </span>
                 </div>
                 <div class="mt-0.5 flex items-center gap-1.5">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
-                  <span class="font-medium text-gray-900 dark:text-white">
+                  <span class="text-[var(--muted-foreground)]">{{ t('keys.total') }}:</span>
+                  <span class="font-mono font-medium tabular-nums text-[var(--foreground)]">
                     ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
                   </span>
                 </div>
               </UsageStatsState>
-              <div class="mt-2 text-xs text-gray-500" data-testid="key-tpm-readonly">{{ t('admin.accounts.tpmLimit') }}: {{ row.tpm_limit || t('admin.accounts.tpmUnlimited') }}</div>
+              <div class="mt-1.5 font-mono text-xs tabular-nums text-[var(--muted-foreground)]" data-testid="key-tpm-readonly">{{ t('admin.accounts.tpmLimit') }}: {{ row.tpm_limit || t('admin.accounts.tpmUnlimited') }}</div>
               <!-- Quota progress (if quota is set) -->
-              <div v-if="row.quota > 0" class="mt-1.5">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('keys.quota') }}:</span>
+              <div v-if="row.quota > 0" class="mt-1.5 min-w-[118px] space-y-1">
+                <div class="flex items-center justify-between gap-1.5 text-xs">
+                  <span class="text-[var(--muted-foreground)]">{{ t('keys.quota') }}</span>
                   <span :class="[
-                    'font-medium',
+                    'font-mono font-semibold tabular-nums stat-num',
                     row.quota_used >= row.quota ? 'text-red-500' :
-                    row.quota_used >= row.quota * 0.8 ? 'text-yellow-500' :
-                    'text-gray-900 dark:text-white'
+                    row.quota_used >= row.quota * 0.8 ? 'text-amber-600 dark:text-amber-400' :
+                    'text-[var(--foreground)] '
                   ]">
                     ${{ row.quota_used?.toFixed(2) || '0.00' }} / ${{ row.quota?.toFixed(2) }}
                   </span>
                 </div>
-                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                  <div
+                <div class="meter">
+                  <span
                     :class="[
-                      'h-full rounded-full transition-all',
-                      row.quota_used >= row.quota ? 'bg-red-500' :
-                      row.quota_used >= row.quota * 0.8 ? 'bg-yellow-500' :
-                      'bg-primary-500'
+                      row.quota_used >= row.quota ? '!bg-red-500' :
+                      row.quota_used >= row.quota * 0.8 ? '!bg-amber-500' :
+                      ''
                     ]"
                     :style="{ width: Math.min((row.quota_used / row.quota) * 100, 100) + '%' }"
                   />
@@ -272,104 +357,101 @@
           </template>
 
           <template #cell-rate_limit="{ row }">
-            <div class="space-y-2 min-w-[140px]">
+            <div class="min-w-[156px] space-y-2 tabular-nums stat-num">
             <div v-if="row.rate_limit_5h > 0 || row.rate_limit_1d > 0 || row.rate_limit_7d > 0" class="space-y-1.5">
               <!-- 5h window -->
-              <div v-if="row.rate_limit_5h > 0">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">5h</span>
+              <div v-if="row.rate_limit_5h > 0" class="space-y-1">
+                <div class="flex items-center justify-between gap-2 text-xs">
+                  <span class="pill pill-ghost font-mono text-[10px]">5h</span>
                   <span :class="[
-                    'font-medium tabular-nums',
+                    'font-mono font-medium tabular-nums stat-num',
                     row.usage_5h >= row.rate_limit_5h ? 'text-red-500' :
-                    row.usage_5h >= row.rate_limit_5h * 0.8 ? 'text-yellow-500' :
-                    'text-gray-700 dark:text-gray-300'
+                    row.usage_5h >= row.rate_limit_5h * 0.8 ? 'text-amber-600 dark:text-amber-400' :
+                    'text-[var(--foreground)] '
                   ]">
                     ${{ row.usage_5h?.toFixed(2) || '0.00' }}/${{ row.rate_limit_5h?.toFixed(2) }}
                   </span>
                 </div>
-                <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                  <div
+                <div class="meter">
+                  <span
                     :class="[
-                      'h-full rounded-full transition-all',
-                      row.usage_5h >= row.rate_limit_5h ? 'bg-red-500' :
-                      row.usage_5h >= row.rate_limit_5h * 0.8 ? 'bg-yellow-500' :
-                      'bg-emerald-500'
+                      row.usage_5h >= row.rate_limit_5h ? '!bg-red-500' :
+                      row.usage_5h >= row.rate_limit_5h * 0.8 ? '!bg-amber-500' :
+                      '!bg-emerald-500'
                     ]"
                     :style="{ width: Math.min((row.usage_5h / row.rate_limit_5h) * 100, 100) + '%' }"
                   />
                 </div>
-                <div v-if="row.reset_5h_at && formatResetTime(row.reset_5h_at)" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
+                <div v-if="row.reset_5h_at && formatResetTime(row.reset_5h_at)" class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
                   ⟳ {{ formatResetTime(row.reset_5h_at) }}
                 </div>
               </div>
               <!-- 1d window -->
-              <div v-if="row.rate_limit_1d > 0">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">1d</span>
+              <div v-if="row.rate_limit_1d > 0" class="space-y-1">
+                <div class="flex items-center justify-between gap-2 text-xs">
+                  <span class="pill pill-ghost font-mono text-[10px]">1d</span>
                   <span :class="[
-                    'font-medium tabular-nums',
+                    'font-mono font-medium tabular-nums stat-num',
                     row.usage_1d >= row.rate_limit_1d ? 'text-red-500' :
-                    row.usage_1d >= row.rate_limit_1d * 0.8 ? 'text-yellow-500' :
-                    'text-gray-700 dark:text-gray-300'
+                    row.usage_1d >= row.rate_limit_1d * 0.8 ? 'text-amber-600 dark:text-amber-400' :
+                    'text-[var(--foreground)] '
                   ]">
                     ${{ row.usage_1d?.toFixed(2) || '0.00' }}/${{ row.rate_limit_1d?.toFixed(2) }}
                   </span>
                 </div>
-                <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                  <div
+                <div class="meter">
+                  <span
                     :class="[
-                      'h-full rounded-full transition-all',
-                      row.usage_1d >= row.rate_limit_1d ? 'bg-red-500' :
-                      row.usage_1d >= row.rate_limit_1d * 0.8 ? 'bg-yellow-500' :
-                      'bg-emerald-500'
+                      row.usage_1d >= row.rate_limit_1d ? '!bg-red-500' :
+                      row.usage_1d >= row.rate_limit_1d * 0.8 ? '!bg-amber-500' :
+                      '!bg-emerald-500'
                     ]"
                     :style="{ width: Math.min((row.usage_1d / row.rate_limit_1d) * 100, 100) + '%' }"
                   />
                 </div>
-                <div v-if="row.reset_1d_at && formatResetTime(row.reset_1d_at)" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
+                <div v-if="row.reset_1d_at && formatResetTime(row.reset_1d_at)" class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
                   ⟳ {{ formatResetTime(row.reset_1d_at) }}
                 </div>
               </div>
               <!-- 7d window -->
-              <div v-if="row.rate_limit_7d > 0">
-                <div class="flex items-center justify-between text-xs">
-                  <span class="text-gray-500 dark:text-gray-400">7d</span>
+              <div v-if="row.rate_limit_7d > 0" class="space-y-1">
+                <div class="flex items-center justify-between gap-2 text-xs">
+                  <span class="pill pill-ghost font-mono text-[10px]">7d</span>
                   <span :class="[
-                    'font-medium tabular-nums',
+                    'font-mono font-medium tabular-nums stat-num',
                     row.usage_7d >= row.rate_limit_7d ? 'text-red-500' :
-                    row.usage_7d >= row.rate_limit_7d * 0.8 ? 'text-yellow-500' :
-                    'text-gray-700 dark:text-gray-300'
+                    row.usage_7d >= row.rate_limit_7d * 0.8 ? 'text-amber-600 dark:text-amber-400' :
+                    'text-[var(--foreground)] '
                   ]">
                     ${{ row.usage_7d?.toFixed(2) || '0.00' }}/${{ row.rate_limit_7d?.toFixed(2) }}
                   </span>
                 </div>
-                <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                  <div
+                <div class="meter">
+                  <span
                     :class="[
-                      'h-full rounded-full transition-all',
-                      row.usage_7d >= row.rate_limit_7d ? 'bg-red-500' :
-                      row.usage_7d >= row.rate_limit_7d * 0.8 ? 'bg-yellow-500' :
-                      'bg-emerald-500'
+                      row.usage_7d >= row.rate_limit_7d ? '!bg-red-500' :
+                      row.usage_7d >= row.rate_limit_7d * 0.8 ? '!bg-amber-500' :
+                      '!bg-emerald-500'
                     ]"
                     :style="{ width: Math.min((row.usage_7d / row.rate_limit_7d) * 100, 100) + '%' }"
                   />
                 </div>
-                <div v-if="row.reset_7d_at && formatResetTime(row.reset_7d_at)" class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums">
+                <div v-if="row.reset_7d_at && formatResetTime(row.reset_7d_at)" class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
                   ⟳ {{ formatResetTime(row.reset_7d_at) }}
                 </div>
               </div>
             </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="pill pill-ghost font-mono text-xs text-[var(--muted-foreground)]">-</span>
 
             <!-- Effective RPM: which dimension owns each limit, the limit value and
                  the real reset of the current minute window. Deliberately separate
                  from the USD windows above (money) and from the period budget below. -->
             <div
               v-if="row.effective_rpm && row.effective_rpm.limits.length > 0"
-              class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600"
+              class="space-y-1 border-t border-[var(--border)] pt-1.5"
             >
               <div class="flex items-center justify-between gap-2 text-xs">
-                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.effectiveRpmPriorityHint')">
+                <span class="text-[var(--muted-foreground)]" :title="t('keys.effectiveRpmPriorityHint')">
                   {{ t('keys.effectiveRpmTitle') }}
                 </span>
               </div>
@@ -378,14 +460,14 @@
                 :key="`${limit.source}-${limit.scope_id}`"
                 class="flex items-center justify-between gap-2 text-[11px] tabular-nums"
               >
-                <span class="text-gray-400 dark:text-dark-500">{{ effectiveRpmSourceLabel(limit.source) }}</span>
-                <span class="font-medium text-gray-700 dark:text-gray-300">
+                <span class="text-[var(--muted-foreground)]">{{ effectiveRpmSourceLabel(limit.source) }}</span>
+                <span class="font-mono font-medium tabular-nums text-[var(--foreground)]">
                   {{ t('keys.effectiveRpmValue', { limit: limit.limit }) }}
                 </span>
               </div>
               <div
                 v-if="row.effective_rpm.window_resets_at && formatRpmReset(row.effective_rpm.window_resets_at)"
-                class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums"
+                class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]"
               >
                 ⟳ {{ t('keys.effectiveRpmResetsIn', { value: formatRpmReset(row.effective_rpm.window_resets_at) }) }}
               </div>
@@ -393,36 +475,35 @@
 
             <!-- Period budget (USD): a spend limit over one explicit period, kept
                  visually separate from the RPM/TPM rate limits above. -->
-            <div v-if="row.budget_period_mode !== 'off' && row.budget_limit > 0" class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600">
+            <div v-if="row.budget_period_mode !== 'off' && row.budget_limit > 0" class="space-y-1 border-t border-[var(--border)] pt-1.5">
               <div class="flex items-center justify-between gap-2 text-xs">
-                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.budgetPeriodHint')">
+                <span class="text-[var(--muted-foreground)]" :title="t('keys.budgetPeriodHint')">
                   {{ t('keys.budgetColumn') }}
                 </span>
                 <span :class="[
-                  'font-medium tabular-nums',
+                  'font-mono font-medium tabular-nums stat-num',
                   row.budget_remaining <= 0 ? 'text-red-500' :
-                  row.budget_remaining <= row.budget_limit * 0.2 ? 'text-yellow-500' :
-                  'text-gray-700 dark:text-gray-300'
+                  row.budget_remaining <= row.budget_limit * 0.2 ? 'text-amber-600 dark:text-amber-400' :
+                  'text-[var(--foreground)] '
                 ]">
                   ${{ row.budget_used?.toFixed(2) || '0.00' }}/${{ row.budget_limit?.toFixed(2) || '0.00' }}
                 </span>
               </div>
-              <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
+              <div class="meter">
+                <span
                   :class="[
-                    'h-full rounded-full transition-all',
-                    row.budget_remaining <= 0 ? 'bg-red-500' :
-                    row.budget_remaining <= row.budget_limit * 0.2 ? 'bg-yellow-500' :
-                    'bg-sky-500'
+                    row.budget_remaining <= 0 ? '!bg-red-500' :
+                    row.budget_remaining <= row.budget_limit * 0.2 ? '!bg-amber-500' :
+                    '!bg-sky-500'
                   ]"
                   :style="{ width: Math.min((row.budget_used / row.budget_limit) * 100, 100) + '%' }"
                 />
               </div>
-              <div class="flex items-center justify-between gap-2 text-[10px] text-gray-400 dark:text-gray-500">
-                <span class="truncate" :title="row.budget_period_display">
+              <div class="flex items-center justify-between gap-2 text-[10px] text-[var(--muted-foreground)]">
+                <span class="pill pill-ghost truncate font-mono text-[10px]" :title="row.budget_period_display">
                   {{ row.budget_legacy_anchor || row.budget_period_display || row.budget_period_mode }}
                 </span>
-                <span v-if="row.budget_period_end && formatResetTime(row.budget_period_end)" class="tabular-nums">
+                <span v-if="row.budget_period_end && formatResetTime(row.budget_period_end)" class="font-mono tabular-nums">
                   ⟳ {{ formatResetTime(row.budget_period_end) }}
                 </span>
               </div>
@@ -432,43 +513,53 @@
 
           <template #cell-expires_at="{ value }">
             <span v-if="value" :class="[
-              'text-sm',
-              new Date(value) < new Date() ? 'text-red-500 dark:text-red-400' : 'text-gray-500 dark:text-dark-400'
+              'font-mono text-xs tabular-nums',
+              new Date(value) < new Date() ? 'text-red-500 dark:text-red-400' : 'text-[var(--muted-foreground)] '
             ]">
               {{ formatDateTime(value) }}
             </span>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{ t('keys.noExpiration') }}</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">{{ t('keys.noExpiration') }}</span>
           </template>
 
           <template #cell-status="{ value }">
             <span :class="[
-              'badge',
-              value === 'active' ? 'badge-success' :
-              value === 'quota_exhausted' ? 'badge-warning' :
-              value === 'expired' ? 'badge-danger' :
-              value === 'disabled' ? 'badge-purple' :
-              'badge-gray'
+              'badge oh-status-badge',
+              value === 'active' ? 'badge-success oh-status-ok' :
+              value === 'quota_exhausted' ? 'badge-warning oh-status-warn' :
+              value === 'expired' ? 'badge-danger oh-status-bad' :
+              value === 'disabled' ? 'badge-purple oh-status-disabled' :
+              'badge-gray oh-status-neutral'
             ]">
+              <span
+                :class="[
+                  'pulse-dot',
+                  value === 'active' ? 'pulse-ok' :
+                  value === 'quota_exhausted' ? 'pulse-warn' :
+                  value === 'expired' || value === 'disabled' ? 'pulse-bad' :
+                  'oh-dot-neutral'
+                ]"
+                aria-hidden="true"
+              />
               {{ t('keys.status.' + value) }}
             </span>
           </template>
 
           <template #cell-last_used_at="{ value }">
-            <span v-if="value" class="text-sm text-gray-500 dark:text-dark-400">
+            <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ formatDateTime(value) }}
             </span>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
           </template>
 
           <template #cell-last_used_ip="{ value }">
-            <span v-if="value" class="text-sm text-gray-500 dark:text-dark-400">
+            <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ value }}
             </span>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
           </template>
 
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+            <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">{{ formatDateTime(value) }}</span>
           </template>
 
           <template #cell-actions="{ row }">
@@ -476,7 +567,7 @@
               <!-- Use Key Button -->
               <button
                 @click="openUseKeyModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
               >
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
@@ -485,7 +576,7 @@
               <button
                 v-if="!publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
               >
                 <Icon name="upload" size="sm" />
                 <span class="text-xs">{{ t('keys.importToCcSwitch') }}</span>
@@ -496,8 +587,8 @@
                 :class="[
                   'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors',
                   row.status === 'active'
-                    ? 'text-gray-500 hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400'
-                    : 'text-gray-500 hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
+                    ? 'text-[var(--muted-foreground)] hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400'
+                    : 'text-[var(--muted-foreground)] hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
                 ]"
               >
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
@@ -507,7 +598,7 @@
               <!-- Rotate Button -->
               <button
                 @click="openRotateModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
               >
                 <Icon name="refresh" size="sm" />
                 <span class="text-xs">{{ t('keys.rotateKey') }}</span>
@@ -515,7 +606,7 @@
               <!-- Edit Button -->
               <button
                 @click="editKey(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
                 <Icon name="edit" size="sm" />
                 <span class="text-xs">{{ t('common.edit') }}</span>
@@ -523,7 +614,7 @@
               <!-- Delete Button -->
               <button
                 @click="confirmDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
                 <Icon name="trash" size="sm" />
                 <span class="text-xs">{{ t('common.delete') }}</span>
@@ -552,7 +643,8 @@
           @update:pageSize="handlePageSizeChange"
         />
       </template>
-    </TablePageLayout>
+      </TablePageLayout>
+    </div>
 
     <!-- Create/Edit Modal -->
     <BaseDialog
@@ -577,7 +669,7 @@
 
         <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
-          <p v-if="showCreateModal && groupsLoading" role="status" class="mb-2 text-sm text-gray-500">{{ t('keys.groupsLoading') }}</p>
+          <p v-if="showCreateModal && groupsLoading" role="status" class="mb-2 text-sm text-[var(--muted-foreground)]">{{ t('keys.groupsLoading') }}</p>
           <p v-else-if="showCreateModal && groupsLoadFailed" role="alert" class="mb-2 text-sm text-red-600">
             {{ t('keys.groupsLoadFailed') }}
             <button type="button" class="underline" @click="loadGroups">{{ t('keys.retryGroups') }}</button>
@@ -604,7 +696,7 @@
                 :peak-end="(option as unknown as GroupOption).peakEnd"
                 :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
               />
-              <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
+              <span v-else class="text-[var(--muted-foreground)]">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
               <GroupOptionItem
@@ -633,12 +725,12 @@
               @click="formData.use_custom_key = !formData.use_custom_key"
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.use_custom_key ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.use_custom_key ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.use_custom_key ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -679,12 +771,12 @@
               @click="formData.enable_ip_restriction = !formData.enable_ip_restriction"
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_ip_restriction ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.enable_ip_restriction ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.enable_ip_restriction ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -727,12 +819,12 @@
               @click="formData.enable_quota = !formData.enable_quota"
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_quota ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.enable_quota ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.enable_quota ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -743,13 +835,13 @@
           <div class="space-y-4">
             <div>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">$</span>
                 <input
                   v-model.number="formData.quota"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-7 font-mono tabular-nums"
                   :placeholder="t('keys.quotaAmountPlaceholder')"
                 />
               </div>
@@ -760,12 +852,12 @@
             <div v-if="showEditModal && selectedKey && selectedKey.quota > 0">
               <label class="input-label">{{ t('keys.quotaUsed') }}</label>
               <div class="flex items-center gap-2">
-                <div class="flex-1 rounded-lg bg-gray-100 px-3 py-2 dark:bg-dark-700">
-                  <span class="font-medium text-gray-900 dark:text-white">
+                <div class="flex-1 rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono tabular-nums">
+                  <span class="font-medium text-[var(--foreground)]">
                     ${{ selectedKey.quota_used?.toFixed(4) || '0.0000' }}
                   </span>
-                  <span class="mx-2 text-gray-400">/</span>
-                  <span class="text-gray-500 dark:text-gray-400">
+                  <span class="mx-2 text-[var(--muted-foreground)]">/</span>
+                  <span class="text-[var(--muted-foreground)]">
                     ${{ selectedKey.quota?.toFixed(2) || '0.00' }}
                   </span>
                 </div>
@@ -784,12 +876,12 @@
               @click="formData.enable_rate_limit = !formData.enable_rate_limit"
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_rate_limit ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.enable_rate_limit ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.enable_rate_limit ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -802,35 +894,35 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit5h') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">$</span>
                 <input
                   v-model.number="formData.rate_limit_5h"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-7 font-mono tabular-nums"
                   :placeholder="'0'"
                 />
               </div>
               <!-- Usage info (edit mode only) -->
               <div v-if="showEditModal && selectedKey && selectedKey.rate_limit_5h > 0" class="mt-2">
                 <div class="flex items-center gap-2">
-                  <div class="flex-1 rounded-lg bg-gray-100 px-3 py-2 dark:bg-dark-700 text-sm">
+                  <div class="flex-1 rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-sm tabular-nums">
                     <span :class="[
                       'font-medium',
                       selectedKey.usage_5h >= selectedKey.rate_limit_5h ? 'text-red-500' :
                       selectedKey.usage_5h >= selectedKey.rate_limit_5h * 0.8 ? 'text-yellow-500' :
-                      'text-gray-900 dark:text-white'
+                      'text-[var(--foreground)] '
                     ]">
                       ${{ selectedKey.usage_5h?.toFixed(4) || '0.0000' }}
                     </span>
-                    <span class="mx-2 text-gray-400">/</span>
-                    <span class="text-gray-500 dark:text-gray-400">
+                    <span class="mx-2 text-[var(--muted-foreground)]">/</span>
+                    <span class="text-[var(--muted-foreground)]">
                       ${{ selectedKey.rate_limit_5h?.toFixed(2) || '0.00' }}
                     </span>
                   </div>
                 </div>
-                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                   <div
                     :class="[
                       'h-full rounded-full transition-all',
@@ -848,35 +940,35 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit1d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">$</span>
                 <input
                   v-model.number="formData.rate_limit_1d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-7 font-mono tabular-nums"
                   :placeholder="'0'"
                 />
               </div>
               <!-- Usage info (edit mode only) -->
               <div v-if="showEditModal && selectedKey && selectedKey.rate_limit_1d > 0" class="mt-2">
                 <div class="flex items-center gap-2">
-                  <div class="flex-1 rounded-lg bg-gray-100 px-3 py-2 dark:bg-dark-700 text-sm">
+                  <div class="flex-1 rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-sm tabular-nums">
                     <span :class="[
                       'font-medium',
                       selectedKey.usage_1d >= selectedKey.rate_limit_1d ? 'text-red-500' :
                       selectedKey.usage_1d >= selectedKey.rate_limit_1d * 0.8 ? 'text-yellow-500' :
-                      'text-gray-900 dark:text-white'
+                      'text-[var(--foreground)] '
                     ]">
                       ${{ selectedKey.usage_1d?.toFixed(4) || '0.0000' }}
                     </span>
-                    <span class="mx-2 text-gray-400">/</span>
-                    <span class="text-gray-500 dark:text-gray-400">
+                    <span class="mx-2 text-[var(--muted-foreground)]">/</span>
+                    <span class="text-[var(--muted-foreground)]">
                       ${{ selectedKey.rate_limit_1d?.toFixed(2) || '0.00' }}
                     </span>
                   </div>
                 </div>
-                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                   <div
                     :class="[
                       'h-full rounded-full transition-all',
@@ -894,35 +986,35 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit7d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">$</span>
                 <input
                   v-model.number="formData.rate_limit_7d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="input pl-7 font-mono tabular-nums"
                   :placeholder="'0'"
                 />
               </div>
               <!-- Usage info (edit mode only) -->
               <div v-if="showEditModal && selectedKey && selectedKey.rate_limit_7d > 0" class="mt-2">
                 <div class="flex items-center gap-2">
-                  <div class="flex-1 rounded-lg bg-gray-100 px-3 py-2 dark:bg-dark-700 text-sm">
+                  <div class="flex-1 rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-sm tabular-nums">
                     <span :class="[
                       'font-medium',
                       selectedKey.usage_7d >= selectedKey.rate_limit_7d ? 'text-red-500' :
                       selectedKey.usage_7d >= selectedKey.rate_limit_7d * 0.8 ? 'text-yellow-500' :
-                      'text-gray-900 dark:text-white'
+                      'text-[var(--foreground)] '
                     ]">
                       ${{ selectedKey.usage_7d?.toFixed(4) || '0.0000' }}
                     </span>
-                    <span class="mx-2 text-gray-400">/</span>
-                    <span class="text-gray-500 dark:text-gray-400">
+                    <span class="mx-2 text-[var(--muted-foreground)]">/</span>
+                    <span class="text-[var(--muted-foreground)]">
                       ${{ selectedKey.rate_limit_7d?.toFixed(2) || '0.00' }}
                     </span>
                   </div>
                 </div>
-                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div class="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
                   <div
                     :class="[
                       'h-full rounded-full transition-all',
@@ -951,12 +1043,12 @@
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
                 formData.budget_enforced ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
-                formData.enable_budget ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.enable_budget ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.enable_budget ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -972,7 +1064,7 @@
             <div>
               <label class="input-label">{{ t('keys.budgetAmount') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]">$</span>
                 <input
                   v-model.number="formData.budget_limit"
                   data-test="key-form-budget-limit"
@@ -1038,15 +1130,15 @@
 
             <div v-if="showEditModal && selectedKey && selectedKey.budget_period_mode !== 'off'" class="space-y-1">
               <label class="input-label">{{ t('keys.budgetUsage') }}</label>
-              <div class="rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-dark-700">
-                <span class="font-medium text-gray-900 dark:text-white">
+              <div class="rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-sm tabular-nums">
+                <span class="font-medium text-[var(--foreground)]">
                   ${{ selectedKey.budget_used?.toFixed(4) || '0.0000' }}
                 </span>
-                <span class="mx-2 text-gray-400">/</span>
-                <span class="text-gray-500 dark:text-gray-400">
+                <span class="mx-2 text-[var(--muted-foreground)]">/</span>
+                <span class="text-[var(--muted-foreground)]">
                   ${{ selectedKey.budget_limit?.toFixed(2) || '0.00' }}
                 </span>
-                <span v-if="selectedKey.budget_reserved > 0" class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                <span v-if="selectedKey.budget_reserved > 0" class="ml-2 text-xs text-[var(--muted-foreground)]">
                   {{ t('keys.budgetReserved') }} ${{ selectedKey.budget_reserved.toFixed(4) }}
                 </span>
                 <span v-if="selectedKey.budget_overrun > 0" class="ml-2 text-xs text-amber-600 dark:text-amber-400">
@@ -1073,12 +1165,12 @@
               @click="formData.enable_expiration = !formData.enable_expiration"
               :class="[
                 'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_expiration ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                formData.enable_expiration ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)] '
               ]"
             >
               <span
                 :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
                   formData.enable_expiration ? 'translate-x-4' : 'translate-x-0'
                 ]"
               />
@@ -1096,8 +1188,8 @@
                 :class="[
                   'rounded-lg px-3 py-1.5 text-sm transition-colors',
                   formData.expiration_preset === days
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'
+                    ? 'bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] text-[var(--brand-text)]  '
+                    : 'bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:bg-[var(--surface-2)]   '
                 ]"
               >
                 {{ showEditModal ? t('keys.extendDays', { days }) : t('keys.expiresInDays', { days }) }}
@@ -1108,8 +1200,8 @@
                 :class="[
                   'rounded-lg px-3 py-1.5 text-sm transition-colors',
                   formData.expiration_preset === 'custom'
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600'
+                    ? 'bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] text-[var(--brand-text)]  '
+                    : 'bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:bg-[var(--surface-2)]   '
                 ]"
               >
                 {{ t('keys.customDate') }}
@@ -1129,8 +1221,8 @@
 
             <!-- Current expiration display (only in edit mode) -->
             <div v-if="showEditModal && selectedKey?.expires_at" class="text-sm">
-              <span class="text-gray-500 dark:text-gray-400">{{ t('keys.currentExpiration') }}: </span>
-              <span class="font-medium text-gray-900 dark:text-white">
+              <span class="text-[var(--muted-foreground)]">{{ t('keys.currentExpiration') }}: </span>
+              <span class="font-medium text-[var(--foreground)]">
                 {{ formatDateTime(selectedKey.expires_at) }}
               </span>
             </div>
@@ -1151,7 +1243,7 @@
           >
             <svg
               v-if="submitting"
-              class="-ml-1 mr-2 h-4 w-4 animate-spin"
+              class="-ml-1 mr-2 h-4 w-4 motion-safe:animate-spin"
               fill="none"
               viewBox="0 0 24 24"
             >
@@ -1227,31 +1319,31 @@
       @close="closeCcsClientSelect"
     >
       <div class="space-y-4">
-        <p class="text-sm text-gray-600 dark:text-gray-400">
+        <p class="text-sm text-[var(--muted-foreground)]">
           {{ t('keys.ccsClientSelect.description') }}
 	        </p>
 	        <div class="grid grid-cols-2 gap-3">
 	          <button
 	            @click="handleCcsClientSelect('claude')"
-	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-[var(--border)] hover:border-[var(--brand)] hover:bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] transition-all"
 	          >
-	            <Icon name="terminal" size="xl" class="text-gray-600 dark:text-gray-400" />
-	            <span class="font-medium text-gray-900 dark:text-white">{{
+	            <Icon name="terminal" size="xl" class="text-[var(--muted-foreground)]" />
+	            <span class="font-medium text-[var(--foreground)]">{{
 	              t('keys.ccsClientSelect.claudeCode')
 	            }}</span>
-	            <span class="text-xs text-gray-500 dark:text-gray-400">{{
+	            <span class="text-xs text-[var(--muted-foreground)]">{{
 	              t('keys.ccsClientSelect.claudeCodeDesc')
 	            }}</span>
 	          </button>
 	          <button
 	            @click="handleCcsClientSelect('gemini')"
-	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-gray-200 dark:border-dark-600 hover:border-primary-500 dark:hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition-all"
+	            class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 border-[var(--border)] hover:border-[var(--brand)] hover:bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] transition-all"
 	          >
-	            <Icon name="sparkles" size="xl" class="text-gray-600 dark:text-gray-400" />
-	            <span class="font-medium text-gray-900 dark:text-white">{{
+	            <Icon name="sparkles" size="xl" class="text-[var(--muted-foreground)]" />
+	            <span class="font-medium text-[var(--foreground)]">{{
 	              t('keys.ccsClientSelect.geminiCli')
 	            }}</span>
-	            <span class="text-xs text-gray-500 dark:text-gray-400">{{
+	            <span class="text-xs text-[var(--muted-foreground)]">{{
 	              t('keys.ccsClientSelect.geminiCliDesc')
 	            }}</span>
 	          </button>
@@ -1271,7 +1363,7 @@
       <div
         v-if="groupSelectorKeyId !== null && dropdownPosition"
         ref="dropdownRef"
-        class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max max-w-[calc(100vw-16px)] overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 duration-200 sm:min-w-[380px] dark:bg-dark-800 dark:ring-white/10"
+        class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max max-w-[calc(100vw-16px)] overflow-hidden rounded-xl bg-[var(--card)] shadow-lg ring-1 ring-black/5 duration-200 sm:min-w-[380px] dark:ring-white/10"
         style="pointer-events: auto !important;"
         :style="{
           top: dropdownPosition.top !== undefined ? dropdownPosition.top + 'px' : undefined,
@@ -1280,15 +1372,15 @@
         }"
       >
         <!-- Search box -->
-        <div class="border-b border-gray-100 p-2 dark:border-dark-700">
+        <div class="border-b border-[var(--border)] p-2">
           <div class="relative">
-            <svg class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <svg class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               v-model="groupSearchQuery"
               type="text"
-              class="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-3 text-sm text-gray-900 placeholder-gray-400 outline-none focus:border-primary-300 focus:ring-1 focus:ring-primary-300 dark:border-dark-600 dark:bg-dark-700 dark:text-white dark:placeholder-gray-500 dark:focus:border-primary-600 dark:focus:ring-primary-600"
+              class="w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] py-1.5 pl-8 pr-3 text-sm text-[var(--foreground)] placeholder-gray-400 outline-none focus:border-[var(--brand)] focus:ring-1 focus:ring-[var(--brand)] dark:placeholder-gray-500"
               :placeholder="t('keys.searchGroup')"
               @click.stop
             />
@@ -1302,11 +1394,11 @@
             @click="changeGroup(selectedKeyForGroup!, option.value)"
             :class="[
               'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
-              'border-b border-gray-100 last:border-0 dark:border-dark-700',
+              'border-b border-[var(--border)] last:border-0 ',
               selectedKeyForGroup?.group_id === option.value ||
               (!selectedKeyForGroup?.group_id && option.value === null)
-                ? 'bg-primary-50 dark:bg-primary-900/20'
-                : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+                ? 'bg-[color-mix(in_srgb,var(--brand)_10%,var(--card))] '
+                : 'hover:bg-[var(--surface-2)] '
             ]"
             :title="option.description || undefined"
           >
@@ -1328,7 +1420,7 @@
             />
           </button>
           <!-- Empty state when search has no results -->
-          <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
+          <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-[var(--muted-foreground)]">
             {{ t('keys.noGroupFound') }}
           </div>
         </div>
@@ -1404,6 +1496,17 @@ interface GroupOption {
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+const copiedEndpoint = ref('')
+let endpointCopyRevision = 0
+let endpointCopyTimer: ReturnType<typeof setTimeout> | undefined
+const copyEndpoint = async (url: string) => {
+  const revision = ++endpointCopyRevision
+  const copied = await clipboardCopy(url, t('keys.payAsYouGo.copied'))
+  if (!copied || revision !== endpointCopyRevision) return
+  copiedEndpoint.value = url
+  clearTimeout(endpointCopyTimer)
+  endpointCopyTimer = setTimeout(() => { copiedEndpoint.value = '' }, 2000)
+}
 
 const gatewayEndpoints = [
   { protocol: 'openai', label: 'keys.payAsYouGo.openai', path: '/v1' },
@@ -1552,6 +1655,48 @@ const sortState = ref({
 const filterSearch = ref('')
 const filterStatus = ref('')
 const filterGroupId = ref<string | number>('')
+const selectedKeyIds = reactive<Set<number>>(new Set())
+const bulkUpdating = ref(false)
+
+const selectedKeyCount = computed(() => selectedKeyIds.size)
+const activeKeyCount = computed(() => apiKeys.value.filter((k) => k.status === 'active').length)
+const allVisibleKeysSelected = computed(
+  () => apiKeys.value.length > 0 && apiKeys.value.every((k) => selectedKeyIds.has(k.id))
+)
+
+const toggleKeySelection = (keyId: number, checked: boolean) => {
+  if (checked) selectedKeyIds.add(keyId)
+  else selectedKeyIds.delete(keyId)
+}
+
+const toggleAllVisibleKeys = (checked: boolean) => {
+  for (const key of apiKeys.value) {
+    if (checked) selectedKeyIds.add(key.id)
+    else selectedKeyIds.delete(key.id)
+  }
+}
+
+const clearSelectedKeys = () => {
+  selectedKeyIds.clear()
+}
+
+const bulkToggleSelectedKeys = async (targetStatus: 'active' | 'inactive') => {
+  const ids = [...selectedKeyIds]
+  if (ids.length === 0 || bulkUpdating.value) return
+  bulkUpdating.value = true
+  try {
+    await Promise.all(ids.map((id) => keysAPI.toggleStatus(id, targetStatus)))
+    appStore.showSuccess(
+      targetStatus === 'active' ? t('keys.keyEnabledSuccess') : t('keys.keyDisabledSuccess')
+    )
+    selectedKeyIds.clear()
+    await loadApiKeys()
+  } catch {
+    appStore.showError(t('keys.failedToUpdateStatus'))
+  } finally {
+    bulkUpdating.value = false
+  }
+}
 
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
@@ -2297,7 +2442,7 @@ const executeCcsImport = async (row: ApiKey, clientType: CcSwitchClientType) => 
   // The import model must come from this Key's visible set. When the server
   // cannot answer, the deep link simply carries no model.
   const visible = await keyVisibleModels(row.id)
-  const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
+  const providerName = (publicSettings.value?.site_name || 'OmniHive').trim() || 'OmniHive'
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,
     platform,
@@ -2379,6 +2524,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  endpointCopyRevision++
+  clearTimeout(endpointCopyTimer)
   disposed = true
   auxiliaryControllers.forEach(controller => controller.abort())
   auxiliaryControllers.clear()
@@ -2387,3 +2534,147 @@ onUnmounted(() => {
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>
+
+<style scoped>
+.oh-gateway-banner {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 12px);
+  box-shadow: none;
+}
+
+.oh-amber-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--brand, #f59e0b) 14%, var(--card, #ffffff));
+  color: var(--brand-text, #92610a);
+  border: 1px solid color-mix(in srgb, var(--brand, #f59e0b) 32%, transparent);
+}
+
+.oh-endpoint-item {
+  border-bottom: 1px solid var(--border);
+  transition: border-color 0.18s ease;
+}
+
+.oh-endpoint-item:hover {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 35%, var(--border, #e9e9ee));
+}
+
+.oh-endpoint-code {
+  color: var(--foreground);
+}
+
+.oh-gen-endpoints {
+  border-color: var(--border);
+}
+
+.oh-gen-endpoint-chip {
+  background: color-mix(in srgb, var(--card, #ffffff) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand, #f59e0b) 18%, var(--border, #e9e9ee));
+}
+
+.oh-filter-bar {
+  border: 1px solid var(--border, #e9e9ee);
+  border-radius: var(--radius-md, 12px);
+  box-shadow: none;
+}
+
+/*  .bulk-bar-real 琥珀微光横条风格 */
+.bulk-bar-real {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted-foreground);
+  transition: background-color .15s, border-color .15s;
+}
+
+.bulk-bar-real.has-selection {
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
+  color: var(--foreground);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--brand) 8%, transparent);
+}
+
+.oh-brand-bar {
+  width: 3.5px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--brand, #f59e0b);
+}
+
+.oh-key-secret {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--surface-2, #f4f4f5);
+  border: 1px solid var(--border, #e9e9ee);
+  color: var(--foreground, #131316);
+}
+
+.oh-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.oh-status-ok {
+  color: var(--ok-text, #15803d);
+  background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ok, #16a34a) 24%, transparent);
+}
+
+.oh-status-warn {
+  color: var(--warn-text, #92400e);
+  background: color-mix(in srgb, var(--warn, #d97706) 12%, transparent);
+  border-color: color-mix(in srgb, var(--warn, #d97706) 24%, transparent);
+}
+
+.oh-status-bad {
+  color: var(--bad-text, #b91c1c);
+  background: color-mix(in srgb, var(--bad, #dc2626) 12%, transparent);
+  border-color: color-mix(in srgb, var(--bad, #dc2626) 24%, transparent);
+}
+
+.oh-status-disabled {
+  color: #7e22ce;
+  background: color-mix(in srgb, #9333ea 12%, transparent);
+  border-color: color-mix(in srgb, #9333ea 24%, transparent);
+}
+
+.dark .oh-status-disabled {
+  color: #d8b4fe;
+}
+
+.oh-status-neutral {
+  color: var(--muted-foreground, #6f6f78);
+  background: var(--surface-2, #f4f4f5);
+  border-color: var(--border, #e9e9ee);
+}
+
+.oh-dot-neutral {
+  background: var(--muted-foreground, #6f6f78);
+}
+
+summary:focus-visible, .oh-endpoint-item button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulk-bar-real, .oh-endpoint-item { transition: none; }
+}
+</style>

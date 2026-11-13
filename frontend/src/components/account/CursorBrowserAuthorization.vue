@@ -83,11 +83,11 @@ onBeforeUnmount(() => { disposed = true; if (state.value === 'waiting') void can
 </script>
 
 <template>
-  <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+  <div class="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
     <p class="input-hint">{{ t('admin.accounts.cursor.browserHint') }}</p>
     <button type="button" class="btn btn-secondary" :disabled="state === 'waiting' || (!accountId && !account?.name)" @click="start">{{ t('admin.accounts.cursor.browserAuthorize') }}</button>
     <div v-if="authorizationUrl" class="space-y-2">
-      <a :href="authorizationUrl" target="_blank" rel="noopener noreferrer" class="block break-all text-sm text-primary-600">{{ authorizationUrl }}</a>
+      <a :href="authorizationUrl" target="_blank" rel="noopener noreferrer" class="block break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] p-2 font-mono text-xs text-[var(--brand-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">{{ authorizationUrl }}</a>
       <button type="button" class="btn btn-secondary" @click="copyUrl">{{ t(copied ? 'admin.accounts.cursor.copied' : 'admin.accounts.cursor.copyUrl') }}</button>
     </div>
     <p v-if="state !== 'idle'" role="status" aria-live="polite">{{ t(`admin.accounts.cursor.authStatus.${state}`) }}</p>

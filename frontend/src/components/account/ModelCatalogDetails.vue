@@ -1,5 +1,5 @@
 <template>
-  <section v-if="result || summary" class="mb-4 space-y-3 rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800" :aria-label="t('admin.accounts.modelSync.title')">
+  <section v-if="result || summary" class="mb-4 space-y-3 rounded-lg border border-[var(--border)] p-3 text-xs bg-[var(--card)]" :aria-label="t('admin.accounts.modelSync.title')">
     <p role="status">{{ t(`admin.accounts.modelCatalog.${status}`) }}</p>
     <p v-if="result">{{ t('admin.accounts.modelSync.previewOnly') }}</p>
     <p v-if="result && !result.discovery_complete">{{ t('admin.accounts.modelSync.incomplete') }}</p>
@@ -13,8 +13,8 @@
       <summary class="cursor-pointer rounded py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.modelSync.optionalCapabilities') }}</summary>
       <p>{{ t('admin.accounts.modelSync.capabilitiesHint') }}</p>
       <input v-model="query" type="search" class="input" :aria-label="t('admin.accounts.searchModels')" />
-      <div class="max-h-64 overflow-y-auto">
-        <p v-for="entry in visibleCapabilities" :key="entry.id" class="break-all">{{ entry.id }} — {{ entry.description }}</p>
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--surface-2)]">
+        <p v-for="entry in visibleCapabilities" :key="entry.id" class="break-all border-b border-[var(--border)] px-2 py-1.5 font-mono last:border-0">{{ entry.id }} — {{ entry.description }}</p>
       </div>
       <button v-if="filteredCapabilities.length > limit" type="button" class="btn btn-secondary" @click="limit += 50">{{ t('capabilityCatalog.more') }}</button>
     </details>

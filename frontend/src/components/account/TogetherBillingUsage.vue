@@ -1,9 +1,9 @@
 <template>
-  <div v-if="eligible" class="space-y-2 text-xs" :aria-busy="loading">
+  <div v-if="eligible" class="min-w-0 space-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2 text-xs tabular-nums" :aria-busy="loading">
     <div class="font-medium">{{ t('admin.accounts.togetherUsage.title') }}</div>
     <p class="text-gray-500">{{ t('admin.accounts.togetherUsage.scope') }}</p>
     <div class="flex flex-wrap items-center gap-2">
-      <label>{{ t('admin.accounts.togetherUsage.month') }} <input v-model="month" data-test="together-month" type="month" class="rounded border bg-transparent" /></label>
+      <label class="min-w-0">{{ t('admin.accounts.togetherUsage.month') }} <input v-model="month" data-test="together-month" type="month" class="max-w-full rounded-md border border-[var(--border)] bg-transparent px-1 py-0.5 font-mono text-[11px]" /></label>
       <button type="button" data-test="together-query" :disabled="loading || !validMonth" class="rounded px-1.5 py-0.5 text-blue-600 disabled:opacity-50" @click="query">{{ t('admin.accounts.cnProviders.probe') }}</button>
     </div>
     <p v-if="!validMonth" role="alert">{{ t('admin.accounts.togetherUsage.invalidMonth') }}</p>
@@ -14,8 +14,8 @@
       <p>{{ result.usage.organization_id }} · {{ result.usage.billing_period }} · UTC · USD</p>
       <p v-if="result.usage.partial" class="text-amber-600">{{ t('admin.accounts.togetherUsage.partial') }}</p>
       <p v-if="!rows.length">{{ t('admin.accounts.togetherUsage.empty') }}</p>
-      <div v-else class="max-w-xl overflow-x-auto">
-        <table class="w-full text-left">
+      <div v-else class="max-w-full overflow-x-auto rounded-md border border-[var(--border)]">
+        <table class="w-full text-left [&_thead]:bg-[var(--surface-2)] [&_tbody]:font-mono [&_td]:border-t [&_td]:border-[var(--border)]">
           <caption class="sr-only">{{ t('admin.accounts.togetherUsage.title') }}</caption>
           <thead><tr><th v-for="field in ['date', 'product', 'unit', 'quantity', 'unitPrice', 'cost']" :key="field" scope="col" class="p-1">{{ t(`admin.accounts.togetherUsage.${field}`) }}</th></tr></thead>
           <tbody><tr v-for="(row, index) in rows" :key="index">

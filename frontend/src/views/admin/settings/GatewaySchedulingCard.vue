@@ -1,48 +1,48 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.scheduling.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.scheduling.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.scheduling.allowUngroupedKey") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.scheduling.allowUngroupedKeyHint") }}
           </p>
         </div>
         <Toggle v-model="form.allow_ungrouped_key_scheduling" />
       </div>
 
-      <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+      <div class="border-t border-[var(--border)] pt-4">
         <div class="mb-3">
-          <label class="font-medium text-gray-900 dark:text-white">
+          <label class="font-medium text-[var(--foreground)]">
             {{
               t("admin.settings.scheduling.accountSchedulingThresholdsTitle")
             }}
           </label>
-          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          <p class="mt-1 text-sm text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.scheduling.accountSchedulingThresholdsDescription",
               )
             }}
           </p>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.scheduling.accountSchedulingThresholdsGlobalHint",
               )
             }}
           </p>
-          <p class="mt-0.5 text-xs text-amber-600 dark:text-amber-400">
+          <p class="mt-0.5 text-xs text-[var(--warn-text)]">
             {{
               t(
                 "admin.settings.scheduling.accountSchedulingThresholdsDisabledHint",
@@ -54,16 +54,16 @@
           <div
             v-for="platform in schedulingThresholdPlatforms"
             :key="platform"
-            class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
+            class="rounded-lg border border-[var(--border)] p-4"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
                 <label
-                  class="font-mono text-sm font-medium text-gray-900 dark:text-white"
+                  class="font-mono text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ platform }}
                 </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                   {{
                     t(
                       "admin.settings.scheduling.accountSchedulingThresholdsRangeHint",
@@ -72,7 +72,7 @@
                 </p>
               </div>
               <span
-                class="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+                class="rounded bg-[var(--surface-2)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]"
               >
                 %
               </span>
@@ -93,17 +93,17 @@
 
       <div
         v-if="!form.openai_advanced_scheduler_enabled"
-        class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+        class="flex items-center justify-between border-t border-[var(--border)] pt-5"
       >
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.lowRatePriorityTitle",
               )
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.lowRatePriorityDescription",
@@ -122,16 +122,16 @@
           !form.openai_advanced_scheduler_enabled &&
           form.openai_low_upstream_rate_priority_enabled
         "
-        class="flex flex-col items-stretch gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 dark:border-dark-700"
+        class="flex flex-col items-stretch gap-3 border-t border-[var(--border)] pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6"
       >
         <div class="min-w-0">
           <label
-            class="text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="text-sm font-medium text-[var(--foreground)]"
             for="openai-oauth-scheduling-rate-multiplier"
           >
             {{ t("admin.settings.openaiExperimentalScheduler.oauthRateTitle") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.oauthRatePriorityDescription",
@@ -151,20 +151,20 @@
             type="number"
           />
           <span
-            class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+            class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[var(--muted-foreground)]"
             >x</span
           >
         </div>
       </div>
 
       <div
-        class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+        class="flex items-center justify-between border-t border-[var(--border)] pt-5"
       >
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.openaiExperimentalScheduler.title") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.openaiExperimentalScheduler.description") }}
           </p>
         </div>
@@ -176,17 +176,17 @@
 
       <div
         v-if="form.openai_advanced_scheduler_enabled"
-        class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+        class="flex items-center justify-between border-t border-[var(--border)] pt-5"
       >
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.stickyWeightedTitle",
               )
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.stickyWeightedDescription",
@@ -201,17 +201,17 @@
 
       <div
         v-if="form.openai_advanced_scheduler_enabled"
-        class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+        class="flex items-center justify-between border-t border-[var(--border)] pt-5"
       >
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.subscriptionPriorityTitle",
               )
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.subscriptionPriorityDescription",
@@ -226,16 +226,16 @@
 
       <div
         v-if="form.openai_advanced_scheduler_enabled"
-        class="flex flex-col items-stretch gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 dark:border-dark-700"
+        class="flex flex-col items-stretch gap-3 border-t border-[var(--border)] pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6"
       >
         <div class="min-w-0">
           <label
-            class="text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="text-sm font-medium text-[var(--foreground)]"
             for="openai-oauth-scheduling-rate-multiplier"
           >
             {{ t("admin.settings.openaiExperimentalScheduler.oauthRateTitle") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.openaiExperimentalScheduler.oauthRateWeightedDescription",
@@ -255,7 +255,7 @@
             type="number"
           />
           <span
-            class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-400"
+            class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-[var(--muted-foreground)]"
             >x</span
           >
         </div>
@@ -263,13 +263,13 @@
 
       <div
         v-if="form.openai_advanced_scheduler_enabled"
-        class="border-t border-gray-100 pt-5 dark:border-dark-700"
+        class="border-t border-[var(--border)] pt-5"
       >
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.openaiExperimentalScheduler.weightsTitle") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t("admin.settings.openaiExperimentalScheduler.weightsDescription")
             }}
@@ -282,7 +282,7 @@
             :key="field.key"
             class="block"
           >
-            <span class="text-xs font-medium text-gray-600 dark:text-gray-400">
+            <span class="text-xs font-medium text-[var(--muted-foreground)]">
               {{ field.label }}
             </span>
             <input

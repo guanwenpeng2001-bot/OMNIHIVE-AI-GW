@@ -1,20 +1,20 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.wechatConnect.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.wechatConnect.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div class="flex items-center justify-between">
         <div>
-          <label class="font-medium text-gray-900 dark:text-white">{{
+          <label class="font-medium text-[var(--foreground)]">{{
             t("admin.settings.wechatConnect.enabledLabel")
           }}</label>
-          <p class="text-sm text-gray-500 dark:text-gray-400">
+          <p class="text-sm text-[var(--muted-foreground)]">
             {{ t("admin.settings.wechatConnect.enabledHint") }}
           </p>
         </div>
@@ -26,18 +26,18 @@
 
       <div
         v-if="form.wechat_connect_enabled"
-        class="space-y-6 border-t border-gray-100 pt-4 dark:border-dark-700"
+        class="space-y-6 border-t border-[var(--border)] pt-4"
       >
         <div class="space-y-4">
           <div
-            class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
+            class="rounded-lg border border-[var(--border)] p-4"
           >
             <div class="flex items-start justify-between gap-4">
               <div>
-                <h3 class="font-medium text-gray-900 dark:text-white">
+                <h3 class="font-medium text-[var(--foreground)]">
                   {{ localText("PC 应用", "PC App") }}
                 </h3>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                   {{
                     localText(
                       "桌面浏览器通过微信开放平台扫码登录。可与公众号或移动应用同时存在。",
@@ -58,7 +58,7 @@
             >
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ localText("PC AppID", "PC App ID") }}
                 </label>
@@ -77,7 +77,7 @@
               </div>
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ localText("PC AppSecret", "PC App Secret") }}
                 </label>
@@ -103,14 +103,14 @@
           </div>
 
           <div
-            class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
+            class="rounded-lg border border-[var(--border)] p-4"
           >
             <div class="flex items-start justify-between gap-4">
               <div>
-                <h3 class="font-medium text-gray-900 dark:text-white">
+                <h3 class="font-medium text-[var(--foreground)]">
                   {{ localText("公众号", "Official Account") }}
                 </h3>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                   {{
                     localText(
                       "仅在微信内浏览器可用；非微信环境下会显示不可用。",
@@ -131,7 +131,7 @@
             >
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ localText("公众号 AppID", "Official Account App ID") }}
                 </label>
@@ -147,7 +147,7 @@
               </div>
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{
                     localText("公众号 AppSecret", "Official Account App Secret")
@@ -175,14 +175,14 @@
           </div>
 
           <div
-            class="rounded-lg border border-gray-200 p-4 dark:border-dark-700"
+            class="rounded-lg border border-[var(--border)] p-4"
           >
             <div class="flex items-start justify-between gap-4">
               <div>
-                <h3 class="font-medium text-gray-900 dark:text-white">
+                <h3 class="font-medium text-[var(--foreground)]">
                   {{ localText("移动应用", "Mobile App") }}
                 </h3>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                   {{
                     localText(
                       "原生移动端通过微信 SDK 唤起授权，网页端不会直接发起该流程。",
@@ -203,7 +203,7 @@
             >
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ localText("移动应用 AppID", "Mobile App ID") }}
                 </label>
@@ -217,7 +217,7 @@
               </div>
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                 >
                   {{ localText("移动应用 AppSecret", "Mobile App Secret") }}
                 </label>
@@ -246,7 +246,7 @@
             (form.wechat_connect_mp_enabled ||
               form.wechat_connect_mobile_enabled)
           "
-          class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-300"
+          class="rounded-lg border border-[var(--border)] bg-[color-mix(in_srgb,var(--warn)_8%,var(--card))] px-4 py-3 text-sm text-[var(--warn-text)]"
         >
           {{
             localText(
@@ -259,7 +259,7 @@
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ localText("浏览器回调地址", "Browser Redirect URL") }}
             </label>
@@ -272,7 +272,7 @@
                 t('admin.settings.wechatConnect.redirectUrlPlaceholder')
               "
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 localText(
                   "用于 PC 应用和公众号的网页回调。移动应用走原生 SDK 时不直接使用这个浏览器回调。",
@@ -292,7 +292,7 @@
               </button>
               <code
                 v-if="wechatRedirectUrlSuggestion"
-                class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+                class="select-all break-all rounded bg-[var(--surface-2)] px-2 py-1 font-mono text-xs text-[var(--muted-foreground)]"
               >
                 {{ wechatRedirectUrlSuggestion }}
               </code>
@@ -302,7 +302,7 @@
 
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.wechatConnect.frontendRedirectUrlLabel") }}
           </label>
@@ -315,7 +315,7 @@
               t('admin.settings.wechatConnect.frontendRedirectUrlPlaceholder')
             "
           />
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.wechatConnect.frontendRedirectUrlHint") }}
           </p>
         </div>

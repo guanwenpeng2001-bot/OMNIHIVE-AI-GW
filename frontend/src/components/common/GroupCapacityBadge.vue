@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-1">
+  <div class="flex flex-col gap-1 tabular-nums [&>div>span]:border [&>div>span]:border-current/15">
     <!-- 并发槽位 -->
     <div class="flex items-center gap-1">
       <span
@@ -74,11 +74,11 @@ withDefaults(defineProps<Props>(), {
 
 function capacityClass(used: number, max: number): string {
   if (max > 0 && used >= max) {
-    return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+    return 'bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] text-[var(--bad-text)]'
   }
   if (used > 0) {
-    return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+    return 'bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-[var(--warn-text)]'
   }
-  return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+  return 'bg-[var(--surface-2)] text-[var(--muted-foreground)]'
 }
 </script>

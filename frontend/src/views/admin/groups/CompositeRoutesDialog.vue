@@ -50,7 +50,7 @@
             t("admin.groups.compositeRoutes.addRoute")
           }}
         </button>
-        <p class="text-xs text-gray-500 dark:text-gray-400">
+        <p class="text-xs text-[var(--muted-foreground)]">
           {{ t("admin.groups.compositeRoutes.listOrderHint") }}
         </p>
         <div
@@ -63,13 +63,13 @@
           <p
             v-else-if="compositeRouteLoadFailed"
             role="status"
-            class="p-3 text-sm text-red-600 dark:text-red-400"
+            class="p-3 text-sm text-[var(--bad-text)]"
           >
             {{ t("admin.groups.compositeRoutes.failedToLoad") }}
           </p>
           <p
             v-else-if="!compositeRoutes.length"
-            class="rounded-lg bg-gray-50 p-3 text-sm text-gray-500 dark:bg-dark-900"
+            class="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4 text-sm text-[var(--muted-foreground)]"
           >
             {{ t("admin.groups.compositeRoutes.empty") }}
           </p>
@@ -93,8 +93,8 @@
               class="flex rounded-lg border"
               :class="
                 compositeRouteEditingId === route.id
-                  ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                  : 'border-gray-200 dark:border-dark-600'
+                  ? 'border-[var(--ring)] bg-[var(--surface-2)]'
+                  : 'border-[var(--border)]'
               "
             >
               <button
@@ -107,7 +107,7 @@
                 <span class="block break-all text-sm font-semibold">{{
                   route.public_model
                 }}</span>
-                <span class="block text-xs text-gray-500 dark:text-gray-400"
+                <span class="block text-xs text-[var(--muted-foreground)]"
                   >{{ compositeRouteMatchLabel(route.match_type) }} ·
                   {{ formatCompositeEndpoint(route.endpoint) }} ·
                   {{ t("admin.groups.compositeRoutes.priority") }}
@@ -152,12 +152,12 @@
             </li>
           </ul>
         </div>
-        <details class="border-t border-gray-200 pt-3 dark:border-dark-600">
+        <details class="border-t border-[var(--border)] pt-3">
           <summary class="cursor-pointer text-sm font-semibold">
             {{ t("admin.groups.compositeRoutes.savedPreview") }}
           </summary>
           <div class="mt-3 space-y-3" :aria-busy="compositePreviewLoading">
-            <p class="text-xs text-gray-500 dark:text-gray-400">
+            <p class="text-xs text-[var(--muted-foreground)]">
               {{ t("admin.groups.compositeRoutes.savedPreviewHint") }}
             </p>
             <label for="composite-preview-model" class="input-label">{{
@@ -188,13 +188,13 @@
             <div aria-live="polite" class="space-y-2 text-sm">
               <p
                 v-if="compositePreviewFailed"
-                class="text-red-600 dark:text-red-400"
+                class="text-[var(--bad-text)]"
               >
                 {{ t("admin.groups.compositeRoutes.failedToPreview") }}
               </p>
               <div
                 v-if="compositePreviewDecision"
-                class="space-y-2 rounded-lg bg-gray-50 p-3 dark:bg-dark-900"
+                class="space-y-2 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4"
               >
                 <span
                   class="badge"
@@ -250,7 +250,7 @@
         :aria-busy="compositeRouteSaving"
       >
         <form id="composite-route-form" @submit.prevent="saveCompositeRoute">
-          <fieldset :disabled="busy" class="min-w-0 space-y-5">
+          <fieldset :disabled="busy" class="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
             <div class="flex items-center justify-between gap-3">
               <h3 class="text-base font-semibold">
                 {{
@@ -295,7 +295,7 @@
               </datalist>
               <p
                 id="composite-suggestions-hint"
-                class="mt-2 text-xs text-gray-500 dark:text-gray-400"
+                class="mt-2 text-xs text-[var(--muted-foreground)]"
               >
                 {{ t("admin.groups.compositeRoutes.suggestionsHint") }}
               </p>
@@ -342,7 +342,7 @@
             </div>
             <p
               id="composite-priority-hint"
-              class="text-xs text-gray-500 dark:text-gray-400"
+              class="text-xs text-[var(--muted-foreground)]"
             >
               {{ t("admin.groups.compositeRoutes.priorityHint") }}
             </p>
@@ -370,16 +370,16 @@
                   }}
                 </button>
               </div>
-              <p class="text-xs text-gray-500 dark:text-gray-400">
+              <p class="text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.groups.compositeRoutes.targetsHint") }}
               </p>
-              <p class="text-xs text-gray-500 dark:text-gray-400">
+              <p class="text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.groups.compositeRoutes.upstreamModelHint") }}
               </p>
               <div
                 v-for="(target, index) in compositeRouteForm.targets"
                 :key="targetKey(target)"
-                class="space-y-3 rounded-xl border border-gray-200 p-3 sm:p-4 dark:border-dark-600"
+                class="space-y-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <div class="text-sm font-semibold">
@@ -483,7 +483,7 @@
                 <details
                   data-target-advanced
                   :open="hasAdvancedOptions(target)"
-                  class="border-t border-gray-100 pt-2 dark:border-dark-700"
+                  class="border-t border-[var(--border)] pt-2"
                 >
                   <summary
                     class="cursor-pointer text-xs text-gray-600 dark:text-gray-300"

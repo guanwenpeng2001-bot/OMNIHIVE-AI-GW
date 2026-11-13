@@ -61,30 +61,30 @@ function saved() { editor.value = null; memberGroup.value = null; void load() }
     <TablePageLayout>
       <template #filters>
         <div class="space-y-3">
-          <div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-xl font-semibold">{{ t('admin.proxyGroups.title') }}</h1><button class="btn btn-primary" @click="editor = {}">{{ t('admin.proxyGroups.create') }}</button></div>
-          <form class="flex flex-wrap gap-3" @submit.prevent="filter">
+          <div class="flex flex-wrap items-center justify-between gap-3"><h1 class="text-2xl font-semibold tracking-tight text-[var(--foreground)]">{{ t('admin.proxyGroups.title') }}</h1><button class="btn btn-primary" @click="editor = {}">{{ t('admin.proxyGroups.create') }}</button></div>
+          <form class="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3" @submit.prevent="filter">
             <input v-model="search" class="input w-full sm:w-64" :placeholder="t('admin.proxyGroups.search')" :aria-label="t('admin.proxyGroups.search')" type="search" @input="filter" />
             <select v-model="status" class="input w-full sm:w-40" :aria-label="t('common.status')"><option value="">{{ t('admin.proxyGroups.allStatus') }}</option><option value="active">{{ t('admin.proxyGroups.active') }}</option><option value="inactive">{{ t('admin.proxyGroups.inactive') }}</option></select>
             <input v-model="service" class="input w-full sm:w-48" list="proxy-group-services" :placeholder="t('admin.proxyGroups.allServices')" :aria-label="t('admin.proxyGroups.services')" />
             <datalist id="proxy-group-services"><option v-for="name in ['grok', 'chatgpt', 'gemini', 'google']" :key="name" :value="name" /></datalist>
             <button class="btn btn-secondary" type="button" :disabled="loading" @click="load">{{ t('common.refresh') }}</button>
           </form>
-          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
-          <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+          <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
+          <p v-if="error" role="alert" class="text-sm text-[var(--bad-text)]">{{ error }}</p>
         </div>
       </template>
       <template #table>
-        <div class="table-wrapper" :aria-busy="loading">
-          <p v-if="loading" role="status" class="p-6">{{ t('common.loading') }}</p>
-          <p v-else-if="!groups.length && !error" class="p-6 text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.empty') }}</p>
-          <div v-else class="divide-y divide-gray-200 dark:divide-dark-700">
-            <div class="hidden grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] gap-4 bg-gray-50 px-4 py-3 text-sm text-gray-500 dark:text-gray-400 dark:bg-dark-800 lg:grid"><span>{{ t('admin.proxyGroups.name') }} / {{ t('admin.proxyGroups.services') }}</span><span>{{ t('admin.proxyGroups.counts') }}</span><span>{{ t('admin.proxyGroups.accounts') }}</span><span>{{ t('admin.proxyGroups.fallback') }}</span><span>{{ t('common.actions') }}</span></div>
-            <article v-for="group in groups" :key="group.id" class="grid gap-3 p-4 lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] lg:items-center lg:gap-4">
-              <div class="min-w-0 space-y-2"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words font-medium">{{ group.name }}</h2><span class="badge" :class="group.status === 'active' ? 'badge-success' : 'badge-gray'">{{ t(`admin.proxyGroups.${group.status}`) }}</span></div><p v-if="group.region" class="text-sm text-gray-500 dark:text-gray-400">{{ group.region }}</p><div class="flex flex-wrap gap-1"><span v-for="tag in group.target_services" :key="tag" class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ tag }}</span></div></div>
-              <p class="text-sm" :class="group.schedulable_member_count === 0 && 'text-red-600 dark:text-red-400'"><span class="mr-2 lg:hidden">{{ t('admin.proxyGroups.counts') }}</span>{{ group.schedulable_member_count }} / {{ group.member_count }}</p>
-              <p class="text-sm"><span class="mr-2 lg:hidden">{{ t('admin.proxyGroups.accounts') }}</span>{{ group.bound_account_count }}</p>
-              <p class="text-sm">{{ t(`admin.proxyGroups.${group.fallback_mode}`) }}</p>
-              <div class="flex flex-wrap gap-2"><button class="btn btn-secondary btn-sm" @click="editor = { group }">{{ t('common.edit') }}</button><button class="btn btn-secondary btn-sm" @click="memberGroup = group.id">{{ t('admin.proxyGroups.members') }}</button><button class="btn btn-secondary btn-sm" @click="bindingGroup = group.id">{{ t('admin.proxyGroups.bindings') }}</button><span :title="group.bound_account_count ? t('admin.proxyGroups.inUse') : ''"><button class="btn btn-secondary btn-sm" :disabled="group.bound_account_count > 0 || deletingBusy" @click="deleting = group">{{ t('common.delete') }}</button></span></div>
+        <div class="table-wrapper bg-[var(--card)] text-[var(--foreground)]" :aria-busy="loading">
+          <p v-if="loading" role="status" class="p-8 text-center text-sm text-[var(--muted-foreground)]">{{ t('common.loading') }}</p>
+          <p v-else-if="!groups.length && !error" class="p-8 text-center text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.empty') }}</p>
+          <div v-else class="divide-y divide-[var(--border)]">
+            <div class="hidden grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] gap-4 bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--muted-foreground)] lg:grid"><span>{{ t('admin.proxyGroups.name') }} / {{ t('admin.proxyGroups.services') }}</span><span>{{ t('admin.proxyGroups.counts') }}</span><span>{{ t('admin.proxyGroups.accounts') }}</span><span>{{ t('admin.proxyGroups.fallback') }}</span><span>{{ t('common.actions') }}</span></div>
+            <article v-for="group in groups" :key="group.id" class="grid gap-3 px-4 py-3 transition-colors hover:bg-[var(--surface-2)] lg:grid-cols-[minmax(0,2fr)_1fr_1fr_1fr_minmax(0,2fr)] lg:items-center lg:gap-4">
+              <div class="min-w-0 space-y-2"><div class="flex flex-wrap items-center gap-2"><h2 class="break-words text-sm font-semibold">{{ group.name }}</h2><span class="pill" :class="group.status === 'active' ? 'text-[var(--ok-text)]' : 'pill-ghost text-[var(--muted-foreground)]'"><span class="pulse-dot" :class="group.status === 'active' ? 'pulse-ok' : 'bg-[var(--muted-foreground)]'" aria-hidden="true" />{{ t(`admin.proxyGroups.${group.status}`) }}</span></div><p v-if="group.region" class="text-xs text-[var(--muted-foreground)]">{{ group.region }}</p><div class="flex flex-wrap gap-1"><span v-for="tag in group.target_services" :key="tag" class="pill pill-ghost text-[var(--muted-foreground)]">{{ tag }}</span></div></div>
+              <p class="font-mono text-sm tabular-nums" :class="group.schedulable_member_count === 0 && 'text-[var(--bad-text)]'"><span class="mr-2 font-sans text-xs text-[var(--muted-foreground)] lg:hidden">{{ t('admin.proxyGroups.counts') }}</span>{{ group.schedulable_member_count }} / {{ group.member_count }}</p>
+              <p class="font-mono text-sm tabular-nums"><span class="mr-2 font-sans text-xs text-[var(--muted-foreground)] lg:hidden">{{ t('admin.proxyGroups.accounts') }}</span>{{ group.bound_account_count }}</p>
+              <p class="text-xs text-[var(--muted-foreground)]">{{ t(`admin.proxyGroups.${group.fallback_mode}`) }}</p>
+              <div class="flex flex-wrap gap-1.5"><button class="btn btn-secondary btn-sm" @click="editor = { group }">{{ t('common.edit') }}</button><button class="btn btn-secondary btn-sm" @click="memberGroup = group.id">{{ t('admin.proxyGroups.members') }}</button><button class="btn btn-secondary btn-sm" @click="bindingGroup = group.id">{{ t('admin.proxyGroups.bindings') }}</button><span :title="group.bound_account_count ? t('admin.proxyGroups.inUse') : ''"><button class="btn btn-secondary btn-sm text-[var(--bad-text)]" :disabled="group.bound_account_count > 0 || deletingBusy" @click="deleting = group">{{ t('common.delete') }}</button></span></div>
             </article>
           </div>
         </div>

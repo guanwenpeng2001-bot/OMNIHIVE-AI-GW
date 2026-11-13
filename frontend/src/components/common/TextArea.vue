@@ -13,11 +13,13 @@
         :required="required"
         :placeholder="placeholderText"
         :readonly="readonly"
+        :aria-invalid="error ? true : undefined"
+        :aria-describedby="id && (error || hint) ? `${id}-message` : undefined"
         :rows="rows"
         :class="[
           'input w-full min-h-[80px] transition-all duration-200 resize-y',
           error ? 'input-error ring-2 ring-red-500/20' : '',
-          disabled ? 'cursor-not-allowed bg-gray-100 opacity-60 dark:bg-dark-900' : ''
+          disabled ? 'cursor-not-allowed bg-[var(--surface-2)] opacity-60 ' : ''
         ]"
         @input="onInput"
         @change="$emit('change', ($event.target as HTMLTextAreaElement).value)"
@@ -26,10 +28,10 @@
       ></textarea>
     </div>
     <!-- Hint / Error Text -->
-    <p v-if="error" class="input-error-text mt-1.5">
+    <p v-if="error" :id="id ? `${id}-message` : undefined" class="input-error-text mt-1.5" role="alert">
       {{ error }}
     </p>
-    <p v-else-if="hint" class="input-hint mt-1.5">
+    <p v-else-if="hint" :id="id ? `${id}-message` : undefined" class="input-hint mt-1.5">
       {{ hint }}
     </p>
   </div>
@@ -79,3 +81,15 @@ defineExpose({
   select: () => textAreaRef.value?.select()
 })
 </script>
+
+<style scoped>
+.input { background: var(--card); color: var(--foreground); border: 1px solid var(--border); border-radius: 8px; transition: border-color .15s, box-shadow .15s; }
+.input::placeholder { color: var(--muted-foreground); opacity: .8; }
+.input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
+.input[aria-invalid="true"] { border-color: var(--bad, #dc2626); }
+.input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad, #dc2626) 18%, transparent); }
+.input:disabled { background: var(--surface-2); }
+.input-label { color: var(--foreground); }
+.input-hint { color: var(--muted-foreground); }
+@media (prefers-reduced-motion: reduce) { .input { transition: none; } }
+</style>

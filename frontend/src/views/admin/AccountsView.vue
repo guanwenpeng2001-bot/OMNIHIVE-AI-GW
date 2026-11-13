@@ -2,8 +2,25 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="flex flex-wrap-reverse items-start justify-between gap-3">
+        <section class="account-workbench mb-2.5" aria-label="上游账号池工作台">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="pulse-dot" :class="loading ? 'pulse-warn' : accountPoolSummary.attention ? 'pulse-warn' : 'pulse-ok'" aria-hidden="true"></span>
+              <h1 class="text-sm font-semibold">上游账号池工作台</h1>
+              <span class="text-xs text-gray-500 dark:text-gray-400">调度状态 · 账号容量 · 故障恢复</span>
+              <div class="ml-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                <span>总账号 <b class="font-mono tabular-nums">{{ loading ? '—' : pagination.total }}</b></span>
+                <span>当前页 <b class="font-mono tabular-nums">{{ loading ? '—' : accounts.length }}</b></span>
+                <span>正常调度 <b class="font-mono tabular-nums text-emerald-600 dark:text-emerald-400">{{ loading ? '—' : accountPoolSummary.normal }}</b></span>
+                <span>异常/限流 <b class="font-mono tabular-nums text-amber-700 dark:text-amber-400">{{ loading ? '—' : `${accountPoolSummary.errors} / ${accountPoolSummary.limited}` }}</b></span>
+              </div>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" aria-haspopup="dialog" @click="openAccountDiagnosisDrawer">··· 更多诊断</button>
+          </div>
+        </section>
+        <div class="account-filter-panel flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
+            class="account-filter-grid"
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
@@ -43,24 +60,24 @@
                 <div
                   v-if="showAutoRefreshDropdown"
                   id="account-auto-refresh-options"
-                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
+                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
                 >
                   <div class="p-2">
                     <button
                       @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
                       :aria-pressed="autoRefreshEnabled"
-                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
+                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-[var(--surface-2)]"
                     >
                       <span>{{ t('admin.accounts.enableAutoRefresh') }}</span>
                       <Icon v-if="autoRefreshEnabled" name="check" size="sm" class="text-primary-500" />
                     </button>
-                    <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
+                    <div class="my-1 border-t border-[var(--border)]"></div>
                     <button
                       v-for="sec in autoRefreshIntervals"
                       :key="sec"
                       @click="setAutoRefreshInterval(sec)"
                       :aria-pressed="autoRefreshIntervalSeconds === sec"
-                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
+                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-[var(--surface-2)]"
                     >
                       <span>{{ autoRefreshIntervalLabel(sec) }}</span>
                       <Icon v-if="autoRefreshIntervalSeconds === sec" name="check" size="sm" class="text-primary-500" />
@@ -85,7 +102,7 @@
                 <Teleport to="body">
                   <div
                     v-if="showAccountToolsDropdown"
-                    class="fixed z-[9999] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+                    class="fixed z-[9999] origin-top-right overflow-hidden rounded-lg border shadow-xl border-[var(--border)] bg-[var(--card)]"
                     :style="accountToolsDropdownStyle"
                     @click.stop
                   >
@@ -122,7 +139,7 @@
                         </span>
                       </button>
 
-                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      <div class="my-2 border-t border-[var(--border)]"></div>
                       <div class="px-2 py-2">
                         <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
                           {{ t('admin.accounts.toolActions') }}
@@ -141,7 +158,7 @@
                         <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
                       </button>
 
-                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      <div class="my-2 border-t border-[var(--border)]"></div>
                       <div class="px-2 py-2">
                         <div class="flex items-center justify-between gap-3">
                           <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -155,7 +172,7 @@
                           v-for="col in toggleableColumns"
                           :key="col.key"
                           @click="toggleColumn(col.key)"
-                          class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
+                          class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors dark:text-gray-200 hover:bg-[var(--surface-2)]"
                         >
                           <span class="truncate">{{ col.label }}</span>
                           <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
@@ -183,6 +200,7 @@
       </template>
       <template #table>
         <AccountBulkActionsBar
+          class="bulk-bar-real"
           :selected-ids="selIds"
           :total-results="pagination.total"
           :selecting-all="selectingAllResults"
@@ -198,7 +216,7 @@
           @select-all-results="handleSelectAllResults"
           @toggle-schedulable="handleBulkToggleSchedulable"
         />
-        <div ref="accountTableRef" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref="accountTableRef" class="account-table flex min-h-0 flex-1 flex-col overflow-hidden">
         <DataTable
           ref="dataTableRef"
           :columns="cols"
@@ -230,28 +248,29 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
           <template #cell-name="{ row, value }">
-            <div class="flex flex-col">
+            <div class="account-name flex min-w-0 max-w-[165px] flex-col">
               <HelpTooltip
                 v-if="accountHomepageUrl(row)"
                 :content="accountHomepageUrl(row)"
                 width-class="w-max max-w-sm break-all"
-                class="-ml-1 self-start"
+                class="-ml-1 max-w-full self-start"
               >
                 <template #trigger>
                   <a
                     :href="accountHomepageUrl(row)"
                     target="_blank"
                     rel="noopener noreferrer"
-                    class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-dark-600 dark:text-white"
+                    class="block max-w-[160px] truncate border-b border-dotted font-medium text-gray-900 border-[var(--border)] dark:text-white"
+                    :title="value"
                   >
                     {{ value }}
                   </a>
                 </template>
               </HelpTooltip>
-              <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span v-else class="max-w-[165px] truncate font-medium text-gray-900 dark:text-white" :title="value">{{ value }}</span>
               <span
                 v-if="accountDisplayEmail(row)"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
+                class="max-w-[165px] truncate text-xs text-gray-500 dark:text-gray-400"
                 :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
               >
                 {{ accountDisplayEmail(row) }}
@@ -260,7 +279,7 @@
           </template>
           <template #cell-notes="{ value }">
             <span v-if="value" :title="value" class="block max-w-xs truncate text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
           </template>
           <template #cell-platform_type="{ row }">
             <div class="flex min-w-0 flex-col gap-1">
@@ -300,7 +319,7 @@
             </div>
           </template>
           <template #cell-schedulable="{ row }">
-            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-dark-800" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-gray-200 hover:bg-gray-300 dark:bg-dark-600 dark:hover:bg-dark-500']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
+            <button @click="handleToggleSchedulable(row)" :disabled="togglingSchedulable === row.id" class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 focus:ring-offset-[var(--card)]" :class="[row.schedulable ? 'bg-primary-500 hover:bg-primary-600' : 'bg-[var(--surface-2)] hover:bg-[var(--surface-2)]']" :title="row.schedulable ? t('admin.accounts.schedulableEnabled') : t('admin.accounts.schedulableDisabled')">
               <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out" :class="[row.schedulable ? 'translate-x-4' : 'translate-x-0']" />
             </button>
           </template>
@@ -312,12 +331,12 @@
             />
           </template>
           <template #cell-groups="{ row }">
-            <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="4" />
+            <AccountGroupsCell :groups="accountGroupsForRow(row)" :max-display="2" />
           </template>
           <template #header-usage="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
-              <HelpTooltip :content="t('admin.accounts.usageWindowsHint')" width-class="w-72" />
+              <HelpTooltip :content="t('admin.accounts.usageWindowsHint').replace(/sub2api/gi, 'OmniHive')" width-class="w-72" />
             </div>
           </template>
           <template #cell-usage="{ row }">
@@ -342,7 +361,7 @@
                   ({{ row.proxy.country_code }})
                 </span>
               </div>
-              <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+              <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
               <div v-if="row.proxy && row.proxy.expires_at" class="flex items-center gap-2 text-xs">
                 <span class="text-gray-600 dark:text-gray-300">{{ formatDateTime(row.proxy.expires_at) }}</span>
                 <span :class="proxyExpiryBadge(row.proxy)">{{ proxyExpiryText(row.proxy) }}</span>
@@ -351,7 +370,7 @@
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
                   {{ t('admin.accounts.fallbackActive') }}
                 </span>
-                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-dark-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
+                <button class="text-xs px-1.5 py-0.5 rounded border border-[var(--border)] text-gray-600 dark:text-gray-300 hover:bg-[var(--surface-2)]" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
               </div>
             </div>
           </template>
@@ -373,7 +392,7 @@
             <div class="flex items-center gap-1">
               <span>{{ column.label }}</span>
               <span @click.stop>
-                <HelpTooltip :content="t('admin.accounts.upstreamBilling.trustWarning')" width-class="w-80" />
+                <HelpTooltip :content="t('admin.accounts.upstreamBilling.trustWarning').replace(/sub2api/gi, 'OmniHive')" width-class="w-80" />
               </span>
             </div>
           </template>
@@ -403,24 +422,24 @@
                 class="flex items-center gap-1 whitespace-nowrap text-gray-700 dark:text-gray-300"
                 :title="`${formatSchedulerScoreGroup(score)} / ${formatSchedulerScore(score.base_score)} / ${formatStickySchedulerScore(score)}`"
               >
-                <span class="max-w-[4.75rem] truncate text-gray-500 dark:text-dark-400">{{ formatSchedulerScoreGroup(score) }}</span>
+                <span class="max-w-[4.75rem] truncate text-[var(--muted-foreground)]">{{ formatSchedulerScoreGroup(score) }}</span>
                 <span class="text-gray-300 dark:text-gray-600">/</span>
                 <span>{{ formatSchedulerScore(score.base_score) }}</span>
                 <span class="text-gray-300 dark:text-gray-600">/</span>
                 <span class="text-primary-700 dark:text-primary-300">{{ formatStickySchedulerScore(score) }}</span>
               </div>
             </div>
-            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
           </template>
           <template #cell-last_used_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
+            <span class="text-sm text-[var(--muted-foreground)]">{{ formatRelativeTime(value) }}</span>
           </template>
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+            <span class="font-mono text-[11px] tabular-nums text-[var(--muted-foreground)]">{{ formatDateTime(value) }}</span>
           </template>
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
-              <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatExpiresAt(value) }}</span>
+              <span class="text-sm text-[var(--muted-foreground)]">{{ formatExpiresAt(value) }}</span>
               <div v-if="isExpired(value) || (row.auto_pause_on_expired && value)" class="flex items-center gap-1">
                 <span
                   v-if="isExpired(value)"
@@ -438,8 +457,8 @@
             </div>
           </template>
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
-              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400">
+            <div class="account-row-actions flex items-center gap-1">
+              <button @click="handleEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:text-primary-600 hover:bg-[var(--surface-2)] dark:hover:text-primary-400">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                 <span class="text-xs">{{ t('common.edit') }}</span>
               </button>
@@ -447,7 +466,7 @@
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 <span class="text-xs">{{ t('common.delete') }}</span>
               </button>
-              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white">
+              <button @click="openMenu(row, $event)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:text-gray-900 hover:bg-[var(--surface-2)] dark:hover:text-white">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM12.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM18.75 12a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" /></svg>
                 <span class="text-xs">{{ t('common.more') }}</span>
               </button>
@@ -503,6 +522,7 @@ import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { workspaceIDFromPath } from '@/api/workspaceScope'
 import { useTableLoader } from '@/composables/useTableLoader'
+import { useThemeDirection } from '@/composables/useThemeDirection'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
@@ -567,6 +587,7 @@ import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupSc
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const { openDrawer } = useThemeDirection()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
@@ -672,7 +693,7 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier', 'expires_at', 'last_used_at']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
@@ -1141,6 +1162,39 @@ const {
     sort_order: sortState.sort_order
   }
 })
+
+const accountPoolSummary = computed(() => {
+  const now = Date.now()
+  const pending = (until: string | null | undefined) => !!until && Date.parse(until) > now
+  const errors = accounts.value.filter(account => account.status === 'error').length
+  const limited = accounts.value.filter(account => account.status === 'active' && account.schedulable && pending(account.rate_limit_reset_at)).length
+  const overloaded = accounts.value.filter(account => account.status === 'active' && account.schedulable && pending(account.overload_until)).length
+  const normal = accounts.value.filter(account =>
+    account.status === 'active' && account.schedulable &&
+    !pending(account.rate_limit_reset_at) && !pending(account.overload_until) &&
+    !pending(account.temp_unschedulable_until) &&
+    account.session_window_status !== 'rejected' &&
+    !(account.auto_pause_on_expired && account.expires_at && account.expires_at * 1000 <= now)
+  ).length
+  return { errors, limited, overloaded, normal, attention: accounts.value.length - normal }
+})
+
+function openAccountDiagnosisDrawer() {
+  const summary = accountPoolSummary.value
+  const metrics = [
+    ['筛选结果总账号', pagination.total],
+    ['当前页账号', accounts.value.length],
+    ['本页正常调度', summary.normal],
+    ['本页异常账号', summary.errors],
+    ['本页限流账号', summary.limited],
+    ['本页过载账号', summary.overloaded]
+  ]
+  openDrawer(
+    '上游账号池 · 调度诊断',
+    `<p class="mb-4 text-xs opacity-60">状态来自当前页快照；异常、限流与过载可能重叠。可使用状态筛选定位账号，再执行批量恢复或调度调整。</p><dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex justify-between gap-3 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono tabular-nums">${value}</dd></div>`).join('')}</dl>`,
+    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">运维实时监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-action="close">返回账号池</button></div>'
+  )
+}
 
 const {
   selectedSet,
@@ -1813,7 +1867,7 @@ function getOpenAICompactTitle(row: AccountListItem): string {
 function getAntigravityTierClass(row: AccountListItem): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
-    case 'free-tier': return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
+    case 'free-tier': return 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-300'
     case 'g1-pro-tier': return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
     case 'g1-ultra-tier': return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
     default: return ''
@@ -1860,7 +1914,7 @@ const toggleableColumns = computed(() =>
 const cols = computed(() =>
   allColumns.value.filter(col =>
     col.key === 'select' || col.key === 'name' || col.key === 'actions' || !hiddenColumns.has(col.key)
-  )
+  ).map(col => ({ ...col, class: `account-column-${col.key}` }))
 )
 
 const accountDetailLoading = new Set<number>()
@@ -2624,8 +2678,172 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.account-table :deep(table) {
+  min-width: 100%;
+}
+
+.account-table :deep(.table-wrapper) {
+  --select-col-width: 32px;
+}
+
+.account-table :deep([data-field="usage"] > div) {
+  flex: 1 1 180px;
+  width: 248px;
+  max-width: 248px;
+  text-align: left;
+}
+
+.account-table :deep(th),
+.account-table :deep(td) {
+  padding-inline: 4px;
+}
+
+.account-table :deep(.account-column-usage) {
+  width: 224px;
+  min-width: 224px;
+  white-space: normal;
+}
+
+.account-table :deep(.account-column-name) {
+  max-width: 124px;
+}
+
+.account-name > * {
+  max-width: 100%;
+}
+
+.account-table :deep(.account-column-name .account-name) {
+  max-width: 116px;
+}
+
+.account-table :deep(.account-column-groups),
+.account-table :deep(.account-column-platform_type) {
+  max-width: 130px;
+  white-space: normal;
+}
+
+.account-table :deep(.account-column-select) {
+  width: 32px;
+  min-width: 32px;
+}
+
+.account-table :deep(.account-column-capacity) {
+  min-width: 54px;
+}
+
+.account-table :deep(th.account-column-id) {
+  min-width: 48px;
+  white-space: nowrap;
+}
+
+.account-table :deep(.account-column-actions) {
+  min-width: 44px;
+}
+
+.account-table :deep(th.account-column-priority) {
+  min-width: 44px;
+}
+
+.account-table :deep(th.account-column-upstream_billing_rate) {
+  min-width: 76px;
+}
+
+.account-table :deep(.account-column-created_at) {
+  max-width: 82px;
+  font-size: 11px;
+}
+
+.account-table :deep(.account-column-actions .account-row-actions) {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-table :deep(.account-column-priority),
+.account-table :deep(.account-column-capacity),
+.account-table :deep(.account-column-created_at),
+.account-table :deep(.account-column-upstream_billing_rate) {
+  white-space: normal;
+}
+
+@media (min-width: 1680px) {
+  .account-table :deep(.table-wrapper) {
+    --select-col-width: 40px;
+  }
+
+  .account-table :deep(.account-column-select) {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .account-table :deep(.account-column-name),
+  .account-table :deep(.account-column-name .account-name) {
+    max-width: 165px;
+  }
+
+  .account-table :deep(.account-column-actions .account-row-actions) {
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .account-table :deep(th),
+  .account-table :deep(td) {
+    padding-inline: 10px;
+  }
+
+  .account-table :deep(.account-column-usage) {
+    width: 268px;
+    min-width: 268px;
+  }
+}
+
+.account-workbench,
+.account-filter-panel {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 10px);
+  background: var(--card);
+}
+
+.account-workbench {
+  border-left: 3px solid var(--brand, #f59e0b);
+  background: color-mix(in srgb, var(--brand) 4%, var(--card));
+}
+
+.account-filter-grid {
+  display: grid;
+  flex: 1 1 650px;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+}
+
+.account-filter-grid :deep(> *) {
+  width: 100%;
+  min-width: 0;
+}
+
+.bulk-bar-real {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--border));
+  background: color-mix(in srgb, var(--brand) 8%, var(--card));
+  font-size: 13px;
+}
+
+.bulk-bar-real :deep(> div) {
+  flex-wrap: wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+
 .account-tools-menu-item {
-  @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700;
+  @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors dark:text-gray-200 hover:bg-[var(--surface-2)];
 }
 
 .account-tools-menu-icon {

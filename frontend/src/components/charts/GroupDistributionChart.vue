@@ -1,20 +1,20 @@
 <template>
-  <div class="card p-4">
-    <DistributionCaption :values="displayGroupStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="metric" />
+  <div class="card min-w-0 border border-[var(--border)] bg-[var(--card)] p-4 tabular-nums">
+    <DistributionCaption v-if="!loading" :values="displayGroupStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="metric" />
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+      <h3 class="text-sm font-semibold text-[var(--foreground)]">
         {{ t('admin.dashboard.groupDistribution') }}
       </h3>
       <div
         v-if="showMetricToggle"
-        class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+        class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5"
       >
         <button
           type="button"
           class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
           :class="metric === 'tokens'
-            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-            : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+            : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
           @click="emit('update:metric', 'tokens')"
         >
           {{ t('admin.dashboard.metricTokens') }}
@@ -23,8 +23,8 @@
           type="button"
           class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
           :class="metric === 'actual_cost'
-            ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-            : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+            : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
           @click="emit('update:metric', 'actual_cost')"
         >
           {{ t('admin.dashboard.metricActualCost') }}
@@ -41,7 +41,7 @@
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="text-gray-500 dark:text-gray-400">
+            <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.group') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -51,27 +51,28 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="group in displayGroupStats" :key="group.group_id">
+            <template v-for="(group, index) in displayGroupStats" :key="group.group_id">
               <tr
-                class="border-t border-gray-100 transition-colors dark:border-dark-700"
-                :class="enableBreakdown && group.group_id > 0 ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-700/40' : ''"
+                class="border-t border-[var(--border)] transition-colors"
+                :class="enableBreakdown && group.group_id > 0 ? 'cursor-pointer hover:bg-[var(--surface-2)] ' : ''"
                 @click="enableBreakdown && group.group_id > 0 && toggleBreakdown('group', group.group_id)"
               >
                 <td
                   class="max-w-[100px] truncate py-1.5 font-medium"
-                  :class="enableBreakdown && group.group_id > 0 ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-gray-900 dark:text-white'"
+                  :class="enableBreakdown && group.group_id > 0 ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-[var(--foreground)] '"
                   :title="group.group_name || String(group.group_id)"
                 >
                   <span class="inline-flex items-center gap-1">
+                    <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ backgroundColor: chartColors[index % chartColors.length] }" aria-hidden="true" />
                     <svg v-if="enableBreakdown && group.group_id > 0 && expandedKey === `group-${group.group_id}`" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     <svg v-else-if="enableBreakdown && group.group_id > 0" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     {{ group.group_name || t('admin.dashboard.noGroup') }}
                   </span>
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatNumber(group.requests) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatTokens(group.total_tokens) }}
                 </td>
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
@@ -80,7 +81,7 @@
                 <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
                   USD {{ formatCost(group.account_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   USD {{ formatCost(group.cost) }}
                 </td>
               </tr>
@@ -101,9 +102,11 @@
     </div>
     <div
       v-else
-      class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+      class="flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]"
+      role="status"
     >
-      {{ t('admin.dashboard.noDataAvailable') }}
+      <div class="w-full space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${64 - row * 9}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
+      <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
   </div>
 </template>
@@ -178,18 +181,7 @@ const toggleBreakdown = async (type: string, id: number | string) => {
   }
 }
 
-const chartColors = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#14b8a6',
-  '#f97316',
-  '#6366f1',
-  '#84cc16'
-]
+const chartColors = ['#d97706', '#059669', '#6366f1', '#fbbf24', '#34d399', '#a5b4fc', '#b45309', '#047857', '#4338ca', '#f59e0b', '#10b981', '#818cf8']
 
 const displayGroupStats = computed(() => {
   if (!props.groupStats?.length) return []
@@ -206,7 +198,7 @@ const chartData = computed(() => {
     datasets: [
       {
         data: displayGroupStats.value.map((g) => (props.metric === 'actual_cost' ? g.actual_cost : g.total_tokens) ?? NaN),
-        backgroundColor: chartColors.slice(0, displayGroupStats.value.length),
+        backgroundColor: displayGroupStats.value.map((_, index) => chartColors[index % chartColors.length]),
         borderWidth: 0
       }
     ]
@@ -216,6 +208,8 @@ const chartData = computed(() => {
 const doughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '72%',
+  animation: false as const,
   plugins: {
     legend: {
       display: false

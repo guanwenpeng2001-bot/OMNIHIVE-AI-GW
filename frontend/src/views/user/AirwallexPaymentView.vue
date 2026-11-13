@@ -1,12 +1,12 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-lg space-y-6 py-8">
+    <div class="mx-auto w-full max-w-lg space-y-4 py-6">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <LoadingSpinner size="md" color="primary" />
       </div>
 
       <div v-else-if="errorMessage" class="card p-8 text-center">
-        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
           <Icon name="exclamationCircle" size="xl" class="text-red-500" />
         </div>
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('payment.airwallexLoadFailed') }}</h3>

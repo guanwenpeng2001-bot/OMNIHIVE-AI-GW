@@ -4,18 +4,18 @@
     <template v-if="isAdmin">
       <button
         @click="toggleDropdown"
-        class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
+        class="flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-colors"
         :class="[
           hasUpdate
-            ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
-            : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-800 dark:text-dark-400 dark:hover:bg-dark-700'
+            ? 'border-[var(--warn)]/35 bg-[var(--warn)]/12 text-[var(--warn-text)]'
+            : 'border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
         ]"
         :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
       >
         <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
         <span
           v-else
-          class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
+          class="h-3 w-12 animate-pulse rounded bg-[var(--surface-2)] font-medium"
         ></span>
         <!-- Update indicator -->
         <span v-if="hasUpdate" class="relative flex h-2 w-2">
@@ -31,19 +31,19 @@
         <div
           v-if="dropdownOpen"
           ref="dropdownRef"
-          class="absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-gray-200 bg-white shadow-lg transition-all duration-200 dark:border-dark-700 dark:bg-dark-800"
+          class="absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-[var(--border)] bg-[var(--card)] shadow-lg transition-all duration-200"
           :class="rollbackPanelOpen && isReleaseBuild ? 'w-80' : 'w-64'"
         >
           <!-- Header with refresh button -->
           <div
-            class="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-dark-700"
+            class="flex items-center justify-between border-b border-[var(--border)] px-4 py-3"
           >
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-300">{{
+            <span class="text-sm font-medium text-[var(--foreground)]">{{
               t('version.currentVersion')
             }}</span>
             <button
               @click="refreshVersion(true)"
-              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-dark-200"
+              class="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               :disabled="loading"
               :title="t('version.refresh')"
             >
@@ -86,7 +86,7 @@
                     class="text-2xl font-bold text-gray-900 dark:text-white"
                     >v{{ currentVersion }}</span
                   >
-                  <span v-else class="text-2xl font-bold text-gray-400 dark:text-dark-500">--</span>
+                  <span v-else class="text-2xl font-bold text-[var(--muted-foreground)]">--</span>
                   <!-- Show check mark when up to date -->
                   <span
                     v-if="!hasUpdate"
@@ -105,7 +105,7 @@
                     </svg>
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                   {{
                     hasUpdate
                       ? t('version.latestVersion') + ': v' + latestVersion
@@ -348,7 +348,7 @@
                   :href="releaseInfo.html_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="flex items-center justify-center gap-1 text-xs text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-dark-200"
+                  class="flex items-center justify-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-gray-700"
                 >
                   {{ t('version.viewChangelog') }}
                   <Icon name="externalLink" size="xs" :stroke-width="2" />
@@ -362,7 +362,7 @@
                   :href="releaseInfo.html_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="flex items-center justify-center gap-2 py-2 text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-dark-200"
+                  class="flex items-center justify-center gap-2 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-gray-700"
                 >
                   <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
                     <path
@@ -375,10 +375,10 @@
                 </a>
 
                 <!-- Version rollback entry -->
-                <div class="border-t border-gray-100 pt-2 dark:border-dark-700">
+                <div class="border-t border-[var(--border)] pt-2">
                   <button
                     @click="toggleRollbackPanel"
-                    class="group flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600 dark:text-dark-500 dark:hover:bg-dark-700/50 dark:hover:text-dark-300"
+                    class="group flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                   >
                     <span class="flex items-center gap-1.5">
                       <Icon name="clock" size="xs" :stroke-width="2" />
@@ -453,7 +453,7 @@
                         </p>
                         <button
                           @click="loadRollbackVersions"
-                          class="w-full rounded-lg border border-gray-200 py-1.5 text-xs text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 dark:border-dark-700 dark:text-dark-400 dark:hover:bg-dark-700/50 dark:hover:text-dark-200"
+                          class="w-full rounded-lg border border-[var(--border)] py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                         >
                           {{ t('version.retry') }}
                         </button>
@@ -462,14 +462,14 @@
                       <!-- No versions available -->
                       <p
                         v-else-if="rollbackVersions.length === 0"
-                        class="py-3 text-center text-xs text-gray-400 dark:text-dark-500"
+                        class="py-3 text-center text-xs text-[var(--muted-foreground)]"
                       >
                         {{ t('version.noRollbackVersions') }}
                       </p>
 
                       <!-- Version list -->
                       <template v-else>
-                        <p class="px-0.5 text-[11px] text-gray-400 dark:text-dark-500">
+                        <p class="px-0.5 text-[11px] text-[var(--muted-foreground)]">
                           {{ t('version.rollbackSelectVersion') }}
                         </p>
 
@@ -482,7 +482,7 @@
                           :class="
                             selectedRollbackVersion === item.version
                               ? 'border-amber-300 bg-amber-50 shadow-sm dark:border-amber-700 dark:bg-amber-900/20'
-                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 dark:border-dark-700 dark:hover:border-dark-600 dark:hover:bg-dark-700/40'
+                              : 'border-[var(--border)] hover:border-[var(--brand)] hover:bg-[var(--surface-2)]'
                           "
                         >
                           <span class="flex items-center gap-2">
@@ -491,7 +491,7 @@
                               :class="
                                 selectedRollbackVersion === item.version
                                   ? 'border-amber-500'
-                                  : 'border-gray-300 dark:border-dark-500'
+                                  : 'border-[var(--border)]'
                               "
                             >
                               <span
@@ -504,12 +504,12 @@
                               :class="
                                 selectedRollbackVersion === item.version
                                   ? 'text-amber-700 dark:text-amber-300'
-                                  : 'text-gray-700 dark:text-dark-200'
+                                  : 'text-[var(--foreground)]'
                               "
                               >v{{ item.version }}</span
                             >
                           </span>
-                          <span class="text-[11px] tabular-nums text-gray-400 dark:text-dark-500">
+                          <span class="text-[11px] tabular-nums text-[var(--muted-foreground)]">
                             {{ formatPublishedAt(item.published_at) }}
                           </span>
                         </button>
@@ -517,19 +517,19 @@
                         <!-- Selected version: manual command (per deploy method) + confirm -->
                         <transition name="rollback">
                           <div v-if="selectedRollbackVersion" class="space-y-2">
-                            <p class="px-0.5 text-[11px] text-gray-400 dark:text-dark-500">
+                            <p class="px-0.5 text-[11px] text-[var(--muted-foreground)]">
                               {{ t('version.manualRollbackCommand') }}
                             </p>
 
                             <!-- Terminal-style block with deploy-method tabs -->
                             <div
-                              class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+                              class="overflow-hidden rounded-lg border border-[var(--border)]"
                             >
                               <div
-                                class="flex items-center justify-between border-b border-gray-200 bg-gray-100 px-2 py-1.5 dark:border-dark-600 dark:bg-dark-700"
+                                class="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"
                               >
                                 <div
-                                  class="flex items-center gap-0.5 rounded-md bg-gray-200/70 p-0.5 dark:bg-dark-600/70"
+                                  class="flex items-center gap-0.5 rounded-md bg-[var(--surface-2)] p-0.5"
                                 >
                                   <button
                                     v-for="tab in manualTabs"
@@ -538,8 +538,8 @@
                                     class="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
                                     :class="
                                       manualTab === tab.key
-                                        ? 'bg-white text-gray-700 shadow-sm dark:bg-dark-800 dark:text-dark-100'
-                                        : 'text-gray-400 hover:text-gray-600 dark:text-dark-400 dark:hover:text-dark-200'
+                                        ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm'
+                                        : 'text-[var(--muted-foreground)] hover:text-gray-600'
                                     "
                                   >
                                     {{ tab.label }}
@@ -547,7 +547,7 @@
                                 </div>
                                 <button
                                   @click="copyToClipboard(activeManualCommand)"
-                                  class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 dark:text-dark-400 dark:hover:bg-dark-600 dark:hover:text-dark-200"
+                                  class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
                                 >
                                   <Icon
                                     :name="copied ? 'check' : 'copy'"
@@ -559,7 +559,7 @@
                                 </button>
                               </div>
                               <code
-                                class="block select-all whitespace-pre-wrap break-all bg-gray-50 p-2.5 font-mono text-[10px] leading-relaxed text-gray-600 dark:bg-dark-900 dark:text-dark-300"
+                                class="block select-all whitespace-pre-wrap break-all bg-[var(--surface-2)] p-2.5 font-mono text-[10px] leading-relaxed text-[var(--muted-foreground)]"
                                 >{{ activeManualCommand }}</code
                               >
                             </div>
@@ -631,7 +631,7 @@
     </template>
 
     <!-- Non-admin: Simple static version text -->
-    <span v-else-if="version" class="text-xs text-gray-500 dark:text-dark-400">
+    <span v-else-if="version" class="text-xs text-[var(--muted-foreground)]">
       v{{ version }}
     </span>
   </div>

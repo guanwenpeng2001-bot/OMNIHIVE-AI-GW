@@ -1,5 +1,5 @@
 <template>
-  <section class="card space-y-4 p-5" aria-labelledby="quickstart-heading">
+  <section class="quickstart-workbench space-y-4 rounded-lg border p-5" aria-labelledby="quickstart-heading">
     <h2 id="quickstart-heading" class="text-lg font-semibold">{{ t('quickstartGuide.title') }}</h2>
     <p class="text-secondary text-sm">{{ t('quickstartGuide.hint') }}</p>
     <button class="btn btn-secondary" :disabled="loading" @click="loadKeys(1)">{{ t('quickstartGuide.loadKeys') }}</button>
@@ -179,3 +179,9 @@ async function loadModels() {
   }
 }
 </script>
+<style scoped>
+.quickstart-workbench { background: var(--card); border-color: var(--border); color: var(--foreground); }
+.quickstart-workbench :is(input, select) { border-color: var(--border); background: var(--background); color: var(--foreground); accent-color: var(--brand); }
+.quickstart-workbench :is(input, select, button):focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.quickstart-workbench [role="alert"] { border-left: 2px solid var(--brand); padding-left: 12px; }
+</style>

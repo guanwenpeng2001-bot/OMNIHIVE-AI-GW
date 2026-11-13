@@ -5,9 +5,9 @@
     @click.self="wsTestDialogOpen = false"
   >
     <div
-      class="mx-4 w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-dark-800"
+      class="mx-4 w-full max-w-lg rounded-xl bg-[var(--card)] p-6 shadow-xl"
     >
-      <h3 class="mb-4 text-lg font-semibold text-gray-900 dark:text-white">
+      <h3 class="mb-4 text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.webSearchEmulation.testResultTitle") }}
       </h3>
       <div class="flex items-center gap-2">
@@ -34,30 +34,30 @@
       <!-- Test results -->
       <div
         v-if="wsTestResult"
-        class="mt-4 max-h-80 overflow-y-auto rounded-lg bg-gray-50 p-4 dark:bg-dark-700"
+        class="mt-4 max-h-80 overflow-y-auto rounded-lg bg-[var(--surface-2)] p-4"
       >
-        <p class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+        <p class="mb-2 text-sm font-medium text-[var(--foreground)]">
           {{ t("admin.settings.webSearchEmulation.testResultProvider") }}:
           {{ wsTestResult.provider }}
         </p>
         <div
           v-if="wsTestResult.results.length === 0"
-          class="text-sm text-gray-400"
+          class="text-sm text-[var(--muted-foreground)]"
         >
           {{ t("admin.settings.webSearchEmulation.testNoResults") }}
         </div>
         <div
           v-for="(r, rIdx) in wsTestResult.results"
           :key="rIdx"
-          class="mt-2 border-t border-gray-200 pt-2 first:mt-0 first:border-0 first:pt-0 dark:border-dark-600"
+          class="mt-2 border-t border-[var(--border)] pt-2 first:mt-0 first:border-0 first:pt-0"
         >
           <a
             :href="r.url"
             target="_blank"
-            class="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+            class="text-sm font-medium text-[var(--info-text)] hover:underline"
             >{{ r.title }}</a
           >
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ r.snippet }}
           </p>
         </div>

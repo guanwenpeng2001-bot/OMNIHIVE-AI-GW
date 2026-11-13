@@ -1,24 +1,30 @@
 <template>
-  <BaseDialog :show="show" :title="operation === 'add' ? t('admin.users.deposit') : t('admin.users.withdraw')" width="narrow" @close="$emit('close')">
+  <BaseDialog :show="show" :title="activeOperation === 'add' ? t('admin.users.deposit') : t('admin.users.withdraw')" width="narrow" @close="$emit('close')">
     <form v-if="user" id="balance-form" @submit.prevent="handleBalanceSubmit" class="space-y-5">
-      <div class="flex items-center gap-3 rounded-xl bg-gray-50 p-4 dark:bg-dark-700">
-        <div class="flex h-10 w-10 items-center justify-center rounded-full bg-primary-100"><span class="text-lg font-medium text-primary-700">{{ user.email.charAt(0).toUpperCase() }}</span></div>
-        <div class="flex-1"><p class="font-medium text-gray-900 dark:text-gray-100">{{ user.email }}</p><p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.users.currentBalance') }}: ${{ formatBalance(user.balance) }}</p></div>
+      <div class="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--card)]"><span class="text-lg font-medium text-[var(--foreground)]">{{ user.email.charAt(0).toUpperCase() }}</span></div>
+        <div class="min-w-0 flex-1"><p class="break-all font-medium text-[var(--foreground)]">{{ user.email }}</p><p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('admin.users.currentBalance') }}: <span class="font-mono tabular-nums">${{ formatBalance(user.balance) }}</span></p></div>
       </div>
+      <div class="segmented" role="group" :aria-label="t('admin.users.columns.balance')">
+        <button type="button" :class="{ on: activeOperation === 'add' }" :aria-pressed="activeOperation === 'add'" :disabled="submitting" @click="activeOperation = 'add'">{{ t('admin.users.deposit') }}</button>
+        <button type="button" :class="{ on: activeOperation === 'subtract' }" :aria-pressed="activeOperation === 'subtract'" :disabled="submitting" @click="activeOperation = 'subtract'">{{ t('admin.users.withdraw') }}</button>
+      </div>
+      <div class="space-y-4 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
       <div>
-        <label class="input-label">{{ operation === 'add' ? t('admin.users.depositAmount') : t('admin.users.withdrawAmount') }}</label>
-        <div class="relative flex gap-2">
-          <div class="relative flex-1"><div class="absolute left-3 top-1/2 -translate-y-1/2 font-medium text-gray-500">$</div><input v-model.number="form.amount" type="number" step="any" min="0" required class="input pl-8" /></div>
-          <button v-if="operation === 'subtract'" type="button" @click="fillAllBalance" class="btn btn-secondary whitespace-nowrap">{{ t('admin.users.withdrawAll') }}</button>
+        <label class="input-label">{{ activeOperation === 'add' ? t('admin.users.depositAmount') : t('admin.users.withdrawAmount') }}</label>
+        <div class="relative flex flex-wrap gap-2">
+          <div class="relative min-w-0 flex-1"><div class="absolute left-3 top-1/2 -translate-y-1/2 font-medium text-[var(--muted-foreground)]">$</div><input v-model.number="form.amount" type="number" step="any" min="0" required class="input pl-8 font-mono tabular-nums" /></div>
+          <button v-if="activeOperation === 'subtract'" type="button" @click="fillAllBalance" class="btn btn-secondary whitespace-nowrap">{{ t('admin.users.withdrawAll') }}</button>
         </div>
       </div>
       <div><label class="input-label">{{ t('admin.users.notes') }}</label><textarea v-model="form.notes" rows="3" class="input"></textarea></div>
-      <div v-if="form.amount > 0" class="rounded-xl border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950"><div class="flex items-center justify-between text-sm"><span class="text-gray-700 dark:text-gray-300">{{ t('admin.users.newBalance') }}:</span><span class="font-bold text-gray-900 dark:text-gray-100">${{ formatBalance(calculateNewBalance()) }}</span></div></div>
+      </div>
+      <div v-if="form.amount > 0" class="rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4" aria-live="polite"><div class="flex items-center justify-between gap-3 text-sm"><span class="text-[var(--muted-foreground)]">{{ t('admin.users.newBalance') }}:</span><span class="font-mono font-semibold tabular-nums text-[var(--foreground)]">${{ formatBalance(calculateNewBalance()) }}</span></div></div>
     </form>
     <template #footer>
-      <div class="flex justify-end gap-3">
+      <div class="flex flex-wrap justify-end gap-2">
         <button @click="$emit('close')" class="btn btn-secondary">{{ t('common.cancel') }}</button>
-        <button type="submit" form="balance-form" :disabled="submitting || !form.amount" class="btn" :class="operation === 'add' ? 'bg-emerald-600 text-white' : 'btn-danger'">{{ submitting ? t('common.saving') : t('common.confirm') }}</button>
+        <button type="submit" form="balance-form" :disabled="submitting || !form.amount" class="btn btn-primary">{{ submitting ? t('common.saving') : t('common.confirm') }}</button>
       </div>
     </template>
   </BaseDialog>
@@ -38,7 +44,9 @@ const props = defineProps<{ show: boolean, user: AdminUser | null, operation: 'a
 const emit = defineEmits(['close', 'success']); const { t } = useI18n(); const appStore = useAppStore()
 
 const submitting = ref(false); const form = reactive({ amount: 0, notes: '' })
-watch(() => props.show, (v) => { if(v) { form.amount = 0; form.notes = '' } })
+const activeOperation = ref(props.operation)
+watch(() => props.operation, (operation) => { activeOperation.value = operation })
+watch(() => props.show, (v) => { if(v) { form.amount = 0; form.notes = ''; activeOperation.value = props.operation } })
 
 // 格式化余额：显示完整精度，去除尾部多余的0
 const formatBalance = (value: number) => {
@@ -61,7 +69,7 @@ const fillAllBalance = () => {
 
 const calculateNewBalance = () => {
   if (!props.user) return 0
-  const result = props.operation === 'add' ? props.user.balance + form.amount : props.user.balance - form.amount
+  const result = activeOperation.value === 'add' ? props.user.balance + form.amount : props.user.balance - form.amount
   // 避免浮点数精度问题导致的 -0.00 显示
   return Math.abs(result) < 1e-10 ? 0 : result
 }
@@ -72,13 +80,13 @@ const handleBalanceSubmit = async () => {
     return
   }
   // 退款时验证金额不超过实际余额
-  if (props.operation === 'subtract' && form.amount > props.user.balance) {
+  if (activeOperation.value === 'subtract' && form.amount > props.user.balance) {
     appStore.showError(t('admin.users.insufficientBalance'))
     return
   }
   submitting.value = true
   try {
-    await adminAPI.users.updateBalance(props.user.id, form.amount, props.operation, form.notes)
+    await adminAPI.users.updateBalance(props.user.id, form.amount, activeOperation.value, form.notes)
     appStore.showSuccess(t('common.success')); emit('success'); emit('close')
   } catch (e: any) {
     console.error('Failed to update balance:', e)

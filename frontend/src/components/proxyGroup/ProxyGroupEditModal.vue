@@ -34,23 +34,23 @@ async function save() {
 
 <template>
   <BaseDialog :show="true" :title="t(group ? 'admin.proxyGroups.edit' : 'admin.proxyGroups.create')" @close="!busy && emit('close')">
-    <form id="proxy-group-editor" class="space-y-4" @submit.prevent="save">
+    <form id="proxy-group-editor" class="space-y-4 text-[var(--foreground)]" @submit.prevent="save">
       <label class="block"><span class="input-label">{{ t('admin.proxyGroups.name') }}</span><input v-model="draft.name" class="input" required maxlength="100" /></label>
       <label class="block"><span class="input-label">{{ t('admin.proxyGroups.descriptionLabel') }}</span><textarea v-model="draft.description" class="input" rows="2" /></label>
       <label class="block"><span class="input-label">{{ t('admin.proxyGroups.region') }}</span><input v-model="draft.region" class="input" /></label>
       <label class="block"><span class="input-label">{{ t('admin.proxyGroups.services') }}</span><input v-model="services" class="input" placeholder="grok, chatgpt, gemini, google" /></label>
-      <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.tagsHint') }}</p>
+      <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.tagsHint') }}</p>
       <label class="block"><span class="input-label">{{ t('common.status') }}</span><select v-model="draft.status" class="input"><option value="active">{{ t('admin.proxyGroups.active') }}</option><option value="inactive">{{ t('admin.proxyGroups.inactive') }}</option></select></label>
       <label class="block"><span class="input-label">{{ t('admin.proxyGroups.fallback') }}</span><select v-model="draft.fallback_mode" class="input"><option v-for="mode in (['none', 'direct', 'proxy'] as const)" :key="mode" :value="mode">{{ t(`admin.proxyGroups.${mode}`) }}</option></select></label>
-      <p v-if="draft.fallback_mode === 'direct'" class="text-sm text-amber-700 dark:text-amber-400">{{ t('admin.proxyGroups.directHint') }}</p>
+      <p v-if="draft.fallback_mode === 'direct'" class="text-sm text-[var(--warn-text)]">{{ t('admin.proxyGroups.directHint') }}</p>
       <div v-if="draft.fallback_mode === 'proxy'" class="space-y-2">
         <ProxySelector :model-value="draft.fallback_proxy_id ?? null" :proxies="proxies" @update:model-value="draft.fallback_proxy_id = $event" />
         <p v-if="draft.fallback_proxy_id" class="text-sm">{{ t('admin.proxyGroups.proxy') }} #{{ draft.fallback_proxy_id }}</p>
         <input class="sr-only" tabindex="-1" :value="draft.fallback_proxy_id || ''" required :aria-label="t('admin.proxyGroups.chooseNode')" />
       </div>
-      <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.proxyGroups.inactiveHint') }}</p>
-      <details><summary class="cursor-pointer text-sm">{{ t('admin.proxyGroups.advanced') }}</summary><label class="mt-3 block"><span class="input-label">{{ t('admin.proxyGroups.ttl') }}</span><input v-model.number="draft.binding_ttl_seconds" class="input" type="number" min="1" step="1" required /></label></details>
-      <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
+      <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.inactiveHint') }}</p>
+      <details class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3"><summary class="cursor-pointer text-sm font-medium">{{ t('admin.proxyGroups.advanced') }}</summary><label class="mt-3 block"><span class="input-label">{{ t('admin.proxyGroups.ttl') }}</span><input v-model.number="draft.binding_ttl_seconds" class="input" type="number" min="1" step="1" required /></label></details>
+      <p v-if="error" role="alert" class="text-sm text-[var(--bad-text)]">{{ error }}</p>
     </form>
     <template #footer><button class="btn btn-secondary" :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</button><button class="btn btn-primary" form="proxy-group-editor" type="submit" :disabled="busy || !draft.name.trim() || (draft.fallback_mode === 'proxy' && !draft.fallback_proxy_id)">{{ t('common.save') }}</button></template>
   </BaseDialog>

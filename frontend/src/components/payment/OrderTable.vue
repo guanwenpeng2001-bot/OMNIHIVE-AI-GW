@@ -1,4 +1,5 @@
 <template>
+  <div class="order-table w-full min-w-0 overflow-auto tabular-nums">
   <DataTable :columns="columns" :data="orders" :loading="loading">
     <template #cell-id="{ value }">
       <span class="font-mono text-sm">#{{ value }}</span>
@@ -36,6 +37,7 @@
       <slot name="actions" :row="row" />
     </template>
   </DataTable>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -81,3 +83,22 @@ const columns = computed((): Column[] => {
   return cols
 })
 </script>
+
+<style scoped>
+.order-table :deep(th) {
+  padding-block: 0.625rem;
+  background: var(--surface-2);
+  color: var(--muted-foreground);
+  border-color: var(--border);
+}
+.order-table :deep(td) {
+  padding-block: 0.625rem;
+  border-color: var(--border);
+}
+.order-table :deep(tbody) {
+  background: var(--card);
+}
+.order-table :deep(tbody tr:hover) {
+  background: var(--surface-2);
+}
+</style>

@@ -1,21 +1,21 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.webSearchEmulation.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.webSearchEmulation.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <!-- Global Toggle -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.webSearchEmulation.enabled") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.webSearchEmulation.enabledHint") }}
           </p>
         </div>
@@ -25,7 +25,7 @@
       <!-- Providers -->
       <div v-if="webSearchConfig.enabled" class="space-y-4">
         <div class="flex items-center justify-between">
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.webSearchEmulation.providers") }}
           </label>
           <button
@@ -39,7 +39,7 @@
 
         <div
           v-if="webSearchConfig.providers.length === 0"
-          class="rounded-lg border border-dashed border-gray-300 p-4 text-center text-sm text-gray-400 dark:border-dark-600"
+          class="rounded-lg border border-dashed border-[var(--border)] p-4 text-center text-sm text-[var(--muted-foreground)]"
         >
           {{ t("admin.settings.webSearchEmulation.noProviders") }}
         </div>
@@ -47,7 +47,7 @@
         <div
           v-for="(provider, pIdx) in webSearchConfig.providers"
           :key="pIdx"
-          class="rounded-lg border border-gray-200 dark:border-dark-600"
+          class="rounded-lg border border-[var(--border)]"
         >
           <!-- Collapsible header -->
           <div
@@ -56,7 +56,7 @@
           >
             <div class="flex items-center gap-3">
               <svg
-                class="h-4 w-4 text-gray-400 transition-transform"
+                class="h-4 w-4 text-[var(--muted-foreground)] transition-transform"
                 :class="{ 'rotate-90': expandedProviders[pIdx] }"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -79,7 +79,7 @@
                 @click.stop
               />
               <!-- Quota summary (always visible) -->
-              <span class="text-xs text-gray-400">
+              <span class="text-xs text-[var(--muted-foreground)]">
                 {{ provider.quota_used ?? 0 }} /
                 {{
                   provider.quota_limit != null && provider.quota_limit > 0
@@ -89,14 +89,14 @@
               </span>
               <span
                 v-if="!expandedProviders[pIdx] && provider.api_key_configured"
-                class="text-xs text-green-500"
+                class="text-xs text-[var(--ok-text)]"
               >
                 {{ t("admin.settings.webSearchEmulation.apiKeyConfigured") }}
               </span>
             </div>
             <button
               type="button"
-              class="text-red-500 hover:text-red-700 text-xs"
+              class="text-[var(--bad-text)] hover:text-[var(--bad-text)] text-xs"
               @click.stop="removeWebSearchProvider(pIdx)"
             >
               {{ t("admin.settings.webSearchEmulation.removeProvider") }}
@@ -106,11 +106,11 @@
           <!-- Expanded content -->
           <div
             v-if="expandedProviders[pIdx]"
-            class="space-y-3 border-t border-gray-100 px-4 pb-4 pt-3 dark:border-dark-700"
+            class="space-y-3 border-t border-[var(--border)] px-4 pb-4 pt-3"
           >
             <!-- API Key with inline show/copy -->
             <div>
-              <label class="text-xs text-gray-500">{{
+              <label class="text-xs text-[var(--muted-foreground)]">{{
                 t("admin.settings.webSearchEmulation.apiKey")
               }}</label>
               <div class="relative">
@@ -135,7 +135,7 @@
                 >
                   <button
                     type="button"
-                    class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    class="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]"
                     :title="
                       apiKeyVisible[pIdx]
                         ? t('admin.settings.webSearchEmulation.hideApiKey')
@@ -180,7 +180,7 @@
                   </button>
                   <button
                     type="button"
-                    class="rounded p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    class="rounded p-1 text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]"
                     :class="{
                       'opacity-30 cursor-not-allowed': !provider.api_key,
                     }"
@@ -209,7 +209,7 @@
             <!-- Quota + Subscription in compact row -->
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="text-xs text-gray-500">{{
+                <label class="text-xs text-[var(--muted-foreground)]">{{
                   t("admin.settings.webSearchEmulation.quotaLimit")
                 }}</label>
                 <input
@@ -219,12 +219,12 @@
                   class="input text-sm"
                   :placeholder="'∞'"
                 />
-                <p class="mt-0.5 text-xs text-gray-400">
+                <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                   {{ t("admin.settings.webSearchEmulation.quotaLimitHint") }}
                 </p>
               </div>
               <div>
-                <label class="text-xs text-gray-500">{{
+                <label class="text-xs text-[var(--muted-foreground)]">{{
                   t("admin.settings.webSearchEmulation.subscribedAt")
                 }}</label>
                 <input
@@ -237,7 +237,7 @@
                     )
                   "
                 />
-                <p class="mt-0.5 text-xs text-gray-400">
+                <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                   {{ t("admin.settings.webSearchEmulation.subscribedAtHint") }}
                 </p>
               </div>
@@ -245,22 +245,22 @@
 
             <!-- Usage display -->
             <div class="flex items-center gap-2">
-              <span class="text-xs text-gray-500"
+              <span class="text-xs text-[var(--muted-foreground)]"
                 >{{ t("admin.settings.webSearchEmulation.quotaUsage") }}:</span
               >
               <div
                 v-if="provider.quota_limit != null && provider.quota_limit > 0"
-                class="flex-1 rounded-full bg-gray-200 dark:bg-dark-600"
+                class="flex-1 rounded-full bg-[var(--border)]"
                 style="height: 6px"
               >
                 <div
                   class="h-full rounded-full transition-all"
                   :class="
                     quotaPercentage(provider) > 90
-                      ? 'bg-red-500'
+                      ? 'bg-[var(--bad)]'
                       : quotaPercentage(provider) > 70
-                        ? 'bg-yellow-500'
-                        : 'bg-green-500'
+                        ? 'bg-[var(--warn)]'
+                        : 'bg-[var(--ok)]'
                   "
                   :style="{
                     width: Math.min(quotaPercentage(provider), 100) + '%',
@@ -268,7 +268,7 @@
                 />
               </div>
               <div v-else class="flex-1" />
-              <span class="text-xs text-gray-500"
+              <span class="text-xs text-[var(--muted-foreground)]"
                 >{{ provider.quota_used ?? 0 }} /
                 {{
                   provider.quota_limit != null && provider.quota_limit > 0
@@ -279,7 +279,7 @@
               <button
                 v-if="(provider.quota_used ?? 0) > 0"
                 type="button"
-                class="text-xs text-primary-600 hover:text-primary-700"
+                class="text-xs text-[var(--brand-text)] hover:text-[var(--brand-text)]"
                 @click="resetWebSearchUsage(pIdx)"
               >
                 {{ t("admin.settings.webSearchEmulation.resetUsage") }}
@@ -289,7 +289,7 @@
             <!-- Proxy + Test on same row -->
             <div class="flex items-end gap-3">
               <div class="flex-1">
-                <label class="text-xs text-gray-500">{{
+                <label class="text-xs text-[var(--muted-foreground)]">{{
                   t("admin.settings.webSearchEmulation.proxy")
                 }}</label>
                 <ProxySelector

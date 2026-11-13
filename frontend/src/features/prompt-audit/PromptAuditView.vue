@@ -1,13 +1,13 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-[1600px]" :class="activeTab === 'config' && draft ? 'pb-28' : 'pb-8'">
+    <div class="w-full min-w-0 text-[var(--foreground)] tabular-nums" :class="activeTab === 'config' && draft ? 'pb-48 sm:pb-36 lg:pb-28' : 'pb-8'">
       <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary-700 dark:text-primary-400">{{ t('nav.securityAudit') }}</p>
-          <h1 class="mt-1 text-2xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ t('admin.promptAudit.title') }}</h1>
-          <p class="mt-2 max-w-3xl text-sm text-gray-500 dark:text-dark-300">{{ t('admin.promptAudit.description') }}</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--brand-text)]">{{ t('nav.securityAudit') }}</p>
+          <h1 class="mt-1 text-2xl font-semibold tracking-tight text-[var(--foreground)]">{{ t('admin.promptAudit.title') }}</h1>
+          <p class="mt-2 max-w-3xl text-sm text-[var(--muted-foreground)]">{{ t('admin.promptAudit.description') }}</p>
         </div>
-        <div v-if="draft" class="text-right text-xs text-gray-500 dark:text-dark-400">
+        <div v-if="draft" class="text-right text-xs text-[var(--muted-foreground)]">
           <p>{{ t('admin.promptAudit.configVersion', { version: draft.config_version }) }}</p>
           <p v-if="draft.updated_at" class="mt-1">{{ formatDate(draft.updated_at) }}</p>
         </div>
@@ -20,14 +20,14 @@
 
       <template v-else>
         <div class="mb-4" role="tablist" :aria-label="t('admin.promptAudit.title')">
-          <div class="tabs inline-flex">
+          <div class="segmented inline-flex">
             <button
               v-for="tab in pageTabs"
               :key="tab.id"
               type="button"
               role="tab" :id="`prompt-audit-tab-${tab.id}`" :aria-controls="`prompt-audit-panel-${tab.id}`" :tabindex="activeTab === tab.id ? 0 : -1" @keydown="handleTabKeydown"
-              class="tab"
-              :class="{ 'tab-active': activeTab === tab.id }"
+              class="seg-btn"
+              :class="{ 'seg-active': activeTab === tab.id }"
               :aria-selected="activeTab === tab.id"
               :data-test="`tab-${tab.id}`"
               @click="activeTab = tab.id"
@@ -37,7 +37,7 @@
           </div>
         </div>
 
-        <main class="card px-4 sm:px-6 lg:px-8">
+        <main class="card min-w-0 px-4 shadow-none sm:px-6">
           <div v-show="activeTab === 'config'" id="prompt-audit-panel-config" aria-labelledby="prompt-audit-tab-config" tabindex="0" role="tabpanel" data-test="tab-panel-config">
             <RuntimeOverview :runtime="runtime" :loading="loading.runtime" :error="loadErrors.runtime" @refresh="loadRuntime" />
 
@@ -90,8 +90,8 @@
       </template>
     </div>
 
-    <div v-if="draft && activeTab === 'config'" class="fixed inset-x-0 bottom-0 z-30 border-t border-gray-200 bg-white/95 px-4 py-3 shadow-[0_-12px_35px_rgba(15,23,42,0.08)] backdrop-blur dark:border-dark-700/80 dark:bg-dark-900/95 dark:shadow-[0_-12px_35px_rgba(0,0,0,0.35)] lg:left-64">
-      <div class="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+    <div v-if="draft && activeTab === 'config'" class="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border)] bg-[var(--card)] px-4 py-3 text-[var(--foreground)] lg:left-64">
+      <div class="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
           <SaveToggle :label="t('admin.promptAudit.saveBar.enabled')" :model-value="draft.enabled" data-test="enabled-toggle" @update:model-value="setEnabled" />
           <SaveToggle :label="t('admin.promptAudit.saveBar.blocking')" :model-value="draft.blocking_enabled" :disabled="!draft.enabled" data-test="blocking-toggle" @update:model-value="setBlocking" />
@@ -99,7 +99,7 @@
           <SaveToggle :label="t('admin.promptAudit.saveBar.storePass')" :model-value="draft.store_pass_events" data-test="store-pass-toggle" @update:model-value="replaceDraft({ ...draft!, store_pass_events: $event })" />
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-sm" :class="dirty ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-dark-400'">
+          <span class="text-sm" :class="dirty ? 'text-amber-700 dark:text-amber-300' : 'text-[var(--muted-foreground)] '">
             {{ dirty ? t('admin.promptAudit.saveBar.dirty') : t('admin.promptAudit.saveBar.synced') }}
           </span>
           <button type="button" class="btn btn-secondary" :disabled="!dirty || loading.saving" @click="resetDraft">{{ t('common.reset') }}</button>
@@ -214,8 +214,8 @@ const SaveToggle = defineComponent({
         'aria-label': props.label,
         disabled: props.disabled,
         class: [
-          'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
-          props.modelValue ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-600',
+          'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2',
+          props.modelValue ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)]',
           props.disabled ? 'cursor-not-allowed' : 'cursor-pointer',
         ],
         onClick: (event: MouseEvent) => {
@@ -230,7 +230,7 @@ const SaveToggle = defineComponent({
           ],
         }),
       ]),
-      h('span', { class: 'select-none text-gray-700 dark:text-dark-200' }, props.label),
+      h('span', { class: 'select-none text-[var(--foreground)]' }, props.label),
     ])
   },
 })

@@ -1,10 +1,10 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ localText("邮箱快捷登录", "Email OAuth Sign-in") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{
           localText(
             "开启 GitHub 或 Google 邮箱授权登录后，系统会读取已验证邮箱，存在则直接登录，不存在则自动注册。",
@@ -13,13 +13,13 @@
         }}
       </p>
     </div>
-    <div class="space-y-6 p-6">
+    <div class="space-y-6 p-4 sm:p-6">
       <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
+        <div class="rounded-lg border border-[var(--border)] p-4">
           <div class="flex items-start justify-between gap-4">
             <div>
-              <h3 class="font-medium text-gray-900 dark:text-white">GitHub</h3>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <h3 class="font-medium text-[var(--foreground)]">GitHub</h3>
+              <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                 {{
                   localText(
                     "GitHub OAuth App 需要 read:user user:email 权限，回调地址填写下方后端地址。",
@@ -33,7 +33,7 @@
 
           <div v-if="form.github_oauth_enabled" class="mt-4 space-y-4">
             <div
-              class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+              class="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
             >
               <template v-if="isZhLocale">
                 开通引导：GitHub Settings → Developer settings →
@@ -42,7 +42,7 @@
                   href="https://github.com/settings/developers"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="font-medium text-primary-600 hover:underline dark:text-primary-400"
+                  class="font-medium text-[var(--brand-text)] hover:underline"
                   >OAuth Apps</a
                 >
                 → New OAuth App；Homepage URL 填站点域名，Authorization callback
@@ -55,7 +55,7 @@
                   href="https://github.com/settings/developers"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="font-medium text-primary-600 hover:underline dark:text-primary-400"
+                  class="font-medium text-[var(--brand-text)] hover:underline"
                   >OAuth Apps</a
                 >
                 → New OAuth App. Use your site origin as Homepage URL and the
@@ -66,7 +66,7 @@
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                   >Client ID</label
                 >
                 <input
@@ -78,7 +78,7 @@
               </div>
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                   >Client Secret</label
                 >
                 <input
@@ -99,7 +99,7 @@
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ localText("后端回调地址", "Backend Callback URL") }}
               </label>
@@ -121,7 +121,7 @@
                 </button>
                 <code
                   v-if="githubOAuthRedirectUrlSuggestion"
-                  class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+                  class="select-all break-all rounded bg-[var(--surface-2)] px-2 py-1 font-mono text-xs text-[var(--muted-foreground)]"
                 >
                   {{ githubOAuthRedirectUrlSuggestion }}
                 </code>
@@ -130,7 +130,7 @@
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ localText("前端回跳地址", "Frontend Callback URL") }}
               </label>
@@ -144,11 +144,11 @@
           </div>
         </div>
 
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
+        <div class="rounded-lg border border-[var(--border)] p-4">
           <div class="flex items-start justify-between gap-4">
             <div>
-              <h3 class="font-medium text-gray-900 dark:text-white">Google</h3>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              <h3 class="font-medium text-[var(--foreground)]">Google</h3>
+              <p class="mt-1 text-sm text-[var(--muted-foreground)]">
                 {{
                   localText(
                     "Google OAuth 客户端需要 openid email profile 范围，并在凭据里登记后端回调地址。",
@@ -162,7 +162,7 @@
 
           <div v-if="form.google_oauth_enabled" class="mt-4 space-y-4">
             <div
-              class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+              class="rounded-lg bg-[var(--surface-2)] px-3 py-2 text-xs text-[var(--muted-foreground)]"
             >
               {{
                 localText(
@@ -175,7 +175,7 @@
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                   >Client ID</label
                 >
                 <input
@@ -187,7 +187,7 @@
               </div>
               <div>
                 <label
-                  class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="mb-2 block text-sm font-medium text-[var(--foreground)]"
                   >Client Secret</label
                 >
                 <input
@@ -208,7 +208,7 @@
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ localText("后端回调地址", "Backend Callback URL") }}
               </label>
@@ -230,7 +230,7 @@
                 </button>
                 <code
                   v-if="googleOAuthRedirectUrlSuggestion"
-                  class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+                  class="select-all break-all rounded bg-[var(--surface-2)] px-2 py-1 font-mono text-xs text-[var(--muted-foreground)]"
                 >
                   {{ googleOAuthRedirectUrlSuggestion }}
                 </code>
@@ -239,7 +239,7 @@
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ localText("前端回跳地址", "Frontend Callback URL") }}
               </label>

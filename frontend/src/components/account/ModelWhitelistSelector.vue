@@ -54,7 +54,7 @@
     <!-- Multi-select Dropdown -->
     <div v-if="!catalogOnly" class="mb-3">
       <div
-        class="cursor-pointer rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
+        class="cursor-pointer rounded-xl border border-[var(--border)] bg-[var(--card)] px-3 py-2"
       >
         <div v-if="configuredModels.length" data-testid="selected-models" class="flex max-h-[min(12rem,30vh)] flex-wrap gap-1.5 overflow-y-auto">
           <section v-for="group in selectedGroups" :key="group.category" :data-model-category="group.category" class="w-full space-y-1">
@@ -62,7 +62,7 @@
           <span
             v-for="model in group.models"
             :key="model"
-            class="inline-flex min-w-0 max-w-full items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+            class="inline-flex min-w-0 max-w-full items-center justify-between gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--foreground)]"
           >
             <span class="flex min-w-0 items-center gap-1">
               <ModelIcon :model="model" size="14px" />
@@ -72,14 +72,14 @@
               type="button"
               :aria-label="`${t('common.remove')} ${model}`"
               @click.stop="removeModel(model)"
-              class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-gray-200 dark:hover:bg-dark-500"
+              class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-[var(--surface-2)]"
             >
               <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
             </button>
           </span>
           </section>
         </div>
-        <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="flex w-full items-center justify-between py-2" :class="{ 'mt-2 border-t border-gray-200 dark:border-dark-600': configuredModels.length }">
+        <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="flex w-full items-center justify-between py-2" :class="{ 'mt-2 border-t border-[var(--border)]': configuredModels.length }">
           <span class="text-xs text-secondary">{{ t('admin.accounts.modelSync.expandModels') }}</span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -90,9 +90,9 @@
       <div
         v-if="showDropdown"
         :id="dropdownId"
-        class="mt-1 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-700"
+        class="mt-1 rounded-lg border shadow-lg border-[var(--border)] bg-[var(--surface-2)]"
       >
-        <div class="max-h-24 overflow-y-auto border-b border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-700">
+        <div class="max-h-24 overflow-y-auto border-b p-2 border-[var(--border)] bg-[var(--surface-2)]">
           <input
             v-model="searchQuery"
             type="text"
@@ -109,12 +109,12 @@
         <button type="button" data-testid="select-filtered-models" class="btn btn-secondary m-2" :disabled="!filteredModels.length" @click="selectFilteredModels">{{ t('capabilityCatalog.selectFiltered') }}</button>
         <div data-testid="model-options" class="max-h-[min(18rem,40vh)] overflow-y-auto">
           <section v-for="group in groupedModels" :key="group.category" :data-model-category="group.category">
-            <h3 class="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-secondary dark:bg-dark-800">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
+            <h3 class="px-3 py-1.5 text-xs font-semibold text-secondary bg-[var(--card)]">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
             <div
               v-for="model in group.models"
               :key="model.value"
               data-testid="model-option"
-              class="group flex items-center hover:bg-gray-100 dark:hover:bg-dark-600"
+              class="group flex items-center hover:bg-[var(--surface-2)]"
             >
               <button
                 type="button"
@@ -128,7 +128,7 @@
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
                     configuredModelKeys.has(model.value)
                       ? 'border-primary-500 bg-primary-500 text-white'
-                      : 'border-gray-300 dark:border-dark-500'
+                      : 'border-[var(--border)]'
                   ]"
                 >
                   <svg v-if="configuredModelKeys.has(model.value)" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -141,7 +141,7 @@
               <button
                 type="button"
                 data-testid="copy-model-id"
-                class="mr-2 rounded p-1.5 text-secondary opacity-70 transition-colors hover:bg-gray-200 hover:text-primary-600 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 dark:hover:bg-dark-500 dark:hover:text-primary-400"
+                class="mr-2 rounded p-1.5 text-secondary opacity-70 transition-colors hover:text-primary-600 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus group-hover:opacity-100 hover:bg-[var(--surface-2)] dark:hover:text-primary-400"
                 :title="`${t('common.copy')} ${model.value}`"
                 :aria-label="`${t('common.copy')} ${model.value}`"
                 @click="copyModelId(model.value)"
@@ -194,7 +194,7 @@
       </div>
       <p class="input-hint">{{ t(accountId ? 'admin.accounts.modelSync.selectionPendingSave' : 'admin.accounts.modelSync.selectionPendingCreate') }}</p>
     </div>
-    <details v-if="accountId && catalogSummary" class="mb-4 space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600" data-testid="catalog-allowlist">
+    <details v-if="accountId && catalogSummary" class="mb-4 space-y-3 border-t pt-3 border-[var(--border)]" data-testid="catalog-allowlist">
       <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.modelSync.allowlistTitle') }}</summary>
       <p class="input-hint">{{ t('admin.accounts.modelSync.allowlistHint') }}</p>
       <label class="flex gap-2"><input v-model="allowlistEnabled" type="checkbox" />{{ t('admin.accounts.modelSync.allowlistEnabled') }}</label>
@@ -204,7 +204,7 @@
       <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" :disabled="!active || configurationDirty || selectionBusy || allowlistBusy" @click="saveAllowlist">{{ t(allowlistBusy ? 'common.saving' : 'common.save') }}</button>
     </details>
     <ModelCatalogDetails :display-metadata="displayMetadata" :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="catalogState === 'stale' || catalogState === 'invalidIdentity' || catalogSummary?.staleness === 'stale'" :status-override="catalogState === 'idle' ? undefined : catalogState" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
-    <div v-if="!catalogOnly" class="mt-4 flex justify-end border-t border-gray-200 pt-4 dark:border-dark-600">
+    <div v-if="!catalogOnly" class="mt-4 flex justify-end border-t pt-4 border-[var(--border)]">
       <button type="button" @click="confirmClear = true"
         data-testid="clear-model-selection" :disabled="selectionBusy || !active || (!!accountId && (configurationDirty || !catalogSummary))"
         class="btn btn-secondary border-red-200 text-red-600 dark:border-red-800 dark:text-red-400">

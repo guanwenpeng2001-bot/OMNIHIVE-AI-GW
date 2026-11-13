@@ -1,47 +1,334 @@
 <template>
   <AppLayout>
-    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
-    <div class="space-y-6">
-      <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
-      <template v-else>
-        <UsageStatsState v-if="statsState !== 'known'" :state="statsState" />
-        <UserDashboardStats v-if="stats" :time-zone="reportTimeZone" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
-        <div v-if="historyGap || chartError" data-testid="chart-state" class="card space-y-3 p-4">
-          <DateRangePicker v-model:start-date="startDate" v-model:end-date="endDate" @change="loadCharts" />
-          <Select v-model="granularity" :options="[{ value: 'day', label: t('dashboard.day') }, { value: 'hour', label: t('dashboard.hour') }]" @change="loadCharts" />
-          <UsageStatsState :state="historyGap ? 'unknown' : 'error'" />
-          <button class="btn btn-secondary" @click="loadCharts">{{ t('common.refresh') }}</button>
+    <section class="oh-dashboard w-full space-y-5">
+      <header class="flex flex-wrap items-start justify-between gap-4">
+        <div class="min-w-0 space-y-1.5">
+          <h1 class="text-3xl font-bold tracking-tight">{{ activeTab }}</h1>
+          <p class="text-sm opacity-60">你的蜂巢用量、请求与账单概览</p>
+          <ReportTimeContext :time-zone="reportTimeZone" />
         </div>
-        <UserDashboardCharts v-show="!historyGap && !chartError" :time-zone="reportTimeZone" v-model:startDate="startDate" v-model:endDate="endDate" v-model:granularity="granularity" :loading="loadingCharts" :trend="trendData" :models="modelStats" @dateRangeChange="loadCharts" @granularityChange="loadCharts" @refresh="refreshAll" />
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div class="lg:col-span-2"><UsageStatsState :state="recentState"><UserDashboardRecentUsage :time-zone="reportTimeZone" :data="recentUsage" :loading="loadingUsage" /></UsageStatsState></div>
-          <div class="lg:col-span-1"><UserDashboardQuickActions /></div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="oh-hive-badge"><span class="pulse-dot pulse-ok" aria-hidden="true" />蜂巢在线</span>
+          <button type="button" class="btn btn-secondary btn-sm" @click="openCommandPalette">⌘K 命令</button>
+          <button type="button" class="btn btn-secondary btn-sm" aria-controls="getStarted" :aria-expanded="!onboardingHidden" @click="toggleOnboardingVisibility">{{ onboardingHidden ? '恢复引导' : '隐藏引导' }}</button>
         </div>
-      </template>
-    </div>
+      </header>
+      <div class="activity-tabs" role="group" aria-label="工作台视图">
+        <button v-for="tab in tabs" :key="tab" type="button" :class="{ on: activeTab === tab }" :aria-pressed="activeTab === tab" @click="activeTab = tab">
+          {{ tab }}
+          <span v-if="tab === '调用日志'" class="tab-count">{{ loadingUsage || recentState !== 'known' ? '—' : recentUsage.length }}</span>
+          <span v-else-if="tab === '审计'" class="tab-count">{{ auditLoading || auditError ? '—' : auditPreview.length }}</span>
+          <span v-else-if="activeTab === tab" class="tab-dot" aria-hidden="true" />
+        </button>
+      </div>
+      <div class="grid w-full items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div class="min-w-0 space-y-5">
+          <section class="client-connect card overflow-hidden">
+            <button type="button" class="w-full p-4 text-left" aria-controls="client-config-panel" :aria-expanded="connectExpanded" @click="connectExpanded = !connectExpanded">
+              <span class="flex items-center justify-between gap-3"><b>连接一个客户端</b><span class="font-mono text-lg text-[var(--muted-foreground)]" aria-hidden="true">{{ connectExpanded ? '−' : '+' }}</span></span>
+              <span class="mt-1 block text-sm text-[var(--muted-foreground)]">OpenCode、Claude Code、Codex CLI、Cursor 与 OpenAI SDK</span>
+            </button>
+            <div v-if="connectExpanded" id="client-config-panel" class="border-t border-[var(--border)]">
+              <div class="client-tabs flex overflow-x-auto px-4" role="group" aria-label="客户端配置">
+                <button v-for="client in clientConfigs" :key="client.id" type="button" :aria-pressed="activeClient === client.id" :class="{ on: activeClient === client.id }" @click="activeClient = client.id; copyStatus = ''">{{ client.name }}</button>
+              </div>
+              <div class="flex flex-wrap items-center justify-between gap-2 border-y border-[var(--border)] bg-[var(--surface-2)] px-4 py-2">
+                <span class="font-mono text-xs text-[var(--muted-foreground)]">{{ selectedClient.filename }}</span>
+                <select v-if="activeClient === 'opencode'" v-model="opencodeVersion" class="rounded border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-xs text-[var(--foreground)]" aria-label="OpenCode 版本" @change="copyStatus = ''">
+                  <option value="2">OpenCode 2</option>
+                  <option value="1">OpenCode 1</option>
+                </select>
+                <button type="button" class="btn btn-secondary btn-sm" @click="copyClientConfig">{{ copyStatus === 'success' ? '已复制 ✓' : '复制配置' }}</button>
+              </div>
+              <pre class="max-h-80 overflow-auto p-4 font-mono text-xs leading-6" tabindex="0" aria-label="客户端配置代码"><code>{{ selectedClient.code }}</code></pre>
+              <div class="space-y-2 border-t border-[var(--border)] px-4 py-3 text-xs text-[var(--muted-foreground)]">
+                <p class="break-all">网关地址：<code>{{ gatewayBase }}</code></p>
+                <p>{{ selectedClient.hint }}</p>
+                <p v-if="copyStatus" role="status">{{ copyStatus === 'success' ? '配置已复制到剪贴板。' : '复制失败，请选中代码后手动复制。' }}</p>
+                <button type="button" class="font-medium text-[var(--brand-text)] underline underline-offset-4" @click="navigateTo('/keys')">创建或管理 API 密钥</button>
+              </div>
+            </div>
+          </section>
+          <section v-if="activeTab === '审计'" class="card space-y-4 p-5" aria-label="个人安全与操作审计时间线">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="font-semibold">个人安全与操作审计</h2>
+              <button type="button" class="btn btn-secondary btn-sm" @click="openPersonalAuditDrawer">查看详情 →</button>
+            </div>
+            <p class="text-sm opacity-60">记录 API 密钥、MCP 授权与账户安全事件</p>
+            <ol class="space-y-4 border-l pl-4" style="border-color: var(--border)">
+              <li v-for="event in auditPreview" :key="event.id"><b class="text-sm">{{ event.title }}</b><p class="mt-1 text-sm opacity-60">{{ event.description }}</p><time v-if="event.createdAt" :datetime="event.createdAt" class="mt-1 block font-mono text-xs tabular-nums opacity-50">{{ formatDateTimeWithZone(event.createdAt, reportTimeZone) }}</time></li>
+            </ol>
+            <div v-if="!auditPreview.length" class="audit-empty" role="status" :aria-busy="auditLoading">
+              <div aria-hidden="true" class="audit-shape">
+                <div v-for="row in 4" :key="row" class="audit-shape-row"><i /><span :style="{ width: `${72 - row * 9}%` }" /><b /></div>
+              </div>
+              <span class="empty-status">{{ auditLoading ? '正在读取审计记录' : auditError ? '审计记录暂不可用' : '暂无安全与操作记录' }}</span>
+              <button v-if="auditError" type="button" class="btn btn-secondary btn-sm ml-2" @click="loadPersonalSecurity">重试</button>
+            </div>
+          </section>
+          <div v-if="activeTab === '调用日志' || activeTab === '我的用量'" class="card flex flex-wrap items-center justify-between gap-3 p-4">
+            <div><h2 class="font-semibold">{{ activeTab === '调用日志' ? '近期调用日志预览' : '用量与成本概览' }}</h2><p class="mt-1 text-sm opacity-60">查看下方实时数据，或进入完整用量页筛选与导出。</p></div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/usage')">查看完整{{ activeTab === '调用日志' ? '日志' : '用量' }} →</button>
+          </div>
+          <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
+          <template v-else>
+            <UsageStatsState v-if="statsState !== 'known'" :state="statsState" />
+            <UserDashboardStats v-if="stats" :time-zone="reportTimeZone" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
+            <div v-if="historyGap || chartError" data-testid="chart-state" class="card space-y-3 p-4">
+              <DateRangePicker v-model:start-date="startDate" v-model:end-date="endDate" @change="loadCharts" />
+              <Select v-model="granularity" :options="[{ value: 'day', label: t('dashboard.day') }, { value: 'hour', label: t('dashboard.hour') }]" @change="loadCharts" />
+              <UsageStatsState :state="historyGap ? 'unknown' : 'error'" />
+              <button class="btn btn-secondary" @click="loadCharts">{{ t('common.refresh') }}</button>
+            </div>
+            <UserDashboardCharts v-show="!historyGap && !chartError" :time-zone="reportTimeZone" v-model:startDate="startDate" v-model:endDate="endDate" v-model:granularity="granularity" :loading="loadingCharts" :trend="trendData" :models="modelStats" @dateRangeChange="loadCharts" @granularityChange="loadCharts" @refresh="refreshAll" />
+            <UsageStatsState :state="recentState"><UserDashboardRecentUsage :time-zone="reportTimeZone" :data="recentUsage" :loading="loadingUsage" /></UsageStatsState>
+            <UserDashboardQuickActions />
+          </template>
+          <div class="grid gap-4 md:grid-cols-3">
+            <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/usage')">
+              <span class="flex justify-between"><b>我的用量</b><span class="opacity-40">›</span></span>
+              <span class="mt-1 block text-sm opacity-60">你的请求、成本与额度</span><span class="mt-4 block text-xl font-bold">{{ stats ? money(stats.total_actual_cost) : '—' }}</span>
+            </button>
+            <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/purchase')">
+              <span class="flex justify-between"><b>账单</b><span class="opacity-40">›</span></span>
+              <span class="mt-1 block text-sm opacity-60">按量付费 · 余额 {{ money(user?.balance) }}</span><span class="mt-4 block text-xl font-bold">{{ money(user?.balance) }}</span>
+            </button>
+            <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/monitor')">
+              <span class="flex justify-between"><b>渠道状态</b><span class="opacity-40">›</span></span>
+              <span class="mt-1 block text-sm opacity-60">查看渠道健康与窗口</span><span class="mt-4 block text-xl font-bold">查看状态 →</span>
+            </button>
+          </div>
+        </div>
+        <aside class="min-w-0 space-y-5" aria-label="工作台信息">
+          <section v-show="!onboardingHidden" id="getStarted" class="card p-4" aria-label="开始使用">
+            <div class="flex items-center justify-between"><h2 class="font-semibold">开始使用</h2><button type="button" class="btn btn-ghost btn-sm" @click="toggleOnboardingVisibility">隐藏</button></div>
+            <p class="mt-1 text-sm opacity-60">{{ completedStepCount }} / 3 已完成</p>
+            <div class="meter mt-2" role="progressbar" aria-label="上手进度" :aria-valuenow="completedStepCount" :aria-valuemin="0" :aria-valuemax="3"><span :style="{ width: onboardingProgressPct + '%' }" /></div>
+            <div class="oh-onboarding-hero mt-3 rounded-xl p-4">
+              <div class="mb-2 font-mono text-xs opacity-50">ONBOARDING</div>
+              <h3 class="font-semibold">{{ currentStep.title }}</h3><p class="mt-2 text-sm leading-relaxed opacity-70">{{ currentStep.description }}</p>
+              <div class="mt-4 flex flex-wrap gap-2">
+                <button type="button" class="btn btn-primary btn-sm" @click="openStepGuide">› 查看指南</button>
+                <button type="button" class="btn btn-secondary btn-sm" @click="toggleStepManualDone(activeStepIndex)">{{ isStepCompleted(activeStepIndex) ? '撤销完成' : '标记完成' }}</button>
+              </div>
+            </div>
+            <div class="mt-3 flex items-center justify-between">
+              <button type="button" class="btn btn-ghost btn-sm" aria-label="上一步" @click="stepOnboarding(-1)">←</button>
+              <div class="flex items-center gap-1">
+                <button v-for="(step, index) in onboardingSteps" :key="step.id" type="button" class="oh-step-dot-button" :aria-label="step.title" :aria-pressed="activeStepIndex === index" @click="activeStepIndex = index"><span class="oh-step-dot" :class="{ active: activeStepIndex === index }" /></button>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" aria-label="下一步" @click="stepOnboarding(1)">→</button>
+            </div>
+          </section>
+          <button type="button" class="card interactive w-full p-4 text-left" @click="navigateTo('/usage')">
+            <span class="flex justify-between"><b>日志</b><span class="opacity-40">›</span></span>
+            <span class="mt-1 block text-sm opacity-60">{{ chartError || historyGap ? '当前范围趋势暂不可用' : `当前范围 ${trendRequestCount.toLocaleString()} 条调用` }}</span>
+            <span id="dashboardMiniTrend" class="mt-3 flex h-12 items-end gap-[3px]" aria-hidden="true"><span v-for="(bar, index) in miniTrend" :key="index" class="oh-trend-bar flex-1 rounded-t-sm" :style="{ height: bar + '%' }" /></span>
+          </button>
+          <button type="button" class="card interactive w-full p-4 text-left" @click="openPersonalAuditDrawer">
+            <span class="flex justify-between"><b>审计</b><span class="opacity-40">›</span></span>
+            <span class="mt-1 block text-sm opacity-60">个人安全与操作审计 · 记录 API 密钥、MCP 授权与账户安全事件</span>
+            <span v-for="event in auditPreview" :key="event.id" class="mt-3 block text-sm opacity-70">· {{ event.title }}</span>
+            <span v-if="!auditPreview.length" class="mt-3 block">
+              <span class="audit-shape block" aria-hidden="true"><span v-for="row in 4" :key="row" class="audit-shape-row"><i /><span :style="{ width: `${72 - row * 9}%` }" /><b /></span></span>
+              <span class="empty-status">{{ auditLoading ? '正在读取审计记录' : auditError ? '审计记录暂不可用' : '暂无安全与操作记录' }}</span>
+            </span>
+          </button>
+          <section class="card space-y-3 p-4">
+            <h2 class="font-semibold">按平台拆分</h2><p class="text-sm opacity-60">累计请求、Token 与实际花费</p>
+            <UsageStatsState v-if="statsState !== 'known'" :state="statsState" />
+            <p v-else-if="!platformSummary.length" class="text-sm opacity-60">{{ loading ? '正在加载…' : '暂无平台用量' }}</p>
+            <div v-for="platform in platformSummary" :key="platform.platform" class="space-y-1.5">
+              <div class="flex flex-wrap justify-between gap-2 text-sm"><b>{{ platform.platform }}</b><span>{{ money(platform.total_actual_cost) }}</span></div>
+              <p class="text-xs opacity-60">{{ platform.total_requests.toLocaleString() }} 次 · {{ platform.total_tokens.toLocaleString() }} Token</p>
+              <div class="meter"><span :style="{ width: Math.max(0, platform.total_actual_cost / platformMaxCost * 100) + '%' }" /></div>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </section>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
+import { ref, computed, onMounted, onUnmounted, getCurrentInstance } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
+import type { OnboardingDTO, UpdateOnboardingPayload, UserAuditEventDTO } from '@/api/mcp'
 import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
-const reportProps = defineProps<{ timeZone?: string }>()
-const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
-const reportQueryContext = { timezone: reportTimeZone }
-
 import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
-import { ref, computed, onMounted, onUnmounted } from 'vue'; import { useAuthStore } from '@/stores/auth'; import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
-import AppLayout from '@/components/layout/AppLayout.vue'; import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
-import UserDashboardStats from '@/components/user/dashboard/UserDashboardStats.vue'; import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
-import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardRecentUsage.vue'; import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
+import { useAuthStore } from '@/stores/auth'
+import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
+import AppLayout from '@/components/layout/AppLayout.vue'
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
+import UserDashboardStats from '@/components/user/dashboard/UserDashboardStats.vue'
+import UserDashboardCharts from '@/components/user/dashboard/UserDashboardCharts.vue'
+import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardRecentUsage.vue'
+import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
 import type { UsageLog, TrendDataPoint, ModelStat, PlatformQuotaItem } from '@/types'
 import { getMyPlatformQuotas } from '@/api/user'
+import { useThemeDirection } from '@/composables/useThemeDirection'
+import { buildGatewayUrl } from '@/api/url'
+import { buildClientBaseUrl } from '@/utils/url'
 
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+const { t } = useI18n()
+const { openDrawer, openCommandPalette } = useThemeDirection()
+const instance = getCurrentInstance()
+const tabs = ['活动', '我的用量', '调用日志', '审计']
+const activeTab = ref('活动')
+const connectExpanded = ref(false)
+const activeClient = ref('opencode')
+const opencodeVersion = ref('2')
+const copyStatus = ref('')
+let copyRevision = 0
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+const gatewayBase = computed(() => {
+  const candidate = onboarding.value?.base_url || buildGatewayUrl('/')
+  try {
+    const url = new URL(candidate, window.location.origin)
+    return buildClientBaseUrl(/^https?:$/.test(url.protocol) ? url.href : buildGatewayUrl('/'))
+  } catch {
+    return buildClientBaseUrl(buildGatewayUrl('/'))
+  }
+})
+const clientConfigs = computed(() => {
+  const root = gatewayBase.value
+  const base = buildClientBaseUrl(root, 'v1')
+  const hint = '将 YOUR_API_KEY 替换为密钥，将 YOUR_MODEL_ID 替换为可用渠道中的模型 ID。'
+  const models = { YOUR_MODEL_ID: { name: 'YOUR_MODEL_ID' } }
+  const opencode = opencodeVersion.value === '2'
+    ? { providers: { omnihive: { name: 'OmniHive', env: ['OPENAI_API_KEY'], package: '@opencode/ai/providers/openai-compatible', settings: { baseURL: base }, models } } }
+    : { provider: { omnihive: { npm: '@ai-sdk/openai-compatible', name: 'OmniHive', options: { baseURL: base, apiKey: '{env:OPENAI_API_KEY}' }, models } } }
+  return [
+    { id: 'opencode', name: 'OpenCode', filename: 'opencode.json', hint: `${hint} 按已安装的 OpenCode 版本选择格式，运行前设置 OPENAI_API_KEY 环境变量。`, code: JSON.stringify({ $schema: 'https://opencode.ai/config.json', ...opencode, model: 'omnihive/YOUR_MODEL_ID' }, null, 2) },
+    { id: 'claude', name: 'Claude Code', filename: '~/.claude/settings.json', hint, code: JSON.stringify({ env: { ANTHROPIC_BASE_URL: root, ANTHROPIC_AUTH_TOKEN: 'YOUR_API_KEY', ANTHROPIC_MODEL: 'YOUR_MODEL_ID' } }, null, 2) },
+    { id: 'codex', name: 'Codex CLI', filename: '~/.codex/config.toml', hint: `${hint} 运行前设置 OPENAI_API_KEY 环境变量。`, code: `model = "YOUR_MODEL_ID"\nmodel_provider = "omnihive"\n\n[model_providers.omnihive]\nname = "OmniHive"\nbase_url = ${JSON.stringify(base)}\nenv_key = "OPENAI_API_KEY"\nwire_api = "responses"` },
+    { id: 'cursor', name: 'Cursor', filename: 'Settings → Models → API Keys', hint: '在 Cursor 的模型设置中启用 OpenAI API Key，并填写 Override OpenAI Base URL；按模型支持情况选择模型。', code: `OpenAI API Key: YOUR_API_KEY\nOverride OpenAI Base URL: ${base}\nModel: YOUR_MODEL_ID` },
+    { id: 'python', name: 'Python SDK', filename: 'client.py', hint: `${hint} 安装 openai，并设置 OPENAI_API_KEY 环境变量。`, code: `import os\nfrom openai import OpenAI\n\nclient = OpenAI(\n    base_url=${JSON.stringify(base)},\n    api_key=os.environ["OPENAI_API_KEY"],\n)\nresponse = client.chat.completions.create(\n    model="YOUR_MODEL_ID",\n    messages=[{"role": "user", "content": "Hello"}],\n)\nprint(response.choices[0].message.content)` },
+    { id: 'typescript', name: 'TypeScript SDK', filename: 'client.ts', hint: `${hint} 安装 openai，在服务端设置 OPENAI_API_KEY，避免把密钥放入浏览器。`, code: `import OpenAI from "openai";\n\nconst client = new OpenAI({\n  baseURL: ${JSON.stringify(base)},\n  apiKey: process.env.OPENAI_API_KEY,\n});\nconst response = await client.chat.completions.create({\n  model: "YOUR_MODEL_ID",\n  messages: [{ role: "user", content: "Hello" }],\n});\nconsole.log(response.choices[0]?.message.content);` }
+  ]
+})
+const selectedClient = computed(() => clientConfigs.value.find(client => client.id === activeClient.value) ?? clientConfigs.value[0]!)
+const copyClientConfig = async () => {
+  const revision = ++copyRevision
+  const clientId = activeClient.value
+  const code = selectedClient.value.code
+  try {
+    const { useClipboard } = await import('@/composables/useClipboard')
+    const success = await useClipboard().copyToClipboard(code)
+    if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
+    copyStatus.value = success ? 'success' : 'error'
+  } catch {
+    if (revision !== copyRevision || clientId !== activeClient.value || code !== selectedClient.value.code) return
+    copyStatus.value = 'error'
+  }
+  clearTimeout(copyTimer)
+  copyTimer = setTimeout(() => { copyStatus.value = '' }, 2500)
+}
+const onboardingSteps = [
+  { id: 'connect', title: '1. 连接你的 AI 客户端', description: '复制本站网关地址，选择客户端配置，开始接入蜂巢。', route: '' },
+  { id: 'keys', title: '2. 创建 API 密钥', description: '创建专属 API 密钥并绑定渠道分组，将密钥填入客户端配置。', route: '/keys' },
+  { id: 'usage', title: '3. 查看实时调用明细', description: '发起首次请求，核对 Token、请求耗时与实际账单。', route: '/usage' }
+]
+const activeStepIndex = ref(0)
+const onboardingHidden = ref(false)
+const manualDoneSteps = ref<Array<boolean | null>>([null, null, null])
+const onboarding = ref<OnboardingDTO | null>(null)
+let onboardingRevision = 0
+let onboardingSave = Promise.resolve()
+const currentStep = computed(() => onboardingSteps[activeStepIndex.value] ?? onboardingSteps[0]!)
+const isStepCompleted = (index: number): boolean => {
+  const manual = manualDoneSteps.value[index]
+  if (typeof manual === 'boolean') return manual
+  if (onboarding.value?.steps[index]) return true
+  if (index === 0) return (stats.value?.total_requests || 0) > 0
+  if (index === 1) return (stats.value?.total_api_keys || 0) > 0
+  return index === 2 && ((stats.value?.total_requests || 0) > 0 || recentUsage.value.length > 0)
+}
+const completedStepCount = computed(() => onboardingSteps.filter((_, index) => isStepCompleted(index)).length)
+const onboardingProgressPct = computed(() => completedStepCount.value / 3 * 100)
+const stepOnboarding = (delta: number) => { activeStepIndex.value = (activeStepIndex.value + delta + 3) % 3 }
+const persistOnboarding = (payload: UpdateOnboardingPayload) => {
+  onboardingRevision++
+  const userId = authStore.user?.id
+  if (!userId) return
+  onboardingSave = onboardingSave.then(async () => {
+    if (auditController.signal.aborted || authStore.user?.id !== userId) return
+    const { mcpAPI } = await import('@/api/mcp')
+    if (auditController.signal.aborted || authStore.user?.id !== userId) return
+    await mcpAPI.updateOnboarding(payload)
+  }).catch(() => undefined)
+}
+const toggleStepManualDone = (index: number) => {
+  const completed = !isStepCompleted(index)
+  manualDoneSteps.value[index] = completed
+  persistOnboarding({ step_index: index, completed })
+}
+const toggleOnboardingVisibility = () => {
+  onboardingHidden.value = !onboardingHidden.value
+  persistOnboarding({ hidden: onboardingHidden.value })
+  try { localStorage.setItem('omnihive.dashboard.onboardingHidden', onboardingHidden.value ? '1' : '0') } catch { return }
+}
+const navigateTo = (path: string) => {
+  const router = instance?.appContext.config.globalProperties.$router
+  if (router && typeof router.push === 'function') void router.push(path)
+  else if (typeof window !== 'undefined') window.location.hash = path
+}
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!))
+const openConnectClientDrawer = () => { connectExpanded.value = true }
+const openStepGuide = () => { if (activeStepIndex.value === 0) openConnectClientDrawer(); else navigateTo(currentStep.value.route) }
+const auditPreview = ref<Array<{ id: string; title: string; description: string; createdAt?: string }>>([])
+const auditLoading = ref(false)
+const auditError = ref(false)
+const auditController = new AbortController()
+const loadPersonalSecurity = async () => {
+  const userId = authStore.user?.id
+  if (!userId) return
+  auditLoading.value = true
+  auditError.value = false
+  try {
+    const { apiClient } = await import('@/api/client')
+    const { data } = await apiClient.get<UserAuditEventDTO[]>('/user/audit-logs', { signal: auditController.signal })
+    if (auditController.signal.aborted || authStore.user?.id !== userId) return
+    if (!Array.isArray(data)) throw new Error('Invalid audit response')
+    const titles: Record<string, string> = { 'mcp.grant.created': '授权 MCP 客户端', 'mcp.grant.revoked': '撤销 MCP 授权', 'mcp.grant.denied': '拒绝 MCP 授权', 'onboarding.step.completed': '完成接入引导' }
+    auditPreview.value = data.slice(0, 5).map(event => ({
+      id: event.id,
+      title: titles[event.action] ?? event.action,
+      description: event.detail,
+      createdAt: event.created_at
+    }))
+  } catch {
+    if (!auditController.signal.aborted) auditError.value = true
+  } finally {
+    if (!auditController.signal.aborted) auditLoading.value = false
+  }
+}
+const loadOnboarding = async () => {
+  const userId = authStore.user?.id
+  const revision = onboardingRevision
+  if (!userId) return
+  try {
+    const { mcpAPI } = await import('@/api/mcp')
+    if (auditController.signal.aborted || authStore.user?.id !== userId) return
+    const state = await mcpAPI.getOnboarding()
+    if (auditController.signal.aborted || authStore.user?.id !== userId) return
+    onboarding.value = state
+    if (revision === onboardingRevision) onboardingHidden.value = state.hidden
+  } catch {
+    return
+  }
+}
+const openPersonalAuditDrawer = () => openDrawer('个人安全与操作审计',
+  `<div class="space-y-4"><p class="text-sm opacity-60">记录 API 密钥、MCP 授权与账户安全事件</p>${auditPreview.value.length ? auditPreview.value.map(event => `<section class="border-b pb-4" style="border-color:var(--border)"><h3 class="font-semibold">${escapeHtml(event.title)}</h3><p class="mt-2 opacity-60">${escapeHtml(event.description)}</p>${event.createdAt ? `<p class="mt-2 font-mono text-xs opacity-50">${escapeHtml(formatDateTimeWithZone(event.createdAt, reportTimeZone))}</p>` : ''}</section>`).join('') : `<div aria-hidden="true">${[1, 2, 3, 4].map(row => `<div style="display:flex;align-items:center;gap:16px;height:32px;border-left:1px dashed var(--border);margin-left:8px"><i style="width:16px;height:16px;margin-left:-8px;border:1px solid var(--border);border-radius:50%;background:var(--card)"></i><span style="width:${72 - row * 9}%;height:4px;background:var(--border)"></span></div>`).join('')}</div><p role="status" class="text-sm opacity-60">${auditLoading.value ? '正在读取审计记录' : auditError.value ? '审计记录暂不可用，请关闭后重试。' : '暂无安全与操作记录'}</p>`}</div>`,
+  '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/settings/mcp">MCP 授权管理</button><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/profile">账户安全设置</button></div>')
+const money = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(4)}` : '—'
 const historyGap = ref<HistoryGap | null>(null)
 const statsState = ref<'known' | 'unknown' | 'error'>('known')
 const chartError = ref(false)
@@ -52,9 +339,16 @@ const authStore = useAuthStore(); const user = computed(() => authStore.user)
 const stats = ref<UserStatsType | null>(null); const loading = ref(false); const loadingUsage = ref(false); const loadingCharts = ref(false)
 const trendData = ref<TrendDataPoint[]>([]); const modelStats = ref<ModelStat[]>([]); const recentUsage = ref<UsageLog[]>([])
 const platformQuotas = ref<PlatformQuotaItem[] | null>(null)
-
+const platformSummary = computed(() => stats.value?.by_platform ?? [])
+const platformMaxCost = computed(() => Math.max(0.000001, ...platformSummary.value.map(platform => platform.total_actual_cost)))
+const trendRequestCount = computed(() => trendData.value.reduce((total, point) => total + (point.requests || 0), 0))
+const miniTrend = computed(() => {
+  const values = trendData.value.slice(-14).map(point => Math.max(0, Number(point.total_tokens ?? point.requests) || 0))
+  const padded = [...Array<number>(14 - values.length).fill(0), ...values]
+  const max = Math.max(1, ...padded)
+  return padded.map(value => value ? value / max * 100 : 0)
+})
 const startDate = ref(formatReportDateInput(new Date(Date.now() - 6 * 86400000), reportTimeZone)); const endDate = ref(formatReportDateInput(new Date(), reportTimeZone)); const granularity = ref('day')
-
 const loadStats = async () => {
   const sequence = ++statsRequestSequence
   loading.value = true
@@ -116,7 +410,44 @@ const loadRecent = async () => {
 }
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
 const refreshAll = () => { loadStats(); loadCharts(); loadRecent(); loadPlatformQuotas() }
-
-onMounted(() => { refreshAll() })
-onUnmounted(() => { statsRequestSequence++; chartRequestSequence++; recentRequestSequence++ })
+onMounted(() => {
+  try { onboardingHidden.value = localStorage.getItem('omnihive.dashboard.onboardingHidden') === '1' } catch { onboardingHidden.value = false }
+  refreshAll()
+  void loadPersonalSecurity()
+  void loadOnboarding()
+})
+onUnmounted(() => { auditController.abort(); statsRequestSequence++; chartRequestSequence++; recentRequestSequence++; copyRevision++; clearTimeout(copyTimer) })
 </script>
+
+<style scoped>
+.oh-dashboard { color: var(--foreground); }
+.oh-hive-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px; font-size: 12px; color: var(--ok-text, #15803d); background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent); }
+.pulse-dot { display: inline-block; width: 7px; height: 7px; flex: none; border-radius: 50%; }
+.pulse-ok { background: #16a34a; animation: oh-breath 2s infinite; }
+@keyframes oh-breath { 50% { box-shadow: 0 0 0 5px rgb(22 163 74 / 12%); } }
+.activity-tabs { display: flex; gap: 24px; overflow-x: auto; border-bottom: 1px solid var(--border); }
+.activity-tabs button, .client-tabs button { display: inline-flex; align-items: center; flex: none; gap: 8px; padding: 12px 0; border-bottom: 2px solid transparent; font-size: 13px; color: var(--muted-foreground); }
+.activity-tabs button.on, .client-tabs button.on { color: var(--foreground); border-bottom-color: var(--brand); font-weight: 600; }
+.tab-count { padding: 1px 6px; border-radius: 4px; background: var(--surface-2); font-family: var(--font-mono, monospace); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tab-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--brand); }
+.client-tabs { gap: 20px; }
+.client-connect { border: 1px solid var(--border); background: var(--card); }
+.audit-empty { padding: 12px 0; color: var(--muted-foreground); }
+.audit-shape { max-width: 420px; margin-bottom: 16px; }
+.audit-shape-row { display: flex; align-items: center; gap: 16px; height: 32px; border-left: 1px dashed var(--border); margin-left: 8px; }
+.audit-shape-row i { width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); }
+.audit-shape-row span { height: 4px; background: var(--border); border-radius: 2px; }
+.audit-shape-row b { width: 34px; height: 12px; border: 1px solid var(--border); border-radius: 999px; }
+.empty-status { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+.interactive { transition: border-color .18s; }
+.interactive:hover { border-color: var(--brand, #f59e0b); }
+.meter { height: 6px; overflow: hidden; border-radius: 999px; background: var(--border, #e4e4e7); }
+.meter > span { display: block; height: 100%; border-radius: inherit; background: var(--brand, #f59e0b); transition: width .25s; }
+.oh-onboarding-hero { background: var(--background); color: var(--foreground); border: 1px solid var(--border); }
+.oh-step-dot-button { display: grid; min-height: 28px; min-width: 24px; place-items: center; }
+.oh-step-dot { display: block; height: 6px; width: 6px; border-radius: 999px; background: var(--border); transition: width .2s; }
+.oh-step-dot.active { width: 20px; background: var(--brand, #f59e0b); }
+.oh-trend-bar { background: color-mix(in srgb, var(--brand, #f59e0b) 55%, var(--card)); transition: height .25s; }
+button:focus-visible, select:focus-visible, pre:focus-visible { outline: 2px solid var(--brand, #f59e0b); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .pulse-ok { animation: none; } .interactive, .meter > span, .oh-step-dot, .oh-trend-bar { transition: none; } }
+</style>

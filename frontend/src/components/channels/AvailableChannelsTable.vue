@@ -7,7 +7,7 @@
       class="!hidden w-full table-fixed border-collapse text-sm lg:!table"
     >
       <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50 text-xs font-medium uppercase tracking-wide text-gray-500 dark:border-dark-700 dark:bg-dark-800/50 dark:text-gray-400">
+        <tr class="border-b border-[var(--border)] bg-[var(--surface-2)] text-xs font-medium text-[var(--muted-foreground)]">
           <th class="w-[180px] px-4 py-3 text-center">{{ columns.name }}</th>
           <th class="w-[200px] px-4 py-3 text-left">{{ columns.description }}</th>
           <th class="w-[140px] px-4 py-3 text-left">{{ columns.platform }}</th>
@@ -36,13 +36,13 @@
         v-else
         v-for="(channel, chIdx) in rows"
         :key="`${channel.name}-${chIdx}`"
-        class="border-b-2 border-gray-200 last:border-b-0 dark:border-dark-600"
+        class="border-b border-[var(--border)] last:border-b-0"
       >
         <tr
           v-for="(section, secIdx) in channel.platforms"
           :key="`${channel.name}-${section.platform}`"
-          class="transition-colors hover:bg-gray-50/40 dark:hover:bg-dark-800/40"
-          :class="{ 'border-t border-gray-100/70 dark:border-dark-700/50': secIdx > 0 }"
+          class="transition-colors hover:bg-[var(--surface-2)]"
+          :class="{ 'border-t border-[var(--border)]': secIdx > 0 }"
         >
           <!-- 渠道名：只在第一行渲染并用 rowspan 纵向合并 -->
           <td
@@ -67,8 +67,7 @@
           <td class="align-top px-4 py-3">
             <span
               :class="[
-                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                platformBadgeClass(section.platform),
+                'pill pill-ghost inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--foreground)]',
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
@@ -184,7 +183,7 @@
         v-else
         v-for="(channel, chIdx) in rows"
         :key="`mobile-${channel.name}-${chIdx}`"
-        class="border-b-2 border-gray-200 px-4 py-4 last:border-b-0 dark:border-dark-600"
+        class="border-b border-[var(--border)] px-4 py-4 last:border-b-0"
       >
         <header class="mb-3 min-w-0">
           <h3 class="break-words text-sm font-semibold text-gray-900 dark:text-white">
@@ -195,7 +194,7 @@
           </p>
         </header>
 
-        <div class="divide-y divide-gray-100 dark:divide-dark-700/60">
+        <div class="divide-y divide-[var(--border)]">
           <div
             v-for="section in channel.platforms"
             :key="`mobile-${channel.name}-${section.platform}`"
@@ -203,8 +202,7 @@
           >
             <span
               :class="[
-                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                platformBadgeClass(section.platform),
+                'pill pill-ghost inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--foreground)]',
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
@@ -328,7 +326,6 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import SupportedModelChip from './SupportedModelChip.vue'
 import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
-import { platformBadgeClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 
@@ -378,3 +375,12 @@ function peakRateTitle(group: UserAvailableGroup): string {
   return t('common.peakRateTooltip', { window: peakRateLabel(group) }) + t('common.peakRateImageNote')
 }
 </script>
+
+<style scoped>
+.table-wrapper {
+  width: 100%;
+  min-width: 0;
+  background: var(--card);
+  color: var(--foreground);
+}
+</style>

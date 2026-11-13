@@ -17,6 +17,13 @@ func RegisterUserRoutes(
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
+	mcpHandler := h.MCP
+	if mcpHandler == nil {
+		mcpHandler = handler.NewMCPGrantHandler()
+		if h != nil {
+			h.MCP = mcpHandler
+		}
+	}
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
@@ -28,7 +35,17 @@ func RegisterUserRoutes(
 		// 用户接口
 		user := authenticated.Group("/user")
 		{
+			user.POST("/mcp/authorize", mcpHandler.AuthorizeGrant)
+			user.GET("/onboarding", mcpHandler.GetOnboarding)
+			user.PUT("/onboarding", mcpHandler.UpdateOnboarding)
+			user.GET("/mcp/grants", mcpHandler.ListGrants)
+			user.POST("/mcp/grants", mcpHandler.CreateGrant)
+			user.DELETE("/mcp/grants/:id", mcpHandler.RevokeGrant)
+			user.GET("/audit-logs", mcpHandler.ListUserAuditLogs)
+			user.GET("/routing-policies", mcpHandler.GetRoutingPolicies)
+			user.PUT("/routing-policies", mcpHandler.UpdateRoutingPolicies)
 			user.GET("/profile", h.User.GetProfile)
+			user.GET("/usage/windows", panelRateLimiter.Heavy(), h.Usage.GetUsageWindows)
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)

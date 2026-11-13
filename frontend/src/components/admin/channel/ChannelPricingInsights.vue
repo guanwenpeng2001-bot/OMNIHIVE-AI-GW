@@ -1,48 +1,48 @@
 <template>
-  <details class="mt-2 rounded border border-gray-200 p-3 text-xs dark:border-dark-600" @toggle="onToggle">
+  <details class="pricing-insights mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-xs text-[var(--foreground)]" @toggle="onToggle">
     <summary class="cursor-pointer font-medium">{{ t('admin.channels.insights.title') }}</summary>
     <div v-if="opened" class="mt-3 space-y-3" data-testid="pricing-insights">
-      <p>{{ t('admin.channels.insights.readOnly') }}</p>
+      <p class="text-[var(--muted-foreground)]">{{ t('admin.channels.insights.readOnly') }}</p>
       <p v-if="loading" role="status">{{ t('common.loading') }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
-      <button v-if="error" type="button" class="btn btn-secondary" @click="loadAccounts">{{ t('admin.channels.insights.retry') }}</button>
+      <button v-if="error" type="button" class="btn btn-secondary btn-outline" @click="loadAccounts">{{ t('admin.channels.insights.retry') }}</button>
       <p v-if="!groupIds.length">{{ t('admin.channels.insights.needGroup') }}</p>
       <label class="block">{{ t('admin.channels.insights.account') }}
-        <select v-model="accountId" class="input mt-1" data-testid="insight-account">
+        <select v-model="accountId" class="input tabular-nums mt-1" data-testid="insight-account">
           <option value="">{{ t('admin.channels.insights.chooseAccount') }}</option>
           <option v-for="account in accounts" :key="account.id" :value="String(account.id)">{{ account.name }} (#{{ account.id }})</option>
         </select>
       </label>
       <p v-if="catalog?.staleness === 'stale'" role="status">{{ t('capabilityCatalog.stale') }}</p>
       <label class="block">{{ t('admin.channels.insights.model') }}
-        <select v-model="model" class="input mt-1" data-testid="insight-model">
+        <select v-model="model" class="input tabular-nums mt-1" data-testid="insight-model">
           <option v-for="name in entry.models" :key="name" :value="name">{{ name }}</option>
         </select>
       </label>
       <p>{{ t('admin.channels.insights.profile') }}: {{ metadata?.provider_profile || unknown }} · {{ metadata?.task_type || unknown }} · {{ metadata?.metadata_status || unknown }}</p>
       <p v-if="metadata?.missing_fields?.length">{{ t('capabilityCatalog.missing') }}: {{ metadata.missing_fields.join(', ') }}</p>
       <p v-if="metadata?.conflicts?.length" role="status">{{ t('capabilityCatalog.conflict') }}: {{ metadata.conflicts.join(', ') }}</p>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left" data-testid="capability-pricing-table">
+      <div class="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
+        <table class="w-full text-left tabular-nums" data-testid="capability-pricing-table">
           <thead><tr><th>{{ t('admin.channels.insights.field') }}</th><th>{{ t('admin.channels.insights.value') }}</th><th>{{ t('capabilityCatalog.source') }}</th></tr></thead>
-          <tbody><tr v-for="field in fields" :key="field" class="border-t border-gray-200 align-top dark:border-dark-600">
+          <tbody><tr v-for="field in fields" :key="field" class="border-t border-[var(--border)] align-top">
             <th class="py-2 pr-3 font-normal">{{ t(`admin.channels.insights.fields.${field}`) }}</th>
             <td class="break-words py-2 pr-3">{{ fieldValue(field) }}</td>
             <td class="break-all py-2">{{ evidence(field) }}</td>
           </tr></tbody>
         </table>
       </div>
-      <button type="button" class="btn btn-secondary" :disabled="loading || !model" data-testid="compare-pricing" @click="preview(false)">{{ t('admin.channels.insights.compare') }}</button>
-      <details>
+      <button type="button" class="btn btn-secondary btn-outline" :disabled="loading || !model" data-testid="compare-pricing" @click="preview(false)">{{ t('admin.channels.insights.compare') }}</button>
+      <details class="rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
         <summary class="cursor-pointer">{{ t('admin.channels.insights.sourcePreview') }}</summary>
         <p class="my-2">{{ t('admin.channels.insights.sampleHint') }}</p>
-        <label class="block">{{ t('admin.channels.insights.candidate') }}<textarea v-model="candidate" class="input mt-1" rows="4" data-testid="candidate-catalog" /></label>
-        <label class="block">{{ t('admin.channels.insights.group') }}<select v-model="sampleGroupId" class="input"><option v-for="groupId in groupIds" :key="groupId" :value="groupId">#{{ groupId }}</option></select></label>
-        <label class="block">{{ t('admin.channels.insights.inputTokens') }}<input v-model.number="inputTokens" class="input" type="number" min="0" max="10000000" /></label>
-        <label class="block">{{ t('admin.channels.insights.outputTokens') }}<input v-model.number="outputTokens" class="input" type="number" min="0" max="10000000" /></label>
-        <button type="button" class="btn btn-secondary mt-2" :disabled="loading || !candidate.trim() || !sampleGroupId || !model" data-testid="preview-source" @click="preview(true)">{{ t('admin.channels.insights.sourcePreview') }}</button>
+        <label class="block">{{ t('admin.channels.insights.candidate') }}<textarea v-model="candidate" class="input tabular-nums mt-1" rows="4" data-testid="candidate-catalog" /></label>
+        <label class="block">{{ t('admin.channels.insights.group') }}<select v-model="sampleGroupId" class="input tabular-nums"><option v-for="groupId in groupIds" :key="groupId" :value="groupId">#{{ groupId }}</option></select></label>
+        <label class="block">{{ t('admin.channels.insights.inputTokens') }}<input v-model.number="inputTokens" class="input tabular-nums" type="number" min="0" max="10000000" /></label>
+        <label class="block">{{ t('admin.channels.insights.outputTokens') }}<input v-model.number="outputTokens" class="input tabular-nums" type="number" min="0" max="10000000" /></label>
+        <button type="button" class="btn btn-secondary btn-outline mt-2" :disabled="loading || !candidate.trim() || !sampleGroupId || !model" data-testid="preview-source" @click="preview(true)">{{ t('admin.channels.insights.sourcePreview') }}</button>
       </details>
-      <div v-if="result" class="space-y-2" data-testid="pricing-preview-result">
+      <div v-if="result" class="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 tabular-nums" data-testid="pricing-preview-result">
         <p>{{ t('admin.channels.insights.referenceHint') }}</p>
         <p v-if="result.source">{{ result.source.before_count }} → {{ result.source.after_count }} · {{ t('admin.channels.insights.added') }}: {{ result.source.added.length }} · {{ t('admin.channels.insights.removed') }}: {{ result.source.removed.length }}</p>
         <div v-for="difference in differences" :key="difference.id" :role="difference.warning ? 'alert' : undefined" :class="{ 'text-amber-700 dark:text-amber-400': difference.warning }">
@@ -182,3 +182,66 @@ async function preview(withSource: boolean) {
   } finally { if (current === previewRequest) previewing.value = false }
 }
 </script>
+
+<style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+div.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
+}
+</style>

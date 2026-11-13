@@ -1,23 +1,88 @@
 <template>
   <AppLayout>
-    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
-    <div class="space-y-6">
+    <div class="oh-usage-workbench space-y-5 tabular-nums stat-num">
+      <!-- OpenRouter Activity 风格工作台顶栏 -->
+      <header class="oh-activity-header flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0 space-y-1">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="oh-brand-bar" aria-hidden="true" />
+            <h1 class="text-xl font-bold tracking-tight text-[var(--foreground)] sm:text-2xl">
+              {{ t('usage.tabs.usage') }}
+            </h1>
+            <span class="oh-activity-pill font-mono tabular-nums">
+              <span class="pulse-dot pulse-ok" aria-hidden="true" />
+              <span>ACTIVITY</span>
+            </span>
+            <span class="pill pill-ghost font-mono text-xs tabular-nums">
+              {{ startDate }} → {{ endDate }}
+            </span>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
+            <ReportTimeContext :time-zone="reportTimeZone" />
+            <span aria-hidden="true">·</span>
+            <span class="font-mono tabular-nums">
+              {{ activeTab === 'errors' ? errorTotal : pagination.total }} RECORDS
+            </span>
+          </div>
+        </div>
+
+        <div v-if="errorViewEnabled" class="segmented" role="tablist">
+          <button
+            type="button"
+            class="tab seg-btn"
+            :class="{ 'tab-active on seg-active': activeTab === 'usage' }"
+            :aria-pressed="activeTab === 'usage'"
+            @click="activeTab = 'usage'"
+          >
+            {{ t('usage.tabs.usage') }}
+          </button>
+          <button
+            type="button"
+            class="tab seg-btn"
+            :class="{ 'tab-active on seg-active': activeTab === 'errors' }"
+            :aria-pressed="activeTab === 'errors'"
+            @click="switchToErrors"
+          >
+            {{ t('usage.tabs.errors') }}
+          </button>
+        </div>
+      </header>
+
       <UserPendingSettlement :filters="normalizedFilters" />
-      <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" :show-account-cost="false" :strike-standard-cost="true" />
+
+      <!-- 统计概览卡片（OpenRouter Activity 细边框 + tabular-nums） -->
+      <div class="oh-activity-stats-shell tabular-nums stat-num">
+        <UsageStatsCards
+          :stats="usageStats"
+          :loading="endpointStatsLoading"
+          :error="statsError"
+          :history-gap="statsHistoryGap"
+          :show-account-cost="false"
+          :strike-standard-cost="true"
+        />
+      </div>
 
       <div class="space-y-4">
-        <div class="card p-4">
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.timeRange') }}:</span>
+        <!-- 时间范围与趋势粒度控制栏 -->
+        <div class="oh-activity-card card p-3.5 sm:p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <span class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.dashboard.timeRange') }}:
+              </span>
               <DateRangePicker
                 v-model:start-date="startDate"
                 v-model:end-date="endDate"
                 @change="onDateRangeChange"
               />
+              <span class="pill pill-ghost hidden font-mono text-[11px] tabular-nums sm:inline-flex">
+                {{ granularity === 'hour' ? '1H BUCKET' : '1D BUCKET' }}
+              </span>
             </div>
             <div class="ml-auto flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.dashboard.granularity') }}:</span>
+              <span class="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                {{ t('admin.dashboard.granularity') }}:
+              </span>
               <div class="w-28">
                 <Select v-model="granularity" :options="granularityOptions" @change="loadChartData" />
               </div>
@@ -25,7 +90,8 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <!-- 用量分布与趋势图表容器 -->
+        <div class="oh-activity-charts-grid grid grid-cols-1 gap-4 lg:grid-cols-2">
           <ModelDistributionChart :model-unknown="modelState === 'unknown'" :model-error="modelState === 'error'"
             v-model:metric="modelDistributionMetric"
             :model-stats="requestedModelStats"
@@ -51,7 +117,7 @@
           </UsageStatsState>
         </div>
 
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div class="oh-activity-charts-grid grid grid-cols-1 gap-4 lg:grid-cols-2">
           <UsageStatsState :state="statsHistoryGap ? 'unknown' : statsError ? 'error' : 'known'">
             <EndpointDistributionChart
               v-model:source="endpointDistributionSource"
@@ -74,7 +140,8 @@
         </div>
       </div>
 
-      <div class="card p-6">
+      <!-- 筛选控制栏 -->
+      <div class="oh-activity-card oh-filter-workbench card p-4 sm:p-5">
         <div class="flex flex-wrap items-end justify-between gap-4">
           <div v-if="activeTab === 'errors'" class="flex flex-1 flex-wrap items-end gap-4">
             <div class="w-full sm:w-auto sm:min-w-[220px]">
@@ -118,7 +185,7 @@
             @change="applyFilters"
           />
 
-          <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+          <div class="flex w-full flex-wrap items-center justify-end gap-2.5 sm:w-auto">
             <button type="button" @click="refreshData" :disabled="activeTab === 'errors' ? errorLoading : loading" class="btn btn-secondary">
               {{ t('common.refresh') }}
             </button>
@@ -138,7 +205,7 @@
               </button>
               <div
                 v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
               >
                 <button
                   v-for="col in currentToggleableColumns"
@@ -146,7 +213,7 @@
                   type="button"
                   :data-testid="`usage-column-toggle-${col.key}`"
                   @click="toggleCurrentColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--secondary)]"
                 >
                   <span>{{ col.label }}</span>
                   <Icon v-if="isCurrentColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
@@ -160,54 +227,65 @@
         </div>
       </div>
 
-      <div v-if="errorViewEnabled" class="flex gap-2 border-b border-gray-200 dark:border-dark-700">
-        <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
-          {{ t('usage.tabs.usage') }}
-        </button>
-        <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
-          {{ t('usage.tabs.errors') }}
-        </button>
-      </div>
+      <!-- 明细表格工作台容器 -->
+      <div class="oh-activity-table-shell space-y-3 tabular-nums stat-num">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="text-sm font-semibold text-[var(--foreground)]">
+              {{ activeTab === 'errors' ? t('usage.tabs.errors') : t('usage.tabs.usage') }}
+            </h2>
+            <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+              {{ activeTab === 'errors' ? errorTotal : pagination.total }}
+            </span>
+            <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+              {{ visibleColumnsCount }} COLS
+            </span>
+          </div>
+          <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
+            {{ activeTab === 'errors' ? errorSortBy : sortState.sort_by }} · {{ (activeTab === 'errors' ? errorSortOrder : sortState.sort_order).toUpperCase() }}
+          </span>
+        </div>
 
-      <template v-if="activeTab === 'usage'">
-        <UsageStatsState :state="logsState">
+        <template v-if="activeTab === 'usage'">
+          <UsageStatsState :state="logsState">
             <UsageTable :time-zone="reportTimeZone"
-            :data="usageLogs"
-            :loading="loading"
-            :columns="visibleColumns"
-            :server-side-sort="true"
-            :show-account-billing="false"
-            :show-upstream-endpoint="false"
-            default-sort-key="created_at"
-            default-sort-order="desc"
-            @sort="handleSort"
-            @ipGeoBatchFailed="handleIpGeoBatchFailed"
+              :data="usageLogs"
+              :loading="loading"
+              :columns="visibleColumns"
+              :server-side-sort="true"
+              :show-account-billing="false"
+              :show-upstream-endpoint="false"
+              default-sort-key="created_at"
+              default-sort-order="desc"
+              @sort="handleSort"
+              @ipGeoBatchFailed="handleIpGeoBatchFailed"
+            />
+          </UsageStatsState>
+
+          <Pagination
+            v-if="pagination.total > 0"
+            :page="pagination.page"
+            :total="pagination.total"
+            :page-size="pagination.page_size"
+            @update:page="handlePageChange"
+            @update:pageSize="handlePageSizeChange"
           />
-        </UsageStatsState>
+        </template>
 
-        <Pagination
-          v-if="pagination.total > 0"
-          :page="pagination.page"
-          :total="pagination.total"
-          :page-size="pagination.page_size"
-          @update:page="handlePageChange"
-          @update:pageSize="handlePageSizeChange"
+        <UserErrorRequestsTable
+          v-else-if="errorViewEnabled"
+          :rows="errorRows"
+          :total="errorTotal"
+          :loading="errorLoading"
+          :page="errorPage"
+          :page-size="errorPageSize"
+          :visible-column-keys="errVisibleColumnKeys"
+          @sort="onErrorSort"
+          @update:page="onErrorPage"
+          @update:pageSize="onErrorPageSize"
+          @ipGeoBatchFailed="handleIpGeoBatchFailed"
         />
-      </template>
-
-      <UserErrorRequestsTable
-        v-else-if="errorViewEnabled"
-        :rows="errorRows"
-        :total="errorTotal"
-        :loading="errorLoading"
-        :page="errorPage"
-        :page-size="errorPageSize"
-        :visible-column-keys="errVisibleColumnKeys"
-        @sort="onErrorSort"
-        @update:page="onErrorPage"
-        @update:pageSize="onErrorPageSize"
-        @ipGeoBatchFailed="handleIpGeoBatchFailed"
-      />
+      </div>
     </div>
   </AppLayout>
 
@@ -744,6 +822,9 @@ const loadSavedErrColumns = () => {
 const currentToggleableColumns = computed(() =>
   activeTab.value === 'errors' ? errToggleableColumns.value : toggleableColumns.value
 )
+const visibleColumnsCount = computed(() =>
+  activeTab.value === 'errors' ? errVisibleColumnKeys.value.length : visibleColumns.value.length
+)
 const isCurrentColumnVisible = (key: string) =>
   activeTab.value === 'errors' ? isErrColumnVisible(key) : isColumnVisible(key)
 const toggleCurrentColumn = (key: string) => {
@@ -862,3 +943,70 @@ watch(endpointDistributionSource, () => {
   // Endpoint source switching is handled by the chart component using already loaded stats.
 })
 </script>
+
+<style scoped>
+.oh-brand-bar {
+  width: 3.5px;
+  height: 20px;
+  border-radius: 9999px;
+  background: var(--brand, #f59e0b);
+}
+
+.oh-activity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, var(--brand, #f59e0b) 13%, var(--card, #ffffff));
+  color: var(--brand-text, #92610a);
+  border: 1px solid color-mix(in srgb, var(--brand, #f59e0b) 30%, transparent);
+}
+
+/* OpenRouter Activity 细边框卡片体系 */
+.oh-activity-card,
+.oh-activity-stats-shell :deep(.card),
+.oh-activity-charts-grid :deep(.card),
+.oh-activity-table-shell :deep(.card) {
+  background: var(--card, #ffffff);
+  border: 1px solid var(--border, #e9e9ee);
+  border-radius: var(--radius-md, 12px);
+  box-shadow: none;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.oh-activity-stats-shell :deep(.card:hover),
+.oh-activity-charts-grid :deep(.card:hover) {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 32%, var(--border, #e9e9ee));
+}
+
+/* 强制统计卡片、图表与明细表格内的数字使用等宽对齐 (tabular-nums) */
+.oh-activity-stats-shell :deep(.text-xl),
+.oh-activity-stats-shell :deep(.font-bold),
+.oh-activity-charts-grid :deep(.tabular-nums),
+.oh-activity-table-shell :deep(td) {
+  font-variant-numeric: tabular-nums;
+}
+
+.oh-activity-table-shell :deep(thead tr) {
+  background: color-mix(in srgb, var(--surface-2, #f4f4f5) 68%, var(--card, #ffffff));
+}
+
+.oh-activity-table-shell :deep(thead th) {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted-foreground, #6f6f78);
+}
+
+.oh-activity-table-shell :deep(tbody tr) {
+  transition: background-color 0.16s ease;
+}
+
+.oh-activity-table-shell :deep(tbody tr:hover) {
+  background: color-mix(in srgb, var(--brand, #f59e0b) 4.5%, transparent);
+}
+</style>

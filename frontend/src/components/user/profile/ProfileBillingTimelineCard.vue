@@ -1,8 +1,8 @@
 <template>
   <div class="card" data-testid="profile-billing-timeline">
-    <div class="flex items-start justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+    <div class="card-header flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white">
+        <h2 class="text-base font-semibold text-[var(--foreground)]">
           {{ t('billing.timeline.title') }}
         </h2>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -23,7 +23,7 @@
         <div
           v-for="summary in summaries"
           :key="summary.key"
-          class="rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800"
+          class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 tabular-nums"
           :data-testid="`billing-total-${summary.key}`"
         >
           <div class="text-xs text-gray-500 dark:text-gray-400">{{ summary.label }}</div>
@@ -35,7 +35,7 @@
         {{ t('billing.timeline.empty') }}
       </p>
 
-      <ul v-else class="divide-y divide-gray-100 dark:divide-dark-700">
+      <ul v-else class="divide-y divide-[var(--border)]">
         <li
           v-for="entry in entries"
           :key="entryKey(entry)"
@@ -60,7 +60,7 @@
               <span>{{ entry.reference }}</span>
             </div>
           </div>
-          <div class="whitespace-nowrap text-sm font-medium" :class="amountClass(entry.amount)" data-testid="billing-amount">
+          <div class="whitespace-nowrap text-sm font-medium tabular-nums" :class="amountClass(entry.amount)" data-testid="billing-amount">
             {{ formatAmount(entry.amount) }}
           </div>
         </li>

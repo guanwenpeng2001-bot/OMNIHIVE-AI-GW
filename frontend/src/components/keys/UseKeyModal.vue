@@ -41,18 +41,18 @@
         </div>
 
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length && hasBaseUrl" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" :aria-label="t('keys.useKeyModal.clientLabel')">
+        <div v-if="clientTabs.length && hasBaseUrl" class="overflow-x-auto pb-1">
+          <nav class="segmented min-w-max" :aria-label="t('keys.useKeyModal.clientLabel')">
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
               type="button"
               @click="activeClientTab = tab.id"
               :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
+                'seg-btn whitespace-nowrap',
                 activeClientTab === tab.id
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  ? 'seg-active'
+                  : ''
               ]"
             >
               <span class="flex items-center gap-2">
@@ -66,7 +66,7 @@
         <!-- Codex Authentication Mode -->
         <div
           v-if="showCodexAuthMode"
-          class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"
+          class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"
         >
           <div class="mb-2">
             <p class="text-sm font-medium text-gray-900 dark:text-white">
@@ -77,7 +77,7 @@
             </p>
           </div>
           <div
-            class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+            class="segmented !grid grid-cols-2"
             role="radiogroup"
             :aria-label="t('keys.useKeyModal.openai.authModeTitle')"
           >
@@ -87,10 +87,10 @@
               data-testid="codex-auth-mode-legacy"
               :aria-checked="codexAuthMode === 'legacy'"
               :class="[
-                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                'seg-btn !whitespace-normal',
                 codexAuthMode === 'legacy'
-                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                  ? 'seg-active'
+                  : ''
               ]"
               @click="codexAuthMode = 'legacy'"
             >
@@ -102,10 +102,10 @@
               data-testid="codex-auth-mode-api-key"
               :aria-checked="codexAuthMode === 'api-key'"
               :class="[
-                'rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                'seg-btn !whitespace-normal',
                 codexAuthMode === 'api-key'
-                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                  ? 'seg-active'
+                  : ''
               ]"
               @click="codexAuthMode = 'api-key'"
             >
@@ -123,18 +123,18 @@
         </div>
 
         <!-- OS/Shell Tabs -->
-        <div v-if="showShellTabs" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex min-w-max gap-4" :aria-label="t('keys.useKeyModal.shellLabel')">
+        <div v-if="showShellTabs" class="overflow-x-auto pb-1">
+          <nav class="segmented min-w-max" :aria-label="t('keys.useKeyModal.shellLabel')">
             <button
               v-for="tab in currentTabs"
               :key="tab.id"
               type="button"
               @click="activeTab = tab.id"
               :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
+                'seg-btn whitespace-nowrap',
                 activeTab === tab.id
-                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  ? 'seg-active'
+                  : ''
               ]"
             >
               <span class="flex items-center gap-2">
@@ -157,9 +157,9 @@
               <Icon name="exclamationCircle" size="sm" class="flex-shrink-0" />
               {{ file.hint }}
             </p>
-            <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
+            <div class="overflow-hidden rounded-lg border border-white/10 bg-[#161616]">
               <!-- Code Header -->
-              <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
+              <div class="flex items-center justify-between gap-3 border-b border-white/10 bg-[#242424] px-4 py-2">
                 <span class="min-w-0 truncate text-xs text-gray-400 font-mono">{{ file.path }}</span>
                 <button
                   type="button"
@@ -179,7 +179,7 @@
                 </button>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
+              <pre class="overflow-x-auto p-4 font-mono text-xs leading-6 text-[#f4f4f5] sm:text-sm"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
             </div>
           </div>
         </div>
@@ -187,7 +187,7 @@
         <section
           v-if="showCodexModelCatalog"
           data-testid="codex-model-catalog"
-          class="overflow-hidden rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-800/50"
+          class="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-2)]"
         >
           <div class="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div class="min-w-0">
@@ -231,7 +231,7 @@
           </div>
           <p
             v-if="codexModelManifestState === 'ready'"
-            class="border-t border-gray-200 px-4 py-2 text-xs text-emerald-700 dark:border-dark-700 dark:text-emerald-300"
+            class="border-t border-[var(--border)] px-4 py-2 text-xs text-emerald-700 dark:text-emerald-300"
           >
             {{ t('keys.useKeyModal.codexModelCatalog.modelsCount', { count: codexModelManifestModelCount }) }}
           </p>

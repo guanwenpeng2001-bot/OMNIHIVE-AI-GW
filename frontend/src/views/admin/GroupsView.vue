@@ -1,7 +1,27 @@
 <template>
   <AppLayout>
+    <section class="group-overview mb-3" aria-label="分组与路由单元概览">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 class="text-sm font-semibold">分组与路由单元</h1>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">配置计费、模型能力与路由；使用行内编辑、复制快速调整。</p>
+        </div>
+        <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+          <span>筛选结果总分组 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : groupsListController.pagination.total }}</b></span>
+          <span>本页启用 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : groupOverview.active }} / {{ groups.length }}</b></span>
+          <span v-if="!authStore.isSimpleMode">本页按量 / 订阅 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : `${groupOverview.standard} / ${groupOverview.subscription}` }}</b></span>
+        </div>
+      </div>
+      <div v-if="!authStore.isSimpleMode" class="mt-3 flex items-center gap-3 text-xs">
+        <div class="group-ratio" role="img" :aria-label="`本页按量 ${groupOverview.standardPercent}%，订阅 ${groupOverview.subscriptionPercent}%`">
+          <span :style="{ width: `${groupOverview.standardPercent}%` }"></span>
+        </div>
+        <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ groups.length ? `按量 ${groupOverview.standardPercent}% · 订阅 ${groupOverview.subscriptionPercent}%` : '暂无分组' }}</span>
+      </div>
+    </section>
     <ModelAccessGroupsPanel />
     <GroupsTable
+      class="group-workbench-table"
       :controller="groupsListController"
       :duplicating-group-ids="duplicatingGroupIds"
       @create="openCreateModal"
@@ -21,12 +41,16 @@
       width="wide"
       @close="closeCreateModal"
     >
+      <nav class="group-config-nav" aria-label="新建分组配置导航">
+        <button v-for="section in groupConfigSections" :key="section.value" type="button" class="tree-item" :class="{ active: groupConfigSection === section.value }" :aria-pressed="groupConfigSection === section.value" aria-controls="create-group-form" @click="navigateGroupConfig(section.value)">{{ section.label }}</button>
+      </nav>
       <form
         id="create-group-form"
         @submit.prevent="handleCreateGroup"
-        class="space-y-5"
+        @invalid.capture="revealInvalidGroupField"
+        class="group-config-form space-y-5"
       >
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic" id="create-group-basic" class="group-config-section" tabindex="-1">
           <label class="input-label">{{ t("admin.groups.form.name") }}</label>
           <input
             v-model="createForm.name"
@@ -37,7 +61,7 @@
             data-tour="group-form-name"
           />
         </div>
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic">
           <label class="input-label">{{
             t("admin.groups.form.description")
           }}</label>
@@ -48,7 +72,7 @@
             :placeholder="t('admin.groups.optionalDescription')"
           ></textarea>
         </div>
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic">
           <label class="input-label">{{
             t("admin.groups.form.platform")
           }}</label>
@@ -61,7 +85,7 @@
           <p class="input-hint">{{ t("admin.groups.platformHint") }}</p>
         </div>
         <!-- 从分组复制账号 -->
-        <div v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
+        <div v-show="showGroupSection('basic')" data-group-section="basic" v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.copyAccounts.title") }}
@@ -150,7 +174,7 @@
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
         <template v-if="!authStore.isSimpleMode">
-        <div>
+        <div v-show="showGroupSection('billing')" data-group-section="billing" id="create-group-billing" class="group-config-section" tabindex="-1">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -165,7 +189,7 @@
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
-        <div>
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling">
           <TpmLimitField v-model="createForm.tpm_limit" />
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -178,6 +202,7 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
+        <div v-show="showGroupSection('models')" data-group-section="models">
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
           ref="createReasoningEffortPolicyRef"
@@ -187,7 +212,8 @@
           v-model:over-limit="createForm.max_reasoning_effort_over_limit"
           v-model:mappings="createForm.reasoning_effort_mappings"
         />
-        <div
+        </div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic"
           v-if="createForm.subscription_type !== 'subscription'"
           data-tour="group-form-exclusive"
         >
@@ -247,7 +273,7 @@
         </div>
 
         <!-- Subscription Configuration -->
-        <div class="mt-4 border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" class="mt-4 border-t pt-4">
           <div>
             <label class="input-label">{{
               t("admin.groups.subscription.type")
@@ -308,7 +334,7 @@
           </div>
         </div>
 
-        <div class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" class="border-t pt-4">
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -322,11 +348,11 @@
           </div>
           <div
             v-if="createModelAllowlistState.enabled"
-            class="overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 dark:border-dark-600 dark:bg-dark-800/40"
+            class="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]"
           >
             <div
               v-if="!createModelAllowlistLoading && createModelAllowlistState.items.length > 0"
-              class="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-dark-600 dark:bg-dark-800"
+              class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs border-[var(--border)] bg-[var(--card)]"
             >
               <span class="text-gray-500 dark:text-gray-400">
                 {{
@@ -346,7 +372,7 @@
                 </button>
                 <button
                   type="button"
-                  class="rounded px-2 py-1 font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  class="rounded px-2 py-1 font-medium text-gray-600 transition-colors dark:text-gray-300 hover:bg-[var(--surface-2)]"
                   @click="invertModelAllowlistSelection(createModelAllowlistState)"
                 >
                   {{ t("admin.groups.modelAllowlist.invertSelection") }}
@@ -368,7 +394,7 @@
               <div
                 v-for="(item, index) in createModelAllowlistState.items"
                 :key="item.id"
-                class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
+                class="flex items-center gap-2 rounded border px-3 py-2 border-[var(--border)] bg-[var(--card)]"
               >
                 <input
                   v-model="item.selected"
@@ -387,7 +413,7 @@
                 <button
                   type="button"
                   :disabled="index === 0"
-                  class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+                  class="rounded p-1 text-gray-400 hover:text-gray-700 disabled:opacity-40 hover:bg-[var(--surface-2)] dark:hover:text-gray-200"
                   @click="moveCreateModelAllowlistItem(index, index - 1)"
                 >
                   <Icon name="arrowUp" size="sm" />
@@ -395,20 +421,20 @@
                 <button
                   type="button"
                   :disabled="index === createModelAllowlistState.items.length - 1"
-                  class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+                  class="rounded p-1 text-gray-400 hover:text-gray-700 disabled:opacity-40 hover:bg-[var(--surface-2)] dark:hover:text-gray-200"
                   @click="moveCreateModelAllowlistItem(index, index + 1)"
                 >
                   <Icon name="arrowDown" size="sm" />
                 </button>
               </div>
             </div>
-            <div class="border-t border-gray-200 px-3 py-2 dark:border-dark-600">
+            <div class="border-t px-3 py-2 border-[var(--border)]">
               <div class="flex items-center gap-2">
                 <input
                   v-model="createAllowlistCustomEntry"
                   type="text"
                   :placeholder="t('admin.groups.modelAllowlist.customPlaceholder')"
-                  class="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200"
+                  class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm text-gray-700 focus:border-primary-500 focus:outline-none border-[var(--border)] bg-[var(--surface-2)] dark:text-gray-200"
                   @keydown.enter.prevent="submitCreateAllowlistCustomEntry"
                 />
                 <button
@@ -430,7 +456,7 @@
         </div>
 
         <!-- 图片生成计费配置 -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="supportsImagePricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
@@ -527,7 +553,7 @@
               </div>
             </div>
           </div>
-          <div v-if="createForm.platform === 'gemini' && createForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+          <div v-if="createForm.platform === 'gemini' && createForm.allow_image_generation" class="mt-4 border-t border-dashed pt-4 border-[var(--border)]">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
@@ -575,14 +601,14 @@
           </div>
           <p
             v-else-if="createForm.platform !== 'gemini'"
-            class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
+            class="mt-4 border-t border-dashed pt-4 text-xs text-gray-500 border-[var(--border)] dark:text-gray-400"
           >
             {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
           </p>
         </div>
 
         <!-- 视频生成计费配置（仅 Grok 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="supportsVideoPricingPlatform(createForm.platform)"
           class="border-t pt-4"
         >
@@ -656,7 +682,7 @@
             </div>
           </div>
           <div
-            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+            class="mt-4 border-t border-dashed pt-4 border-[var(--border)]"
             data-testid="create-grok-video-model-prices"
           >
             <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -713,7 +739,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -760,7 +786,7 @@
         </div>
 
         <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="createForm.profit_control_enabled"
@@ -810,7 +836,7 @@
         </div>
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
-        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.supportedScopes.title") }}
@@ -845,7 +871,7 @@
                 type="checkbox"
                 :checked="createForm.supported_model_scopes.includes('claude')"
                 @change="toggleCreateScope('claude')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.claude")
@@ -858,7 +884,7 @@
                   createForm.supported_model_scopes.includes('gemini_text')
                 "
                 @change="toggleCreateScope('gemini_text')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.geminiText")
@@ -871,7 +897,7 @@
                   createForm.supported_model_scopes.includes('gemini_image')
                 "
                 @change="toggleCreateScope('gemini_image')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.geminiImage")
@@ -884,7 +910,7 @@
         </div>
 
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
-        <div v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" v-if="createForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.mcpXml.title") }}
@@ -925,7 +951,7 @@
         </div>
 
         <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
-        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.claudeCode.title") }}
@@ -981,9 +1007,9 @@
         </div>
 
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="createForm.platform === 'openai'"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.webSearchPricing.title") }}
@@ -1004,7 +1030,7 @@
               {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
             </p>
             <div
-              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+              class="mt-2 rounded-lg p-3 text-xs text-gray-600 bg-[var(--surface-2)] dark:text-gray-300"
             >
               {{
                 t("admin.groups.webSearchPricing.finalPricePreview", {
@@ -1016,7 +1042,7 @@
         </div>
 
 
-        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" class="border-t pt-4 mt-4 border-[var(--border)]">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
@@ -1036,9 +1062,9 @@
         </div>
 
         <!-- Grok Voice 显式定价（仅 grok 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="createForm.platform === 'grok'"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ t("admin.groups.explicitPricing.title") }}
@@ -1098,9 +1124,9 @@
           </div>
         </div>
         <!-- OpenAI Fast 开关（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="supportsGroupOpenAIFast(createForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiFast.title") }}
@@ -1134,9 +1160,9 @@
         </div>
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('models')" data-group-section="models"
           v-if="supportsLivePlatform(createForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiLive.title") }}
@@ -1151,14 +1177,14 @@
             />
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiLive.hint") }}
+            {{ t("admin.groups.openaiLive.hint").replace(/sub2api/gi, "OmniHive") }}
           </p>
         </div>
 
         <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="supportsMessagesDispatchPlatform(createForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiMessages.title") }}
@@ -1183,10 +1209,10 @@
             class="mt-3"
           >
             <div
-              class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
+              class="relative overflow-hidden rounded-xl border shadow-sm border-[var(--border)] bg-[var(--card)]"
             >
               <div
-                class="border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-700 dark:bg-dark-700/50"
+                class="border-b px-4 py-3 border-[var(--border)] bg-[var(--surface-2)]"
               >
                 <div class="flex items-center gap-2">
                   <div class="h-2 w-2 rounded-full bg-blue-500"></div>
@@ -1247,7 +1273,7 @@
             </div>
 
             <div
-              class="mt-5 relative overflow-hidden rounded-xl border border-primary-200 bg-white shadow-sm dark:border-primary-900/50 dark:bg-dark-800"
+              class="mt-5 relative overflow-hidden rounded-xl border border-primary-200 shadow-sm dark:border-primary-900/50 bg-[var(--card)]"
             >
               <div
                 class="border-b border-primary-100 bg-primary-50/80 px-4 py-3 dark:border-primary-900/40 dark:bg-primary-900/20"
@@ -1272,10 +1298,10 @@
                 </div>
               </div>
 
-              <div class="p-4 bg-gray-50/30 dark:bg-dark-800/30">
+              <div class="p-4 bg-[var(--card)]">
                 <div
                   v-if="createForm.exact_model_mappings.length === 0"
-                  class="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed border-primary-200 bg-white px-5 py-4 text-sm text-primary-700 transition-colors hover:border-primary-300 dark:border-primary-900/40 dark:bg-dark-800 dark:text-primary-300 dark:hover:border-primary-800"
+                  class="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed border-primary-200 px-5 py-4 text-sm text-primary-700 transition-colors hover:border-primary-300 dark:border-primary-900/40 bg-[var(--card)] dark:text-primary-300 dark:hover:border-primary-800"
                 >
                   <span>{{
                     t("admin.groups.openaiMessages.noExactMappings")
@@ -1294,7 +1320,7 @@
                   <div
                     v-for="row in createForm.exact_model_mappings"
                     :key="getCreateMessagesDispatchRowKey(row)"
-                    class="group relative rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-primary-300 hover:shadow-md dark:border-dark-600 dark:bg-dark-700 dark:hover:border-primary-700"
+                    class="group relative rounded-xl border p-4 shadow-sm transition-all hover:border-primary-300 hover:shadow-md border-[var(--border)] bg-[var(--surface-2)] dark:hover:border-primary-700"
                   >
                     <div class="flex items-center gap-4">
                       <div
@@ -1312,7 +1338,7 @@
                                 'admin.groups.openaiMessages.claudeModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="input bg-[var(--card)] focus:bg-[var(--card)]"
                           />
                         </div>
                         <div
@@ -1336,7 +1362,7 @@
                                 'admin.groups.openaiMessages.targetModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="input bg-[var(--card)] focus:bg-[var(--card)]"
                           />
                         </div>
                       </div>
@@ -1356,7 +1382,7 @@
                   <button
                     type="button"
                     @click="addCreateMessagesDispatchMapping"
-                    class="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-white py-3 text-sm font-medium text-gray-500 transition-all hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-primary-800 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                    class="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium text-gray-500 transition-all hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-600 border-[var(--border)] bg-[var(--card)] dark:text-gray-400 dark:hover:border-primary-800 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
                   >
                     <Icon name="plus" size="sm" />
                     {{ t("admin.groups.openaiMessages.addExactMapping") }}
@@ -1368,13 +1394,13 @@
         </div>
 
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
-        <div
+        <div v-show="showGroupSection('models')" data-group-section="models"
           v-if="
             platformSupportsOAuth(
               createForm.platform,
             )
           "
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4 space-y-4"
+          class="border-t border-[var(--border)] pt-4 mt-4 space-y-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.accountFilters.title") }}
@@ -1416,7 +1442,7 @@
         </div>
 
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="
             ['anthropic', 'antigravity'].includes(createForm.platform) &&
             createForm.subscription_type !== 'subscription'
@@ -1437,7 +1463,7 @@
         </div>
 
         <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-if="createForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="createForm.platform === 'anthropic'" id="create-group-routing" class="group-config-section border-t pt-4" tabindex="-1">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.modelRouting.title") }}
@@ -1491,7 +1517,7 @@
             <div
               v-for="rule in createModelRoutingRules"
               :key="getCreateRuleRenderKey(rule)"
-              class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+              class="rounded-lg border p-3 border-[var(--border)]"
             >
               <div class="flex items-start gap-3">
                 <div class="flex-1 space-y-2">
@@ -1555,7 +1581,7 @@
                           accountSearchResults[getCreateRuleSearchKey(rule)]
                             ?.length > 0
                         "
-                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
                       >
                         <button
                           v-for="account in accountSearchResults[
@@ -1564,7 +1590,7 @@
                           :key="account.id"
                           type="button"
                           @click="selectAccount(rule, account)"
-                          class="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
+                          class="w-full px-3 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
                           :class="{
                             'opacity-50': rule.accounts.some(
                               (a) => a.id === account.id,
@@ -1660,13 +1686,17 @@
       width="wide"
       @close="closeEditModal"
     >
+      <nav class="group-config-nav" aria-label="编辑分组配置导航">
+        <button v-for="section in groupConfigSections" :key="section.value" type="button" class="tree-item" :class="{ active: groupConfigSection === section.value }" :aria-pressed="groupConfigSection === section.value" aria-controls="edit-group-form" @click="navigateGroupConfig(section.value)">{{ section.label }}</button>
+      </nav>
       <form
         v-if="editingGroup"
         id="edit-group-form"
         @submit.prevent="handleUpdateGroup"
-        class="space-y-5"
+        @invalid.capture="revealInvalidGroupField"
+        class="group-config-form space-y-5"
       >
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic" id="edit-group-basic" class="group-config-section" tabindex="-1">
           <label class="input-label">{{ t("admin.groups.form.name") }}</label>
           <input
             v-model="editForm.name"
@@ -1676,7 +1706,7 @@
             data-tour="edit-group-form-name"
           />
         </div>
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic">
           <label class="input-label">{{
             t("admin.groups.form.description")
           }}</label>
@@ -1686,7 +1716,7 @@
             class="input"
           ></textarea>
         </div>
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic">
           <label class="input-label">{{
             t("admin.groups.form.platform")
           }}</label>
@@ -1700,7 +1730,7 @@
         </div>
         <template v-if="!authStore.isSimpleMode">
         <!-- 从分组复制账号（编辑时） -->
-        <div v-if="copyAccountsGroupOptionsForEdit.length > 0">
+        <div v-show="showGroupSection('basic')" data-group-section="basic" v-if="copyAccountsGroupOptionsForEdit.length > 0">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.copyAccounts.title") }}
@@ -1790,7 +1820,7 @@
             {{ t("admin.groups.copyAccounts.hintEdit") }}
           </p>
         </div>
-        <div>
+        <div v-show="showGroupSection('billing')" data-group-section="billing" id="edit-group-billing" class="group-config-section" tabindex="-1">
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
@@ -1804,7 +1834,7 @@
             data-tour="group-form-multiplier"
           />
         </div>
-        <div>
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling">
           <TpmLimitField v-model="editForm.tpm_limit" />
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
@@ -1817,6 +1847,7 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
+        <div v-show="showGroupSection('models')" data-group-section="models">
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
           ref="editReasoningEffortPolicyRef"
@@ -1826,7 +1857,8 @@
           v-model:over-limit="editForm.max_reasoning_effort_over_limit"
           v-model:mappings="editForm.reasoning_effort_mappings"
         />
-        <div v-if="editForm.subscription_type !== 'subscription'">
+        </div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic" v-if="editForm.subscription_type !== 'subscription'">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.form.exclusive") }}
@@ -1881,13 +1913,13 @@
             </span>
           </div>
         </div>
-        <div>
+        <div v-show="showGroupSection('basic')" data-group-section="basic">
           <label class="input-label">{{ t("admin.groups.form.status") }}</label>
           <Select v-model="editForm.status" :options="editStatusOptions" />
         </div>
 
         <!-- Subscription Configuration -->
-        <div class="mt-4 border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" class="mt-4 border-t pt-4">
           <div>
             <label class="input-label">{{
               t("admin.groups.subscription.type")
@@ -1949,7 +1981,7 @@
           </div>
         </div>
 
-        <div class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" class="border-t pt-4">
           <div class="mb-3 flex items-center justify-between gap-3">
             <div>
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -1963,11 +1995,11 @@
           </div>
           <div
             v-if="editModelAllowlistState.enabled"
-            class="overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 dark:border-dark-600 dark:bg-dark-800/40"
+            class="overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]"
           >
             <div
               v-if="!editModelAllowlistLoading && editModelAllowlistState.items.length > 0"
-              class="flex items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-dark-600 dark:bg-dark-800"
+              class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs border-[var(--border)] bg-[var(--card)]"
             >
               <span class="text-gray-500 dark:text-gray-400">
                 {{
@@ -1987,7 +2019,7 @@
                 </button>
                 <button
                   type="button"
-                  class="rounded px-2 py-1 font-medium text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                  class="rounded px-2 py-1 font-medium text-gray-600 transition-colors dark:text-gray-300 hover:bg-[var(--surface-2)]"
                   @click="invertModelAllowlistSelection(editModelAllowlistState)"
                 >
                   {{ t("admin.groups.modelAllowlist.invertSelection") }}
@@ -2009,7 +2041,7 @@
               <div
                 v-for="(item, index) in editModelAllowlistState.items"
                 :key="item.id"
-                class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
+                class="flex items-center gap-2 rounded border px-3 py-2 border-[var(--border)] bg-[var(--card)]"
               >
                 <input
                   v-model="item.selected"
@@ -2028,7 +2060,7 @@
                 <button
                   type="button"
                   :disabled="index === 0"
-                  class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+                  class="rounded p-1 text-gray-400 hover:text-gray-700 disabled:opacity-40 hover:bg-[var(--surface-2)] dark:hover:text-gray-200"
                   @click="moveEditModelAllowlistItem(index, index - 1)"
                 >
                   <Icon name="arrowUp" size="sm" />
@@ -2036,20 +2068,20 @@
                 <button
                   type="button"
                   :disabled="index === editModelAllowlistState.items.length - 1"
-                  class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-40 dark:hover:bg-dark-600 dark:hover:text-gray-200"
+                  class="rounded p-1 text-gray-400 hover:text-gray-700 disabled:opacity-40 hover:bg-[var(--surface-2)] dark:hover:text-gray-200"
                   @click="moveEditModelAllowlistItem(index, index + 1)"
                 >
                   <Icon name="arrowDown" size="sm" />
                 </button>
               </div>
             </div>
-            <div class="border-t border-gray-200 px-3 py-2 dark:border-dark-600">
+            <div class="border-t px-3 py-2 border-[var(--border)]">
               <div class="flex items-center gap-2">
                 <input
                   v-model="editAllowlistCustomEntry"
                   type="text"
                   :placeholder="t('admin.groups.modelAllowlist.customPlaceholder')"
-                  class="min-w-0 flex-1 rounded border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-700 focus:border-primary-500 focus:outline-none dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200"
+                  class="min-w-0 flex-1 rounded border px-2 py-1.5 text-sm text-gray-700 focus:border-primary-500 focus:outline-none border-[var(--border)] bg-[var(--surface-2)] dark:text-gray-200"
                   @keydown.enter.prevent="submitEditAllowlistCustomEntry"
                 />
                 <button
@@ -2071,7 +2103,7 @@
         </div>
 
         <!-- 图片生成计费配置 -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="supportsImagePricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
@@ -2168,7 +2200,7 @@
               </div>
             </div>
           </div>
-          <div v-if="editForm.platform === 'gemini' && editForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+          <div v-if="editForm.platform === 'gemini' && editForm.allow_image_generation" class="mt-4 border-t border-dashed pt-4 border-[var(--border)]">
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
@@ -2216,14 +2248,14 @@
           </div>
           <p
             v-else-if="editForm.platform !== 'gemini'"
-            class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
+            class="mt-4 border-t border-dashed pt-4 text-xs text-gray-500 border-[var(--border)] dark:text-gray-400"
           >
             {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
           </p>
         </div>
 
         <!-- 视频生成计费配置（仅 Grok 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="supportsVideoPricingPlatform(editForm.platform)"
           class="border-t pt-4"
         >
@@ -2297,7 +2329,7 @@
             </div>
           </div>
           <div
-            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+            class="mt-4 border-t border-dashed pt-4 border-[var(--border)]"
             data-testid="edit-grok-video-model-prices"
           >
             <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2354,7 +2386,7 @@
         </div>
 
         <!-- 高峰时段倍率配置（仅订阅类型分组） -->
-        <div v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
@@ -2401,7 +2433,7 @@
         </div>
 
         <!-- 分组利润控制（五个平台 token 请求） -->
-        <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <input
               v-model="editForm.profit_control_enabled"
@@ -2451,7 +2483,7 @@
         </div>
 
         <!-- 支持的模型系列（仅 antigravity 平台） -->
-        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.supportedScopes.title") }}
@@ -2486,7 +2518,7 @@
                 type="checkbox"
                 :checked="editForm.supported_model_scopes.includes('claude')"
                 @change="toggleEditScope('claude')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.claude")
@@ -2499,7 +2531,7 @@
                   editForm.supported_model_scopes.includes('gemini_text')
                 "
                 @change="toggleEditScope('gemini_text')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.geminiText")
@@ -2512,7 +2544,7 @@
                   editForm.supported_model_scopes.includes('gemini_image')
                 "
                 @change="toggleEditScope('gemini_image')"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                class="h-4 w-4 rounded text-primary-600 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)]"
               />
               <span class="text-sm text-gray-700 dark:text-gray-300">{{
                 t("admin.groups.supportedScopes.geminiImage")
@@ -2525,7 +2557,7 @@
         </div>
 
         <!-- MCP XML 协议注入（仅 antigravity 平台） -->
-        <div v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
+        <div v-show="showGroupSection('models')" data-group-section="models" v-if="editForm.platform === 'antigravity'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.mcpXml.title") }}
@@ -2566,7 +2598,7 @@
         </div>
 
         <!-- Claude Code 客户端限制（仅 anthropic 平台） -->
-        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.claudeCode.title") }}
@@ -2622,9 +2654,9 @@
         </div>
 
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="editForm.platform === 'openai'"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.webSearchPricing.title") }}
@@ -2645,7 +2677,7 @@
               {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
             </p>
             <div
-              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+              class="mt-2 rounded-lg p-3 text-xs text-gray-600 bg-[var(--surface-2)] dark:text-gray-300"
             >
               {{
                 t("admin.groups.webSearchPricing.finalPricePreview", {
@@ -2657,6 +2689,7 @@
         </div>
 
         <!-- 固定账号获取 Codex Model Manifest（仅 openai 平台，仅编辑对话框） -->
+        <div v-show="showGroupSection('models')" data-group-section="models">
         <CodexManifestAccountsField
           v-if="editForm.platform === 'openai' && editingGroup"
           ref="editCodexManifestRef"
@@ -2665,9 +2698,10 @@
           @update:model-value="Object.assign(editCodexManifestConfig, $event)"
           :account-names="editCodexManifestAccountNames"
         />
+        </div>
 
 
-        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+        <div v-show="showGroupSection('billing')" data-group-section="billing" class="border-t pt-4 mt-4 border-[var(--border)]">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0 flex-1">
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
@@ -2687,9 +2721,9 @@
         </div>
 
         <!-- Grok Voice 显式定价（仅 grok 平台） -->
-        <div
+        <div v-show="showGroupSection('billing')" data-group-section="billing"
           v-if="editForm.platform === 'grok'"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ t("admin.groups.explicitPricing.title") }}
@@ -2749,9 +2783,9 @@
           </div>
         </div>
         <!-- OpenAI Fast 开关（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="supportsGroupOpenAIFast(editForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiFast.title") }}
@@ -2785,9 +2819,9 @@
         </div>
 
         <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('models')" data-group-section="models"
           v-if="supportsLivePlatform(editForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiLive.title") }}
@@ -2802,14 +2836,14 @@
             />
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiLive.hint") }}
+            {{ t("admin.groups.openaiLive.hint").replace(/sub2api/gi, "OmniHive") }}
           </p>
         </div>
 
         <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="supportsMessagesDispatchPlatform(editForm.platform)"
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+          class="border-t border-[var(--border)] pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.openaiMessages.title") }}
@@ -2833,10 +2867,10 @@
             class="mt-3"
           >
             <div
-              class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
+              class="relative overflow-hidden rounded-xl border shadow-sm border-[var(--border)] bg-[var(--card)]"
             >
               <div
-                class="border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-700 dark:bg-dark-700/50"
+                class="border-b px-4 py-3 border-[var(--border)] bg-[var(--surface-2)]"
               >
                 <div class="flex items-center gap-2">
                   <div class="h-2 w-2 rounded-full bg-blue-500"></div>
@@ -2897,7 +2931,7 @@
             </div>
 
             <div
-              class="mt-5 relative overflow-hidden rounded-xl border border-primary-200 bg-white shadow-sm dark:border-primary-900/50 dark:bg-dark-800"
+              class="mt-5 relative overflow-hidden rounded-xl border border-primary-200 shadow-sm dark:border-primary-900/50 bg-[var(--card)]"
             >
               <div
                 class="border-b border-primary-100 bg-primary-50/80 px-4 py-3 dark:border-primary-900/40 dark:bg-primary-900/20"
@@ -2922,10 +2956,10 @@
                 </div>
               </div>
 
-              <div class="p-4 bg-gray-50/30 dark:bg-dark-800/30">
+              <div class="p-4 bg-[var(--card)]">
                 <div
                   v-if="editForm.exact_model_mappings.length === 0"
-                  class="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed border-primary-200 bg-white px-5 py-4 text-sm text-primary-700 transition-colors hover:border-primary-300 dark:border-primary-900/40 dark:bg-dark-800 dark:text-primary-300 dark:hover:border-primary-800"
+                  class="flex items-center justify-between gap-3 rounded-xl border-2 border-dashed border-primary-200 px-5 py-4 text-sm text-primary-700 transition-colors hover:border-primary-300 dark:border-primary-900/40 bg-[var(--card)] dark:text-primary-300 dark:hover:border-primary-800"
                 >
                   <span>{{
                     t("admin.groups.openaiMessages.noExactMappings")
@@ -2944,7 +2978,7 @@
                   <div
                     v-for="row in editForm.exact_model_mappings"
                     :key="getEditMessagesDispatchRowKey(row)"
-                    class="group relative rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-primary-300 hover:shadow-md dark:border-dark-600 dark:bg-dark-700 dark:hover:border-primary-700"
+                    class="group relative rounded-xl border p-4 shadow-sm transition-all hover:border-primary-300 hover:shadow-md border-[var(--border)] bg-[var(--surface-2)] dark:hover:border-primary-700"
                   >
                     <div class="flex items-center gap-4">
                       <div
@@ -2962,7 +2996,7 @@
                                 'admin.groups.openaiMessages.claudeModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="input bg-[var(--card)] focus:bg-[var(--card)]"
                           />
                         </div>
                         <div
@@ -2986,7 +3020,7 @@
                                 'admin.groups.openaiMessages.targetModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="input bg-[var(--card)] focus:bg-[var(--card)]"
                           />
                         </div>
                       </div>
@@ -3006,7 +3040,7 @@
                   <button
                     type="button"
                     @click="addEditMessagesDispatchMapping"
-                    class="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-white py-3 text-sm font-medium text-gray-500 transition-all hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-primary-800 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
+                    class="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed py-3 text-sm font-medium text-gray-500 transition-all hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-600 border-[var(--border)] bg-[var(--card)] dark:text-gray-400 dark:hover:border-primary-800 dark:hover:bg-primary-900/20 dark:hover:text-primary-400"
                   >
                     <Icon name="plus" size="sm" />
                     {{ t("admin.groups.openaiMessages.addExactMapping") }}
@@ -3018,13 +3052,13 @@
         </div>
 
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
-        <div
+        <div v-show="showGroupSection('models')" data-group-section="models"
           v-if="
             platformSupportsOAuth(
               editForm.platform,
             )
           "
-          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4 space-y-4"
+          class="border-t border-[var(--border)] pt-4 mt-4 space-y-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             {{ t("admin.groups.accountFilters.title") }}
@@ -3066,7 +3100,7 @@
         </div>
 
         <!-- 无效请求兜底（仅 anthropic/antigravity 平台，且非订阅分组） -->
-        <div
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling"
           v-if="
             ['anthropic', 'antigravity'].includes(editForm.platform) &&
             editForm.subscription_type !== 'subscription'
@@ -3087,7 +3121,7 @@
         </div>
 
         <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-if="editForm.platform === 'anthropic'" class="border-t pt-4">
+        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="editForm.platform === 'anthropic'" id="edit-group-routing" class="group-config-section border-t pt-4" tabindex="-1">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t("admin.groups.modelRouting.title") }}
@@ -3141,7 +3175,7 @@
             <div
               v-for="rule in editModelRoutingRules"
               :key="getEditRuleRenderKey(rule)"
-              class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+              class="rounded-lg border p-3 border-[var(--border)]"
             >
               <div class="flex items-start gap-3">
                 <div class="flex-1 space-y-2">
@@ -3205,7 +3239,7 @@
                           accountSearchResults[getEditRuleSearchKey(rule)]
                             ?.length > 0
                         "
-                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800"
+                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
                       >
                         <button
                           v-for="account in accountSearchResults[
@@ -3214,7 +3248,7 @@
                           :key="account.id"
                           type="button"
                           @click="selectAccount(rule, account, true)"
-                          class="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700"
+                          class="w-full px-3 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
                           :class="{
                             'opacity-50': rule.accounts.some(
                               (a) => a.id === account.id,
@@ -3318,7 +3352,7 @@
     <ConfirmDialog
       :show="showUnsupportedLiveConfirm"
       :title="t('admin.groups.openaiLive.unsupportedTitle')"
-      :message="t('admin.groups.openaiLive.unsupportedMessage')"
+      :message="t('admin.groups.openaiLive.unsupportedMessage').replace(/sub2api/gi, 'OmniHive')"
       :confirm-text="t('admin.groups.openaiLive.enableAnyway')"
       :cancel-text="t('common.cancel')"
       :danger="true"
@@ -3353,7 +3387,7 @@
 <script setup lang="ts">
 import TpmLimitField from '@/components/common/TpmLimitField.vue';
 import ModelAccessGroupsPanel from '@/components/model-access/ModelAccessGroupsPanel.vue'
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -3460,6 +3494,43 @@ const {
   groups,
   loadGroups,
 } = groupsListController;
+const groupOverview = computed(() => {
+  const total = groups.value.length;
+  const subscription = groups.value.filter(group => group.subscription_type === "subscription").length;
+  const standard = total - subscription;
+  const standardPercent = total ? Math.round(standard / total * 100) : 0;
+  return {
+    active: groups.value.filter(group => group.status === "active").length,
+    standard,
+    subscription,
+    standardPercent,
+    subscriptionPercent: total ? 100 - standardPercent : 0,
+  };
+});
+type GroupConfigSection = "all" | "basic" | "billing" | "scheduling" | "models";
+const groupConfigSection = ref<GroupConfigSection>("all");
+const groupConfigSections = computed(() => [
+  { value: "all" as const, label: "全部展开" },
+  { value: "basic" as const, label: "基础与平台" },
+  ...(!authStore.isSimpleMode ? [
+    { value: "billing" as const, label: "倍率与计费" },
+    { value: "scheduling" as const, label: "调度与容灾" },
+    { value: "models" as const, label: "模型与安全" },
+  ] : []),
+]);
+function navigateGroupConfig(section: GroupConfigSection) {
+  groupConfigSection.value = section;
+}
+function showGroupSection(section: GroupConfigSection) {
+  return groupConfigSection.value === "all" || groupConfigSection.value === section;
+}
+function revealInvalidGroupField(event: Event) {
+  groupConfigSection.value = "all";
+  const target = event.target;
+  nextTick(() => {
+    if (target instanceof HTMLElement && target.isConnected) target.focus();
+  });
+}
 const groupSortingController = useGroupSorting(loadGroups);
 const { openSortModal } = groupSortingController;
 const compositeRoutesController = useCompositeRoutes([
@@ -4337,6 +4408,7 @@ const cancelUnsupportedLive = () => {
 };
 
 const openCreateModal = () => {
+  groupConfigSection.value = "all";
   showCreateModal.value = true;
   loadModelAllowlistCandidates("create", 0, createForm.platform);
 };
@@ -4616,6 +4688,7 @@ const handleCreateGroup = async () => {
 };
 
 const handleEdit = async (group: AdminGroup) => {
+  groupConfigSection.value = "all";
   editingGroup.value = group;
   editForm.name = group.name;
   editForm.description = group.description || "";
@@ -5225,3 +5298,121 @@ onUnmounted(() => {
   clearAllAccountSearchState();
 });
 </script>
+
+<style scoped>
+.group-overview {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand, #f59e0b);
+  border-radius: var(--radius, 10px);
+  background: var(--card);
+}
+
+.group-ratio {
+  width: 120px;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--info, #6366f1);
+}
+
+.group-ratio > span {
+  display: block;
+  height: 100%;
+  background: var(--brand, #f59e0b);
+}
+
+.group-workbench-table :deep(.table-scroll-container) {
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+.group-workbench-table :deep(tbody tr > td:first-child) {
+  border-left: 3px solid transparent;
+}
+
+.group-workbench-table :deep(tbody tr:hover > td:first-child) {
+  border-left-color: var(--brand, #f59e0b);
+}
+
+.group-workbench-table :deep(.badge) {
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-left-width: 3px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.group-config-nav {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.tree-item {
+  position: relative;
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.tree-item:hover,
+.tree-item.active {
+  background: color-mix(in srgb, var(--brand) 13%, var(--card));
+}
+
+.tree-item.active {
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--brand) 35%, var(--border));
+  color: var(--brand-text);
+}
+
+.tree-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--brand, #f59e0b);
+}
+
+.tree-item:focus-visible,
+.group-config-section:focus-visible {
+  outline: 2px solid var(--brand, #f59e0b);
+  outline-offset: 2px;
+}
+
+.group-config-section {
+  scroll-margin-top: 100px;
+}
+
+.group-config-form [data-group-section] {
+  min-width: 0;
+  border-color: var(--border);
+}
+
+.group-config-form [data-group-section].border-t {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.group-config-form :deep(input[type="number"]),
+.group-config-form :deep(input[type="time"]),
+.group-config-form :deep(textarea) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+</style>

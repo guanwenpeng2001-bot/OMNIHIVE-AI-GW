@@ -6,6 +6,7 @@ import type { ApiKey } from '@/types'
 const loaded = ref(false)
 const loading = ref(false)
 const hasAllowedBatchImageKey = ref(false)
+const hasActiveKey = ref(false)
 let pendingLoad: Promise<boolean> | null = null
 const pageSize = 100
 
@@ -22,6 +23,7 @@ async function loadBatchImageAccess(force = false): Promise<boolean> {
   if (!authStore.isAuthenticated) {
     loaded.value = true
     hasAllowedBatchImageKey.value = false
+    hasActiveKey.value = false
     return false
   }
 
@@ -36,6 +38,7 @@ async function loadBatchImageAccess(force = false): Promise<boolean> {
   loading.value = true
   pendingLoad = (async () => {
     let page = 1
+    let foundActiveKey = false
     while (true) {
       const response = await keysAPI.list(page, pageSize, {
         status: 'active',
@@ -43,13 +46,15 @@ async function loadBatchImageAccess(force = false): Promise<boolean> {
         sort_order: 'desc'
       })
 
+      foundActiveKey ||= (response.items || []).some(key => key.status === 'active')
+      hasActiveKey.value = foundActiveKey
       if ((response.items || []).some(keyAllowsBatchImage)) {
         hasAllowedBatchImageKey.value = true
         loaded.value = true
         return true
       }
 
-      if (page >= response.pages || (response.items || []).length === 0) {
+      if (page >= (response.pages || 1) || (response.items || []).length === 0) {
         hasAllowedBatchImageKey.value = false
         loaded.value = true
         return false
@@ -60,6 +65,7 @@ async function loadBatchImageAccess(force = false): Promise<boolean> {
   })()
     .catch(() => {
       hasAllowedBatchImageKey.value = false
+      hasActiveKey.value = false
       loaded.value = true
       return false
     })
@@ -76,6 +82,7 @@ export function useBatchImageAccess() {
 
   return {
     canUseBatchImage,
+    hasAnyActiveKey: computed(() => hasActiveKey.value),
     batchImageAccessLoaded: computed(() => loaded.value),
     batchImageAccessLoading: computed(() => loading.value),
     refreshBatchImageAccess: loadBatchImageAccess,

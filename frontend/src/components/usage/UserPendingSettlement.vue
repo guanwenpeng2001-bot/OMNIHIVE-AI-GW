@@ -1,17 +1,17 @@
 <template>
-  <section class="card space-y-3 p-4" aria-labelledby="pending-settlement-title">
+  <section class="card space-y-3 border border-[var(--border)] bg-[var(--card)] p-4 tabular-nums" aria-labelledby="pending-settlement-title">
     <div class="flex items-center justify-between gap-3">
       <h2 id="pending-settlement-title" class="font-semibold">{{ t('usage.pending.title') }} <span v-if="!hasError && !isLoading">({{ total }})</span></h2>
       <button class="btn btn-secondary" :disabled="isLoading" @click="reload">{{ t('usage.pending.refresh') }}</button>
     </div>
-    <p class="text-sm text-gray-500">{{ t('usage.pending.description') }}</p>
+    <p class="text-sm text-[var(--muted-foreground)]">{{ t('usage.pending.description') }}</p>
     <div v-for="source in sources" :key="source" class="space-y-2">
       <p v-if="pages[source].error" role="alert" class="text-sm text-red-600">{{ t('usage.pending.loadError') }} ({{ source }})</p>
-      <details v-for="item in pages[source].items" :key="`${source}:${item.receipt_id}`" class="rounded border border-gray-200 p-3 dark:border-gray-700">
+      <details v-for="item in pages[source].items" :key="`${source}:${item.receipt_id}`" class="rounded border border-[var(--border)] p-3">
         <summary class="cursor-pointer space-y-1 text-sm">
           <div>{{ t('usage.requestedModel') }}: {{ item.requested_model || t('usage.notCollected') }}</div>
           <div>{{ t('usage.upstreamResponseModel') }}: {{ item.upstream_response_model || t('usage.notCollected') }}</div>
-          <div class="flex flex-wrap gap-x-4 gap-y-1 text-gray-500">
+          <div class="flex flex-wrap gap-x-4 gap-y-1 text-[var(--muted-foreground)]">
             <span :class="item.pricing_state === 'error' ? 'text-red-600' : 'text-amber-600'">{{ t(item.pricing_state === 'error' ? 'usage.pending.pricingError' : 'usage.pending.title') }}</span>
             <span>{{ t('usage.pending.amount') }}: {{ t('usage.pending.unknown') }}</span>
             <span>{{ t('usage.pending.tokens') }}: {{ item.input_tokens ?? t('usage.notCollected') }} / {{ item.output_tokens ?? t('usage.notCollected') }}</span>
@@ -30,7 +30,7 @@
       <button v-if="pages[source].cursor" class="btn btn-secondary" :disabled="pages[source].loading" @click="load(source, false)">{{ t('usage.pending.more') }} ({{ source }})</button>
     </div>
     <p v-if="isLoading" role="status" class="text-sm">{{ t('usage.pending.loading') }}</p>
-    <p v-else-if="!hasError && total === 0" class="text-sm text-gray-500">{{ t('usage.pending.empty') }}</p>
+    <p v-else-if="!hasError && total === 0" class="text-sm text-[var(--muted-foreground)]">{{ t('usage.pending.empty') }}</p>
   </section>
 </template>
 

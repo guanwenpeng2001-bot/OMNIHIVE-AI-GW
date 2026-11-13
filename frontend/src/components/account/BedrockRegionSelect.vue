@@ -1,5 +1,6 @@
 <template>
   <Select
+    class="min-w-0 font-mono text-sm"
     :model-value="modelValue"
     :options="options"
     searchable

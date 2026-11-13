@@ -1,35 +1,33 @@
 <template>
   <button
     type="button"
-    class="group text-left p-5 rounded-2xl min-h-[280px] w-full bg-white/70 backdrop-blur-xl border border-gray-200/80 shadow-card dark:bg-dark-800/60 dark:border-dark-700/70 hover:-translate-y-1 hover:shadow-card-hover dark:hover:border-primary-500/30 hover:border-gray-300 transition-all duration-300 ease-out flex flex-col"
+    class="card group flex min-h-[280px] w-full min-w-0 flex-col p-5 text-left transition-colors hover:border-[var(--brand)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]"
     @click="emit('click')"
   >
     <!-- Header: icon + name/model + status chip -->
     <div class="flex items-start gap-3">
       <span
-        class="w-9 h-9 rounded-xl ring-1 ring-black/5 dark:ring-white/10 grid place-items-center flex-shrink-0"
-        :class="[providerGradient(item.provider), providerTintClass]"
+        class="grid h-9 w-9 flex-shrink-0 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)]"
       >
         <ProviderIcon :provider="item.provider" :size="20" />
       </span>
       <div class="flex-1 min-w-0">
-        <div class="text-base font-semibold truncate text-gray-900 dark:text-gray-100">
+        <div class="truncate text-base font-semibold text-[var(--foreground)]">
           {{ item.name }}
         </div>
         <div class="mt-0.5 flex items-center gap-1.5 min-w-0">
           <span
-            class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium flex-shrink-0"
-            :class="providerBadgeClass(item.provider)"
+            class="pill pill-ghost flex-shrink-0 text-[10px] font-medium text-[var(--muted-foreground)]"
           >
             {{ providerLabel(item.provider) }}
           </span>
           <!-- 纯配额模式主模型是占位符 "quota"，展示层替换为本地化「配额」标签 -->
-          <span class="font-mono text-xs truncate text-gray-500 dark:text-gray-400">
+          <span class="font-mono text-xs truncate text-[var(--muted-foreground)]">
             {{ formatMonitorModel(item.primary_model) }}
           </span>
           <span
             v-if="item.group_name"
-            class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300 flex-shrink-0"
+            class="inline-flex items-center rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] font-medium bg-[var(--secondary)] text-[var(--foreground)] flex-shrink-0"
           >
             {{ item.group_name }}
           </span>
@@ -59,7 +57,7 @@
     <MonitorQuotaView v-if="quotaVisible" :snapshot="item.latest_quota" class="mt-2" />
 
     <!-- Divider -->
-    <div class="mt-4 border-t border-gray-100 dark:border-dark-700/60"></div>
+    <div class="mt-4 border-t border-[var(--border)]"></div>
 
     <!-- Availability row -->
     <MonitorAvailabilityRow
@@ -80,29 +78,13 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { UserMonitorView } from '@/api/channelMonitor'
-import {
-  useChannelMonitorFormat,
-  providerGradient,
-} from '@/composables/useChannelMonitorFormat'
+import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { isChannelMonitorQuotaVisible } from '@/utils/featureFlags'
 import ProviderIcon from './ProviderIcon.vue'
 import MonitorMetricPair from './MonitorMetricPair.vue'
 import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
 import MonitorQuotaView from '@/components/common/MonitorQuotaView.vue'
-
-// 图标配色与 utils/platformColors.ts 的平台色对齐（新 4 家）。
-const PROVIDER_TINT: Record<string, string> = {
-  openai: 'text-emerald-600 dark:text-emerald-300',
-  anthropic: 'text-orange-600 dark:text-orange-300',
-  gemini: 'text-sky-600 dark:text-sky-300',
-  grok: 'text-zinc-700 dark:text-zinc-200',
-  antigravity: 'text-purple-600 dark:text-purple-300',
-  kimi: 'text-pink-600 dark:text-pink-300',
-  zhipu: 'text-indigo-600 dark:text-indigo-300',
-  deepseek: 'text-teal-600 dark:text-teal-300',
-  opencode_go: 'text-lime-700 dark:text-lime-300',
-}
 
 const props = defineProps<{
   item: UserMonitorView
@@ -120,14 +102,9 @@ const {
   statusLabel,
   statusBadgeClass,
   providerLabel,
-  providerBadgeClass,
   formatLatency,
   formatMonitorModel,
 } = useChannelMonitorFormat()
-
-const providerTintClass = computed(() =>
-  PROVIDER_TINT[props.item.provider] ?? 'text-gray-500 dark:text-gray-300'
-)
 
 const quotaVisible = computed(
   () => isChannelMonitorQuotaVisible() && !!props.item.latest_quota

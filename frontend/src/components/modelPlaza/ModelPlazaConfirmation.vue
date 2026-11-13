@@ -1,15 +1,15 @@
 <template>
-  <section class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" :aria-busy="loading || saving">
+  <section class="space-y-3 rounded-lg border border-[var(--border)] p-4 " :aria-busy="loading || saving">
     <h3 class="font-semibold">{{ t('modelPlaza.confirmation.title') }} — {{ groupName || groupId }}</h3>
-    <p class="text-sm text-gray-500">{{ t('modelPlaza.confirmation.description') }}</p>
+    <p class="text-sm text-[var(--muted-foreground)]">{{ t('modelPlaza.confirmation.description') }}</p>
     <p v-if="loading" role="status">{{ t('common.loading') }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="view && !options.length">{{ t('modelPlaza.confirmation.empty') }}</p>
     <label v-for="model in options" :key="identity(model)" class="flex items-start gap-2 break-all text-sm">
       <input v-model="selected" type="checkbox" :value="identity(model)" :disabled="loading || saving || stale" />
       <span>{{ model.platform }} / {{ model.name }}
-        <small v-if="saved(model)?.confirmed_at" class="block text-gray-500">{{ t('modelPlaza.confirmation.confirmed', { actor: saved(model)?.confirmed_by, time: saved(model)?.confirmed_at }) }}</small>
-        <small v-else-if="saved(model)" class="block text-gray-500">{{ t('modelPlaza.confirmation.legacy') }}</small>
+        <small v-if="saved(model)?.confirmed_at" class="block text-[var(--muted-foreground)]">{{ t('modelPlaza.confirmation.confirmed', { actor: saved(model)?.confirmed_by, time: saved(model)?.confirmed_at }) }}</small>
+        <small v-else-if="saved(model)" class="block text-[var(--muted-foreground)]">{{ t('modelPlaza.confirmation.legacy') }}</small>
       </span>
     </label>
     <div class="flex flex-wrap gap-2">

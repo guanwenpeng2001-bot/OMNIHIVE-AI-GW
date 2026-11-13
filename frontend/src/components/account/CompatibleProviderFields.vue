@@ -39,7 +39,7 @@ function updateBase(protocol: string, value: string) {
 </script>
 
 <template>
-  <div class="space-y-4" data-testid="compatible-provider-fields">
+  <div class="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 [&_input]:font-mono" data-testid="compatible-provider-fields">
     <CompatiblePlanFields v-if="provider.plans?.length && provider.modes.length === 1" :provider="provider" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" />
     <CompatibleSpecialAuthFields v-if="isSpecialCompatibleProvider(provider.id)" :platform="provider.id" :model-value="modelValue" @update:model-value="emit('update:modelValue', $event)" @reset-secret="emit('reset-secret')" />
     <template v-else>
@@ -56,7 +56,7 @@ function updateBase(protocol: string, value: string) {
         <span class="input-label">{{ t('admin.accounts.baseUrl') }}</span>
         <input class="input" data-testid="compatible-base" :value="modelValue.base_url || ''" :required="provider.base_source === 'account'" :placeholder="provider.base_source === 'account' ? 'https://resource.example.com' : mode?.endpoints.find(endpoint => endpoint.protocol === (protocol === 'adaptive' ? mode?.default_protocol : protocol))?.base_url" @input="update('base_url', ($event.target as HTMLInputElement).value)" />
       </label>
-      <div v-for="endpoint in endpoints" :key="endpoint.protocol" class="space-y-1">
+      <div v-for="endpoint in endpoints" :key="endpoint.protocol" class="space-y-1 border-t border-[var(--border)] pt-3">
         <label class="block">
           <span class="input-label">{{ compatibleProtocolLabel(endpoint.protocol) }}</span>
           <input class="input" :data-testid="`compatible-base-${endpoint.protocol}`" :value="bases[endpoint.protocol] || ''" :placeholder="String(modelValue.base_url || endpoint.base_url || endpoint.path || '')" @input="updateBase(endpoint.protocol, ($event.target as HTMLInputElement).value)" />

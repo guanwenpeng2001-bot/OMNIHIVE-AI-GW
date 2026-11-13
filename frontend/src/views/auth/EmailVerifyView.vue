@@ -1,21 +1,27 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
+    <div class="space-y-4">
       <!-- Title -->
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.verifyYourEmail') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.sendCodeDesc') }}
-          <span class="font-medium text-gray-700 dark:text-gray-300">{{ email }}</span>
         </p>
+      </div>
+      <div v-if="hasRegisterData" class="auth-summary">
+        <p>{{ t('auth.emailLabel') }}：<strong>{{ email }}</strong></p>
+        <p v-if="username">{{ t('profile.username') }}：{{ username }}</p>
+        <p v-if="invitationCode">{{ t('auth.invitationCodeLabel') }}：{{ invitationCode }}</p>
+        <p v-if="promoCode">{{ t('auth.promoCodeLabel') }}：{{ promoCode }}</p>
+        <p v-if="affCode">推荐码：{{ affCode }}</p>
       </div>
 
       <!-- No Data Warning -->
       <div
         v-if="!hasRegisterData"
-        class="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800/50 dark:bg-amber-900/20"
+        class="auth-summary"
       >
         <div class="flex items-start gap-3">
           <div class="flex-shrink-0">
@@ -29,10 +35,10 @@
       </div>
 
       <!-- Verification Form -->
-      <form v-else @submit.prevent="handleVerify" class="space-y-5">
+      <form v-else @submit.prevent="handleVerify" class="space-y-3">
         <!-- Verification Code Input -->
         <div>
-          <label for="code" class="input-label text-center">
+          <label for="code" class="input-label">
             {{ t('auth.verificationCode') }}
           </label>
           <input
@@ -44,17 +50,17 @@
             inputmode="numeric"
             maxlength="6"
             :disabled="isLoading"
-            class="input py-3 text-center font-mono text-xl tracking-[0.5em]"
+            class="input font-mono tabular-nums tracking-[0.3em]"
             :class="{ 'input-error': errors.code }"
             placeholder="000000"
           />
-          <p class="input-hint text-center">{{ t('auth.verificationCodeHint') }}</p>
+          <p class="input-hint">{{ t('auth.verificationCodeHint') }}</p>
         </div>
 
         <!-- Code Status -->
         <div
           v-if="codeSent"
-          class="rounded-xl border border-green-200 bg-green-50 p-4 dark:border-green-800/50 dark:bg-green-900/20"
+          class="auth-summary"
         >
           <div class="flex items-start gap-3">
             <div class="flex-shrink-0">
@@ -106,6 +112,7 @@
         </div>
 
         <!-- Submit Button -->
+        <div class="auth-actions">
         <button
           type="submit"
           :disabled="isLoading || !verifyCode || (pendingOAuthCreateTurnstileRequired && !createAccountTurnstileToken)"
@@ -113,7 +120,7 @@
         >
           <svg
             v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-white"
+            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -136,12 +143,12 @@
         </button>
 
         <!-- Resend Code -->
-        <div class="text-center">
+        <div>
           <button
             v-if="countdown > 0"
             type="button"
             disabled
-            class="cursor-not-allowed text-sm text-gray-400 dark:text-dark-500"
+            class="btn btn-outline cursor-not-allowed"
           >
             {{ t('auth.resendCountdown', { countdown }) }}
           </button>
@@ -152,7 +159,7 @@
             :disabled="
               isSendingCode || (turnstileEnabled && showResendTurnstile && !resendTurnstileToken)
             "
-            class="text-sm text-primary-600 transition-colors hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
+            class="btn btn-outline disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span v-if="isSendingCode">{{ t('auth.sendingCode') }}</span>
             <span v-else-if="captchaEnabled && !showResendTurnstile">
@@ -161,6 +168,7 @@
             <span v-else>{{ t('auth.resendCode') }}</span>
           </button>
         </div>
+        </div>
       </form>
     </div>
 
@@ -168,7 +176,7 @@
     <template #footer>
       <button
         @click="handleBack"
-        class="flex items-center gap-2 text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-gray-300"
+        class="btn btn-outline w-full"
       >
         <Icon name="arrowLeft" size="sm" />
         {{ t('auth.backToRegistration') }}
@@ -244,6 +252,8 @@ type PendingOAuthCreateAccountResponse = {
 }
 
 const email = ref<string>('')
+const username = ref('')
+const registrationRedirect = ref('/dashboard')
 const password = ref<string>('')
 const initialTurnstileToken = ref<string>('')
 const initialTencentCaptchaRandstr = ref<string>('')
@@ -332,6 +342,9 @@ onMounted(async () => {
     try {
       const registerData = JSON.parse(registerDataStr)
       email.value = registerData.email || ''
+      username.value = typeof registerData.username === 'string' ? registerData.username : ''
+      const target = registerData.redirect
+      if (typeof target === 'string' && target.startsWith('/') && !/^\/[\\/]/.test(target) && !/[\r\n\\]/.test(target)) registrationRedirect.value = target
       password.value = registerData.password || ''
       initialTurnstileToken.value =
         registerData.tencent_captcha_ticket || registerData.turnstile_token || ''
@@ -721,6 +734,7 @@ async function handleVerify(): Promise<void> {
       // Register with verification code
       await authStore.register({
         email: email.value,
+        ...(username.value.trim() ? { username: username.value.trim() } : {}),
         password: password.value,
         verify_code: verifyCode.value.trim(),
         turnstile_token:
@@ -743,7 +757,7 @@ async function handleVerify(): Promise<void> {
     appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
 
     // Redirect to dashboard
-    await router.push(pendingRedirect.value || '/dashboard')
+    await router.push(pendingRedirect.value || registrationRedirect.value)
   } catch (error: unknown) {
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.verifyFailed'))
 
@@ -791,6 +805,52 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
 .fade-enter-active,
 .fade-leave-active {
   transition: all 0.3s ease;
@@ -800,5 +860,12 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

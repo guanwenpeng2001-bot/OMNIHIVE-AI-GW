@@ -23,13 +23,27 @@ async function remove(group: ModelAccessGroup) { busy.value = true; error.value 
 </script>
 
 <template>
-  <details class="card mb-4 space-y-3 p-4" @toggle="($event.target as HTMLDetailsElement).open && load()">
-    <summary class="cursor-pointer font-medium">{{ t('modelAccess.groups') }}</summary>
+  <details class="model-access-workbench mb-4 space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4" @toggle="($event.target as HTMLDetailsElement).open && load()">
+    <summary class="cursor-pointer rounded font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ring)]">{{ t('modelAccess.groups') }}</summary>
     <p class="input-hint">{{ t('modelAccess.explanation') }}</p>
-    <div v-for="group in groups" :key="group.id" class="flex flex-wrap items-center gap-3 border-b border-gray-200 py-2 dark:border-dark-600"><span class="flex-1">{{ group.name }} · {{ t('modelAccess.references', { count: group.references }) }}</span><button type="button" class="btn btn-secondary" :disabled="busy" @click="edit(group)">{{ t('common.edit') }}</button><button type="button" class="btn btn-secondary" :disabled="busy || group.references > 0" @click="remove(group)">{{ t('common.delete') }}</button></div>
+    <div v-for="group in groups" :key="group.id" class="flex flex-wrap items-center gap-3 border-b py-2 border-[var(--border)]"><span class="flex-1">{{ group.name }} · {{ t('modelAccess.references', { count: group.references }) }}</span><button type="button" class="btn btn-secondary" :disabled="busy" @click="edit(group)">{{ t('common.edit') }}</button><button type="button" class="btn btn-secondary" :disabled="busy || group.references > 0" @click="remove(group)">{{ t('common.delete') }}</button></div>
     <label class="block"><span class="input-label">{{ t('modelAccess.name') }}</span><input v-model="name" class="input" maxlength="100" :disabled="busy" /></label>
-    <label class="block"><span class="input-label">{{ t('modelAccess.include') }}</span><textarea v-model="models" class="input" rows="3" :disabled="busy" /></label>
-    <div class="flex gap-2"><button type="button" class="btn btn-primary" :disabled="busy || !name.trim()" @click="save">{{ t('common.save') }}</button><button v-if="editing" type="button" class="btn btn-secondary" @click="edit(null)">{{ t('common.cancel') }}</button></div>
+    <label class="block"><span class="input-label">{{ t('modelAccess.include') }}</span><textarea v-model="models" class="input font-mono text-xs" rows="3" :disabled="busy" /></label>
+    <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary" :disabled="busy || !name.trim()" @click="save">{{ t('common.save') }}</button><button v-if="editing" type="button" class="btn btn-secondary" @click="edit(null)">{{ t('common.cancel') }}</button></div>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
   </details>
 </template>
+
+<style scoped>
+.model-access-workbench > div.border-b {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.model-access-workbench > div.border-b > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+</style>

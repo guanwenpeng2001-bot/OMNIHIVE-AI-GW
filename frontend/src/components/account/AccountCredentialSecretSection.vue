@@ -139,8 +139,8 @@ async function confirm() {
 </script>
 
 <template>
-  <section class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="credential-secret-section">
-    <h3 class="text-base font-semibold">{{ t('admin.accounts.credentialSecret.title') }}</h3>
+  <section class="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="credential-secret-section">
+    <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.accounts.credentialSecret.title') }}</h3>
     <p v-if="busy" role="status">{{ t('common.loading') }}</p>
     <p v-if="errorKey" role="alert">{{ t(`admin.accounts.credentialSecret.${errorKey}`) }}</p>
     <button v-if="errorKey === 'loadFailed'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="load">{{ t('common.tryAgain') }}</button>
@@ -149,7 +149,7 @@ async function confirm() {
     <p v-if="inline && !busy" role="status">{{ t('admin.accounts.credentialSecret.inlineState') }}</p>
     <p v-if="metadata" role="status" data-testid="credential-secret-state">{{ t(revoked ? 'admin.accounts.credentialSecret.revokedState' : 'admin.accounts.credentialSecret.referenceState') }}</p>
     <details :open="!!rotateError || undefined" class="space-y-3" data-testid="credential-secret-management">
-      <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.editSections.credentials') }}</summary>
+      <summary class="cursor-pointer rounded-lg py-1.5 text-sm font-medium text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">{{ t('admin.accounts.editSections.credentials') }}</summary>
       <p class="input-hint">{{ t('admin.accounts.credentialSecret.hint') }}</p>
     <div v-if="inline && !busy" class="space-y-2" data-testid="credential-secret-inline">
       <p v-if="!accountRevision" role="status" data-testid="credential-secret-revision-missing">

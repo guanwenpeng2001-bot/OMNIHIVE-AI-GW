@@ -7,8 +7,8 @@
       :aria-checked="checked"
       @click="emit('toggle')"
       :class="[
-        'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200',
-        checked ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600',
+        'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]',
+        checked ? 'bg-[var(--brand)]' : 'bg-[var(--border)]',
       ]"
     >
       <span :class="[

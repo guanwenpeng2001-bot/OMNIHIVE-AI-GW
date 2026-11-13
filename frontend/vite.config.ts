@@ -1,7 +1,8 @@
 import { defineConfig, loadEnv, Plugin } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import checker from 'vite-plugin-checker'
-import { resolve } from 'path'
+import { readFileSync } from 'fs'
+import { basename, extname, resolve } from 'path'
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({
@@ -44,6 +45,58 @@ function injectBranding(html: string, config: { site_name?: string; site_logo?: 
     )
   }
   return brandedHtml
+}
+
+const PROVIDER_ICON_MIMES: Record<string, string> = {
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon'
+}
+
+/**
+ * 将 providerIcons 下的图标资源内联为 Data URI（保留文件名元数据以兼容断言），
+ * 消除打开弹窗时的 61 个并发 HTTP 请求阻塞，并修复 1em SVG 在 <image> 中的缩放问题。
+ */
+function inlineProviderIcons(): Plugin {
+  return {
+    name: 'inline-provider-icons',
+    enforce: 'pre',
+    load(id) {
+      const normalized = id.replace(/\\/g, '/').split('?')[0]
+      if (!normalized.endsWith('/src/components/common/providerIcons/index.ts')) return null
+      const iconDir = resolve(__dirname, 'src/components/common/providerIcons')
+      const code = readFileSync(resolve(iconDir, 'index.ts'), 'utf8')
+      const transformed = code.replace(
+        /^import\s+(\w+)\s+from\s+['"]\.\/([^'"?]+)\?url['"][;\s\r]*$/gm,
+        (match, varName: string, relFile: string) => {
+          const filePath = resolve(iconDir, relFile)
+          const ext = extname(filePath).toLowerCase()
+          const mime = PROVIDER_ICON_MIMES[ext]
+          if (!mime) return match
+          try {
+            const fileName = basename(filePath)
+            let bytes: Buffer
+            if (ext === '.svg') {
+              const svgContent = readFileSync(filePath, 'utf8')
+                .replace(/\bwidth="1em"/g, 'width="100%"')
+                .replace(/\bheight="1em"/g, 'height="100%"')
+              bytes = Buffer.from(svgContent, 'utf8')
+            } else {
+              bytes = readFileSync(filePath)
+            }
+            const dataUri = `data:${mime};name=${fileName};base64,${bytes.toString('base64')}`
+            return `const ${varName} = ${JSON.stringify(dataUri)}`
+          } catch {
+            return match
+          }
+        }
+      )
+      return transformed
+    }
+  }
 }
 
 /**
@@ -91,6 +144,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      inlineProviderIcons(),
       vue(),
       checker({
         vueTsc: true
@@ -161,7 +215,7 @@ export default defineConfig(({ mode }) => {
     }
   },
     server: {
-      host: '0.0.0.0',
+      host: '::',
       port: devPort,
       proxy: {
         '/api': {

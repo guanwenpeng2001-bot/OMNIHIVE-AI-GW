@@ -1,5 +1,5 @@
 <template>
-  <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
+  <div class="card pricing-entry min-w-0 p-4">
     <!-- Collapsed summary header (clickable) -->
     <div
       class="flex cursor-pointer select-none items-center gap-2"
@@ -9,7 +9,7 @@
         :name="collapsed ? 'chevronRight' : 'chevronDown'"
         size="sm"
         :stroke-width="2"
-        class="flex-shrink-0 text-gray-400 transition-transform duration-200"
+        class="flex-shrink-0 text-[var(--muted-foreground)] transition-transform duration-200"
       />
 
       <!-- Summary: model tags + billing badge -->
@@ -19,20 +19,19 @@
           <span
             v-for="(m, i) in entry.models.slice(0, 3)"
             :key="i"
-            class="inline-flex shrink-0 rounded px-1.5 py-0.5 text-xs"
-            :class="getPlatformTagClass(props.platform || '')"
+            class="pill pill-ghost max-w-full truncate"
           >
             {{ m }}
           </span>
           <span
             v-if="entry.models.length > 3"
-            class="whitespace-nowrap text-xs text-gray-400"
+            class="whitespace-nowrap text-xs text-[var(--muted-foreground)]"
           >
             +{{ entry.models.length - 3 }}
           </span>
           <span
             v-if="entry.models.length === 0"
-            class="text-xs italic text-gray-400"
+            class="text-xs italic text-[var(--muted-foreground)]"
           >
             {{ t('admin.channels.form.noModels') }}
           </span>
@@ -40,14 +39,14 @@
 
         <!-- Billing mode badge -->
         <span
-          class="flex-shrink-0 rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+          class="pill pill-ghost flex-shrink-0 font-medium"
         >
           {{ billingModeLabel }}
         </span>
       </div>
 
       <!-- Expanded: show the label "Pricing Entry" or similar -->
-      <div v-else class="flex-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+      <div v-else class="flex-1 text-xs font-medium text-[var(--muted-foreground)]">
         {{ t('admin.channels.form.pricingEntry') }}
       </div>
 
@@ -55,7 +54,7 @@
       <button
         type="button"
         @click.stop="emit('remove')"
-        class="flex-shrink-0 rounded p-1 text-gray-400 hover:text-red-500"
+        class="flex-shrink-0 rounded p-1 text-[var(--muted-foreground)] hover:text-red-500"
       >
         <Icon name="trash" size="sm" />
       </button>
@@ -68,9 +67,9 @@
     >
       <div class="collapsible-inner">
         <!-- Header: Models + Billing Mode -->
-        <div class="mt-3 flex items-start gap-2">
-          <div class="flex-1">
-            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+        <div class="mt-4 flex flex-col gap-4">
+          <div class="min-w-0">
+            <label class="text-xs font-medium text-[var(--muted-foreground)]">
               {{ t('admin.channels.form.models') }} <span class="text-red-500">*</span>
             </label>
             <ModelTagInput
@@ -81,95 +80,102 @@
               class="mt-1"
             />
           </div>
-          <div class="w-40">
-            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+          <div class="min-w-0">
+            <label class="block text-xs font-medium text-[var(--muted-foreground)]">
               {{ t('admin.channels.form.billingMode') }}
             </label>
             <Select
               :modelValue="entry.billing_mode"
-              @update:modelValue="emit('update', {
-                ...entry,
-                billing_mode: $event as BillingMode,
-                intervals: [],
-                time_pricing: { ...entry.time_pricing, periods: [] },
-              })"
+              @update:modelValue="updateBillingMode($event as BillingMode)"
               :options="billingModeOptions"
-              class="mt-1"
+              class="billing-select mt-1"
             />
+            <div class="segmented mt-1 max-w-full flex-wrap" role="group" :aria-label="t('admin.channels.form.billingMode')">
+              <button
+                v-for="option in billingModeOptions"
+                :key="option.value"
+                type="button"
+                :class="{ on: entry.billing_mode === option.value }"
+                :aria-pressed="entry.billing_mode === option.value"
+                @click="updateBillingMode(option.value as BillingMode)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </div>
         </div>
 
         <!-- Token mode -->
         <div v-if="entry.billing_mode === 'token'">
           <!-- Default prices (fallback when no interval matches) -->
-          <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
+          <label class="mt-3 block text-xs font-medium text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.defaultPrices') }}
-            <span class="ml-1 font-normal text-gray-400">$/MTok</span>
+            <span class="ml-1 font-normal text-[var(--muted-foreground)]">$/MTok</span>
           </label>
           <div class="pricing-default-grid mt-1 grid gap-2">
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.inputPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.inputPrice') }}</label>
               <input :value="entry.input_price" @input="emitField('input_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.outputPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.outputPrice') }}</label>
               <input :value="entry.output_price" @input="emitField('output_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.cacheWrite5mPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.cacheWrite5mPrice') }}</label>
               <input :value="entry.cache_write_price" @input="emitField('cache_write_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.cacheWrite1hPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.cacheWrite1hPrice') }}</label>
               <input :value="entry.cache_write_1h_price" @input="emitField('cache_write_1h_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.cacheReadPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.cacheReadPrice') }}</label>
               <input :value="entry.cache_read_price" @input="emitField('cache_read_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageInputPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.imageInputPrice') }}</label>
               <input :value="entry.image_input_price" @input="emitField('image_input_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.imageTokenPrice') }}</label>
               <input :value="entry.image_output_price" @input="emitField('image_output_price', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+                type="number" step="any" min="0" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
           </div>
 
           <div v-if="enableTierMultipliers" class="mt-3 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-3">
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.fastMultiplier') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.fastMultiplier') }}</label>
               <input :value="entry.fast_multiplier" @input="emitField('fast_multiplier', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
+                type="number" step="any" min="0.000001" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.flexMultiplier') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.flexMultiplier') }}</label>
               <input :value="entry.flex_multiplier" @input="emitField('flex_multiplier', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
+                type="number" step="any" min="0.000001" class="input tabular-nums mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
             </div>
             <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxReasoningEffortMultiplier') }}</label>
+              <label class="text-xs text-[var(--muted-foreground)]">{{ t('admin.channels.form.maxReasoningEffortMultiplier') }}</label>
               <input :value="entry.max_reasoning_effort_multiplier" @input="emitField('max_reasoning_effort_multiplier', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="maxReasoningEffortMultiplierPlaceholder" />
+                type="number" step="any" min="0.000001" class="input tabular-nums mt-0.5 text-sm" :placeholder="maxReasoningEffortMultiplierPlaceholder" />
             </div>
           </div>
 
           <!-- Channel token intervals; the group long-context toggle controls whether tiers apply. -->
           <div v-if="!hideTokenIntervals" class="mt-3">
             <div class="flex items-center justify-between">
-              <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+              <label class="text-xs font-medium text-[var(--muted-foreground)]">
                 {{ t('admin.channels.form.intervals') }}
-                <span class="ml-1 font-normal text-gray-400">(min, max]</span>
+                <span class="ml-1 font-normal text-[var(--muted-foreground)]">(min, max]</span>
               </label>
-              <button type="button" @click="addInterval" class="text-xs text-primary-600 hover:text-primary-700">
+              <button type="button" @click="addInterval" class="text-xs text-[var(--brand-text)] hover:underline">
                 + {{ t('admin.channels.form.addInterval') }}
               </button>
             </div>
@@ -196,21 +202,21 @@
         <!-- Per-request mode -->
         <div v-else-if="entry.billing_mode === 'per_request'">
           <!-- Default per-request price -->
-          <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
+          <label class="mt-3 block text-xs font-medium text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.defaultPerRequestPrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
+            <span class="ml-1 font-normal text-[var(--muted-foreground)]">$</span>
           </label>
           <div class="mt-1 w-48">
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
-              type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+              type="number" step="any" min="0" class="input tabular-nums text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
           </div>
 
           <!-- Tiers -->
           <div class="mt-3 flex items-center justify-between">
-            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label class="text-xs font-medium text-[var(--muted-foreground)]">
               {{ t('admin.channels.form.requestTiers') }}
             </label>
-            <button type="button" @click="addInterval" class="text-xs text-primary-600 hover:text-primary-700">
+            <button type="button" @click="addInterval" class="text-xs text-[var(--brand-text)] hover:underline">
               + {{ t('admin.channels.form.addTier') }}
             </button>
           </div>
@@ -224,7 +230,7 @@
               @remove="removeInterval(idx)"
             />
           </div>
-          <div v-else class="mt-2 rounded border border-dashed border-gray-300 p-3 text-center text-xs text-gray-400 dark:border-dark-500">
+          <div v-else class="mt-2 rounded border border-dashed border-[var(--border)] p-3 text-center text-xs text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.noTiersYet') }}
           </div>
         </div>
@@ -232,21 +238,21 @@
         <!-- Image/video mode -->
         <div v-else-if="entry.billing_mode === 'image' || entry.billing_mode === 'video'">
           <!-- Default image price (per-request, same as per_request mode) -->
-          <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
+          <label class="mt-3 block text-xs font-medium text-[var(--muted-foreground)]">
             {{ entry.billing_mode === 'video' ? t('admin.channels.form.defaultVideoPrice') : t('admin.channels.form.defaultImagePrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
+            <span class="ml-1 font-normal text-[var(--muted-foreground)]">$</span>
           </label>
           <div class="mt-1 w-48">
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
-              type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+              type="number" step="any" min="0" class="input tabular-nums text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
           </div>
 
           <!-- Image tiers -->
           <div class="mt-3 flex items-center justify-between">
-            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+            <label class="text-xs font-medium text-[var(--muted-foreground)]">
               {{ entry.billing_mode === 'video' ? t('admin.channels.form.videoTiers') : t('admin.channels.form.imageTiers') }}
             </label>
-            <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
+            <button type="button" @click="addMediaTier" class="text-xs text-[var(--brand-text)] hover:underline">
               + {{ t('admin.channels.form.addTier') }}
             </button>
           </div>
@@ -276,7 +282,7 @@ import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import TimePricingSection from './TimePricingSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
-import { perTokenToMTok, getPlatformTagClass } from './types'
+import { perTokenToMTok } from './types'
 import type { BillingMode } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
 
@@ -324,6 +330,16 @@ const maxReasoningEffortMultiplierPlaceholder = computed(() =>
 
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })
+}
+
+function updateBillingMode(billingMode: BillingMode) {
+  if (billingMode === props.entry.billing_mode) return
+  emit('update', {
+    ...props.entry,
+    billing_mode: billingMode,
+    intervals: [],
+    time_pricing: { ...props.entry.time_pricing, periods: [] },
+  })
 }
 
 function addInterval() {
@@ -410,6 +426,59 @@ async function onModelsUpdate(newModels: string[]) {
 </script>
 
 <style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+
+.pricing-entry.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.segmented {
+  display: none;
+}
+
+.segmented button {
+  box-shadow: none;
+}
+
+@media (min-width: 640px) {
+  .segmented { display: inline-flex; }
+  .billing-select { display: none; }
+}
+
 .pricing-default-grid {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
 }
@@ -425,6 +494,20 @@ async function onModelsUpdate(newModels: string[]) {
 }
 
 .collapsible-inner {
+  min-width: 0;
   overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible-content {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
 }
 </style>

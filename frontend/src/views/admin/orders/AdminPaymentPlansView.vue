@@ -1,22 +1,64 @@
 <template>
   <AppLayout>
     <div class="space-y-4">
-      <!-- Actions -->
-      <div class="flex items-center justify-end gap-2">
-        <button @click="loadPlans" :disabled="plansLoading" class="btn btn-secondary" :title="t('common.refresh')">
-          <Icon name="refresh" size="md" :class="plansLoading ? 'animate-spin' : ''" />
-        </button>
-        <button @click="openPlanEdit(null)" class="btn btn-primary">{{ t('payment.admin.createPlan') }}</button>
+      <!-- High-Density Workbench Toolbar & Search Bar -->
+      <div class="card flex flex-wrap items-center justify-between gap-3 p-4">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="chip font-medium">
+            <span class="pulse-dot" :class="onSaleCount > 0 ? 'pulse-ok' : 'pulse-warn'"></span>
+            <span>{{ t('payment.admin.forSale') }}</span>
+          </span>
+          <span class="pill pill-ghost font-mono text-xs tabular-nums">
+            {{ onSaleCount }}/{{ plans.length }}
+          </span>
+          <div class="relative sm:w-64">
+            <Icon
+              name="search"
+              size="sm"
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+            />
+            <input
+              v-model.trim="planSearch"
+              type="text"
+              :placeholder="t('payment.admin.planName')"
+              class="input py-1.5 pl-9 text-xs"
+            />
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="plansLoading"
+            :title="t('common.refresh')"
+            @click="loadPlans"
+          >
+            <Icon name="refresh" size="sm" :class="plansLoading ? 'animate-spin' : ''" />
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" @click="openPlanEdit(null)">
+            <Icon name="plus" size="sm" />
+            {{ t('payment.admin.createPlan') }}
+          </button>
+        </div>
       </div>
 
       <!-- Plans Table -->
-      <DataTable :columns="planColumns" :data="plans" :loading="plansLoading">
+      <DataTable :columns="planColumns" :data="filteredPlans" :loading="plansLoading">
+        <template #cell-id="{ value }">
+          <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">#{{ value }}</span>
+        </template>
         <template #cell-name="{ value, row }">
-          <span class="text-sm font-medium" :class="getPlanNameClass(row.group_id)">{{ value }}</span>
+          <div class="space-y-0.5">
+            <span class="text-sm font-semibold" :class="getPlanNameClass(row.group_id)">{{ value }}</span>
+            <p v-if="row.description" class="max-w-xs truncate text-xs text-[var(--muted-foreground)]">
+              {{ row.description }}
+            </p>
+          </div>
         </template>
         <template #cell-group_id="{ value }">
           <span v-if="isGroupMissing(value)" class="text-sm">
-            <span class="text-gray-400">#{{ value }}</span>
+            <span class="font-mono tabular-nums text-[var(--muted-foreground)]">#{{ value }}</span>
             <span class="ml-1 badge badge-danger">{{ t('payment.admin.groupMissing') }}</span>
           </span>
           <GroupBadge
@@ -25,40 +67,53 @@
             :platform="getGroup(value)!.platform"
             :rate-multiplier="getGroup(value)!.rate_multiplier"
           />
-          <span v-else class="text-sm text-gray-400">-</span>
+          <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
         </template>
         <template #cell-price="{ value, row }">
-          <div class="text-sm">
-            <span class="font-medium text-gray-900 dark:text-white">{{ planCurrencySymbol(row.currency) }}{{ (value ?? 0).toFixed(2) }}</span>
-            <span v-if="row.currency" class="ml-1 text-xs text-gray-400">{{ row.currency }}</span>
-            <span v-if="row.original_price" class="ml-1 text-xs text-gray-400 line-through">{{ planCurrencySymbol(row.currency) }}{{ row.original_price.toFixed(2) }}</span>
+          <div class="font-mono text-sm tabular-nums">
+            <span class="font-semibold text-[var(--foreground)]">{{ planCurrencySymbol(row.currency) }}{{ (value ?? 0).toFixed(2) }}</span>
+            <span v-if="row.currency" class="pill pill-ghost ml-1 text-[11px]">{{ row.currency }}</span>
+            <span v-if="row.original_price" class="ml-1.5 text-xs text-[var(--muted-foreground)] line-through">{{ planCurrencySymbol(row.currency) }}{{ row.original_price.toFixed(2) }}</span>
           </div>
         </template>
         <template #cell-validity_days="{ value, row }">
-          <span class="text-sm">{{ value }} {{ t('payment.admin.' + (row.validity_unit || 'days')) }}</span>
+          <span class="pill pill-ghost font-mono text-xs tabular-nums">
+            {{ value }} {{ t('payment.admin.' + (row.validity_unit || 'days')) }}
+          </span>
         </template>
         <template #cell-for_sale="{ value, row }">
           <button
             type="button"
             :class="[
-              'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              value ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'
+              'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--brand)] focus:ring-offset-2',
+              value ? 'bg-[var(--brand)]' : 'bg-[var(--surface-2)]'
             ]"
             @click="toggleForSale(row)"
           >
             <span :class="[
-              'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+              'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-[var(--card)] shadow ring-0 transition duration-200 ease-in-out',
               value ? 'translate-x-4' : 'translate-x-0'
             ]" />
           </button>
         </template>
+        <template #cell-sort_order="{ value }">
+          <span class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">{{ value }}</span>
+        </template>
         <template #cell-actions="{ row }">
-          <div class="flex items-center gap-2">
-            <button @click="openPlanEdit(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400">
+          <div class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:text-blue-600 dark:hover:text-blue-400"
+              @click="openPlanEdit(row)"
+            >
               <Icon name="edit" size="sm" />
               <span class="text-xs">{{ t('common.edit') }}</span>
             </button>
-            <button @click="confirmDeletePlan(row)" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400">
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs font-medium text-[var(--muted-foreground)] hover:text-red-600 dark:hover:text-red-400"
+              @click="confirmDeletePlan(row)"
+            >
               <Icon name="trash" size="sm" />
               <span class="text-xs">{{ t('common.delete') }}</span>
             </button>
@@ -129,7 +184,7 @@ function isGroupMissing(id: number): boolean {
 
 function getPlanNameClass(groupId: number): string {
   const group = getGroup(groupId)
-  return group ? platformTextClass(group.platform) : 'text-gray-900 dark:text-white'
+  return group ? platformTextClass(group.platform) : 'text-[var(--foreground)]'
 }
 
 
@@ -137,10 +192,22 @@ function getPlanNameClass(groupId: number): string {
 
 const plansLoading = ref(false)
 const plans = ref<SubscriptionPlan[]>([])
+const planSearch = ref('')
 const showPlanDialog = ref(false)
 const showDeletePlanDialog = ref(false)
 const editingPlan = ref<SubscriptionPlan | null>(null)
 const deletingPlanId = ref<number | null>(null)
+
+const onSaleCount = computed(() => plans.value.filter(p => p.for_sale).length)
+
+const filteredPlans = computed(() => {
+  const query = planSearch.value.trim().toLowerCase()
+  if (!query) return plans.value
+  return plans.value.filter(plan => {
+    const groupName = getGroup(plan.group_id)?.name || ''
+    return `${plan.name} ${plan.description || ''} ${groupName}`.toLowerCase().includes(query)
+  })
+})
 
 const planColumns = computed((): Column[] => [
   { key: 'id', label: 'ID' },

@@ -45,11 +45,11 @@ function addMapping(mapping: ModelMappingEntry = { from: '', to: '' }) {
 </script>
 
 <template>
-  <section class="min-w-0 space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="account-model-configuration">
-    <h3 class="text-base font-semibold">{{ t('admin.accounts.editSections.models') }}</h3>
+  <section class="min-w-0 space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="account-model-configuration">
+    <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.accounts.editSections.models') }}</h3>
     <ModelWhitelistSelector ref="selector" v-bind="$attrs" :model-value="modelValue" :model-mappings="mappings" @update:model-value="emit('update:modelValue', $event)" @update:model-mappings="emit('update:mappings', $event)" @selection-saved="emit('selection-saved', $event)" @validation-failed="revealValidation" />
-    <details ref="mappingDetails" class="space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600" data-testid="model-mappings">
-      <summary class="cursor-pointer rounded-lg py-2 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">{{ t('admin.accounts.editSections.mappings', { count: mappings.length }) }}</summary>
+    <details ref="mappingDetails" class="space-y-3 border-t border-[var(--border)] pt-3" data-testid="model-mappings">
+      <summary class="cursor-pointer rounded-lg py-1.5 text-sm font-medium text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">{{ t('admin.accounts.editSections.mappings', { count: mappings.length }) }}</summary>
       <p class="input-hint">{{ t('admin.accounts.mapRequestModels') }}</p>
       <div v-for="(mapping, index) in mappings" :key="index" class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input :value="mapping.from" class="input min-w-0" :aria-label="t('admin.accounts.requestModel')" :placeholder="t('admin.accounts.requestModel')" @input="updateMapping(index, 'from', $event)" />

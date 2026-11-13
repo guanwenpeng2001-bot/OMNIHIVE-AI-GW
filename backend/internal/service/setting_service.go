@@ -83,6 +83,33 @@ func (s *SettingService) ResolveGrokBaseURL(ctx context.Context, account *Accoun
 	return account.GetGrokBaseURLOr(def)
 }
 
+const settingKeyPluginExtensionsState = "omnihive_plugin_extensions_v1"
+
+func (s *SettingService) GetPluginExtensionsState(ctx context.Context) (string, error) {
+	if s == nil || s.settingRepo == nil {
+		return "", nil
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
+	defer cancel()
+	raw, err := s.settingRepo.GetValue(dbCtx, settingKeyPluginExtensionsState)
+	if err != nil {
+		if errors.Is(err, ErrSettingNotFound) {
+			return "", nil
+		}
+		return "", err
+	}
+	return raw, nil
+}
+
+func (s *SettingService) SetPluginExtensionsState(ctx context.Context, raw string) error {
+	if s == nil || s.settingRepo == nil {
+		return nil
+	}
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gatewayForwardingDBTimeout)
+	defer cancel()
+	return s.settingRepo.Set(dbCtx, settingKeyPluginExtensionsState, raw)
+}
+
 var (
 	ErrRegistrationDisabled   = infraerrors.Forbidden("REGISTRATION_DISABLED", "registration is currently disabled")
 	ErrSettingNotFound        = infraerrors.NotFound("SETTING_NOT_FOUND", "setting not found")

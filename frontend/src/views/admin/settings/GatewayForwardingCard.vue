@@ -1,21 +1,21 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.gatewayForwarding.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.gatewayForwarding.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div
-        class="grid gap-5 border-b border-gray-100 pb-5 dark:border-dark-700 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
+        class="grid gap-5 border-b border-[var(--border)] pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end"
       >
         <div>
           <label
             for="grok-default-text-model"
-            class="text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.gatewayForwarding.grokDefaultTextModel") }}
           </label>
@@ -33,16 +33,16 @@
             <option value="grok-4.1-fast" />
             <option value="grok-4" />
           </datalist>
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.gatewayForwarding.grokDefaultTextModelHint") }}
           </p>
         </div>
         <div class="flex items-center justify-between gap-5 md:min-w-72">
           <div>
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label class="text-sm font-medium text-[var(--foreground)]">
               {{ t("admin.settings.gatewayForwarding.grokCrossClientMap") }}
             </label>
-            <p class="mt-0.5 max-w-sm text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-0.5 max-w-sm text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.gatewayForwarding.grokCrossClientMapHint") }}
             </p>
           </div>
@@ -55,7 +55,7 @@
       <div class="md:col-span-2">
         <label
           for="grok-default-base-url-mode"
-          class="text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.grokDefaultBaseURLMode") }}
         </label>
@@ -81,18 +81,18 @@
             {{ t("admin.settings.gatewayForwarding.grokBaseURLModeEUWest1") }}
           </option>
         </select>
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.grokDefaultBaseURLModeHint") }}
         </p>
       </div>
 
       <!-- OpenAI Responses 首 token 统计 -->
       <div
-        class="border-b border-gray-100 pb-5 dark:border-dark-700 md:col-span-2"
+        class="border-b border-[var(--border)] pb-5 md:col-span-2"
       >
         <label
           for="openai-ttft-mode"
-          class="text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.openaiTTFTMode") }}
         </label>
@@ -109,7 +109,7 @@
             {{ t("admin.settings.gatewayForwarding.openaiTTFTModeVisible") }}
           </option>
         </select>
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.openaiTTFTModeHint") }}
         </p>
       </div>
@@ -117,10 +117,10 @@
       <!-- Fingerprint Unification -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.gatewayForwarding.fingerprintUnification") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t("admin.settings.gatewayForwarding.fingerprintUnificationHint")
             }}
@@ -132,10 +132,10 @@
       <!-- Metadata Passthrough -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.gatewayForwarding.metadataPassthrough") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.gatewayForwarding.metadataPassthroughHint") }}
           </p>
         </div>
@@ -145,10 +145,10 @@
       <!-- CCH Signing -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.gatewayForwarding.cchSigning") }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.gatewayForwarding.cchSigningHint") }}
           </p>
         </div>
@@ -158,14 +158,14 @@
       <!-- Claude OAuth System Prompt Injection -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjection",
               )
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.claudeOAuthSystemPromptInjectionHint",
@@ -178,7 +178,7 @@
 
       <div>
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{
             t("admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocks")
@@ -188,7 +188,7 @@
           <div
             v-for="(block, index) in claudeOAuthSystemPromptBlocks"
             :key="block.id"
-            class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800/60"
+            class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"
           >
             <div
               :class="[
@@ -197,14 +197,14 @@
               ]"
             >
               <div class="min-w-0">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                <div class="text-sm font-medium text-[var(--foreground)]">
                   {{
                     t("admin.settings.gatewayForwarding.systemBlockTitle", {
                       index: index + 1,
                     })
                   }}
                 </div>
-                <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                <div class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                   {{ getClaudeOAuthPresetLabel(block.preset) }}
                 </div>
               </div>
@@ -245,7 +245,7 @@
                 <Toggle v-model="block.enabled" />
                 <button
                   type="button"
-                  class="btn btn-secondary btn-sm px-2 text-red-600 hover:text-red-700 dark:text-red-400"
+                  class="btn btn-secondary btn-sm px-2 text-[var(--bad-text)] hover:text-[var(--bad-text)]"
                   @click="removeClaudeOAuthSystemPromptBlock(index)"
                 >
                   <Icon name="trash" size="xs" />
@@ -257,7 +257,7 @@
               <div class="grid gap-3 md:grid-cols-2">
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{
                       t("admin.settings.gatewayForwarding.systemBlockPreset")
@@ -274,7 +274,7 @@
                 </div>
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{ t("admin.settings.gatewayForwarding.systemBlockType") }}
                   </label>
@@ -287,7 +287,7 @@
 
               <div class="mt-3">
                 <label
-                  class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                  class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                 >
                   {{ t("admin.settings.gatewayForwarding.systemBlockText") }}
                 </label>
@@ -303,7 +303,7 @@
                 <div class="flex items-center justify-between gap-4">
                   <div>
                     <label
-                      class="text-xs font-medium text-gray-600 dark:text-gray-300"
+                      class="text-xs font-medium text-[var(--muted-foreground)]"
                     >
                       {{
                         t(
@@ -343,7 +343,7 @@
             {{ t("admin.settings.gatewayForwarding.resetSystemBlocks") }}
           </button>
         </div>
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{
             t(
               "admin.settings.gatewayForwarding.claudeOAuthSystemPromptBlocksHint",
@@ -355,12 +355,12 @@
       <!-- Anthropic Cache TTL 1h Injection -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t("admin.settings.gatewayForwarding.anthropicCacheTTL1hInjection")
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.anthropicCacheTTL1hInjectionHint",
@@ -374,12 +374,12 @@
       <!-- messages cache_control 改写 -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t("admin.settings.gatewayForwarding.rewriteMessageCacheControl")
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.rewriteMessageCacheControlHint",
@@ -393,12 +393,12 @@
       <!-- 客户端 dateline 归一化（仅 Anthropic OAuth/SetupToken） -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t("admin.settings.gatewayForwarding.clientDatelineNormalization")
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.clientDatelineNormalizationHint",
@@ -422,7 +422,7 @@
       <!-- Antigravity UA 版本 -->
       <div>
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{
             t("admin.settings.gatewayForwarding.antigravityUserAgentVersion")
@@ -438,7 +438,7 @@
             )
           "
         />
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{
             t(
               "admin.settings.gatewayForwarding.antigravityUserAgentVersionHint",
@@ -450,7 +450,7 @@
       <!-- OpenAI Codex UA -->
       <div>
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.openaiCodexUserAgent") }}
         </label>
@@ -464,7 +464,7 @@
             )
           "
         />
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.openaiCodexUserAgentHint") }}
         </p>
       </div>
@@ -472,7 +472,7 @@
       <!-- Codex 客户端版本号 -->
       <div>
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.openaiCodexClientVersion") }}
         </label>
@@ -486,7 +486,7 @@
             )
           "
         />
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{
             t("admin.settings.gatewayForwarding.openaiCodexClientVersionHint")
           }}
@@ -496,12 +496,12 @@
       <!-- Codex 版本号自动同步 -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{
               t("admin.settings.gatewayForwarding.openaiCodexVersionAutoSync")
             }}
           </label>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
             {{
               t(
                 "admin.settings.gatewayForwarding.openaiCodexVersionAutoSyncHint",
@@ -510,7 +510,7 @@
           </p>
           <p
             v-if="codexSyncedVersionLabel"
-            class="mt-0.5 text-xs text-gray-500 dark:text-gray-400"
+            class="mt-0.5 text-xs text-[var(--muted-foreground)]"
           >
             {{ codexSyncedVersionLabel }}
           </p>

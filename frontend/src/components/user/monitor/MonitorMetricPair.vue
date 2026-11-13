@@ -1,10 +1,10 @@
 <template>
   <div class="mt-5 grid grid-cols-2 gap-2">
     <div
-      class="rounded-xl p-3 bg-gray-50/80 dark:bg-dark-900/40 border border-gray-100 dark:border-dark-700/50"
+      class="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3"
     >
       <div
-        class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400"
+        class="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]"
       >
         <Icon :name="primaryIcon" size="xs" />
         <span>{{ primaryLabel }}</span>
@@ -14,10 +14,10 @@
       </div>
     </div>
     <div
-      class="rounded-xl p-3 bg-gray-50/80 dark:bg-dark-900/40 border border-gray-100 dark:border-dark-700/50"
+      class="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3"
     >
       <div
-        class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400"
+        class="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-foreground)]"
       >
         <Icon :name="secondaryIcon" size="xs" />
         <span>{{ secondaryLabel }}</span>

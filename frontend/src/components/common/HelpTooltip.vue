@@ -13,6 +13,7 @@ const props = withDefaults(defineProps<{
 })
 
 const show = ref(false)
+const tooltipId = `help-${Math.random().toString(36).slice(2, 10)}`
 const triggerRef = useTemplateRef<HTMLElement>('trigger')
 const tooltipRef = useTemplateRef<HTMLElement>('tooltip')
 const tooltipStyle = ref({ top: '0px', left: '0px' })
@@ -67,7 +68,6 @@ function onDocumentClick(event: MouseEvent) {
 }
 
 function onDocumentKeydown(event: KeyboardEvent) {
-  if (props.trigger !== 'click') return
   if (event.key === 'Escape') {
     closeTooltip()
   }
@@ -83,8 +83,8 @@ function updatePosition() {
   if (!el) return
   const rect = el.getBoundingClientRect()
   tooltipStyle.value = {
-    top: `${rect.top + window.scrollY}px`,
-    left: `${rect.left + rect.width / 2 + window.scrollX}px`,
+    top: `${rect.top}px`,
+    left: `${Math.max(12 + (tooltipRef.value?.offsetWidth || 0) / 2, Math.min(window.innerWidth - 12 - (tooltipRef.value?.offsetWidth || 0) / 2, rect.left + rect.width / 2))}px`,
   }
 }
 
@@ -107,6 +107,12 @@ onBeforeUnmount(() => {
   <div
     ref="trigger"
     class="group relative ml-1 inline-flex items-center align-middle"
+    tabindex="0"
+    :aria-describedby="show ? tooltipId : undefined"
+    @focus="openTooltip"
+    @blur="closeTooltip"
+    @keydown.enter.prevent="openTooltip"
+    @keydown.space.prevent="openTooltip"
     @mouseenter="onEnter"
     @mouseleave="onLeave"
     @click="onClick"
@@ -114,7 +120,7 @@ onBeforeUnmount(() => {
     <!-- Trigger Icon -->
     <slot name="trigger">
       <svg
-        class="h-4 w-4 cursor-help text-gray-400 transition-colors hover:text-primary-600 dark:text-gray-500 dark:hover:text-primary-400"
+        class="h-4 w-4 cursor-help text-[var(--muted-foreground)] transition-colors hover:text-[var(--brand-text)]"
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -133,10 +139,11 @@ onBeforeUnmount(() => {
       <!-- before: 伪元素向下延伸一段透明区域，盖住提示框与触发图标之间的空隙，让指针能连续移入提示框。 -->
       <div
         ref="tooltip"
+        :id="tooltipId"
         v-show="show"
         role="tooltip"
         :class="[
-          'fixed z-[99999] -translate-x-1/2 -translate-y-full rounded-lg bg-gray-900 p-3 text-xs leading-relaxed text-white shadow-xl ring-1 ring-white/10 selection:bg-primary-200 selection:text-gray-900 before:absolute before:inset-x-0 before:top-full before:h-3 dark:bg-gray-800 dark:selection:bg-primary-200 dark:selection:text-gray-900',
+          'fixed z-[99999] max-w-[calc(100vw-24px)] -translate-x-1/2 -translate-y-full rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 text-xs leading-relaxed text-[var(--foreground)] shadow-lg selection:bg-[var(--brand)] before:absolute before:inset-x-0 before:top-full before:h-3',
           props.widthClass,
         ]"
         :style="{ top: `calc(${tooltipStyle.top} - 8px)`, left: tooltipStyle.left }"
@@ -145,7 +152,7 @@ onBeforeUnmount(() => {
         <button
           v-if="props.trigger === 'click'"
           type="button"
-          class="absolute right-1.5 top-1.5 rounded p-1 text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
+          class="absolute right-1.5 top-1.5 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
           :aria-label="t('common.close')"
           @click.stop="closeTooltip"
         >
@@ -154,8 +161,12 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <slot>{{ content }}</slot>
-        <div class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-gray-900 dark:bg-gray-800"></div>
+        <div class="absolute -bottom-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-[var(--surface-2)]"></div>
       </div>
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.group:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; border-radius: 4px; }
+</style>

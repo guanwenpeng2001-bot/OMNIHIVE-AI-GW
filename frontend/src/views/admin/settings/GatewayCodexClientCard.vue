@@ -1,25 +1,25 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.gatewayForwarding.codexHardeningTitle") }}
       </h2>
     </div>
     <div class="p-6 space-y-4">
       <div>
-        <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+        <h3 class="text-base font-semibold text-[var(--foreground)]">
           {{
             t("admin.settings.gatewayForwarding.codexClientRestrictionTitle")
           }}
         </h3>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p class="mt-1 text-sm text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.codexHardeningDesc") }}
         </p>
       </div>
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.gatewayForwarding.minCodexVersion") }}
           </label>
@@ -34,7 +34,7 @@
         </div>
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.gatewayForwarding.maxCodexVersion") }}
           </label>
@@ -48,17 +48,17 @@
           />
         </div>
       </div>
-      <p class="text-xs text-gray-500 dark:text-gray-400">
+      <p class="text-xs text-[var(--muted-foreground)]">
         {{ t("admin.settings.gatewayForwarding.codexVersionHint") }}
       </p>
 
       <div>
         <label
-          class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.codexFingerprintSignals") }}
         </label>
-        <p class="mb-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mb-2 mt-1 text-xs text-[var(--muted-foreground)]">
           {{
             t("admin.settings.gatewayForwarding.codexFingerprintSignalsDesc")
           }}
@@ -90,14 +90,14 @@
             "
           />
           <label
-            class="flex shrink-0 items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+            class="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]"
           >
             <input v-model="row.required" type="checkbox" />
             {{ t("admin.settings.gatewayForwarding.codexFpRequired") }}
           </label>
           <button
             type="button"
-            class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+            class="btn btn-secondary btn-sm shrink-0 text-[var(--bad-text)] hover:text-[var(--bad-text)]"
             @click="removeCodexFingerprintRow(i)"
           >
             {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}
@@ -112,7 +112,7 @@
         </button>
         <p
           v-if="codexFingerprintNoRequired"
-          class="mt-2 text-xs text-amber-600 dark:text-amber-500"
+          class="mt-2 text-xs text-[var(--warn-text)]"
         >
           {{
             t("admin.settings.gatewayForwarding.codexFingerprintNoRequiredWarn")
@@ -123,11 +123,11 @@
       <div class="flex items-center justify-between">
         <div class="pr-4">
           <label
-            class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.gatewayForwarding.codexAllowAppServer") }}
           </label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.gatewayForwarding.codexAllowAppServerDesc") }}
           </p>
         </div>
@@ -136,11 +136,11 @@
 
       <div>
         <label
-          class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.codexBlacklist") }}
         </label>
-        <p class="mb-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mb-2 mt-1 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.codexBlacklistDesc") }}
         </p>
         <div
@@ -166,7 +166,7 @@
           />
           <button
             type="button"
-            class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+            class="btn btn-secondary btn-sm shrink-0 text-[var(--bad-text)] hover:text-[var(--bad-text)]"
             @click="removeCodexBlacklistRow(i)"
           >
             {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}
@@ -183,11 +183,11 @@
 
       <div>
         <label
-          class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.gatewayForwarding.codexWhitelist") }}
         </label>
-        <p class="mb-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mb-2 mt-1 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.gatewayForwarding.codexWhitelistDesc") }}
         </p>
         <div
@@ -212,7 +212,7 @@
             "
           />
           <label
-            class="flex shrink-0 items-center gap-1 text-xs text-gray-600 dark:text-gray-400"
+            class="flex shrink-0 items-center gap-1 text-xs text-[var(--muted-foreground)]"
             :title="
               t(
                 'admin.settings.gatewayForwarding.codexWhitelistSkipFingerprintTooltip',
@@ -228,7 +228,7 @@
           </label>
           <button
             type="button"
-            class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+            class="btn btn-secondary btn-sm shrink-0 text-[var(--bad-text)] hover:text-[var(--bad-text)]"
             @click="removeCodexWhitelistRow(i)"
           >
             {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}

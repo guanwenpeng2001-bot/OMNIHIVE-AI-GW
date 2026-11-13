@@ -1,25 +1,48 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
-      <!-- Header with Day Switcher -->
-      <div class="flex items-center justify-end">
+    <div class="space-y-5">
+      <!-- Workbench Header with Settlement Health Capsule & Segmented Day Switcher -->
+      <div
+        class="card flex flex-wrap items-center justify-between gap-3 p-4"
+        style="
+          background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 6%, var(--card)), var(--card));
+          border-color: color-mix(in srgb, var(--brand) 24%, var(--border));
+        "
+      >
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="chip font-medium">
+            <span class="pulse-dot" :class="loading ? 'pulse-warn' : 'pulse-ok'"></span>
+            <span>{{ t('payment.admin.paymentDistribution') }}</span>
+          </span>
+          <span class="pill pill-ghost font-mono text-xs tabular-nums">
+            {{ days }}{{ t('payment.admin.daySuffix') }}
+          </span>
+          <span v-if="stats" class="pill pill-ghost font-mono text-xs tabular-nums">
+            #{{ stats.total_count }} · {{ stats.payment_methods?.length || 0 }} channels
+          </span>
+        </div>
+
         <div class="flex items-center gap-2">
-          <div class="flex rounded-lg border border-gray-200 dark:border-dark-600">
+          <div class="segmented" role="group">
             <button
               v-for="d in DAYS_OPTIONS"
               :key="d"
               type="button"
-              class="px-3 py-1.5 text-xs font-medium transition-colors first:rounded-l-lg last:rounded-r-lg"
-              :class="days === d
-                ? 'bg-primary-600 text-white'
-                : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700'"
+              class="font-mono tabular-nums"
+              :class="{ on: days === d, active: days === d }"
               @click="days = d"
             >
               {{ d }}{{ t('payment.admin.daySuffix') }}
             </button>
           </div>
-          <button @click="loadDashboard" :disabled="loading" class="btn btn-secondary" :title="t('common.refresh')">
-            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="loading"
+            :title="t('common.refresh')"
+            @click="loadDashboard"
+          >
+            <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
           </button>
         </div>
       </div>
@@ -31,35 +54,110 @@
       <template v-else-if="stats">
         <OrderStatsCards :stats="stats" />
         <DailyRevenueChart :data="stats.daily_series || []" :loading="loading" />
-        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div class="card p-4">
-            <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.admin.paymentDistribution') }}</h3>
-            <div v-if="!stats.payment_methods?.length" class="flex h-32 items-center justify-center text-sm text-gray-500 dark:text-gray-400">{{ t('payment.admin.noData') }}</div>
-            <div v-else class="space-y-3">
-              <div v-for="method in stats.payment_methods" :key="method.type" class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <span :class="['inline-block h-3 w-3 rounded-full', methodColor(method.type)]"></span>
-                  <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('payment.methods.' + method.type, method.type) }}</span>
+        <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <!-- Payment Methods Distribution -->
+          <div class="card p-5">
+            <div class="mb-4 flex items-center justify-between gap-2">
+              <h3 class="text-sm font-semibold tracking-tight text-[var(--foreground)]">
+                {{ t('payment.admin.paymentDistribution') }}
+              </h3>
+              <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+                {{ stats.payment_methods?.length || 0 }}
+              </span>
+            </div>
+            <div
+              v-if="!stats.payment_methods?.length"
+              class="flex h-32 items-center justify-center text-sm text-[var(--muted-foreground)]"
+            >
+              {{ t('payment.admin.noData') }}
+            </div>
+            <div v-else class="space-y-3.5">
+              <div
+                v-for="method in stats.payment_methods"
+                :key="method.type"
+                class="space-y-1.5 rounded-xl border p-3 transition-colors"
+                style="border-color: var(--border); background: color-mix(in srgb, var(--surface-2) 55%, var(--card))"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="flex items-center gap-2">
+                    <span :class="['inline-block h-2.5 w-2.5 rounded-full', methodColor(method.type)]"></span>
+                    <span class="text-sm font-medium text-[var(--foreground)]">
+                      {{ t('payment.methods.' + method.type, method.type) }}
+                    </span>
+                    <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+                      {{ method.count }} · {{ methodSharePercent(method.count) }}%
+                    </span>
+                  </div>
+                  <div class="space-y-0.5 text-right font-mono tabular-nums">
+                    <span
+                      v-for="[currency, amount] in sortedAmounts(method.amount)"
+                      :key="currency"
+                      class="block text-sm font-semibold text-[var(--foreground)]"
+                    >
+                      {{ formatMoney(currency, amount) }}
+                    </span>
+                  </div>
                 </div>
-                <div class="space-y-1 text-right">
-                  <span v-for="[currency, amount] in sortedAmounts(method.amount)" :key="currency" class="block text-sm font-medium text-gray-900 dark:text-white">{{ formatMoney(currency, amount) }}</span>
-                  <span class="ml-2 text-xs text-gray-500 dark:text-gray-400">({{ method.count }})</span>
+                <div class="meter">
+                  <span :style="{ width: `${methodSharePercent(method.count)}%` }"></span>
                 </div>
               </div>
             </div>
           </div>
-          <div class="card p-4">
-            <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.admin.topUsers') }}</h3>
-            <div v-if="!hasTopUsers(stats.top_users)" class="flex h-32 items-center justify-center text-sm text-gray-500 dark:text-gray-400">{{ t('payment.admin.noData') }}</div>
-            <div v-else class="space-y-2">
-              <div v-for="[currency, users] in sortedTopUsers(stats.top_users)" :key="currency" class="space-y-2">
-                <p class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ currency }}</p>
-                <div v-for="(user, idx) in users" :key="user.user_id" class="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-700">
-                  <div class="flex items-center gap-3">
-                    <span :class="['flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold', rankClass(idx)]">{{ idx + 1 }}</span>
-                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ user.email }}</span>
+
+          <!-- Top Users Leaderboard -->
+          <div class="card p-5">
+            <div class="mb-4 flex items-center justify-between gap-2">
+              <h3 class="text-sm font-semibold tracking-tight text-[var(--foreground)]">
+                {{ t('payment.admin.topUsers') }}
+              </h3>
+              <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
+                TOP
+              </span>
+            </div>
+            <div
+              v-if="!hasTopUsers(stats.top_users)"
+              class="flex h-32 items-center justify-center text-sm text-[var(--muted-foreground)]"
+            >
+              {{ t('payment.admin.noData') }}
+            </div>
+            <div v-else class="space-y-4">
+              <div v-for="[currency, users] in sortedTopUsers(stats.top_users)" :key="currency" class="space-y-2.5">
+                <div class="flex items-center justify-between">
+                  <span class="pill pill-ghost font-mono tabular-nums text-[11px] font-semibold uppercase tracking-wider">
+                    {{ currency }}
+                  </span>
+                </div>
+                <div
+                  v-for="(user, idx) in users"
+                  :key="user.user_id"
+                  class="space-y-1.5 rounded-xl border px-3 py-2.5 transition-colors hover:bg-[color-mix(in_srgb,var(--surface-2)_80%,transparent)]"
+                  style="border-color: var(--border)"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="flex min-w-0 items-center gap-2.5">
+                      <span
+                        :class="[
+                          'flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full font-mono text-xs font-bold tabular-nums',
+                          rankClass(idx),
+                        ]"
+                      >
+                        {{ idx + 1 }}
+                      </span>
+                      <span class="truncate text-sm font-medium text-[var(--foreground)]">
+                        {{ user.email }}
+                      </span>
+                    </div>
+                    <span
+                      class="flex-shrink-0 font-mono text-sm font-semibold tabular-nums"
+                      style="color: var(--brand-text)"
+                    >
+                      {{ formatMoney(currency, user.amount) }}
+                    </span>
                   </div>
-                  <span class="text-sm font-medium text-gray-900 dark:text-white">{{ formatMoney(currency, user.amount) }}</span>
+                  <div class="meter">
+                    <span :style="{ width: `${userSharePercent(users, user.amount)}%` }"></span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -97,14 +195,14 @@ function methodColor(type: string): string {
     alipay_direct: 'bg-blue-400', wxpay_direct: 'bg-green-400',
     stripe: 'bg-purple-500',
   }
-  return c[type] || 'bg-gray-400'
+  return c[type] || 'bg-[var(--surface-2)]'
 }
 
 function rankClass(idx: number): string {
   if (idx === 0) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-  if (idx === 1) return 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+  if (idx === 1) return 'bg-[var(--surface-2)] text-[var(--muted-foreground)]'
   if (idx === 2) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-  return 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-gray-400'
+  return 'bg-[var(--surface-2)] text-[var(--muted-foreground)]'
 }
 
 function sortedAmounts(amounts: CurrencyAmounts): [string, number][] {
@@ -117,6 +215,19 @@ function sortedTopUsers(usersByCurrency: Record<string, TopUserPaymentStats[]>):
 
 function hasTopUsers(usersByCurrency: Record<string, TopUserPaymentStats[]>): boolean {
   return Object.values(usersByCurrency).some(users => users.length > 0)
+}
+
+function methodSharePercent(count: number): number {
+  const methods = stats.value?.payment_methods || []
+  const total = methods.reduce((sum, item) => sum + (item.count || 0), 0)
+  if (total <= 0) return 0
+  return Math.min(100, Math.max(4, Math.round((count / total) * 100)))
+}
+
+function userSharePercent(users: TopUserPaymentStats[], amount: number): number {
+  const maxAmount = Math.max(...users.map(u => u.amount || 0), 0)
+  if (maxAmount <= 0) return 0
+  return Math.min(100, Math.max(6, Math.round((amount / maxAmount) * 100)))
 }
 
 function formatMoney(currency: string, amount: number): string {

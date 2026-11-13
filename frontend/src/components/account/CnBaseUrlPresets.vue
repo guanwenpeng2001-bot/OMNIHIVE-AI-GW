@@ -1,5 +1,5 @@
 <template>
-  <AccountEndpointPresets :presets="presets" :current-url="currentUrl" test-id="cn-base-url-preset" @select="emit('select', $event)" />
+  <AccountEndpointPresets class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2" :presets="presets" :current-url="currentUrl" test-id="cn-base-url-preset" @select="emit('select', $event)" />
 </template>
 
 <script setup lang="ts">

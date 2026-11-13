@@ -1,24 +1,24 @@
 <template>
-  <div v-if="shouldShowQuota">
+  <div v-if="shouldShowQuota" class="max-w-[260px] space-y-1.5">
     <!-- First line: Platform + Tier Badge -->
     <div class="mb-1 flex items-center gap-1">
-      <span :class="['badge text-xs px-2 py-0.5 rounded font-medium', tierBadgeClass]">
+      <span class="inline-flex items-center rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--foreground)]">
         {{ tierLabel }}
       </span>
     </div>
 
     <!-- Usage status: unlimited flow or rate limit -->
-    <div class="text-xs text-gray-400 dark:text-gray-500">
+    <div class="font-mono text-[10px] tabular-nums text-[var(--muted-foreground)]">
       <span v-if="!isRateLimited">
         {{ t('admin.accounts.gemini.rateLimit.unlimited') }}
       </span>
       <span
         v-else
         :class="[
-          'font-medium',
+          'inline-flex rounded border px-1.5 py-0.5 font-medium',
           isUrgent
-            ? 'text-red-600 dark:text-red-400 animate-pulse'
-            : 'text-amber-600 dark:text-amber-400'
+            ? 'border-[color-mix(in_srgb,var(--bad)_30%,transparent)] bg-[color-mix(in_srgb,var(--bad)_10%,transparent)] text-[var(--bad-text)]'
+            : 'border-[color-mix(in_srgb,var(--warn)_30%,transparent)] bg-[color-mix(in_srgb,var(--warn)_10%,transparent)] text-[var(--warn-text)]'
         ]"
       >
         {{ t('admin.accounts.gemini.rateLimit.limited', { time: resetCountdown }) }}
@@ -93,39 +93,6 @@ const tierLabel = computed(() => {
   if (tier === 'aistudio_paid') return 'AI Studio Pay-as-you-go'
   if (tier === 'aistudio_free') return 'AI Studio Free Tier'
   return 'AI Studio'
-})
-
-// Tier Badge 样式（统一样式）
-const tierBadgeClass = computed(() => {
-  const creds = props.account.credentials as GeminiCredentials | undefined
-
-  if (isCodeAssist.value) {
-    const tier = (creds?.tier_id || '').toString().trim().toLowerCase()
-    if (tier === 'gcp_enterprise') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    if (tier === 'gcp_standard') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-    // Backward compatibility
-    const upper = (creds?.tier_id || '').toString().trim().toUpperCase()
-    if (upper.includes('ULTRA') || upper.includes('ENTERPRISE')) return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-  }
-
-  if (isGoogleOne.value) {
-    const tier = (creds?.tier_id || '').toString().trim().toLowerCase()
-    if (tier === 'google_ai_ultra') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    if (tier === 'google_ai_pro') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-    if (tier === 'google_one_free') return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-    // Backward compatibility
-    const upper = (creds?.tier_id || '').toString().trim().toUpperCase()
-    if (upper === 'GOOGLE_ONE_UNLIMITED') return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
-    if (upper === 'AI_PREMIUM') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-    return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-  }
-
-  // AI Studio 默认样式：蓝色
-  const tier = (creds?.tier_id || '').toString().trim().toLowerCase()
-  if (tier === 'aistudio_paid') return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
-  if (tier === 'aistudio_free') return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-  return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
 })
 
 // 是否限流

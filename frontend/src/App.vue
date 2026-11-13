@@ -9,7 +9,11 @@ import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import { watchIdentityRouteRecovery } from '@/router/identityScope'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
+import CommandPalette from '@/components/common/CommandPalette.vue'
+import ThemeStyleDock from '@/components/common/ThemeStyleDock.vue'
+import OmniHiveDrawer from '@/components/common/OmniHiveDrawer.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
+import { useThemeDirection } from '@/composables/useThemeDirection'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
@@ -23,6 +27,8 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const { initThemeDirection } = useThemeDirection()
+initThemeDirection()
 
 const stopIdentityRouteRecovery = watchIdentityRouteRecovery(router, authStore)
 let disposed = false
@@ -192,4 +198,7 @@ onMounted(async () => {
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />
+  <CommandPalette />
+  <ThemeStyleDock :floating="route.path === '/home' || route.path === '/'" />
+  <OmniHiveDrawer />
 </template>

@@ -1,15 +1,15 @@
-const slatePalette = {
-  50: '#f8fafc',
-  100: '#f1f5f9',
-  200: '#e2e8f0',
-  300: '#cbd5e1',
-  400: '#94a3b8',
-  500: '#64748b',
-  600: '#475569',
-  700: '#334155',
-  800: '#1e293b',
-  900: '#0f172a',
-  950: '#020617'
+const hiveCarbonPalette = {
+  50: '#fafafa',
+  100: '#f4f4f5',
+  200: '#e9e9ee',
+  300: '#d4d4dc',
+  400: '#9e9ea9',
+  500: '#6f6f78',
+  600: '#4a4a54',
+  700: '#2c2c35',
+  800: '#1d1d24',
+  900: '#131316',
+  950: '#0c0c0e'
 }
 
 /** @type {import('tailwindcss').Config} */
@@ -19,27 +19,31 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 主色调 - Teal/Cyan 青色系
+        // 主色调 - OmniHive 蜜金琥珀色系 (Hive Aura Benchmark)
         primary: {
-          50: '#f0fdfa',
-          100: '#ccfbf1',
-          200: '#99f6e4',
-          300: '#5eead4',
-          400: '#2dd4bf',
-          500: '#14b8a6',
-          600: '#0d9488',
-          700: '#0f766e',
-          800: '#115e59',
-          900: '#134e4a',
-          950: '#042f2e'
+          50: '#fffbeb',
+          100: '#fef3c7',
+          200: '#fde68a',
+          300: '#fcd34d',
+          400: '#fbbf24',
+          500: '#f59e0b',
+          600: '#d97706',
+          700: '#92400e',
+          800: '#78350f',
+          900: '#451a03',
+          950: '#270e01'
         },
-        // 辅助色 - 深蓝灰
-        accent: slatePalette,
+        // 辅助色 - 暖炭黑中性灰
+        accent: hiveCarbonPalette,
         // 深色模式背景
-        dark: slatePalette
+        dark: hiveCarbonPalette
       },
       fontFamily: {
         sans: [
+          'Inter',
+          'PingFang SC',
+          'Hiragino Sans GB',
+          'Microsoft YaHei',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
@@ -47,30 +51,35 @@ export default {
           'Roboto',
           'Helvetica Neue',
           'Arial',
-          'PingFang SC',
-          'Hiragino Sans GB',
-          'Microsoft YaHei',
           'sans-serif'
         ],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+        mono: [
+          'JetBrains Mono',
+          'ui-monospace',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          'monospace'
+        ]
       },
       boxShadow: {
-        glass: '0 8px 32px rgba(0, 0, 0, 0.08)',
-        'glass-sm': '0 4px 16px rgba(0, 0, 0, 0.06)',
-        glow: '0 0 20px rgba(20, 184, 166, 0.25)',
-        'glow-lg': '0 0 40px rgba(20, 184, 166, 0.35)',
-        card: '0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06)',
-        'card-hover': '0 10px 40px rgba(0, 0, 0, 0.08)',
+        glass: '0 8px 32px rgba(19, 19, 22, 0.08)',
+        'glass-sm': '0 4px 16px rgba(19, 19, 22, 0.05)',
+        glow: '0 0 20px rgba(245, 158, 11, 0.25)',
+        'glow-lg': '0 0 40px rgba(245, 158, 11, 0.35)',
+        card: '0 1px 3px rgba(19, 19, 22, 0.03), 0 1px 2px rgba(19, 19, 22, 0.02)',
+        'card-hover': '0 12px 28px -6px rgba(19, 19, 22, 0.09)',
         'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(135deg, #14b8a6 0%, #0d9488 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+        'gradient-primary': 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+        'gradient-dark': 'linear-gradient(135deg, #1d1d24 0%, #131316 100%)',
         'gradient-glass':
           'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
         'mesh-gradient':
-          'radial-gradient(at 40% 20%, rgba(20, 184, 166, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(20, 184, 166, 0.08) 0px, transparent 50%)'
+          'radial-gradient(at 40% 16%, rgba(245, 158, 11, 0.07) 0px, transparent 50%), radial-gradient(at 82% 4%, rgba(217, 119, 6, 0.05) 0px, transparent 48%), radial-gradient(at 0% 52%, rgba(245, 158, 11, 0.04) 0px, transparent 50%)'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
@@ -108,8 +117,8 @@ export default {
           '100%': { backgroundPosition: '200% 0' }
         },
         glow: {
-          '0%': { boxShadow: '0 0 20px rgba(20, 184, 166, 0.25)' },
-          '100%': { boxShadow: '0 0 30px rgba(20, 184, 166, 0.4)' }
+          '0%': { boxShadow: '0 0 20px rgba(245, 158, 11, 0.22)' },
+          '100%': { boxShadow: '0 0 30px rgba(245, 158, 11, 0.36)' }
         }
       },
       backdropBlur: {

@@ -1,23 +1,127 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl space-y-6">
+    <div class="w-full space-y-5">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner size="md" color="primary" />
       </div>
 
       <!-- Settings Form -->
-      <form v-else @submit.prevent="saveSettings" class="space-y-6" novalidate>
-        <!-- Tab Navigation -->
-        <div class="settings-tabs-shell">
-          <nav
-            class="settings-tabs-scroll"
-            role="tablist"
-            :aria-label="t('admin.settings.title')"
-          >
-            <div class="settings-tabs">
+      <form v-else @submit.prevent="saveSettings" class="space-y-5" novalidate>
+        <!-- 顶部设置工作台头栏 -->
+        <div class="settings-toolbar card sticky top-14 z-30 px-3 py-3 sm:px-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="pill pill-ghost font-mono text-xs tabular-nums">
+                  [{{ activeTabOrder }}/09]
+                </span>
+                <h1 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
+                  {{ activeDomainMeta.title }}
+                </h1>
+              </div>
+            </div>
+
+            <div class="contents sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+              <!-- 设置项实时快速检索框 -->
+              <div
+                class="order-last flex w-full items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors focus-within:border-[var(--ring)] sm:order-none sm:w-auto"
+                style="border-color: var(--border); background: var(--card)"
+              >
+                <Icon name="search" size="sm" class="text-gray-400" />
+                <input
+                  v-model.trim="searchQuery"
+                  type="search"
+                  class="min-w-0 w-full bg-transparent text-xs text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] sm:w-52"
+                  placeholder="搜索设置项 / 配置域…"
+                  aria-label="搜索设置项或配置域"
+                  @keydown.enter.prevent="applyFirstMatchedTab"
+                />
+                <button
+                  v-if="searchQuery"
+                  type="button"
+                  class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  title="清空搜索"
+                  @click="searchQuery = ''"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <!-- 顶部快速保存按钮 -->
+              <span
+                v-if="activeTab !== 'backup'"
+                class="rounded-full border border-[var(--border)] px-2 py-1 text-[11px]"
+                :class="hasLocalChanges ? 'bg-[var(--accent)] text-[var(--brand-text)]' : 'text-[var(--muted-foreground)]'"
+                role="status"
+              >
+                {{ loadFailed ? '加载失败' : saving ? t('admin.settings.saving') : hasLocalChanges ? '有未保存修改' : '配置已同步' }}
+              </span>
               <button
-                v-for="tab in settingsTabs"
+                v-show="activeTab !== 'backup'"
+                type="submit"
+                :disabled="saving || loadFailed"
+                class="btn btn-primary btn-sm"
+              >
+                <LoadingSpinner v-if="saving" size="sm" color="white" />
+                {{
+                  saving
+                    ? t("admin.settings.saving")
+                    : t("admin.settings.saveSettings")
+                }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 搜索结果快捷切换建议条 -->
+          <div
+            v-if="searchQuery"
+            class="mt-3 flex flex-wrap items-center gap-2 border-t pt-3 text-xs"
+            style="border-color: var(--border)"
+          >
+            <span class="text-gray-500 dark:text-gray-400">
+              匹配配置域 ({{ matchedTabs.length }}/9)：
+            </span>
+            <template v-if="matchedTabs.length > 0">
+              <span
+                v-for="item in matchedTabs"
+                :key="`suggest-${item.key}`"
+                role="button"
+                tabindex="0"
+                class="chip cursor-pointer transition-colors hover:border-amber-500/60"
+                :style="
+                  activeTab === item.key
+                    ? 'border-color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, var(--card))'
+                    : ''
+                "
+                @click="selectSettingsTab(item.key)"
+                @keydown.enter.prevent="selectSettingsTab(item.key)"
+              >
+                <span class="font-mono text-[10px] opacity-60">{{ item.order }}</span>
+                <span>{{ item.meta.title }}</span>
+                <span class="opacity-50">· {{ item.meta.badge }}</span>
+              </span>
+            </template>
+            <span v-else class="text-amber-600 dark:text-amber-400">
+              未找到匹配「{{ searchQuery }}」的配置域，请尝试其他关键词
+            </span>
+          </div>
+        </div>
+
+        <!-- 主体双栏工作台布局：左二级配置域导航 + 右配置面板 -->
+        <div class="grid items-start gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
+          <!-- 左栏：二级配置域导航 -->
+          <aside class="settings-domain-rail card min-w-0 p-2.5">
+            <div class="nav-group-title hidden px-2.5 pb-1.5 pt-1 md:block">
+              配置域 · DOMAINS
+            </div>
+            <nav
+              class="flex gap-1 overflow-x-auto md:block md:space-y-1 md:overflow-visible"
+              role="tablist"
+              :aria-label="t('admin.settings.title')"
+            >
+              <button
+                v-for="(tab, index) in settingsTabs"
                 :key="tab.key"
                 :id="`settings-tab-${tab.key}`"
                 type="button"
@@ -26,81 +130,93 @@
                 aria-controls="settings-panel"
                 :tabindex="activeTab === tab.key ? 0 : -1"
                 :class="[
-                  'settings-tab',
-                  activeTab === tab.key && 'settings-tab-active',
+                  'tree-item shrink-0 text-left md:w-full',
+                  activeTab === tab.key && 'active',
+                  searchQuery && !isTabMatched(tab.key) && 'opacity-40',
+                  searchQuery && isTabMatched(tab.key) && activeTab !== tab.key && 'settings-tab-hit',
                 ]"
                 @click="selectSettingsTab(tab.key)"
                 @keydown="handleSettingsTabKeydown($event, tab.key)"
               >
-                <span class="settings-tab-icon">
+                <span class="settings-tab-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-md">
                   <Icon :name="tab.icon" size="sm" />
                 </span>
-                <span class="settings-tab-label">{{
+                <span class="settings-tab-label flex-1 truncate">{{
                   t(`admin.settings.tabs.${tab.key}`)
                 }}</span>
+                <span class="ml-auto font-mono text-[10px] tabular-nums opacity-45">
+                  {{ formatTabOrder(index) }}
+                </span>
               </button>
+            </nav>
+
+            <div
+              class="mt-3 hidden border-t px-2.5 pt-2.5 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 md:block"
+              style="border-color: var(--border)"
+            >
+              <div class="flex items-center justify-between">
+                <span>切换配置域</span>
+                <span class="kbd">↑↓</span>
+              </div>
+              <div class="mt-1 flex items-center justify-between">
+                <span>全局命令</span>
+                <span class="kbd">⌘K</span>
+              </div>
             </div>
-          </nav>
-        </div>
+          </aside>
 
-        <div id="settings-panel" role="tabpanel" :aria-labelledby="`settings-tab-${activeTab}`" tabindex="0" class="space-y-6">
-          <!-- Tab: Security — Admin API Key -->
-          <AdminApiKeySettings />
-          <!-- /Tab: Security — Admin API Key -->
-
-          <!-- Tab: Gateway -->
-          <GatewayRuntimeSettings />
-          <!-- /Tab: Gateway -->
-
-          <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
-          <SecuritySettings />
-          <!-- /Tab: Security — Registration, Turnstile, LinuxDo, OIDC -->
-
-          <!-- Tab: Users -->
-          <UserDefaultsSettings />
-          <!-- /Tab: Users -->
-
-          <!-- Tab: Gateway — Claude Code, Scheduling -->
-          <GatewaySettings />
-          <!-- /Tab: Gateway — Claude Code, Scheduling -->
-
-          <!-- Tab: General -->
-          <GeneralSettings />
-          <!-- /Tab: General -->
-
-          <!-- Tab: Login Agreement -->
-          <LoginAgreementSettings />
-          <!-- /Tab: Login Agreement -->
-
-          <!-- Tab: Features (功能开关) -->
-          <FeatureSettings /><!-- /Tab: Features -->
-
-          <!-- Tab: Email -->
-          <!-- Tab: Payment -->
-          <PaymentSettings />
-
-          <EmailSettings />
-          <!-- /Tab: Email -->
-
-          <!-- Tab: Backup -->
-          <BackupSettingsSection />
-
-        </div>
-
-        <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
-          <button
-            type="submit"
-            :disabled="saving || loadFailed"
-            class="btn btn-primary"
+          <!-- 右栏：配置面板容器 -->
+          <div
+            id="settings-panel"
+            role="tabpanel"
+            :aria-labelledby="`settings-tab-${activeTab}`"
+            tabindex="0"
+            class="min-w-0 space-y-4"
+            @input="hasLocalChanges = true"
+            @change="hasLocalChanges = true"
           >
-            <LoadingSpinner v-if="saving" size="sm" color="white" />
-            {{
-              saving
-                ? t("admin.settings.saving")
-                : t("admin.settings.saveSettings")
-            }}
-          </button>
+            <!-- Tab: Security — Admin API Key -->
+            <AdminApiKeySettings />
+            <!-- /Tab: Security — Admin API Key -->
+
+            <!-- Tab: Gateway -->
+            <GatewayRuntimeSettings />
+            <!-- /Tab: Gateway -->
+
+            <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
+            <SecuritySettings />
+            <!-- /Tab: Security — Registration, Turnstile, LinuxDo, OIDC -->
+
+            <!-- Tab: Users -->
+            <UserDefaultsSettings />
+            <!-- /Tab: Users -->
+
+            <!-- Tab: Gateway — Claude Code, Scheduling -->
+            <GatewaySettings />
+            <!-- /Tab: Gateway — Claude Code, Scheduling -->
+
+            <!-- Tab: General -->
+            <GeneralSettings />
+            <!-- /Tab: General -->
+
+            <!-- Tab: Login Agreement -->
+            <LoginAgreementSettings />
+            <!-- /Tab: Login Agreement -->
+
+            <!-- Tab: Features (功能开关) -->
+            <FeatureSettings /><!-- /Tab: Features -->
+
+            <!-- Tab: Email -->
+            <!-- Tab: Payment -->
+            <PaymentSettings />
+
+            <EmailSettings />
+            <!-- /Tab: Email -->
+
+            <!-- Tab: Backup -->
+            <BackupSettingsSection />
+
+          </div>
         </div>
       </form>
 
@@ -142,6 +258,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
@@ -189,9 +306,133 @@ const {
   saving,
   saveSettings,
 } = settings;
+
+const hasLocalChanges = ref(false);
+watch(settings.form, () => {
+  if (!loading.value && !saving.value) hasLocalChanges.value = true;
+}, { deep: true, flush: "sync" });
+watch(() => settings.appStore.toasts?.filter(
+  (toast) => toast.type === "success" && toast.message === t("admin.settings.settingsSaved")
+).map((toast) => toast.id).join(","), (current, previous) => {
+  if (saving.value && current && current !== previous) hasLocalChanges.value = false;
+}, { flush: "sync" });
+watch(loading, (value) => {
+  if (!value) hasLocalChanges.value = false;
+});
+
+type SettingsTabKey = (typeof settingsTabs)[number]["key"];
+
+interface DomainMeta {
+  title: string;
+  badge: string;
+  summary: string;
+  keywords: string;
+}
+
+const DOMAIN_META: Record<SettingsTabKey, DomainMeta> = {
+  general: {
+    title: "通用设置",
+    badge: "站点身份",
+    summary: "配置站点名称、副标题、Logo、公开端点、首页模式与自定义导航菜单",
+    keywords: "通用 站点名称 副标题 logo 注册 自定义菜单 端点 首页 general site menu",
+  },
+  agreement: {
+    title: "登录条款",
+    badge: "合规条款",
+    summary: "管理登录与注册时的服务协议、隐私政策多文档及版本提示",
+    keywords: "协议 条款 登录 同意 隐私 法务 agreement terms legal",
+  },
+  features: {
+    title: "功能开关",
+    badge: "模块能力",
+    summary: "管理渠道监控 V1/V2、可用渠道、站点购买方式、邀请返利与模型广场开关",
+    keywords: "功能开关 渠道监控 订阅 返利 模型广场 简易模式 吞吐 features monitor billing",
+  },
+  security: {
+    title: "安全与认证",
+    badge: "登录 / 防护",
+    summary: "配置管理端密钥、面板接口限流、人机验证、OAuth 第三方登录与 IP 访问控制",
+    keywords: "安全 认证 限流 captcha turnstile 腾讯 阿里云 linuxdo 钉钉 oidc 微信 github google passkey totp ip 白名单 管理密钥 security oauth",
+  },
+  users: {
+    title: "用户默认值",
+    badge: "配额策略",
+    summary: "设置新用户初始余额、并发上限、默认分组、认证来源专属配额与 5 平台默认限额",
+    keywords: "用户默认值 默认分组 订阅组 平台配额 初始余额 并发 认证来源 anthropic openai gemini antigravity grok users quota",
+  },
+  gateway: {
+    title: "网关服务",
+    badge: "请求链路",
+    summary: "配置上游倍率自动探测、Web Search 模拟、529/429 冷却、流超时、整流器与实验调度",
+    keywords: "网关 转发 调度 fast flex 过载 冷却 流超时 整流器 beta 错误透传 websearch 上游倍率 claude code ollama gateway",
+  },
+  payment: {
+    title: "支付设置",
+    badge: "结算渠道",
+    summary: "配置支付服务商、前台可见支付方式、充值限额与取消频率限制",
+    keywords: "支付 充值 赠金 支付宝 微信 stripe airwallex 易支付 服务商 结算 payment",
+  },
+  email: {
+    title: "邮件设置",
+    badge: "通知投递",
+    summary: "配置 SMTP 发信服务、测试邮件、余额不足提醒、账号限额与订阅到期通知",
+    keywords: "邮件 smtp 模板 测试邮件 余额提醒 配额通知 订阅到期 email notify",
+  },
+  backup: {
+    title: "数据备份",
+    badge: "容灾归档",
+    summary: "管理 S3/R2 备份存储、异步生图对象存储、定时备份策略与月度归档恢复",
+    keywords: "备份 s3 r2 归档 镜像存储 生图存储 定时 保留 恢复 backup",
+  },
+};
+
+const searchQuery = ref("");
+
+const formatTabOrder = (index: number): string => String(index + 1).padStart(2, "0");
+
+const activeTabOrder = computed(() => {
+  const idx = settingsTabs.findIndex((item) => item.key === activeTab.value);
+  return formatTabOrder(idx >= 0 ? idx : 0);
+});
+
+const activeDomainMeta = computed<DomainMeta>(() => {
+  return DOMAIN_META[activeTab.value] ?? DOMAIN_META.general;
+});
+
+function isTabMatched(key: SettingsTabKey): boolean {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return true;
+  const meta = DOMAIN_META[key];
+  const i18nLabel = String(t(`admin.settings.tabs.${key}`)).toLowerCase();
+  const haystack = `${meta?.title ?? ""} ${meta?.badge ?? ""} ${meta?.summary ?? ""} ${meta?.keywords ?? ""} ${i18nLabel} ${key}`.toLowerCase();
+  return haystack.includes(q);
+}
+
+const matchedTabs = computed(() =>
+  settingsTabs
+    .map((tab, index) => ({
+      key: tab.key,
+      order: formatTabOrder(index),
+      meta: DOMAIN_META[tab.key] ?? DOMAIN_META.general,
+    }))
+    .filter((item) => isTabMatched(item.key))
+);
+
+function applyFirstMatchedTab(): void {
+  const first = matchedTabs.value[0];
+  if (first) {
+    selectSettingsTab(first.key);
+  }
+}
 </script>
 
 <style scoped>
+.settings-toolbar {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
 .default-sub-group-select :deep(.select-trigger) {
   @apply h-[42px];
 }
@@ -201,127 +442,16 @@ const {
 }
 
 /* ============ 系统设置 Tab 导航 ============ */
-.settings-tabs-shell {
-  @apply sticky z-20 -mx-1 rounded-2xl border border-white/80 bg-white/90 p-1.5 backdrop-blur-xl;
-  top: 4.75rem;
-  box-shadow:
-    0 12px 28px rgb(15 23 42 / 0.07),
-    0 1px 0 rgb(255 255 255 / 0.9) inset;
-}
-
-.settings-tabs-scroll {
-  @apply overflow-x-auto;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.settings-tabs-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.settings-tabs {
-  @apply flex min-w-max items-center gap-1;
-}
-
-.settings-tab {
-  @apply relative isolate flex h-10 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
-}
-
-@media (min-width: 768px) {
-  .settings-tabs {
-    @apply min-w-full;
-  }
-
-  .settings-tab {
-    @apply min-w-0 flex-1 basis-0 overflow-hidden px-2 text-[13px];
-  }
-
-  .settings-tab-icon {
-    @apply h-6 w-6;
-  }
-}
-
-.settings-tab::before {
-  @apply absolute inset-0 -z-10 rounded-xl opacity-0 transition-opacity duration-200;
-  content: "";
-  background: linear-gradient(
-    135deg,
-    rgb(248 250 252 / 0.95),
-    rgb(241 245 249 / 0.8)
-  );
-}
-
-.settings-tab:hover::before,
-.settings-tab:focus-visible::before {
-  opacity: 1;
-}
-
-.settings-tab:focus-visible {
-  @apply ring-2 ring-primary-500/40 ring-offset-2 ring-offset-white dark:ring-offset-dark-900;
-}
-
-.settings-tab-active {
-  @apply border-primary-200/80 bg-white text-primary-700 shadow-sm dark:border-primary-400/30 dark:bg-dark-700/95 dark:text-primary-200;
-  box-shadow:
-    0 8px 18px rgb(15 23 42 / 0.08),
-    0 1px 0 rgb(255 255 255 / 0.92) inset;
-}
-
-.settings-tab-active::before {
-  opacity: 0;
-}
-
-.settings-tab-active::after {
-  position: absolute;
-  right: 0.75rem;
-  bottom: 0.25rem;
-  left: 0.75rem;
-  height: 2px;
-  border-radius: 9999px;
-  content: "";
-  background: linear-gradient(90deg, #14b8a6, #0ea5e9);
-}
-
 .settings-tab-icon {
-  @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors duration-200 dark:text-gray-400;
+  color: var(--muted-foreground);
+  transition: color 0.15s var(--ease);
 }
 
-.settings-tab:hover .settings-tab-icon,
-.settings-tab:focus-visible .settings-tab-icon {
-  @apply text-gray-700 dark:text-gray-200;
+.tree-item.active .settings-tab-icon {
+  color: var(--brand-text);
 }
 
-.settings-tab-active .settings-tab-icon {
-  @apply bg-primary-50 text-primary-600 dark:bg-primary-400/10 dark:text-primary-300;
-}
-
-.settings-tab-label {
-  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
-}
-</style>
-<style>
-/* Dark-mode overrides for the settings tabs shell. Kept in an UNSCOPED block
-   because Vue's scoped-CSS compiler was dropping the `:global(.dark) ...`
-   rules in the production build, leaving inactive tabs unreadable on dark. */
-.dark .settings-tabs-shell {
-  border-color: rgb(51 65 85 / 0.65);
-  background: rgb(15 23 42 / 0.86);
-  box-shadow:
-    0 16px 36px rgb(0 0 0 / 0.28),
-    0 1px 0 rgb(255 255 255 / 0.06) inset;
-}
-
-.dark .settings-tab::before {
-  background: linear-gradient(
-    135deg,
-    rgb(30 41 59 / 0.9),
-    rgb(51 65 85 / 0.62)
-  );
-}
-
-.dark .settings-tab-active {
-  box-shadow:
-    0 12px 26px rgb(0 0 0 / 0.22),
-    0 1px 0 rgb(255 255 255 / 0.08) inset;
+.settings-tab-hit {
+  border: 1px dashed color-mix(in srgb, var(--brand) 55%, var(--border));
 }
 </style>

@@ -10,49 +10,77 @@
       <template v-else-if="detail">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div class="card p-5">
-            <p class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-dark-400">
-              <Icon name="dollar" size="sm" class="text-primary-500" />
-              {{ t('affiliate.stats.rebateRate') }}
-            </p>
-            <p class="mt-2 text-2xl font-semibold text-primary-600 dark:text-primary-400">
+            <div class="flex items-center justify-between gap-2">
+              <p class="flex items-center gap-1.5 text-sm text-[var(--muted-foreground)]">
+                <span class="pulse-dot pulse-ok" aria-hidden="true" />
+                <Icon name="dollar" size="sm" class="text-amber-500" />
+                {{ t('affiliate.stats.rebateRate') }}
+              </p>
+              <span class="pill pill-ghost font-mono text-[10px]">RATE</span>
+            </div>
+            <p class="stat-num mt-2 font-mono text-2xl font-bold tabular-nums text-amber-700 dark:text-amber-400">
               {{ formattedRebateRate }}<span class="ml-0.5 text-base font-medium">%</span>
             </p>
-            <p class="mt-1 text-xs text-gray-400 dark:text-dark-500">
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">
               {{ t('affiliate.stats.rebateRateHint') }}
             </p>
           </div>
           <div class="card p-5">
-            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.invitedUsers') }}</p>
-            <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm text-[var(--muted-foreground)]">{{ t('affiliate.stats.invitedUsers') }}</p>
+              <span class="pill pill-ghost font-mono text-[10px]">USERS</span>
+            </div>
+            <p class="stat-num mt-2 font-mono text-2xl font-bold tabular-nums text-[var(--foreground)]">
               {{ formatCount(detail.aff_count) }}
             </p>
           </div>
           <div class="card p-5">
-            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.availableQuota') }}</p>
-            <p class="mt-2 text-2xl font-semibold text-emerald-600 dark:text-emerald-400">
+            <div class="flex items-center justify-between gap-2">
+              <p class="flex items-center gap-1.5 text-sm text-[var(--muted-foreground)]">
+                <span
+                  class="pulse-dot"
+                  :class="detail.aff_quota > 0 ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                {{ t('affiliate.stats.availableQuota') }}
+              </p>
+              <span class="pill pill-ghost font-mono text-[10px]">AVAILABLE</span>
+            </div>
+            <p class="stat-num mt-2 font-mono text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
               {{ formatCurrency(detail.aff_quota) }}
             </p>
           </div>
           <div class="card p-5">
-            <p class="text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.stats.totalQuota') }}</p>
-            <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-sm text-[var(--muted-foreground)]">{{ t('affiliate.stats.totalQuota') }}</p>
+              <span class="pill pill-ghost font-mono text-[10px]">TOTAL</span>
+            </div>
+            <p class="stat-num mt-2 font-mono text-2xl font-bold tabular-nums text-[var(--foreground)]">
               {{ formatCurrency(detail.aff_history_quota) }}
             </p>
-            <p v-if="detail.aff_frozen_quota > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            <p v-if="detail.aff_frozen_quota > 0" class="mt-1 font-mono text-xs tabular-nums text-amber-600 dark:text-amber-400">
               {{ t('affiliate.stats.frozenQuota') }}: {{ formatCurrency(detail.aff_frozen_quota) }}
             </p>
           </div>
         </div>
 
         <div class="card p-6">
-          <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('affiliate.title') }}</h3>
-          <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.description') }}</p>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="pulse-dot pulse-ok" aria-hidden="true" />
+              <h3 class="text-base font-semibold text-[var(--foreground)]">{{ t('affiliate.title') }}</h3>
+            </div>
+            <span class="chip font-mono text-xs tabular-nums">
+              {{ formattedRebateRate }}% REBATE
+            </span>
+          </div>
+          <p class="mt-1 text-sm text-[var(--muted-foreground)]">{{ t('affiliate.description') }}</p>
 
           <div class="mt-5 grid gap-4 md:grid-cols-2">
             <div class="space-y-2">
-              <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('affiliate.yourCode') }}</p>
-              <div class="flex flex-col items-stretch gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900 sm:flex-row sm:items-center">
-                <code class="min-w-0 break-all text-sm font-semibold text-gray-900 dark:text-white sm:flex-1 sm:truncate">{{ detail.aff_code }}</code>
+              <p class="text-sm font-medium text-[var(--foreground)]">{{ t('affiliate.yourCode') }}</p>
+              <div class="flex flex-col items-stretch gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 sm:flex-row sm:items-center">
+                <code class="font-mono min-w-0 break-all text-sm font-semibold text-[var(--foreground)] sm:flex-1 sm:truncate">{{ detail.aff_code }}</code>
                 <button class="btn btn-secondary btn-sm w-full sm:w-auto sm:shrink-0" @click="copyCode">
                   <Icon name="copy" size="sm" />
                   <span>{{ t('affiliate.copyCode') }}</span>
@@ -61,9 +89,9 @@
             </div>
 
             <div class="space-y-2">
-              <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('affiliate.inviteLink') }}</p>
-              <div class="flex flex-col items-stretch gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-700 dark:bg-dark-900 sm:flex-row sm:items-center">
-                <code class="min-w-0 break-all text-sm text-gray-700 dark:text-gray-300 sm:flex-1 sm:truncate">{{ inviteLink }}</code>
+              <p class="text-sm font-medium text-[var(--foreground)]">{{ t('affiliate.inviteLink') }}</p>
+              <div class="flex flex-col items-stretch gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 sm:flex-row sm:items-center">
+                <code class="font-mono min-w-0 break-all text-sm text-[var(--foreground)] sm:flex-1 sm:truncate">{{ inviteLink }}</code>
                 <button class="btn btn-secondary btn-sm w-full sm:w-auto sm:shrink-0" @click="copyInviteLink">
                   <Icon name="copy" size="sm" />
                   <span>{{ t('affiliate.copyLink') }}</span>
@@ -72,9 +100,9 @@
             </div>
           </div>
 
-          <div class="mt-5 rounded-xl border border-primary-200 bg-primary-50 p-4 dark:border-primary-900/40 dark:bg-primary-900/20">
-            <p class="text-sm font-medium text-primary-800 dark:text-primary-200">{{ t('affiliate.tips.title') }}</p>
-            <ul class="mt-2 space-y-1 text-sm text-primary-700 dark:text-primary-300">
+          <div class="oh-affiliate-tips mt-5 rounded-xl border p-4">
+            <p class="text-sm font-semibold text-amber-950 dark:text-amber-200">{{ t('affiliate.tips.title') }}</p>
+            <ul class="mt-2 space-y-1 text-sm text-amber-900/85 dark:text-amber-200/85">
               <li>1. {{ t('affiliate.tips.line1') }}</li>
               <li>2. {{ t('affiliate.tips.line2', { rate: `${formattedRebateRate}%` }) }}</li>
               <li>3. {{ t('affiliate.tips.line3') }}</li>
@@ -86,8 +114,18 @@
         <div class="card p-6">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('affiliate.transfer.title') }}</h3>
-              <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('affiliate.transfer.description') }}</p>
+              <div class="flex items-center gap-2">
+                <span
+                  class="pulse-dot"
+                  :class="detail.aff_quota > 0 ? 'pulse-ok' : 'pulse-warn'"
+                  aria-hidden="true"
+                />
+                <h3 class="text-base font-semibold text-[var(--foreground)]">{{ t('affiliate.transfer.title') }}</h3>
+                <span class="pill pill-ghost font-mono text-xs tabular-nums">
+                  {{ formatCurrency(detail.aff_quota) }}
+                </span>
+              </div>
+              <p class="mt-1 text-sm text-[var(--muted-foreground)]">{{ t('affiliate.transfer.description') }}</p>
             </div>
             <button
               class="btn btn-primary"
@@ -105,30 +143,38 @@
         </div>
 
         <div class="card p-6">
-          <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('affiliate.invitees.title') }}</h3>
-          <div v-if="detail.invitees.length === 0" class="mt-4 rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-500 dark:border-dark-700 dark:text-dark-400">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="pulse-dot pulse-ok" aria-hidden="true" />
+              <h3 class="text-base font-semibold text-[var(--foreground)]">{{ t('affiliate.invitees.title') }}</h3>
+            </div>
+            <span class="chip font-mono text-xs tabular-nums">
+              {{ detail.invitees.length }}
+            </span>
+          </div>
+          <div v-if="detail.invitees.length === 0" class="mt-4 rounded-xl border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted-foreground)]">
             {{ t('affiliate.invitees.empty') }}
           </div>
-          <div v-else class="mt-4 overflow-x-auto">
+          <div v-else class="mt-4 overflow-x-auto rounded-xl border border-[var(--border)]">
             <table class="w-full min-w-[560px] text-left text-sm">
               <thead>
-                <tr class="border-b border-gray-200 text-gray-500 dark:border-dark-700 dark:text-dark-400">
-                  <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.email') }}</th>
-                  <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.username') }}</th>
-                  <th class="px-3 py-2 font-medium text-right">{{ t('affiliate.invitees.columns.rebate') }}</th>
-                  <th class="px-3 py-2 font-medium">{{ t('affiliate.invitees.columns.joinedAt') }}</th>
+                <tr class="border-b border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted-foreground)]">
+                  <th class="px-4 py-2.5 font-medium">{{ t('affiliate.invitees.columns.email') }}</th>
+                  <th class="px-4 py-2.5 font-medium">{{ t('affiliate.invitees.columns.username') }}</th>
+                  <th class="px-4 py-2.5 font-medium text-right">{{ t('affiliate.invitees.columns.rebate') }}</th>
+                  <th class="px-4 py-2.5 font-medium">{{ t('affiliate.invitees.columns.joinedAt') }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr
                   v-for="item in detail.invitees"
                   :key="item.user_id"
-                  class="border-b border-gray-100 last:border-b-0 dark:border-dark-800"
+                  class="border-b border-[var(--border)] transition-colors hover:bg-[var(--surface-2)] last:border-b-0"
                 >
-                  <td class="px-3 py-3 text-gray-900 dark:text-white">{{ item.email || '-' }}</td>
-                  <td class="px-3 py-3 text-gray-700 dark:text-gray-300">{{ item.username || '-' }}</td>
-                  <td class="px-3 py-3 text-right font-medium text-emerald-600 dark:text-emerald-400">{{ formatCurrency(item.total_rebate) }}</td>
-                  <td class="px-3 py-3 text-gray-700 dark:text-gray-300">{{ formatDateTime(item.created_at) || '-' }}</td>
+                  <td class="px-4 py-3 font-mono text-[var(--foreground)]">{{ item.email || '-' }}</td>
+                  <td class="px-4 py-3 text-[var(--foreground)]">{{ item.username || '-' }}</td>
+                  <td class="stat-num px-4 py-3 text-right font-mono font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{{ formatCurrency(item.total_rebate) }}</td>
+                  <td class="px-4 py-3 font-mono text-xs tabular-nums text-[var(--foreground)]">{{ formatDateTime(item.created_at) || '-' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -225,3 +271,10 @@ onMounted(() => {
   void loadAffiliateDetail()
 })
 </script>
+
+<style scoped>
+.oh-affiliate-tips {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 38%, var(--border, #e9e9ee));
+  background: color-mix(in srgb, var(--brand, #f59e0b) 8%, var(--card, #ffffff));
+}
+</style>

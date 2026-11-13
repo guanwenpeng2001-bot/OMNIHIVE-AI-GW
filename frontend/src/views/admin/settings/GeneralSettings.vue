@@ -1,25 +1,25 @@
 <template>
   <div v-show="activeTab === 'general'" class="space-y-6">
     <!-- Site Settings -->
-    <div class="card">
-      <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+    <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+      <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+        <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
           {{ t("admin.settings.site.title") }}
         </h2>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p class="mt-1 text-sm text-[var(--muted-foreground)]">
           {{ t("admin.settings.site.description") }}
         </p>
       </div>
-      <div class="space-y-6 p-6">
+      <div class="space-y-6 p-4 sm:p-6">
         <!-- Backend Mode -->
         <div
-          class="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-900/20"
+          class="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[color-mix(in_srgb,var(--warn)_8%,var(--card))] p-4"
         >
           <div>
-            <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+            <h3 class="text-sm font-medium text-[var(--foreground)]">
               {{ t("admin.settings.site.backendMode") }}
             </h3>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.site.backendModeDescription") }}
             </p>
           </div>
@@ -29,7 +29,7 @@
         <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.site.siteName") }}
             </label>
@@ -39,13 +39,13 @@
               class="input"
               :placeholder="t('admin.settings.site.siteNamePlaceholder')"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.site.siteNameHint") }}
             </p>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.site.siteSubtitle") }}
             </label>
@@ -55,14 +55,14 @@
               class="input"
               :placeholder="t('admin.settings.site.siteSubtitlePlaceholder')"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.site.siteSubtitleHint") }}
             </p>
           </div>
         </div>
 
         <div>
-          <label for="site-icp" class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label for="site-icp" class="mb-2 block text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.site.siteICP") }}
           </label>
           <input id="site-icp" v-model="form.site_icp" type="text" class="input" placeholder="蒙ICP备2026xxxx号" />
@@ -71,7 +71,7 @@
         <!-- API Base URL -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.apiBaseUrl") }}
           </label>
@@ -81,23 +81,23 @@
             class="input font-mono text-sm"
             :placeholder="t('admin.settings.site.apiBaseUrlPlaceholder')"
           />
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.apiBaseUrlHint") }}
           </p>
         </div>
 
         <!-- Global Table Preferences -->
-        <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
-          <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+        <div class="border-t border-[var(--border)] pt-4">
+          <h3 class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.site.tablePreferencesTitle") }}
           </h3>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.tablePreferencesDescription") }}
           </p>
           <div class="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.site.tableDefaultPageSize") }}
               </label>
@@ -109,13 +109,13 @@
                 step="1"
                 class="input w-40"
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.site.tableDefaultPageSizeHint") }}
               </p>
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.site.tablePageSizeOptions") }}
               </label>
@@ -127,7 +127,7 @@
                   t('admin.settings.site.tablePageSizeOptionsPlaceholder')
                 "
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.site.tablePageSizeOptionsHint") }}
               </p>
             </div>
@@ -137,11 +137,11 @@
         <!-- Custom Endpoints -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.customEndpoints.title") }}
           </label>
-          <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mb-3 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.customEndpoints.description") }}
           </p>
 
@@ -149,11 +149,11 @@
             <div
               v-for="(ep, index) in form.custom_endpoints"
               :key="index"
-              class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+              class="rounded-lg border border-[var(--border)] p-4"
             >
               <div class="mb-3 flex items-center justify-between">
                 <span
-                  class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  class="text-sm font-medium text-[var(--foreground)]"
                 >
                   {{
                     t("admin.settings.site.customEndpoints.itemLabel", {
@@ -163,7 +163,7 @@
                 </span>
                 <button
                   type="button"
-                  class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                  class="rounded p-1 text-[var(--bad-text)] hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
                   @click="removeEndpoint(index)"
                 >
                   <svg
@@ -184,7 +184,7 @@
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{ t("admin.settings.site.customEndpoints.name") }}
                   </label>
@@ -199,7 +199,7 @@
                 </div>
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{ t("admin.settings.site.customEndpoints.endpointUrl") }}
                   </label>
@@ -216,7 +216,7 @@
                 </div>
                 <div class="sm:col-span-2">
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{
                       t("admin.settings.site.customEndpoints.descriptionLabel")
@@ -239,7 +239,7 @@
 
           <button
             type="button"
-            class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 px-4 py-2.5 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+            class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] px-4 py-2.5 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--brand-text)]"
             @click="addEndpoint"
           >
             <svg
@@ -262,7 +262,7 @@
         <!-- Contact Info -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.contactInfo") }}
           </label>
@@ -272,7 +272,7 @@
             class="input"
             :placeholder="t('admin.settings.site.contactInfoPlaceholder')"
           />
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.contactInfoHint") }}
           </p>
         </div>
@@ -280,7 +280,7 @@
         <!-- Doc URL -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.docUrl") }}
           </label>
@@ -290,7 +290,7 @@
             class="input font-mono text-sm"
             :placeholder="t('admin.settings.site.docUrlPlaceholder')"
           />
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.docUrlHint") }}
           </p>
         </div>
@@ -298,7 +298,7 @@
         <!-- Site Logo Upload -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.siteLogo") }}
           </label>
@@ -315,7 +315,7 @@
         <!-- Home Content -->
         <div>
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.site.homeContent") }}
           </label>
@@ -325,24 +325,24 @@
             class="input font-mono text-sm"
             :placeholder="t('admin.settings.site.homeContentPlaceholder')"
           ></textarea>
-          <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.site.homeContentHint") }}
           </p>
           <!-- iframe CSP Warning -->
-          <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          <p class="mt-2 text-xs text-[var(--warn-text)]">
             {{ t("admin.settings.site.homeContentIframeWarning") }}
           </p>
         </div>
 
         <!-- Compact Home Page -->
         <div
-          class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="flex items-center justify-between border-t border-[var(--border)] pt-4"
         >
           <div>
-            <label class="font-medium text-gray-900 dark:text-white">{{
+            <label class="font-medium text-[var(--foreground)]">{{
               t("admin.settings.site.compactHome")
             }}</label>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.site.compactHomeHint") }}
             </p>
           </div>
@@ -354,13 +354,13 @@
 
         <!-- Hide CCS Import Button -->
         <div
-          class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="flex items-center justify-between border-t border-[var(--border)] pt-4"
         >
           <div>
-            <label class="font-medium text-gray-900 dark:text-white">{{
+            <label class="font-medium text-[var(--foreground)]">{{
               t("admin.settings.site.hideCcsImportButton")
             }}</label>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.site.hideCcsImportButtonHint") }}
             </p>
           </div>
@@ -370,24 +370,24 @@
     </div>
 
     <!-- Custom Menu Items -->
-    <div class="card">
-      <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+    <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+      <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+        <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
           {{ t("admin.settings.customMenu.title") }}
         </h2>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p class="mt-1 text-sm text-[var(--muted-foreground)]">
           {{ t("admin.settings.customMenu.description") }}
         </p>
       </div>
-      <div class="space-y-4 p-6">
+      <div class="space-y-4 p-4 sm:p-6">
         <!-- Existing menu items -->
         <div
           v-for="(item, index) in form.custom_menu_items"
           :key="item.id || index"
-          class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+          class="rounded-lg border border-[var(--border)] p-4"
         >
           <div class="mb-3 flex items-center justify-between">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <span class="text-sm font-medium text-[var(--foreground)]">
               {{ t("admin.settings.customMenu.itemLabel", { n: index + 1 }) }}
             </span>
             <div class="flex items-center gap-2">
@@ -395,7 +395,7 @@
               <button
                 v-if="index > 0"
                 type="button"
-                class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
+                class="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--muted-foreground)]"
                 :title="t('admin.settings.customMenu.moveUp')"
                 @click="moveMenuItem(index, -1)"
               >
@@ -417,7 +417,7 @@
               <button
                 v-if="index < form.custom_menu_items.length - 1"
                 type="button"
-                class="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700"
+                class="rounded p-1 text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--muted-foreground)]"
                 :title="t('admin.settings.customMenu.moveDown')"
                 @click="moveMenuItem(index, 1)"
               >
@@ -438,7 +438,7 @@
               <!-- Delete -->
               <button
                 type="button"
-                class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                class="rounded p-1 text-[var(--bad-text)] hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
                 :title="t('admin.settings.customMenu.remove')"
                 @click="removeMenuItem(index)"
               >
@@ -463,7 +463,7 @@
             <!-- Label -->
             <div>
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.customMenu.name") }}
               </label>
@@ -478,7 +478,7 @@
             <!-- Visibility -->
             <div>
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.customMenu.visibility") }}
               </label>
@@ -495,7 +495,7 @@
             <!-- URL (full width) -->
             <div class="sm:col-span-2">
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.customMenu.url") }}
               </label>
@@ -513,7 +513,7 @@
                 type="checkbox"
                 data-testid="custom-menu-hide-open-button"
               />
-              <span class="text-sm text-gray-700 dark:text-gray-300">
+              <span class="text-sm text-[var(--foreground)]">
                 {{ t("admin.settings.customMenu.hideOpenButton") }}
               </span>
             </label>
@@ -521,7 +521,7 @@
             <!-- SVG Icon (full width) -->
             <div class="sm:col-span-2">
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.customMenu.iconSvg") }}
               </label>
@@ -540,7 +540,7 @@
         <!-- Add button -->
         <button
           type="button"
-          class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-3 text-sm text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-500 dark:hover:text-primary-400"
+          class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] py-3 text-sm text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:text-[var(--brand-text)]"
           @click="addMenuItem"
         >
           <svg

@@ -2,10 +2,26 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="flex flex-wrap items-center gap-3">
+        <div class="mb-4 space-y-3">
+          <div>
+            <h1 class="text-2xl font-semibold tracking-tight text-[var(--foreground)]">{{ t(props.type === 'invites' ? 'nav.affiliateInviteRecords' : props.type === 'rebates' ? 'nav.affiliateRebateRecords' : 'nav.affiliateTransferRecords') }}</h1>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">{{ t(`admin.affiliates.${props.type}Description`) }}</p>
+          </div>
+          <nav class="inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1" :aria-label="t('affiliate.title')">
+            <RouterLink
+              v-for="tab in (['invites', 'rebates', 'transfers'] as const)"
+              :key="tab"
+              :to="`/admin/affiliates/${tab}`"
+              :aria-current="props.type === tab ? 'page' : undefined"
+              class="rounded-md border px-3 py-1.5 text-sm font-medium transition-colors"
+              :class="props.type === tab ? 'border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]' : 'border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]'"
+            >{{ t(tab === 'invites' ? 'nav.affiliateInviteRecords' : tab === 'rebates' ? 'nav.affiliateRebateRecords' : 'nav.affiliateTransferRecords') }}</RouterLink>
+          </nav>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
           <div class="relative w-full md:w-80">
-            <Icon name="search" size="md" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input v-model="filters.search" type="text" class="input pl-10" :placeholder="t('admin.affiliates.records.searchPlaceholder')" @input="debounceLoad" />
+            <Icon name="search" size="md" class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <input v-model="filters.search" type="text" class="input pl-10" :placeholder="t('admin.affiliates.records.searchPlaceholder')" :aria-label="t('admin.affiliates.records.search')" @input="debounceLoad" />
           </div>
           <input v-model="filters.start_at" type="date" class="input w-full sm:w-44" :title="t('admin.affiliates.records.startAt')" @change="reloadFromFirstPage" />
           <input v-model="filters.end_at" type="date" class="input w-full sm:w-44" :title="t('admin.affiliates.records.endAt')" @change="reloadFromFirstPage" />
@@ -17,6 +33,7 @@
 
       <template #table>
         <DataTable
+          class="affiliate-records-table"
           :columns="columns"
           :data="records"
           :loading="loading"
@@ -54,16 +71,16 @@
             />
           </template>
           <template #cell-aff_code="{ row }">
-            <span class="font-mono text-sm text-gray-700 dark:text-gray-300">{{ row.aff_code || '-' }}</span>
+            <span class="pill pill-ghost font-mono">{{ row.aff_code || '-' }}</span>
           </template>
           <template #cell-order="{ row }">
             <div class="space-y-0.5">
-              <div class="font-mono text-sm text-gray-900 dark:text-white">#{{ row.order_id }}</div>
-              <div class="max-w-56 truncate text-sm text-gray-500 dark:text-dark-400">{{ row.out_trade_no }}</div>
+              <div class="font-mono text-sm text-[var(--foreground)]">#{{ row.order_id }}</div>
+              <div class="max-w-56 truncate text-sm text-[var(--muted-foreground)]">{{ row.out_trade_no }}</div>
             </div>
           </template>
           <template #cell-payment_type="{ row }">
-            {{ t('payment.methods.' + row.payment_type, row.payment_type || '-') }}
+            <span class="pill pill-ghost">{{ t('payment.methods.' + row.payment_type, row.payment_type || '-') }}</span>
           </template>
           <template #cell-order_status="{ row }">
             <OrderStatusBadge :status="row.order_status" />
@@ -75,7 +92,7 @@
             <AmountText :value="row.order_amount" />
           </template>
           <template #cell-pay_amount="{ row }">
-            <span class="text-sm text-gray-900 dark:text-white">¥{{ formatAmount(row.pay_amount) }}</span>
+            <span class="font-mono text-sm tabular-nums text-[var(--foreground)]">¥{{ formatAmount(row.pay_amount) }}</span>
           </template>
           <template #cell-rebate_amount="{ row }">
             <AmountText :value="row.rebate_amount" strong />
@@ -96,7 +113,7 @@
             <NullableAmountText :value="row.history_quota_after" />
           </template>
           <template #cell-created_at="{ row }">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ formatDateTime(row.created_at) }}</span>
+            <span class="text-sm text-[var(--foreground)]">{{ formatDateTime(row.created_at) }}</span>
           </template>
         </DataTable>
       </template>
@@ -120,13 +137,13 @@
       @close="overviewDialog = false"
     >
       <div v-if="overviewLoading" class="flex justify-center py-8">
-        <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"></div>
+        <div class="h-6 w-6 animate-spin rounded-full border-2 border-[var(--border)] border-t-transparent"></div>
       </div>
-      <div v-else-if="selectedOverview" class="space-y-4">
-        <div class="rounded-lg border border-gray-100 bg-gray-50 p-4 dark:border-dark-700 dark:bg-dark-800">
-          <div class="font-mono text-sm text-gray-900 dark:text-white">#{{ selectedOverview.user_id }}</div>
-          <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">{{ selectedOverview.email || '-' }}</div>
-          <div class="mt-0.5 text-sm text-gray-500 dark:text-dark-400">{{ selectedOverview.username || '-' }}</div>
+      <div v-else-if="selectedOverview" class="space-y-4 tabular-nums">
+        <div class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <div class="font-mono text-sm text-[var(--foreground)]">#{{ selectedOverview.user_id }}</div>
+          <div class="mt-1 text-sm font-medium text-[var(--foreground)]">{{ selectedOverview.email || '-' }}</div>
+          <div class="mt-0.5 text-sm text-[var(--muted-foreground)]">{{ selectedOverview.username || '-' }}</div>
         </div>
         <div class="grid gap-3 sm:grid-cols-2">
           <OverviewStat :label="t('admin.affiliates.overview.affCode')" :value="selectedOverview.aff_code || '-'" mono />
@@ -341,15 +358,15 @@ const UserCell = defineComponent({
   emits: ['open'],
   setup(cellProps, { emit }) {
     return () => h('div', { class: 'space-y-0.5' }, [
-      h('div', { class: 'font-mono text-sm text-gray-900 dark:text-white' }, `#${cellProps.id}`),
+      h('div', { class: 'font-mono text-sm text-[var(--foreground)] ' }, `#${cellProps.id}`),
       h(cellProps.clickable ? 'button' : 'div', {
         class: cellProps.clickable
-          ? 'max-w-56 truncate text-left text-sm font-medium text-primary-600 hover:text-primary-700 hover:underline dark:text-primary-400 dark:hover:text-primary-300'
-          : 'max-w-56 truncate text-sm text-gray-700 dark:text-gray-300',
+          ? 'max-w-56 truncate text-left text-sm font-medium text-[var(--brand-text)] hover:text-[var(--brand-text)] hover:underline  '
+          : 'max-w-56 truncate text-sm text-[var(--foreground)] ',
         type: cellProps.clickable ? 'button' : undefined,
         onClick: cellProps.clickable ? () => emit('open', cellProps.id) : undefined,
       }, cellProps.email || '-'),
-      h('div', { class: 'max-w-56 truncate text-sm text-gray-500 dark:text-dark-400' }, cellProps.username || '-'),
+      h('div', { class: 'max-w-56 truncate text-sm text-[var(--muted-foreground)] ' }, cellProps.username || '-'),
     ])
   },
 })
@@ -362,8 +379,8 @@ const AmountText = defineComponent({
   setup(amountProps) {
     return () => h('span', {
       class: amountProps.strong
-        ? 'text-sm font-semibold text-emerald-600 dark:text-emerald-400'
-        : 'text-sm text-gray-900 dark:text-white',
+        ? 'font-mono text-sm font-semibold tabular-nums text-[var(--ok-text)]'
+        : 'font-mono text-sm tabular-nums text-[var(--foreground)]',
     }, `$${formatAmount(amountProps.value)}`)
   },
 })
@@ -376,7 +393,7 @@ const NullableAmountText = defineComponent({
     return () => {
       const value = amountProps.value
       if (value === null || value === undefined) {
-        return h('span', { class: 'text-sm text-gray-400 dark:text-dark-500' }, '-')
+        return h('span', { class: 'text-sm text-[var(--muted-foreground)] ' }, '-')
       }
       return h(AmountText, { value })
     }
@@ -390,12 +407,12 @@ const OverviewStat = defineComponent({
     mono: { type: Boolean, default: false },
   },
   setup(statProps) {
-    return () => h('div', { class: 'rounded-lg border border-gray-100 bg-white p-3 dark:border-dark-700 dark:bg-dark-900' }, [
-      h('div', { class: 'text-sm text-gray-500 dark:text-dark-400' }, statProps.label),
+    return () => h('div', { class: 'rounded-lg border border-[var(--border)] bg-[var(--card)] p-3  ' }, [
+      h('div', { class: 'text-sm text-[var(--muted-foreground)] ' }, statProps.label),
       h('div', {
         class: statProps.mono
-          ? 'mt-1 font-mono text-base font-semibold text-gray-900 dark:text-white'
-          : 'mt-1 text-base font-semibold text-gray-900 dark:text-white',
+          ? 'mt-1 font-mono text-base font-semibold text-[var(--foreground)] '
+          : 'mt-1 text-base font-semibold text-[var(--foreground)] ',
       }, statProps.value),
     ])
   },
@@ -405,3 +422,10 @@ onMounted(() => {
   void loadRecords()
 })
 </script>
+
+<style scoped>
+.affiliate-records-table :deep(td) {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+</style>

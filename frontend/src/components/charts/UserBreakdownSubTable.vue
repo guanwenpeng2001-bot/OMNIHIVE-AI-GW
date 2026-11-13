@@ -1,25 +1,26 @@
 <template>
-  <div class="bg-gray-50/50 dark:bg-dark-700/30">
+  <div class="overflow-x-auto border-l-2 border-[var(--border)] bg-[var(--surface-2)] tabular-nums">
     <div v-if="loading" class="flex items-center justify-center py-3">
       <LoadingSpinner />
     </div>
-    <div v-else-if="items.length === 0" class="py-2 text-center text-xs text-gray-400">
-      {{ t('admin.dashboard.noDataAvailable') }}
+    <div v-else-if="items.length === 0" class="space-y-2 p-3 text-xs text-[var(--muted-foreground)]" role="status">
+      <div aria-hidden="true" class="space-y-2"><div v-for="row in 4" :key="row" class="h-1 rounded bg-[var(--border)]" :style="{ width: `${60 - row * 8}%` }" /></div>
+      <span class="inline-flex rounded-full border border-[var(--border)] px-2 py-0.5">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
     <table v-else class="w-full text-xs">
       <tbody>
         <tr
           v-for="user in items"
           :key="user.user_id"
-          class="border-t border-gray-100/50 dark:border-dark-700/50"
+          class="border-t border-[var(--border)]"
         >
-          <td class="max-w-[120px] truncate py-1 pl-6 text-gray-600 dark:text-gray-300" :title="user.email">
+          <td class="max-w-[120px] truncate py-1 pl-6 text-[var(--muted-foreground)]" :title="user.email">
             {{ user.email || `User #${user.user_id}` }}
           </td>
-          <td class="py-1 text-right text-gray-500 dark:text-gray-400">
+          <td class="py-1 text-right text-[var(--muted-foreground)]">
             {{ user.requests.toLocaleString() }}
           </td>
-          <td class="py-1 text-right text-gray-500 dark:text-gray-400">
+          <td class="py-1 text-right text-[var(--muted-foreground)]">
             {{ formatTokens(user.total_tokens) }}
           </td>
           <td class="py-1 text-right text-green-600 dark:text-green-400">
@@ -28,7 +29,7 @@
           <td v-if="showAccountCost" class="py-1 text-right text-orange-500 dark:text-orange-400">
             ${{ formatCost(user.account_cost) }}
           </td>
-          <td class="py-1 pr-1 text-right text-gray-400 dark:text-gray-500">
+          <td class="py-1 pr-1 text-right text-[var(--muted-foreground)]">
             ${{ formatCost(user.cost) }}
           </td>
         </tr>

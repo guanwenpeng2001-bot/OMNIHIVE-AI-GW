@@ -1,5 +1,5 @@
 <template>
-  <div v-show="activeTab === 'security'" class="space-y-6">
+  <div v-show="activeTab === 'security'" class="min-w-0 space-y-4 text-[var(--foreground)]">
     <!-- Registration Settings -->
     <SecurityRegistrationCard />
 

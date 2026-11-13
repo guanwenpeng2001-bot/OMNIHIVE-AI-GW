@@ -39,10 +39,10 @@ const sizeClasses = computed(() => {
 
 const colorClass = computed(() => {
   const colors: Record<SpinnerColor, string> = {
-    primary: 'text-primary-700 dark:text-primary-400',
-    secondary: 'text-gray-500 dark:text-dark-400',
+    primary: 'text-[var(--brand-text)] ',
+    secondary: 'text-[var(--muted-foreground)] ',
     white: 'text-white',
-    gray: 'text-gray-600 dark:text-dark-400'
+    gray: 'text-[var(--muted-foreground)] '
   }
   return colors[props.color]
 })
@@ -61,5 +61,9 @@ const colorClass = computed(() => {
   to {
     transform: rotate(360deg);
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; opacity: .7; }
 }
 </style>

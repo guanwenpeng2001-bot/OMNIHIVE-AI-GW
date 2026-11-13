@@ -1,25 +1,25 @@
 <template>
   <section
-    class="card flex min-h-[360px] flex-col overflow-visible !rounded-3xl !border-0 !p-6 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700"
+    class="card monitor-matrix flex min-h-[360px] min-w-0 flex-col overflow-visible rounded-3xl !p-5 ring-1 ring-gray-900/5"
   >
     <div class="card-header mb-4 flex shrink-0 flex-wrap items-start justify-between gap-3 !border-0 !p-0">
       <div class="min-w-0">
-        <h2 class="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
+        <h2 class="flex items-center gap-2 text-sm font-bold text-[var(--foreground)]">
           <span class="inline-flex h-4 w-4 text-emerald-500" aria-hidden="true">
             <Icon name="grid" size="sm" />
           </span>
           {{ t('channelMonitorV2.matrix.title') }}
         </h2>
-        <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
+        <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
           {{ t('channelMonitorV2.matrix.description') }}
         </p>
       </div>
-      <div class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
-        <span class="badge badge-gray shrink-0">{{ bucketLabel }}</span>
-        <span class="hidden text-[11px] text-gray-400 dark:text-dark-400 sm:inline">{{ t('channelMonitorV2.matrix.wheelZoomX') }}</span>
+      <div class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-[var(--muted-foreground)] sm:w-auto">
+        <span class="pill pill-ghost shrink-0">{{ bucketLabel }}</span>
+        <span class="hidden text-[11px] text-[var(--muted-foreground)] sm:inline">{{ t('channelMonitorV2.matrix.wheelZoomX') }}</span>
         <button
           type="button"
-          class="inline-flex shrink-0 items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:hover:bg-dark-800"
+          class="inline-flex shrink-0 items-center rounded-lg border border-[var(--border)] bg-[var(--card)] px-2 py-1 text-[11px] font-semibold text-[var(--foreground)] hover:bg-[var(--secondary)] disabled:opacity-50"
           :disabled="!zoomed"
           @click="resetMatrixZoom"
         >
@@ -32,12 +32,12 @@
       <div
         v-if="rows.length"
         ref="scrollRef"
-        class="matrix-scroll max-h-[min(42vh,420px)] max-w-full overflow-auto rounded-2xl bg-gray-50/60 p-2 dark:bg-dark-900/30"
+        class="matrix-scroll max-h-[min(42vh,420px)] max-w-full overflow-auto rounded-lg bg-[var(--surface-2)] p-2"
         @wheel="onMatrixWheel"
       >
         <div class="matrix-table w-full" :style="tableStyle">
           <div
-            class="matrix-header matrix-row sticky top-0 z-[3] bg-gray-50 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:bg-dark-900 dark:text-gray-400"
+            class="matrix-header matrix-row sticky top-0 z-[3] bg-[var(--surface-2)] text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]"
             :class="showThroughput ? 'matrix-row--with-tps' : ''"
           >
             <span>{{ t('channelMonitorV2.matrix.dimension') }}</span>
@@ -53,31 +53,31 @@
           <div
             v-for="entry in alignedRows"
             :key="rowKey(entry.row)"
-            class="matrix-row border-b border-gray-100/80 dark:border-dark-700/60"
+            class="matrix-row border-b border-[var(--border)]"
             :class="showThroughput ? 'matrix-row--with-tps' : ''"
           >
-            <div class="dimension-cell flex min-w-0 items-center gap-2 bg-white dark:bg-dark-800" :title="rowLabel(entry.row)">
+            <div class="dimension-cell flex min-w-0 items-center gap-2 bg-[var(--card)]" :title="rowLabel(entry.row)">
               <span :class="['status-dot', cellClass(entry.row.health, entry.row.metrics.request_count)]"></span>
-              <strong class="truncate text-xs font-semibold text-gray-800 dark:text-gray-100">{{ rowLabel(entry.row) }}</strong>
+              <strong class="truncate text-xs font-semibold text-[var(--foreground)]">{{ rowLabel(entry.row) }}</strong>
             </div>
-            <strong class="summary-value bg-white text-xs font-medium tabular-nums text-gray-600 dark:bg-dark-800 dark:text-gray-300">
+            <strong class="summary-value bg-[var(--card)] text-xs font-medium tabular-nums text-[var(--foreground)]">
               {{ successRate(entry.row.metrics) }}
             </strong>
             <strong
-              class="summary-value bg-white text-xs font-medium tabular-nums text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+              class="summary-value bg-[var(--card)] text-xs font-medium tabular-nums text-[var(--foreground)]"
               :title="latencyPrivacy(entry.row.metrics.ttft)"
             >
               {{ formatMs(entry.row.metrics.ttft.p50_ms) }}
             </strong>
             <strong
               v-if="showThroughput"
-              class="summary-value bg-white text-xs font-medium tabular-nums text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+              class="summary-value bg-[var(--card)] text-xs font-medium tabular-nums text-[var(--foreground)]"
               :title="exactTps(entry.row.metrics.tpm)"
             >
               {{ formatTps(entry.row.metrics.tpm) }}
             </strong>
             <strong
-              class="summary-value bg-white text-xs font-medium tabular-nums text-gray-600 dark:bg-dark-800 dark:text-gray-300"
+              class="summary-value bg-[var(--card)] text-xs font-medium tabular-nums text-[var(--foreground)]"
             >
               {{ formatPercent(entry.row.metrics.cache_rate) }}
             </strong>
@@ -130,12 +130,12 @@
       </div>
 
       <div class="mt-4 flex flex-col gap-2" :aria-label="t('channelMonitorV2.matrix.legendAria')">
-        <div class="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+        <div class="flex items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
           <span class="shrink-0">{{ t('channelMonitorV2.matrix.bad') }}</span>
           <div class="score-legend h-2.5 flex-1 overflow-hidden rounded-full"></div>
           <span class="shrink-0">{{ t('channelMonitorV2.matrix.good') }}</span>
         </div>
-        <div class="flex flex-wrap gap-4 text-[11px] text-gray-500 dark:text-gray-400">
+        <div class="flex flex-wrap gap-4 text-[11px] text-[var(--muted-foreground)]">
           <span class="inline-flex items-center gap-1.5"><i class="status-dot health-score10"></i>{{ t('channelMonitorV2.matrix.healthyLegend') }}</span>
           <span class="inline-flex items-center gap-1.5"><i class="status-dot health-score6"></i>{{ t('channelMonitorV2.matrix.warningLegend') }}</span>
           <span class="inline-flex items-center gap-1.5"><i class="status-dot health-score2"></i>{{ t('channelMonitorV2.matrix.criticalLegend') }}</span>
@@ -473,6 +473,21 @@ function formatBucketRange(value: string) {
 </script>
 
 <style scoped>
+.monitor-matrix {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: none;
+}
+.matrix-header {
+  background: var(--surface-2);
+  color: var(--muted-foreground);
+}
+.dimension-cell,
+.summary-value {
+  background: var(--card);
+  color: var(--foreground);
+}
 /* dimension | success | ttft | cache | pulse */
 .matrix-row {
   display: grid;
@@ -571,8 +586,8 @@ function formatBucketRange(value: string) {
   max-width: 16rem;
   transform: translateX(-50%) translateY(4px);
   border-radius: 0.75rem;
-  border: 1px solid rgb(229 231 235);
-  background: rgb(255 255 255);
+  border: 1px solid var(--border);
+  background: var(--popover);
   padding: 0.5rem 0.625rem;
   box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15);
   opacity: 0;
@@ -581,26 +596,26 @@ function formatBucketRange(value: string) {
   white-space: nowrap;
 }
 :global(.dark) .pulse-tooltip {
-  border-color: rgb(55 65 81);
-  background: rgb(17 24 39);
-  color: rgb(229 231 235);
+  border-color: var(--border);
+  background: var(--popover);
+  color: var(--popover-foreground);
 }
 .pulse-tooltip-line {
   display: block;
   font-size: 11px;
   line-height: 1.45;
-  color: rgb(75 85 99);
+  color: var(--muted-foreground);
 }
 :global(.dark) .pulse-tooltip-line {
-  color: rgb(209 213 219);
+  color: var(--muted-foreground);
 }
 .pulse-tooltip-title {
   margin-bottom: 0.2rem;
   font-weight: 600;
-  color: rgb(17 24 39);
+  color: var(--foreground);
 }
 :global(.dark) .pulse-tooltip-title {
-  color: rgb(243 244 246);
+  color: var(--foreground);
 }
 .pulse-cell:hover .pulse-tooltip,
 .pulse-cell:focus-visible .pulse-tooltip {
@@ -621,45 +636,38 @@ function formatBucketRange(value: string) {
   max-width: min(18rem, calc(100vw - 1.5rem));
   transform: translate(-50%, -100%);
   border-radius: 0.75rem;
-  border: 1px solid rgb(229 231 235);
-  background: rgb(255 255 255);
+  border: 1px solid var(--border);
+  background: var(--popover);
   padding: 0.5rem 0.625rem;
   box-shadow: 0 18px 40px -12px rgb(0 0 0 / 0.28);
   white-space: nowrap;
 }
 :global(.dark) .matrix-floating-tooltip {
-  border-color: rgb(55 65 81);
-  background: rgb(17 24 39);
-  color: rgb(229 231 235);
+  border-color: var(--border);
+  background: var(--popover);
+  color: var(--popover-foreground);
 }
 .matrix-floating-tooltip-line {
   display: block;
   font-size: 11px;
   line-height: 1.45;
-  color: rgb(75 85 99);
+  color: var(--muted-foreground);
 }
 :global(.dark) .matrix-floating-tooltip-line {
-  color: rgb(209 213 219);
+  color: var(--muted-foreground);
 }
 .matrix-floating-tooltip-title {
   margin-bottom: 0.2rem;
   font-weight: 600;
-  color: rgb(17 24 39);
+  color: var(--foreground);
 }
 :global(.dark) .matrix-floating-tooltip-title {
-  color: rgb(243 244 246);
+  color: var(--foreground);
 }
 
 @media (max-width: 640px) {
-  .matrix-row {
-    grid-template-columns: minmax(88px, 1fr) minmax(48px, 0.45fr) minmax(54px, 0.5fr) minmax(96px, 2.6fr);
-    gap: 0.35rem;
-  }
-  .matrix-row > :nth-child(2) {
-    left: 0;
-  }
-  .matrix-row > :nth-child(3) {
-    left: 0;
+  .matrix-table {
+    min-width: 620px;
   }
 }
 </style>

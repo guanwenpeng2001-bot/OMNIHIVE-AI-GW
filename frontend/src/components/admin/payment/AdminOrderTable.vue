@@ -1,8 +1,8 @@
 <template>
-  <div class="space-y-4">
-    <div class="card p-4">
-      <div class="flex flex-wrap items-center gap-3">
-        <div class="flex-1 sm:max-w-64">
+  <div class="admin-order-table space-y-4">
+    <div class="card border-[var(--border)] bg-[var(--card)] p-3 shadow-none">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="w-full sm:w-64">
           <input
             v-model="searchQuery"
             type="text"
@@ -48,48 +48,49 @@
       </template>
 
       <template #cell-user_id="{ value }">
-        <span class="text-sm text-gray-600 dark:text-gray-400">#{{ value }}</span>
+        <span class="text-sm text-[var(--muted-foreground)]">#{{ value }}</span>
       </template>
 
       <template #cell-pay_amount="{ value, row }">
-        <div class="text-sm">
-          <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol(row) }}{{ value.toFixed(2) }}</span>
-          <span v-if="row.fee_rate > 0" class="ml-1 text-xs text-gray-400" :title="t('payment.orders.fee') + ': ' + row.fee_rate + '%'">
+        <div class="font-mono text-sm tabular-nums">
+          <span class="font-medium text-[var(--foreground)]">{{ paymentAmountSymbol(row) }}{{ value.toFixed(2) }}</span>
+          <span v-if="row.fee_rate > 0" class="ml-1 text-xs text-[var(--muted-foreground)]" :title="t('payment.orders.fee') + ': ' + row.fee_rate + '%'">
             ({{ row.fee_rate }}%)
           </span>
-          <div v-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
+          <div v-if="row.amount !== row.pay_amount" class="text-xs text-[var(--muted-foreground)]">
             {{ t('payment.orders.creditedAmount') }}: {{ creditedAmountSymbol }}{{ row.amount.toFixed(2) }}
           </div>
         </div>
       </template>
 
       <template #cell-payment_type="{ value }">
-        <span class="text-sm text-gray-700 dark:text-gray-300">
+        <span class="pill pill-ghost text-[var(--foreground)]">
           {{ t('payment.methods.' + value, value) }}
         </span>
       </template>
 
       <template #cell-status="{ value }">
         <span :class="['badge', statusBadgeClass(value)]">
+          <span class="pulse-dot bg-current" aria-hidden="true" />
           {{ t('payment.status.' + value.toLowerCase(), value) }}
         </span>
       </template>
 
       <template #cell-order_type="{ value }">
-        <span class="text-sm text-gray-700 dark:text-gray-300">
+        <span class="text-sm text-[var(--foreground)]">
           {{ t('payment.admin.' + value + 'Order', value) }}
         </span>
       </template>
 
       <template #cell-created_at="{ value }">
-        <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(value) }}</span>
+        <span class="text-xs text-[var(--muted-foreground)]">{{ formatDateTime(value) }}</span>
       </template>
 
       <template #cell-actions="{ row }">
-        <div class="flex items-center gap-2">
+        <div class="order-actions flex flex-wrap items-center gap-1">
           <button
             @click="emit('detail', row)"
-            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 dark:hover:bg-gray-800/50 dark:hover:text-gray-300"
+            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
           >
             <Icon name="eye" size="sm" />
             <span class="text-xs">{{ t('common.view') }}</span>
@@ -97,7 +98,7 @@
           <button
             v-if="row.status === 'PENDING'"
             @click="emit('cancel', row)"
-            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400"
+            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--warn)_8%,var(--card))] hover:text-[var(--warn-text)]"
           >
             <Icon name="x" size="sm" />
             <span class="text-xs">{{ t('payment.orders.cancel') }}</span>
@@ -105,7 +106,7 @@
           <button
             v-if="row.status === 'FAILED'"
             @click="emit('retry', row)"
-            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--info)_8%,var(--card))] hover:text-[var(--info-text)]"
           >
             <Icon name="refresh" size="sm" />
             <span class="text-xs">{{ t('payment.admin.retry') }}</span>
@@ -113,7 +114,7 @@
           <button
             v-if="canRefundRow(row)"
             @click="emit('refund', row)"
-            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+            class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
           >
             <Icon name="dollar" size="sm" />
             <span class="text-xs">{{ t('payment.admin.refund') }}</span>
@@ -236,3 +237,33 @@ function formatDateTime(dateStr: string): string {
   return formatOrderDateTime(dateStr)
 }
 </script>
+
+<style scoped>
+.admin-order-table :deep(td) {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+}
+
+.order-actions {
+  max-width: 17rem;
+}
+
+.order-actions > button {
+  flex-direction: row;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--card);
+  white-space: nowrap;
+}
+
+.order-actions > button:hover {
+  background: var(--surface-2);
+}
+
+.order-actions > button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+</style>

@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl text-gray-900 dark:text-gray-100">
-      <header class="mb-10 max-w-3xl">
+    <div class="guide-document w-full text-[var(--foreground)]">
+      <header class="mb-10 max-w-3xl border-b border-[var(--border)] pb-8">
         <p class="mb-3 text-xs font-semibold uppercase tracking-widest text-action dark:text-primary-300">{{ t('helpGuide.eyebrow') }}</p>
         <h1 class="text-3xl font-bold tracking-tight md:text-4xl">{{ t('helpGuide.title') }}</h1>
         <p class="text-secondary mt-4 text-lg leading-8">{{ t('helpGuide.subtitle') }}</p>
@@ -14,7 +14,7 @@
             {{ t('helpGuide.apiBaseMissing') }}
           </p>
           <DocSection v-for="section in sections" :id="section.id" :key="section.id" :title="section.title">
-            <p v-if="te(`helpGuide.${section.id}.endpoint`)" class="break-words rounded-lg bg-gray-100 px-3 py-2 font-mono text-xs leading-6 dark:bg-dark-800">{{ t(`helpGuide.${section.id}.endpoint`) }}</p>
+            <p v-if="te(`helpGuide.${section.id}.endpoint`)" class="break-words rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-xs leading-6 ">{{ t(`helpGuide.${section.id}.endpoint`) }}</p>
             <p v-if="te(`helpGuide.${section.id}.intro`)" class="text-secondary text-sm leading-7">{{ t(`helpGuide.${section.id}.intro`) }}</p>
             <QuickstartGuide v-if="section.id === 'quick' && authStore.user" />
             <ol v-if="section.steps.length" class="list-decimal space-y-4 pl-6 marker:font-semibold marker:text-action dark:marker:text-primary-300">
@@ -27,7 +27,7 @@
               <h3 :id="`${section.id}-${table.id}-title`" class="font-semibold">{{ t(`${table.path}.title`) }}</h3>
               <div class="overflow-x-auto rounded-xl border focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500" role="region" tabindex="0" :aria-labelledby="`${section.id}-${table.id}-title`">
                 <table class="w-full min-w-[640px] text-left text-sm leading-7" :aria-labelledby="`${section.id}-${table.id}-title`">
-                  <thead class="bg-gray-50 dark:bg-dark-800">
+                  <thead class="bg-[var(--surface-2)] ">
                     <tr><th v-for="column in table.columns" :key="column" scope="col" class="whitespace-nowrap px-4 py-3">{{ t(`${table.path}.columns.${column}`) }}</th></tr>
                   </thead>
                   <tbody>
@@ -164,3 +164,12 @@ const links = computed(() => Object.fromEntries(Object.entries(relatedLinks).map
 })])))
 const examples = computed(() => guideExamples(apiRoot.value))
 </script>
+<style scoped>
+.guide-document { background: var(--background); overflow-wrap: anywhere; }
+.guide-document :deep(.text-secondary) { color: var(--muted-foreground); }
+.guide-document :deep(.card) { background: var(--card); border: 1px solid var(--border); box-shadow: none; }
+.guide-document :deep(table) { border-collapse: collapse; }
+.guide-document :deep(:is(th, td)) { border-bottom: 1px solid var(--border); }
+.guide-document :deep(thead) { background: var(--surface-2); }
+.guide-document :deep(details) { border-color: var(--border); }
+</style>

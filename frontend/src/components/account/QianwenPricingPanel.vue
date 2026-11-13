@@ -1,7 +1,7 @@
 <template>
-  <section class="rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="qianwen-pricing" @keydown.enter.stop.prevent>
-    <button type="button" class="btn btn-secondary" @click="expanded = !expanded">{{ t('admin.accounts.qianwenPricing.title') }}</button>
-    <div v-if="expanded" class="mt-4 space-y-3">
+  <section class="rounded-lg border bg-[var(--card)] p-3 border-[var(--border)] [&_input]:font-mono [&_input]:tabular-nums" data-testid="qianwen-pricing" @keydown.enter.stop.prevent>
+    <button type="button" class="btn btn-secondary" :aria-expanded="expanded" @click="expanded = !expanded">{{ t('admin.accounts.qianwenPricing.title') }}</button>
+    <div v-show="expanded" class="mt-4 space-y-3">
       <p class="input-hint">{{ t('admin.accounts.qianwenPricing.hint') }}</p>
       <fieldset :disabled="busy" class="space-y-3">
         <label class="block input-label">{{ t('admin.accounts.qianwenPricing.rate') }}

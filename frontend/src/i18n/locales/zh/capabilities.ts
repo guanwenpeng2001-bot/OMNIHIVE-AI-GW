@@ -3,7 +3,7 @@ export default {
   title: '补充私有模型能力', input: '账号模型能力声明',
   hint: '由部署持有人按原始模型 ID 声明实际输入/输出上限、模态、推理控制和函数调用能力，并填写依据。原生有效字段优先；声明不会增加授权或路由。预览检查具体采用字段和缺口，保存账号后重新预览并应用目录。清空表示移除声明。',
   invalid: '请输入有效声明：schema_version 为 1，reason 为核验依据，models 为按原始模型 ID 索引的非空对象。',
-  placeholder: '留空表示不提供账号部署规格', example: '查看格式示例（数值仅演示，请替换为真实部署规格）',
+  placeholder: '留空表示不提供账号部署规格', example: '查看格式示例（数值仅为参考示例，请替换为真实部署规格）',
   binding: 'confirmed_by、confirmed_at 和身份信息由服务端生成。账号身份变化后，核验部署规格并移除旧 identity_fingerprint，再预览和保存以重新确认。reasoning_control.kind 支持 none / effort / toggle / budget / adaptive / fixed / unknown；仅填写实际支持的控制形式。'
 },
   capabilityCatalog: {

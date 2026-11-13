@@ -1,21 +1,21 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.captcha.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.captcha.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <!-- Enable Captcha -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="font-medium text-gray-900 dark:text-white">{{
+          <label class="font-medium text-[var(--foreground)]">{{
             t("admin.settings.captcha.enable")
           }}</label>
-          <p class="text-sm text-gray-500 dark:text-gray-400">
+          <p class="text-sm text-[var(--muted-foreground)]">
             {{ t("admin.settings.captcha.enableHint") }}
           </p>
         </div>
@@ -28,17 +28,17 @@
       <!-- Provider fields - Only show when enabled -->
       <div
         v-if="captchaMasterEnabled"
-        class="border-t border-gray-100 pt-4 dark:border-dark-700"
+        class="border-t border-[var(--border)] pt-4"
       >
         <!-- Provider Selector -->
         <div class="mb-6">
           <label
-            class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            class="mb-2 block text-sm font-medium text-[var(--foreground)]"
           >
             {{ t("admin.settings.captcha.provider") }}
           </label>
           <div
-            class="grid grid-cols-3 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+            class="grid grid-cols-3 gap-2 rounded-lg bg-[var(--surface-2)] p-1"
           >
             <button
               type="button"
@@ -46,8 +46,8 @@
               class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
               :class="
                 captchaProviderSelection === 'turnstile'
-                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                  ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
               "
               @click="selectCaptchaProvider('turnstile')"
             >
@@ -59,8 +59,8 @@
               class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
               :class="
                 captchaProviderSelection === 'tencent'
-                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                  ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
               "
               @click="selectCaptchaProvider('tencent')"
             >
@@ -72,8 +72,8 @@
               class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
               :class="
                 captchaProviderSelection === 'aliyun'
-                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                  : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                  ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                  : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
               "
               @click="selectCaptchaProvider('aliyun')"
             >
@@ -89,7 +89,7 @@
         >
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.turnstile.siteKey") }}
             </label>
@@ -99,19 +99,19 @@
               class="input font-mono text-sm"
               placeholder="0x4AAAAAAA..."
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.turnstile.siteKeyHint") }}
               <a
                 href="https://dash.cloudflare.com/"
                 target="_blank"
-                class="text-primary-600 hover:text-primary-500"
+                class="text-[var(--brand-text)] hover:text-[var(--brand-text)]"
                 >{{ t("admin.settings.turnstile.cloudflareDashboard") }}</a
               >
             </p>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.turnstile.secretKey") }}
             </label>
@@ -121,7 +121,7 @@
               class="input font-mono text-sm"
               placeholder="0x4AAAAAAA..."
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.turnstile_secret_key_configured
                   ? t("admin.settings.turnstile.secretKeyConfiguredHint")
@@ -135,12 +135,12 @@
         <div v-else-if="captchaProviderSelection === 'tencent'">
           <div class="mb-6 max-w-sm">
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.tencentCaptcha.region") }}
             </label>
             <div
-              class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+              class="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-2)] p-1"
             >
               <button
                 type="button"
@@ -148,8 +148,8 @@
                 class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition"
                 :class="
                   form.tencent_captcha_region !== 'intl'
-                    ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                 "
                 @click="form.tencent_captcha_region = 'cn'"
               >
@@ -161,30 +161,30 @@
                 class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition"
                 :class="
                   form.tencent_captcha_region === 'intl'
-                    ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                 "
                 @click="form.tencent_captcha_region = 'intl'"
               >
                 {{ t("admin.settings.tencentCaptcha.regionIntl") }}
               </button>
             </div>
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.tencentCaptcha.regionHint") }}
             </p>
           </div>
           <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div class="md:col-span-2">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 class="text-sm font-semibold text-[var(--foreground)]">
                 {{ t("admin.settings.tencentCaptcha.appCredentialsTitle") }}
               </h3>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.tencentCaptcha.appCredentialsHint") }}
               </p>
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.tencentCaptcha.appId") }}
               </label>
@@ -198,7 +198,7 @@
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.tencentCaptcha.appSecretKey") }}
               </label>
@@ -209,7 +209,7 @@
                 class="input font-mono text-sm"
                 :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{
                   form.tencent_captcha_app_secret_key_configured
                     ? t("admin.settings.tencentCaptcha.configured")
@@ -218,18 +218,18 @@
               </p>
             </div>
             <div
-              class="border-t border-gray-100 pt-5 md:col-span-2 dark:border-dark-700"
+              class="border-t border-[var(--border)] pt-5 md:col-span-2"
             >
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 class="text-sm font-semibold text-[var(--foreground)]">
                 {{ t("admin.settings.tencentCaptcha.cloudCredentialsTitle") }}
               </h3>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.tencentCaptcha.cloudCredentialsHint") }}
               </p>
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.tencentCaptcha.cloudSecretId") }}
               </label>
@@ -240,7 +240,7 @@
                 class="input font-mono text-sm"
                 :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{
                   form.tencent_captcha_cloud_secret_id_configured
                     ? t("admin.settings.tencentCaptcha.configured")
@@ -250,7 +250,7 @@
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.tencentCaptcha.cloudSecretKey") }}
               </label>
@@ -261,7 +261,7 @@
                 class="input font-mono text-sm"
                 :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{
                   form.tencent_captcha_cloud_secret_key_configured
                     ? t("admin.settings.tencentCaptcha.configured")
@@ -270,10 +270,10 @@
               </p>
             </div>
           </div>
-          <p class="mt-5 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-5 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.tencentCaptcha.camPermissionHint") }}
           </p>
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p class="mt-2 text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.tencentCaptcha.aidEncryptedHint") }}
           </p>
           <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
@@ -281,7 +281,7 @@
               :href="tencentCaptchaLinks.console"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-primary-600 hover:text-primary-500"
+              class="text-[var(--brand-text)] hover:text-[var(--brand-text)]"
             >
               {{ t("admin.settings.tencentCaptcha.openCaptchaConsole") }}
             </a>
@@ -289,7 +289,7 @@
               :href="tencentCaptchaLinks.cloudKeys"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-primary-600 hover:text-primary-500"
+              class="text-[var(--brand-text)] hover:text-[var(--brand-text)]"
             >
               {{ t("admin.settings.tencentCaptcha.createCloudKeys") }}
             </a>
@@ -297,7 +297,7 @@
               :href="tencentCaptchaLinks.webDocs"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-primary-600 hover:text-primary-500"
+              class="text-[var(--brand-text)] hover:text-[var(--brand-text)]"
             >
               {{ t("admin.settings.tencentCaptcha.openWebDocs") }}
             </a>
@@ -309,20 +309,20 @@
           <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.aliyunCaptcha.region") }}
               </label>
               <div
-                class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+                class="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-2)] p-1"
               >
                 <button
                   type="button"
                   class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition"
                   :class="
                     form.aliyun_captcha_region !== 'sgp'
-                      ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                      : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                      ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                   "
                   @click="form.aliyun_captcha_region = 'cn'"
                 >
@@ -333,21 +333,21 @@
                   class="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium transition"
                   :class="
                     form.aliyun_captcha_region === 'sgp'
-                      ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                      : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                      ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                      : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                   "
                   @click="form.aliyun_captcha_region = 'sgp'"
                 >
                   {{ t("admin.settings.aliyunCaptcha.regionSgp") }}
                 </button>
               </div>
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.aliyunCaptcha.regionHint") }}
               </p>
             </div>
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.aliyunCaptcha.prefix") }}
               </label>
@@ -357,14 +357,14 @@
                 class="input font-mono text-sm"
                 placeholder="14xxxxx"
               />
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.aliyunCaptcha.prefixHint") }}
               </p>
             </div>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.aliyunCaptcha.sceneId") }}
             </label>
@@ -374,13 +374,13 @@
               class="input font-mono text-sm"
               placeholder="1cxxxxxx"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.aliyunCaptcha.sceneIdHint") }}
             </p>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.aliyunCaptcha.accessKeyId") }}
             </label>
@@ -390,13 +390,13 @@
               class="input font-mono text-sm"
               placeholder="LTAI..."
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.aliyunCaptcha.accessKeyIdHint") }}
             </p>
           </div>
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.aliyunCaptcha.accessKeySecret") }}
             </label>
@@ -407,7 +407,7 @@
               class="input font-mono text-sm"
               placeholder="••••••••"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.aliyun_captcha_access_key_secret_configured
                   ? t(

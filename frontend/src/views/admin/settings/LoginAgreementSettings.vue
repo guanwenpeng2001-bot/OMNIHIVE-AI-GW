@@ -1,15 +1,15 @@
 <template>
   <div v-show="activeTab === 'agreement'" class="space-y-6">
-    <div class="card">
-      <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+    <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+      <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
         <div
           class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
         >
           <div>
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+            <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
               {{ localText("登录条款确认", "Login agreement") }}
             </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">
               {{
                 localText(
                   "控制登录页是否要求用户先阅读并同意服务条款、隐私政策或其他 Markdown 文档。",
@@ -19,7 +19,7 @@
             </p>
           </div>
           <div class="flex items-center gap-3">
-            <span class="text-sm text-gray-600 dark:text-gray-300">
+            <span class="text-sm text-[var(--muted-foreground)]">
               {{
                 form.login_agreement_enabled
                   ? localText("已启用", "Enabled")
@@ -31,24 +31,24 @@
         </div>
       </div>
 
-      <div class="space-y-6 p-6">
+      <div class="space-y-6 p-4 sm:p-6">
         <div class="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ localText("展示形式", "Display mode") }}
             </label>
             <div
-              class="grid grid-cols-2 gap-2 rounded-lg bg-gray-100 p-1 dark:bg-dark-700"
+              class="grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-2)] p-1"
             >
               <button
                 type="button"
                 class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
                 :class="
                   form.login_agreement_mode === 'modal'
-                    ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                 "
                 @click="form.login_agreement_mode = 'modal'"
               >
@@ -60,8 +60,8 @@
                 class="inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition"
                 :class="
                   form.login_agreement_mode === 'checkbox'
-                    ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300'
-                    : 'text-gray-600 hover:text-gray-900 dark:text-dark-300 dark:hover:text-white'
+                    ? 'bg-[var(--card)] text-[var(--brand-text)] shadow-none  '
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
                 "
                 @click="form.login_agreement_mode = 'checkbox'"
               >
@@ -69,7 +69,7 @@
                 {{ localText("复选框", "Checkbox") }}
               </button>
             </div>
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.login_agreement_mode === "checkbox"
                   ? localText(
@@ -86,7 +86,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ localText("条款更新日期", "Updated date") }}
             </label>
@@ -95,7 +95,7 @@
               type="date"
               class="input"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 localText(
                   "日期或文档内容变化后，用户需要重新同意。",
@@ -111,10 +111,10 @@
             class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
-              <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+              <h3 class="text-sm font-medium text-[var(--foreground)]">
                 {{ localText("协议文档", "Agreement documents") }}
               </h3>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 {{
                   localText(
                     "文档名称可自定义，内容按 Markdown 保存。可参考：服务条款、使用政策、支持的国家和地区、服务特定条款。",
@@ -137,12 +137,12 @@
             <div
               v-for="(doc, index) in form.login_agreement_documents"
               :key="doc.id || index"
-              class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800/60"
+              class="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4"
             >
               <div class="mb-3 flex items-center justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
                   <span
-                    class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-dark-200"
+                    class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-[var(--surface-2)] text-[var(--foreground)]"
                   >
                     <Icon
                       :name="
@@ -159,7 +159,7 @@
                   </span>
                   <div class="min-w-0">
                     <p
-                      class="truncate text-sm font-semibold text-gray-900 dark:text-white"
+                      class="truncate text-sm font-semibold text-[var(--foreground)]"
                     >
                       {{
                         doc.title ||
@@ -167,7 +167,7 @@
                       }}
                     </p>
                     <p
-                      class="truncate text-xs text-gray-500 dark:text-gray-400"
+                      class="truncate text-xs text-[var(--muted-foreground)]"
                     >
                       {{ loginAgreementRoutePath(doc, index) }}
                     </p>
@@ -175,7 +175,7 @@
                 </div>
                 <button
                   type="button"
-                  class="rounded-md p-2 text-red-400 transition hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20"
+                  class="rounded-md p-2 text-[var(--bad-text)] transition hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)] disabled:cursor-not-allowed disabled:opacity-40"
                   :disabled="
                     form.login_agreement_enabled &&
                     form.login_agreement_documents.length <= 1
@@ -189,7 +189,7 @@
               <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{ localText("文档名称", "Document title") }}
                   </label>
@@ -204,22 +204,22 @@
                 </div>
                 <div>
                   <label
-                    class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                   >
                     {{ localText("路由标识", "Route slug") }}
                   </label>
                   <div
-                    class="flex overflow-hidden rounded-lg border border-gray-300 bg-white focus-within:border-primary-500 focus-within:ring-1 focus-within:ring-primary-500 dark:border-dark-600 dark:bg-dark-900"
+                    class="flex overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)] focus-within:border-[var(--border)] focus-within:ring-1 focus-within:ring-[var(--ring)]"
                   >
                     <span
-                      class="inline-flex flex-shrink-0 items-center border-r border-gray-200 bg-gray-50 px-3 text-sm text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-400"
+                      class="inline-flex flex-shrink-0 items-center border-r border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm text-[var(--muted-foreground)]"
                     >
                       /legal/
                     </span>
                     <input
                       v-model="doc.id"
                       type="text"
-                      class="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-white dark:placeholder:text-dark-500"
+                      class="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)] focus:ring-0 dark:placeholder:text-[var(--muted-foreground)]"
                       placeholder="usage-policy"
                     />
                   </div>
@@ -227,7 +227,7 @@
               </div>
               <div class="mt-3">
                 <label
-                  class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                  class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
                 >
                   {{ localText("Markdown 内容", "Markdown content") }}
                 </label>

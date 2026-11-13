@@ -1,18 +1,18 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.betaPolicy.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.betaPolicy.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <!-- Loading State -->
       <div
         v-if="betaPolicyLoading"
-        class="flex items-center gap-2 text-gray-500"
+        class="flex items-center gap-2 text-[var(--muted-foreground)]"
       >
         <LoadingSpinner size="sm" color="primary" />
         {{ t("common.loading") }}
@@ -23,14 +23,14 @@
         <div
           v-for="rule in betaPolicyForm.rules"
           :key="rule.beta_token"
-          class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+          class="rounded-lg border border-[var(--border)] p-4"
         >
           <div class="mb-3 flex items-center gap-2">
-            <span class="text-sm font-medium text-gray-900 dark:text-white">
+            <span class="text-sm font-medium text-[var(--foreground)]">
               {{ getBetaDisplayName(rule.beta_token) }}
             </span>
             <span
-              class="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400"
+              class="rounded bg-[var(--surface-2)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]"
             >
               {{ rule.beta_token }}
             </span>
@@ -40,7 +40,7 @@
             <!-- Action -->
             <div>
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.betaPolicy.action") }}
               </label>
@@ -54,7 +54,7 @@
             <!-- Scope -->
             <div>
               <label
-                class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
               >
                 {{ t("admin.settings.betaPolicy.scope") }}
               </label>
@@ -69,7 +69,7 @@
           <!-- Error Message (only when action=block) -->
           <div v-if="rule.action === 'block'" class="mt-3">
             <label
-              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.betaPolicy.errorMessage") }}
             </label>
@@ -81,7 +81,7 @@
                 t('admin.settings.betaPolicy.errorMessagePlaceholder')
               "
             />
-            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.betaPolicy.errorMessageHint") }}
             </p>
           </div>
@@ -89,7 +89,7 @@
           <!-- Quick Presets (only for tokens with presets) -->
           <div v-if="betaPresets[rule.beta_token]?.length" class="mt-3">
             <label
-              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.betaPolicy.quickPresets") }}
             </label>
@@ -98,7 +98,7 @@
                 v-for="preset in betaPresets[rule.beta_token]"
                 :key="preset.label"
                 type="button"
-                class="inline-flex items-center gap-1 rounded-md border border-primary-200 bg-primary-50 px-2.5 py-1 text-xs font-medium text-primary-700 transition-colors hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50"
+                class="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-medium text-[var(--brand-text)] transition-colors hover:bg-[var(--surface-2)]"
                 @click="applyBetaPreset(rule, preset)"
                 :title="preset.description"
               >
@@ -110,11 +110,11 @@
           <!-- Model Whitelist -->
           <div class="mt-3">
             <label
-              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.betaPolicy.modelWhitelist") }}
             </label>
-            <p class="mb-2 text-xs text-gray-400 dark:text-gray-500">
+            <p class="mb-2 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.betaPolicy.modelWhitelistHint") }}
             </p>
             <!-- Existing patterns -->
@@ -134,7 +134,7 @@
               <button
                 type="button"
                 @click="rule.model_whitelist!.splice(index, 1)"
-                class="shrink-0 rounded p-1 text-red-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                class="shrink-0 rounded p-1 text-[var(--bad-text)] transition-colors hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
               >
                 <svg
                   class="h-4 w-4"
@@ -158,7 +158,7 @@
                 if (!rule.model_whitelist) rule.model_whitelist = [];
                 rule.model_whitelist.push('');
               "
-              class="mb-2 inline-flex items-center gap-1 text-xs text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+              class="mb-2 inline-flex items-center gap-1 text-xs text-[var(--brand-text)] transition-colors hover:text-[var(--brand-text)]"
             >
               <svg
                 class="h-3.5 w-3.5"
@@ -177,14 +177,14 @@
             </button>
             <!-- Common pattern chips -->
             <div class="flex flex-wrap items-center gap-1.5">
-              <span class="text-xs text-gray-400 dark:text-gray-500"
+              <span class="text-xs text-[var(--muted-foreground)]"
                 >{{ t("admin.settings.betaPolicy.commonPatterns") }}:</span
               >
               <button
                 v-for="pattern in commonModelPatterns"
                 :key="pattern"
                 type="button"
-                class="rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 transition-colors hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 dark:border-dark-600 dark:text-gray-400 dark:hover:border-primary-700 dark:hover:bg-primary-900/30 dark:hover:text-primary-300"
+                class="rounded border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
                 @click="addQuickPattern(rule, pattern)"
               >
                 {{ pattern }}
@@ -198,7 +198,7 @@
             class="mt-3"
           >
             <label
-              class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+              class="mb-1 block text-xs font-medium text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.betaPolicy.fallbackAction") }}
             </label>
@@ -209,7 +209,7 @@
               "
               :options="betaPolicyActionOptions"
             />
-            <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.betaPolicy.fallbackActionHint") }}
             </p>
             <!-- Fallback Error Message (only when fallback_action=block) -->
@@ -222,7 +222,7 @@
                   t('admin.settings.betaPolicy.fallbackErrorMessagePlaceholder')
                 "
               />
-              <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+              <p class="mt-1 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.betaPolicy.errorMessageHint") }}
               </p>
             </div>
@@ -231,7 +231,7 @@
 
         <!-- Save Button -->
         <div
-          class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="flex justify-end border-t border-[var(--border)] pt-4"
         >
           <button
             type="button"

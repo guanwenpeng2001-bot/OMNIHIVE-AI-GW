@@ -3,17 +3,17 @@
     <div class="flex min-h-full items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/50 transition-opacity" @click="handleCancel"></div>
 
-      <div class="relative w-full max-w-md transform rounded-xl bg-white p-6 shadow-xl transition-all dark:bg-dark-800">
+      <div class="relative w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--card)] p-5 text-[var(--foreground)] sm:p-7">
         <div class="mb-6 text-center">
-          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
-            <svg class="h-6 w-6 text-primary-600 dark:text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-2)]">
+            <svg class="h-6 w-6 text-[var(--brand-text)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
             </svg>
           </div>
-          <h3 class="mt-4 text-xl font-semibold text-gray-900 dark:text-white">
+          <h3 class="mt-4 text-xl font-semibold text-[var(--foreground)]">
             {{ t('stepUp.title') }}
           </h3>
-          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+          <p class="mt-2 text-sm text-[var(--muted-foreground)]">
             {{ t('stepUp.hint') }}
           </p>
         </div>
@@ -30,7 +30,7 @@
             tabindex="-1"
             @input="handleHiddenOtpInput"
           />
-          <div class="flex justify-center gap-2">
+          <div class="grid grid-cols-6 gap-2">
             <input
               v-for="(_, index) in 6"
               :key="index"
@@ -40,22 +40,22 @@
               inputmode="numeric"
               pattern="[0-9]"
               autocomplete="off"
-              class="h-12 w-10 rounded-lg border border-gray-300 text-center text-lg font-semibold focus:border-primary-500 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+              class="input h-12 min-w-0 text-center font-mono text-lg font-semibold tabular-nums"
               :disabled="verifying"
               @input="handleCodeInput($event, index)"
               @keydown="handleKeydown($event, index)"
               @paste="handlePaste"
             />
           </div>
-          <div v-if="verifying" class="mt-3 flex items-center justify-center gap-2 text-sm text-gray-500">
-            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-500"></div>
+          <div v-if="verifying" class="mt-3 flex items-center justify-center gap-2 text-sm text-[var(--muted-foreground)]">
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-[var(--brand)]"></div>
             {{ t('common.verifying') }}
           </div>
         </div>
 
         <button
           type="button"
-          class="btn btn-secondary w-full"
+          class="btn btn-secondary btn-outline w-full"
           :disabled="verifying"
           @click="handleCancel"
         >
@@ -178,3 +178,66 @@ const handlePaste = (event: ClipboardEvent) => {
   nextTick(() => inputRefs.value[focusIndex]?.focus())
 }
 </script>
+
+<style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+:is(button, a).btn {
+  min-height: 40px;
+  border-radius: 8px;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
+.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
+.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
+
+div.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
+}
+</style>

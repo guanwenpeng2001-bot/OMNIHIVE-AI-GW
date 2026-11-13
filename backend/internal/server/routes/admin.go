@@ -2,10 +2,13 @@
 package routes
 
 import (
+	"context"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +36,33 @@ func RegisterAdminRoutes(
 	{
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
+
+		pulseHandler := h.MCP
+		if pulseHandler == nil {
+			pulseHandler = handler.NewMCPGrantHandler()
+		}
+		h.MCP = pulseHandler
+		stateFile := os.Getenv("OMNIHIVE_EXTENSION_STATE_FILE")
+		if stateFile == "" {
+			stateFile = os.Getenv("EXTENSION_STATE_FILE")
+		}
+		if stateFile != "" {
+			if err := pulseHandler.SetExtensionStoreFile(stateFile); err != nil {
+				log.Printf("extension state load failed: %v", err)
+			}
+		} else if settingService != nil {
+			if err := pulseHandler.SetExtensionPersister(
+				func() (string, error) { return settingService.GetPluginExtensionsState(context.Background()) },
+				func(raw string) error { return settingService.SetPluginExtensionsState(context.Background(), raw) },
+			); err != nil {
+				log.Printf("extension db state load failed: %v", err)
+			}
+		}
+		pulseHandler.SetPulseUsageHandler(h.Usage)
+		admin.GET("/pulse", pulseHandler.GetAdminPulse)
+		admin.GET("/plugins/extensions", pulseHandler.ListPluginExtensions)
+		admin.PUT("/plugins/extensions/:key", pulseHandler.UpdatePluginExtension)
+		admin.POST("/plugins/extensions/:key/test", pulseHandler.TestPluginExtension)
 
 		// 仪表盘
 		registerDashboardRoutes(admin, h)

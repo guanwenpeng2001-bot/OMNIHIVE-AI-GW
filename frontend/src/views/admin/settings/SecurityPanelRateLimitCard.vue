@@ -1,20 +1,20 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
       <div class="flex items-center gap-2">
-        <Icon name="shield" size="md" class="text-primary-500" />
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+        <Icon name="shield" size="md" class="text-[var(--brand-text)]" />
+        <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
           {{ t("admin.settings.panelRateLimit.title") }}
         </h2>
       </div>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.panelRateLimit.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div
         v-if="panelRateLimitLoading"
-        class="flex items-center gap-2 text-gray-500"
+        class="flex items-center gap-2 text-[var(--muted-foreground)]"
       >
         <LoadingSpinner size="sm" color="primary" />
         {{ t("common.loading") }}
@@ -23,7 +23,7 @@
       <template v-else>
         <!-- 计数维度说明：按账号计数，反代部署无误伤 -->
         <div
-          class="rounded-lg border border-sky-200 bg-sky-50 p-4 dark:border-sky-800 dark:bg-sky-900/20"
+          class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4"
         >
           <div class="flex items-start">
             <Icon
@@ -31,7 +31,7 @@
               size="md"
               class="mt-0.5 flex-shrink-0 text-sky-500"
             />
-            <p class="ml-3 text-sm text-sky-700 dark:text-sky-300">
+            <p class="ml-3 text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.panelRateLimit.proxySafeNote") }}
             </p>
           </div>
@@ -39,10 +39,10 @@
 
         <div class="flex items-center justify-between">
           <div>
-            <label class="font-medium text-gray-900 dark:text-white">{{
+            <label class="font-medium text-[var(--foreground)]">{{
               t("admin.settings.panelRateLimit.enabled")
             }}</label>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.panelRateLimit.enabledHint") }}
             </p>
           </div>
@@ -51,12 +51,12 @@
 
         <div
           v-if="panelRateLimitForm.enabled"
-          class="space-y-5 border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="space-y-5 border-t border-[var(--border)] pt-4"
         >
           <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.panelRateLimit.userRpm") }}
               </label>
@@ -69,18 +69,18 @@
                   max="100000"
                   class="input w-32"
                 />
-                <span class="text-sm text-gray-500 dark:text-gray-400">
+                <span class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.panelRateLimit.perMinute") }}
                 </span>
               </div>
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.panelRateLimit.userRpmHint") }}
               </p>
             </div>
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.panelRateLimit.heavyRpm") }}
               </label>
@@ -92,18 +92,18 @@
                   max="100000"
                   class="input w-32"
                 />
-                <span class="text-sm text-gray-500 dark:text-gray-400">
+                <span class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.panelRateLimit.perMinute") }}
                 </span>
               </div>
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.panelRateLimit.heavyRpmHint") }}
               </p>
             </div>
 
             <div>
               <label
-                class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                class="mb-2 block text-sm font-medium text-[var(--foreground)]"
               >
                 {{ t("admin.settings.panelRateLimit.publicIpRpm") }}
               </label>
@@ -115,24 +115,24 @@
                   max="100000"
                   class="input w-32"
                 />
-                <span class="text-sm text-gray-500 dark:text-gray-400">
+                <span class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.panelRateLimit.perMinute") }}
                 </span>
               </div>
-              <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.panelRateLimit.publicIpRpmHint") }}
               </p>
             </div>
           </div>
 
           <div
-            class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700"
+            class="flex items-center justify-between border-t border-[var(--border)] pt-4"
           >
             <div>
-              <label class="font-medium text-gray-900 dark:text-white">{{
+              <label class="font-medium text-[var(--foreground)]">{{
                 t("admin.settings.panelRateLimit.exemptAdmin")
               }}</label>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
+              <p class="text-sm text-[var(--muted-foreground)]">
                 {{ t("admin.settings.panelRateLimit.exemptAdminHint") }}
               </p>
             </div>
@@ -141,7 +141,7 @@
         </div>
 
         <div
-          class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
+          class="flex justify-end border-t border-[var(--border)] pt-4"
         >
           <button
             type="button"

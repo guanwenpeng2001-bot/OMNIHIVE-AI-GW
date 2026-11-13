@@ -1,18 +1,18 @@
 <template>
   <div v-show="activeTab === 'payment'" class="space-y-6">
     <!-- Payment System Settings -->
-    <div class="card">
-      <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+    <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+      <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+        <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
           {{ t("admin.settings.payment.title") }}
         </h2>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <p class="mt-1 text-sm text-[var(--muted-foreground)]">
           {{ t("admin.settings.payment.description") }}
           <a
             :href="paymentGuideHref"
             target="_blank"
             rel="noopener noreferrer"
-            class="ml-2 inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+            class="ml-2 inline-flex items-center text-[var(--brand-text)] hover:text-[var(--brand-text)]"
           >
             <svg
               class="mr-0.5 h-3.5 w-3.5"
@@ -31,14 +31,14 @@
           </a>
         </p>
       </div>
-      <div class="space-y-4 p-6">
+      <div class="space-y-4 p-4 sm:p-6">
         <!-- Enable toggle -->
         <div class="flex items-center justify-between">
           <div>
-            <label class="font-medium text-gray-900 dark:text-white">{{
+            <label class="font-medium text-[var(--foreground)]">{{
               t("admin.settings.payment.enabled")
             }}</label>
-            <p class="text-sm text-gray-500 dark:text-gray-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t("admin.settings.payment.enabledHint") }}
             </p>
           </div>
@@ -74,7 +74,7 @@
                 t("admin.settings.payment.preview")
               }}</label>
               <div
-                class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300"
+                class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--muted-foreground)]"
               >
                 {{
                   (form.payment_product_name_prefix || "Sub2API") +
@@ -152,11 +152,11 @@
                 min="0.01"
                 class="input"
               />
-              <p class="mt-0.5 text-xs text-gray-400">
+              <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.payment.balanceRechargeMultiplierHint") }}
               </p>
               <p
-                class="mt-1 text-xs font-medium text-primary-600 dark:text-primary-400"
+                class="mt-1 text-xs font-medium text-[var(--brand-text)]"
               >
                 {{
                   t("admin.settings.payment.balanceRechargePreview", {
@@ -185,7 +185,7 @@
                   t('admin.settings.payment.subscriptionUsdToCnyRateDisabled')
                 "
               />
-              <p class="mt-0.5 text-xs text-gray-400">
+              <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.payment.subscriptionUsdToCnyRateHint") }}
               </p>
             </div>
@@ -216,16 +216,16 @@
                   class="input pr-8"
                 />
                 <span
-                  class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400"
+                  class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--muted-foreground)]"
                   >%</span
                 >
               </div>
-              <p class="mt-0.5 text-xs text-gray-400">
+              <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.payment.rechargeFeeRateHint") }}
               </p>
               <p
                 v-if="(Number(form.payment_recharge_fee_rate) || 0) > 0"
-                class="mt-1 text-xs font-medium text-primary-600 dark:text-primary-400"
+                class="mt-1 text-xs font-medium text-[var(--brand-text)]"
               >
                 {{
                   t("admin.settings.payment.rechargeFeePreview", {
@@ -239,7 +239,7 @@
             <div>
               <label class="input-label"
                 >{{ t("admin.settings.payment.orderTimeout") }}
-                <span class="text-red-500">*</span></label
+                <span class="text-[var(--bad-text)]">*</span></label
               ><input
                 v-model.number="form.payment_order_timeout_minutes"
                 type="number"
@@ -247,7 +247,7 @@
                 class="input"
                 required
               />
-              <p class="mt-0.5 text-xs text-gray-400">
+              <p class="mt-0.5 text-xs text-[var(--muted-foreground)]">
                 {{ t("admin.settings.payment.orderTimeoutHint") }}
               </p>
             </div>
@@ -283,10 +283,10 @@
                 <button
                   type="button"
                   :class="[
-                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-2',
                     form.payment_cancel_rate_limit_enabled
-                      ? 'bg-primary-500'
-                      : 'bg-gray-300 dark:bg-dark-600',
+                      ? 'bg-[var(--primary)]'
+                      : 'bg-[var(--border)] ',
                   ]"
                   @click="
                     form.payment_cancel_rate_limit_enabled =
@@ -312,8 +312,8 @@
                   :class="[
                     'text-sm whitespace-nowrap',
                     form.payment_cancel_rate_limit_enabled
-                      ? 'text-gray-700 dark:text-gray-300'
-                      : 'text-gray-400 dark:text-gray-600',
+                      ? 'text-[var(--foreground)] '
+                      : 'text-[var(--muted-foreground)] ',
                   ]"
                   >{{ t("admin.settings.payment.cancelRateLimitEvery") }}</span
                 >
@@ -335,8 +335,8 @@
                   :class="[
                     'text-sm whitespace-nowrap',
                     form.payment_cancel_rate_limit_enabled
-                      ? 'text-gray-700 dark:text-gray-300'
-                      : 'text-gray-400 dark:text-gray-600',
+                      ? 'text-[var(--foreground)] '
+                      : 'text-[var(--muted-foreground)] ',
                   ]"
                   >{{
                     t("admin.settings.payment.cancelRateLimitAllowMax")
@@ -354,8 +354,8 @@
                   :class="[
                     'text-sm whitespace-nowrap',
                     form.payment_cancel_rate_limit_enabled
-                      ? 'text-gray-700 dark:text-gray-300'
-                      : 'text-gray-400 dark:text-gray-600',
+                      ? 'text-[var(--foreground)] '
+                      : 'text-[var(--muted-foreground)] ',
                   ]"
                   >{{ t("admin.settings.payment.cancelRateLimitTimes") }}</span
                 >
@@ -369,10 +369,10 @@
                 <button
                   type="button"
                   :class="[
-                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-2',
                     form.payment_alipay_force_qrcode
-                      ? 'bg-primary-500'
-                      : 'bg-gray-300 dark:bg-dark-600',
+                      ? 'bg-[var(--primary)]'
+                      : 'bg-[var(--border)] ',
                   ]"
                   @click="
                     form.payment_alipay_force_qrcode =
@@ -388,7 +388,7 @@
                     ]"
                   />
                 </button>
-                <span class="text-sm text-gray-500 dark:text-gray-400">{{
+                <span class="text-sm text-[var(--muted-foreground)]">{{
                   t("admin.settings.payment.alipayForceQRCodeHint")
                 }}</span>
               </div>
@@ -401,10 +401,10 @@
                 <button
                   type="button"
                   :class="[
-                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                    'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-2',
                     form.payment_alipay_mobile_precreate_deep_link
-                      ? 'bg-primary-500'
-                      : 'bg-gray-300 dark:bg-dark-600',
+                      ? 'bg-[var(--primary)]'
+                      : 'bg-[var(--border)] ',
                   ]"
                   @click="
                     form.payment_alipay_mobile_precreate_deep_link =
@@ -420,7 +420,7 @@
                     ]"
                   />
                 </button>
-                <span class="text-sm text-gray-500 dark:text-gray-400">{{
+                <span class="text-sm text-[var(--muted-foreground)]">{{
                   t("admin.settings.payment.alipayMobilePrecreateDeepLinkHint")
                 }}</span>
               </div>
@@ -440,20 +440,20 @@
                 :class="[
                   'rounded-lg border px-3 py-1.5 text-sm font-medium transition-all',
                   isPaymentTypeEnabled(pt.value)
-                    ? 'border-primary-500 bg-primary-500 text-white shadow-sm'
-                    : 'border-gray-300 bg-white text-gray-600 hover:border-gray-400 hover:bg-gray-50 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-500',
+                    ? 'border-[var(--border)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-none'
+                    : 'border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:border-[var(--border)] hover:bg-[var(--surface-2)]    ',
                 ]"
               >
                 {{ pt.label }}
               </button>
             </div>
-            <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
+            <p class="mt-2 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.payment.enabledPaymentTypesHint") }}
               <a
                 :href="paymentMethodsHref"
                 target="_blank"
                 rel="noopener noreferrer"
-                class="ml-1 text-primary-500 hover:text-primary-600 dark:text-primary-400 dark:hover:text-primary-300"
+                class="ml-1 text-[var(--brand-text)] hover:text-[var(--brand-text)]"
               >
                 {{ t("admin.settings.payment.findProvider") }}
                 <svg

@@ -1,20 +1,20 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.dingtalk.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.dingtalk.description") }}
       </p>
     </div>
-    <div class="space-y-5 p-6">
+    <div class="space-y-5 p-4 sm:p-6">
       <div class="flex items-center justify-between">
         <div>
-          <label class="font-medium text-gray-900 dark:text-white">{{
+          <label class="font-medium text-[var(--foreground)]">{{
             t("admin.settings.dingtalk.enable")
           }}</label>
-          <p class="text-sm text-gray-500 dark:text-gray-400">
+          <p class="text-sm text-[var(--muted-foreground)]">
             {{ t("admin.settings.dingtalk.enableHint") }}
           </p>
         </div>
@@ -23,12 +23,12 @@
 
       <div
         v-if="form.dingtalk_connect_enabled"
-        class="border-t border-gray-100 pt-4 dark:border-dark-700"
+        class="border-t border-[var(--border)] pt-4"
       >
         <div class="grid grid-cols-1 gap-6">
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.dingtalk.clientId") }}
             </label>
@@ -38,14 +38,14 @@
               class="input font-mono text-sm"
               :placeholder="t('admin.settings.dingtalk.clientIdPlaceholder')"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.dingtalk.clientIdHint") }}
             </p>
           </div>
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.dingtalk.clientSecret") }}
             </label>
@@ -61,7 +61,7 @@
                   : t('admin.settings.dingtalk.clientSecretPlaceholder')
               "
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{
                 form.dingtalk_connect_client_secret_configured
                   ? t("admin.settings.dingtalk.clientSecretConfiguredHint")
@@ -72,7 +72,7 @@
 
           <div>
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.dingtalk.redirectUrl") }}
             </label>
@@ -82,19 +82,19 @@
               class="input font-mono text-sm"
               :placeholder="t('admin.settings.dingtalk.redirectUrlPlaceholder')"
             />
-            <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.dingtalk.redirectUrlHint") }}
             </p>
           </div>
 
           <!-- Corp Restriction Policy -->
-          <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
+          <div class="border-t border-[var(--border)] pt-4">
             <label
-              class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              class="mb-2 block text-sm font-medium text-[var(--foreground)]"
             >
               {{ t("admin.settings.dingtalk.corpPolicy.label") }}
             </label>
-            <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+            <p class="mb-3 text-xs text-[var(--muted-foreground)]">
               {{ t("admin.settings.dingtalk.corpPolicy.hint") }}
             </p>
             <div class="space-y-2">
@@ -103,9 +103,9 @@
                   v-model="form.dingtalk_connect_corp_restriction_policy"
                   type="radio"
                   value="none"
-                  class="h-4 w-4 text-primary-600"
+                  class="h-4 w-4 text-[var(--brand-text)]"
                 />
-                <span class="text-sm text-gray-700 dark:text-gray-300">
+                <span class="text-sm text-[var(--foreground)]">
                   {{ t("admin.settings.dingtalk.corpPolicy.none") }}
                 </span>
               </label>
@@ -114,9 +114,9 @@
                   v-model="form.dingtalk_connect_corp_restriction_policy"
                   type="radio"
                   value="internal_only"
-                  class="h-4 w-4 text-primary-600"
+                  class="h-4 w-4 text-[var(--brand-text)]"
                 />
-                <span class="text-sm text-gray-700 dark:text-gray-300">
+                <span class="text-sm text-[var(--foreground)]">
                   {{ t("admin.settings.dingtalk.corpPolicy.internalOnly") }}
                 </span>
               </label>
@@ -128,13 +128,13 @@
             v-if="
               form.dingtalk_connect_corp_restriction_policy === 'internal_only'
             "
-            class="flex items-center justify-between pt-4 border-t border-gray-100 dark:border-dark-700"
+            class="flex items-center justify-between pt-4 border-t border-[var(--border)]"
           >
             <div>
-              <label class="font-medium text-gray-900 dark:text-white">{{
+              <label class="font-medium text-[var(--foreground)]">{{
                 t("admin.settings.dingtalk.bypassRegistration")
               }}</label>
-              <p class="text-sm text-gray-500 dark:text-gray-400">
+              <p class="text-sm text-[var(--muted-foreground)]">
                 {{ t("admin.settings.dingtalk.bypassRegistrationHint") }}
               </p>
             </div>
@@ -146,14 +146,14 @@
             v-if="
               form.dingtalk_connect_corp_restriction_policy === 'internal_only'
             "
-            class="pt-4 border-t border-gray-100 dark:border-dark-700 space-y-2"
+            class="pt-4 border-t border-[var(--border)] space-y-2"
           >
             <div class="flex items-center justify-between">
               <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
+                <label class="font-medium text-[var(--foreground)]">{{
                   t("admin.settings.dingtalk.syncDisplayName")
                 }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.dingtalk.syncDisplayNameHint") }}
                 </p>
               </div>
@@ -165,7 +165,7 @@
             >
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncDisplayNameTarget") }}
                 </label>
@@ -178,7 +178,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                 </label>
@@ -192,7 +192,7 @@
             </div>
             <p
               v-if="form.dingtalk_connect_sync_display_name"
-              class="text-xs text-gray-400 dark:text-gray-500"
+              class="text-xs text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.dingtalk.syncDisplayNameTargetHint") }}
             </p>
@@ -201,17 +201,17 @@
             v-if="
               form.dingtalk_connect_corp_restriction_policy === 'internal_only'
             "
-            class="pt-4 border-t border-gray-100 dark:border-dark-700 space-y-2"
+            class="pt-4 border-t border-[var(--border)] space-y-2"
           >
             <div class="flex items-center justify-between">
               <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
+                <label class="font-medium text-[var(--foreground)]">{{
                   t("admin.settings.dingtalk.syncCorpEmail")
                 }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.dingtalk.syncCorpEmailHint") }}
                 </p>
-                <p class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                <p class="text-xs text-[var(--warn-text)] mt-1">
                   {{ t("admin.settings.dingtalk.syncCorpEmailPermissionHint") }}
                 </p>
               </div>
@@ -220,7 +220,7 @@
             <div v-if="form.dingtalk_connect_sync_corp_email" class="space-y-2">
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncCorpEmailTarget") }}
                 </label>
@@ -233,7 +233,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                 </label>
@@ -249,7 +249,7 @@
             </div>
             <p
               v-if="form.dingtalk_connect_sync_corp_email"
-              class="text-xs text-gray-400 dark:text-gray-500"
+              class="text-xs text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.dingtalk.syncCorpEmailTargetHint") }}
             </p>
@@ -258,17 +258,17 @@
             v-if="
               form.dingtalk_connect_corp_restriction_policy === 'internal_only'
             "
-            class="pt-4 border-t border-gray-100 dark:border-dark-700 space-y-2"
+            class="pt-4 border-t border-[var(--border)] space-y-2"
           >
             <div class="flex items-center justify-between">
               <div>
-                <label class="font-medium text-gray-900 dark:text-white">{{
+                <label class="font-medium text-[var(--foreground)]">{{
                   t("admin.settings.dingtalk.syncDept")
                 }}</label>
-                <p class="text-sm text-gray-500 dark:text-gray-400">
+                <p class="text-sm text-[var(--muted-foreground)]">
                   {{ t("admin.settings.dingtalk.syncDeptHint") }}
                 </p>
-                <p class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                <p class="text-xs text-[var(--warn-text)] mt-1">
                   {{ t("admin.settings.dingtalk.syncDeptPermissionHint") }}
                 </p>
               </div>
@@ -277,7 +277,7 @@
             <div v-if="form.dingtalk_connect_sync_dept" class="space-y-2">
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncDeptTarget") }}
                 </label>
@@ -290,7 +290,7 @@
               </div>
               <div class="flex items-center gap-2">
                 <label
-                  class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]"
+                  class="text-sm text-[var(--muted-foreground)] whitespace-nowrap min-w-[5rem]"
                 >
                   {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                 </label>
@@ -304,7 +304,7 @@
             </div>
             <p
               v-if="form.dingtalk_connect_sync_dept"
-              class="text-xs text-gray-400 dark:text-gray-500"
+              class="text-xs text-[var(--muted-foreground)]"
             >
               {{ t("admin.settings.dingtalk.syncDeptTargetHint") }}
             </p>

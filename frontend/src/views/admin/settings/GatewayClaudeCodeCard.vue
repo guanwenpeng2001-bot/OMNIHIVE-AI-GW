@@ -1,17 +1,17 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.claudeCode.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.claudeCode.description") }}
       </p>
     </div>
     <div class="p-6">
       <div>
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.claudeCode.minVersion") }}
         </label>
@@ -21,13 +21,13 @@
           class="input max-w-xs font-mono text-sm"
           :placeholder="t('admin.settings.claudeCode.minVersionPlaceholder')"
         />
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.claudeCode.minVersionHint") }}
         </p>
       </div>
       <div class="mt-4">
         <label
-          class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
+          class="mb-2 block text-sm font-medium text-[var(--foreground)]"
         >
           {{ t("admin.settings.claudeCode.maxVersion") }}
         </label>
@@ -37,7 +37,7 @@
           class="input max-w-xs font-mono text-sm"
           :placeholder="t('admin.settings.claudeCode.maxVersionPlaceholder')"
         />
-        <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{ t("admin.settings.claudeCode.maxVersionHint") }}
         </p>
       </div>

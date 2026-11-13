@@ -5,7 +5,8 @@
     width="normal"
     @close="$emit('close')"
   >
-    <form id="create-user-form" @submit.prevent="submit" class="space-y-5">
+    <form id="create-user-form" @submit.prevent="submit" class="space-y-4">
+      <div class="space-y-4 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
       <div>
         <label class="input-label">{{ t('admin.users.email') }}</label>
         <input v-model="form.email" type="email" required class="input" :placeholder="t('admin.users.enterEmail')" />
@@ -32,14 +33,16 @@
           <option value="admin">{{ t('admin.users.roles.admin') }}</option>
         </select>
       </div>
+      </div>
+      <div class="space-y-4 rounded-xl border border-[var(--border)] bg-[color-mix(in_srgb,var(--surface-2)_40%,transparent)] p-4">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="input-label">{{ t('admin.users.columns.balance') }}</label>
-          <input v-model="form.balance" type="number" step="any" class="input" />
+          <input v-model="form.balance" type="number" step="any" class="input font-mono tabular-nums" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" class="input" />
+          <input v-model.number="form.concurrency" type="number" class="input font-mono tabular-nums" />
         </div>
       </div>
       <div>
@@ -54,9 +57,10 @@
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
       </div>
+      </div>
     </form>
     <template #footer>
-      <div class="flex justify-end gap-3">
+      <div class="flex flex-wrap justify-end gap-2">
         <button @click="$emit('close')" type="button" class="btn btn-secondary">{{ t('common.cancel') }}</button>
         <button type="submit" form="create-user-form" :disabled="loading" class="btn btn-primary">
           {{ loading ? t('admin.users.creating') : t('common.create') }}

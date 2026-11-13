@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col gap-0.5">
+  <div class="capacity-cell flex max-w-[240px] flex-wrap items-center gap-1 font-mono tabular-nums">
     <!-- 并发槽位 -->
     <CapacityBadge :color-class="concurrencyClass" :current="currentConcurrency" :max="account.concurrency">
       <svg class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -188,3 +188,38 @@ const showTotalQuota = computed(() =>
   isQuotaEligible.value && props.account.quota_limit != null && props.account.quota_limit > 0
 )
 </script>
+
+<style scoped>
+.capacity-cell :deep(.inline-flex) {
+  border: 1px solid var(--border);
+  padding: 0.125rem 0.375rem;
+}
+
+.capacity-cell :deep(.bg-gray-100) {
+  background: var(--surface-2);
+  color: var(--muted-foreground);
+}
+
+.capacity-cell :deep(.bg-emerald-100) {
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  color: var(--ok-text);
+}
+
+.capacity-cell :deep(.bg-yellow-100),
+.capacity-cell :deep(.bg-orange-100) {
+  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--warn-text);
+}
+
+.capacity-cell :deep(.bg-red-100) {
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+  color: var(--bad-text);
+}
+
+.capacity-cell :deep(.text-gray-400) {
+  color: var(--muted-foreground);
+}
+</style>

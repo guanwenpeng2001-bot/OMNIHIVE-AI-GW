@@ -1,8 +1,8 @@
 <template>
-  <div class="card p-4">
-    <DistributionCaption v-if="activeView === 'spending_ranking' ? !rankingLoading && !rankingUnknown && !rankingError : !loading && !modelUnknown && !modelError" :values="activeView === 'spending_ranking' ? rankingDisplayItems.map(item => item.actual_cost) : displayModelStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="activeView === 'spending_ranking' ? 'actual_cost' : metric" />
+  <div class="card min-w-0 border border-[var(--border)] bg-[var(--card)] p-4 tabular-nums">
+    <DistributionCaption v-if="activeView === 'spending_ranking' ? !rankingLoading && !rankingUnknown && !rankingError : !loading && !modelUnknown && !modelError" :values="activeView === 'spending_ranking' ? rankingDisplayItems.map(item => item.actual_cost) : displayModelStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="activeView === 'spending_ranking' ? 'actual_cost' : metric" :colors="activeView === 'spending_ranking' ? rankingChartData?.datasets[0]?.backgroundColor : undefined" />
     <div class="mb-4 flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+      <h3 class="text-sm font-semibold text-[var(--foreground)]">
         {{ !enableRankingView || activeView === 'model_distribution'
           ? t('admin.dashboard.modelDistribution')
           : t('admin.dashboard.spendingRankingTitle') }}
@@ -10,14 +10,14 @@
       <div class="flex flex-wrap items-center justify-end gap-2">
         <div
           v-if="showSourceToggle"
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+          class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5"
         >
           <button
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'requested'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'requested')"
           >
             {{ t('usage.requestedModel') }}
@@ -26,8 +26,8 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'upstream'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'upstream')"
           >
             {{ t('usage.upstreamModel') }}
@@ -36,8 +36,8 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="source === 'mapping'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:source', 'mapping')"
           >
             {{ t('usage.mapping') }}
@@ -45,14 +45,14 @@
         </div>
         <div
           v-if="showMetricToggle"
-          class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5 dark:border-dark-700 dark:bg-dark-800"
+          class="inline-flex rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-0.5"
         >
           <button
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="metric === 'tokens'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:metric', 'tokens')"
           >
             {{ t('admin.dashboard.metricTokens') }}
@@ -61,21 +61,21 @@
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="metric === 'actual_cost'
-              ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'"
+              ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+              : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '"
             @click="emit('update:metric', 'actual_cost')"
           >
             {{ t('admin.dashboard.metricActualCost') }}
           </button>
         </div>
-        <div v-if="enableRankingView" class="inline-flex rounded-lg bg-gray-100 p-1 dark:bg-dark-800">
+        <div v-if="enableRankingView" class="inline-flex rounded-lg bg-[var(--surface-2)] p-1">
           <button
             type="button"
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="
               activeView === 'model_distribution'
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
             "
             @click="activeView = 'model_distribution'"
           >
@@ -86,8 +86,8 @@
             class="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
             :class="
               activeView === 'spending_ranking'
-                ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
-                : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
+                ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm  '
+                : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]  '
             "
             @click="activeView = 'spending_ranking'"
           >
@@ -100,7 +100,7 @@
     <div v-if="activeView === 'model_distribution' && loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
-    <div v-else-if="activeView === 'model_distribution' && (modelUnknown || modelError)" role="status" class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+    <div v-else-if="activeView === 'model_distribution' && (modelUnknown || modelError)" role="status" class="flex h-48 items-center justify-center text-sm text-[var(--muted-foreground)]">
       {{ modelUnknown ? '—' : t('admin.dashboard.failedToLoad') }}
     </div>
     <div
@@ -113,7 +113,7 @@
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="text-gray-500 dark:text-gray-400">
+            <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.model') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
@@ -123,27 +123,28 @@
             </tr>
           </thead>
           <tbody>
-            <template v-for="model in displayModelStats" :key="model.model">
+            <template v-for="(model, index) in displayModelStats" :key="model.model">
               <tr
-                class="border-t border-gray-100 transition-colors dark:border-dark-700"
-                :class="enableBreakdown ? 'cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-700/40' : ''"
+                class="border-t border-[var(--border)] transition-colors"
+                :class="enableBreakdown ? 'cursor-pointer hover:bg-[var(--surface-2)] ' : ''"
                 @click="enableBreakdown && toggleBreakdown('model', model.model)"
               >
                 <td
                   class="max-w-[100px] truncate py-1.5 font-medium"
-                  :class="enableBreakdown ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-gray-900 dark:text-white'"
+                  :class="enableBreakdown ? 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300' : 'text-[var(--foreground)] '"
                   :title="model.model"
                 >
                   <span class="inline-flex items-center gap-1">
+                    <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ backgroundColor: chartColors[index % chartColors.length] }" aria-hidden="true" />
                     <svg v-if="enableBreakdown && expandedKey === `model-${model.model}`" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                     <svg v-else-if="enableBreakdown" class="h-3 w-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                     {{ model.model }}
                   </span>
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatNumber(model.requests) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   {{ formatTokens(model.total_tokens) }}
                 </td>
                 <td class="py-1.5 text-right text-green-600 dark:text-green-400">
@@ -152,7 +153,7 @@
                 <td v-if="showAccountCost" class="py-1.5 text-right text-orange-500 dark:text-orange-400">
                   USD {{ formatCost(model.account_cost) }}
                 </td>
-                <td class="py-1.5 text-right text-gray-400 dark:text-gray-500">
+                <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                   USD {{ formatCost(model.cost) }}
                 </td>
               </tr>
@@ -172,18 +173,20 @@
     </div>
     <div
       v-else-if="activeView === 'model_distribution'"
-      class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+      class="flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]"
+      role="status"
     >
-      {{ t('admin.dashboard.noDataAvailable') }}
+      <div class="w-full space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${64 - row * 9}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
+      <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
 
     <div v-else-if="rankingLoading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
-    <div v-else-if="rankingUnknown" role="status" class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">—</div>
+    <div v-else-if="rankingUnknown" role="status" class="flex h-48 items-center justify-center text-sm text-[var(--muted-foreground)]">—</div>
     <div
       v-else-if="rankingError"
-      class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+      class="flex h-48 items-center justify-center text-sm text-[var(--muted-foreground)]"
     >
       {{ t('admin.dashboard.failedToLoad') }}
     </div>
@@ -194,7 +197,7 @@
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
         <table class="w-full text-xs">
           <thead>
-            <tr class="text-gray-500 dark:text-gray-400">
+            <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.spendingRankingUser') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.spendingRankingRequests') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.spendingRankingTokens') }}</th>
@@ -205,29 +208,29 @@
             <tr
               v-for="(item, index) in rankingDisplayItems"
               :key="item.isOther ? 'others' : `${item.user_id}-${index}`"
-              class="border-t border-gray-100 transition-colors dark:border-dark-700"
+              class="border-t border-[var(--border)] transition-colors"
               :class="item.isOther
-                ? 'bg-gray-50/70 dark:bg-dark-700/20'
-                : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-700/40'"
+                ? 'bg-[var(--surface-2)] '
+                : 'cursor-pointer hover:bg-[var(--surface-2)] '"
               @click="item.isOther ? undefined : emit('ranking-click', item)"
             >
               <td class="py-1.5">
                 <div class="flex min-w-0 items-center gap-2">
-                  <span class="shrink-0 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
+                  <span class="shrink-0 text-[11px] font-semibold text-[var(--muted-foreground)]">
                     {{ item.isOther ? 'Σ' : `#${index + 1}` }}
                   </span>
                   <span
-                    class="block max-w-[140px] truncate font-medium text-gray-900 dark:text-white"
+                    class="block max-w-[140px] truncate font-medium text-[var(--foreground)]"
                     :title="getRankingRowLabel(item)"
                   >
                     {{ getRankingRowLabel(item) }}
                   </span>
                 </div>
               </td>
-              <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+              <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                 {{ formatNumber(item.requests) }}
               </td>
-              <td class="py-1.5 text-right text-gray-600 dark:text-gray-400">
+              <td class="py-1.5 text-right text-[var(--muted-foreground)]">
                 {{ formatTokens(item.tokens) }}
               </td>
               <td class="py-1.5 text-right text-green-600 dark:text-green-400">
@@ -240,9 +243,11 @@
     </div>
     <div
       v-else
-      class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+      class="flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]"
+      role="status"
     >
-      {{ t('admin.dashboard.noDataAvailable') }}
+      <div class="w-full space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${64 - row * 9}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
+      <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
   </div>
 </template>
@@ -352,20 +357,7 @@ const showAccountCost = computed(() => props.showAccountCost)
 const distributionColspan = computed(() => showAccountCost.value ? 6 : 5)
 const activeView = ref<'model_distribution' | 'spending_ranking'>('model_distribution')
 
-const chartColors = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#14b8a6',
-  '#f97316',
-  '#6366f1',
-  '#84cc16',
-  '#06b6d4',
-  '#a855f7'
-]
+const chartColors = ['#d97706', '#059669', '#6366f1', '#fbbf24', '#34d399', '#a5b4fc', '#b45309', '#047857', '#4338ca', '#f59e0b', '#10b981', '#818cf8']
 
 const displayModelStats = computed(() => {
   const sourceStats = props.source === 'upstream'
@@ -387,7 +379,7 @@ const chartData = computed(() => {
     datasets: [
       {
         data: displayModelStats.value.map((m) => (props.metric === 'actual_cost' ? m.actual_cost : m.total_tokens) ?? NaN),
-        backgroundColor: chartColors.slice(0, displayModelStats.value.length),
+        backgroundColor: displayModelStats.value.map((_, index) => chartColors[index % chartColors.length]),
         borderWidth: 0
       }
     ]
@@ -399,7 +391,8 @@ const rankingChartData = computed(() => {
 
   const labels = props.rankingItems.map((item, index) => `#${index + 1} ${getRankingUserLabel(item)}`)
   const data = props.rankingItems.map((item) => toFiniteNumber(item.actual_cost))
-  const backgroundColor = chartColors.slice(0, props.rankingItems.length)
+  const backgroundColor = props.rankingItems.map((_, index) => chartColors[index % chartColors.length]!)
+  backgroundColor[0] = '#3b82f6'
 
   if (otherRankingItem.value) {
     labels.push(t('admin.dashboard.spendingRankingOther'))
@@ -453,6 +446,8 @@ const rankingDisplayItems = computed<RankingDisplayItem[]>(() => {
 const doughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '72%',
+  animation: false as const,
   plugins: {
     legend: {
       display: false
@@ -476,6 +471,8 @@ const doughnutOptions = computed(() => ({
 const rankingDoughnutOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
+  cutout: '72%',
+  animation: false as const,
   plugins: {
     legend: {
       display: false

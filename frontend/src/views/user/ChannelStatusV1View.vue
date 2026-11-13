@@ -4,11 +4,11 @@
       v-if="blockedReason"
       role="note"
       data-test="channel-monitor-blocked"
-      class="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+      class="card mb-4 w-full px-4 py-3 text-sm text-[var(--warn-text)]"
     >
       {{ blockedMessage }}
     </div>
-    <p v-else role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
+    <p v-else role="note" class="card mb-4 w-full px-4 py-3 text-sm text-[var(--muted-foreground)]">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
     <MonitorHero
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"

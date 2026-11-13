@@ -1,8 +1,8 @@
 <template>
-  <div v-if="snapshot" class="space-y-1" data-testid="monitor-quota-view">
+  <div v-if="snapshot" class="space-y-1.5 tabular-nums" data-testid="monitor-quota-view">
     <!-- 套餐等级徽章（如智谱 plan level / Claude 订阅档） -->
     <div v-if="snapshot.plan_level" class="flex flex-wrap items-center gap-1.5">
-      <span class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-600 dark:text-gray-300">
+      <span class="rounded bg-[var(--surface-2)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
         {{ snapshot.plan_level }}
       </span>
     </div>
@@ -27,7 +27,7 @@
       <span
         v-for="b in balanceRows"
         :key="b.currency"
-        :class="['font-medium', b.balance <= 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-300']"
+        :class="['font-medium', b.balance <= 0 ? 'text-red-600 dark:text-red-400' : 'text-[var(--muted-foreground)] ']"
       >
         {{ b.balance.toFixed(2) }} {{ b.currency }}
       </span>
@@ -35,7 +35,7 @@
 
     <div
       v-if="!snapshot.success && snapshot.unsupported"
-      class="truncate text-[10px] text-gray-400 dark:text-dark-400"
+      class="truncate text-[10px] text-[var(--muted-foreground)]"
       :title="snapshot.error"
       data-testid="monitor-quota-unsupported"
     >

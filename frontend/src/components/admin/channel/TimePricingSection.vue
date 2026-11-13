@@ -1,13 +1,13 @@
 <template>
-  <section class="mt-3 border-t border-gray-200 pt-3 dark:border-dark-600">
+  <section class="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-[var(--foreground)]">
     <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
       <div class="min-w-0 flex-1 sm:max-w-2xl">
-        <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">
+        <label class="block text-xs font-medium text-[var(--muted-foreground)]">
           {{ t('admin.channels.form.timePricing') }}
         </label>
         <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div class="min-w-0">
-            <label class="block text-xs text-gray-400">
+            <label class="block text-xs text-[var(--muted-foreground)]">
               {{ t('admin.channels.form.timezone') }}
             </label>
             <Select
@@ -22,7 +22,7 @@
             />
           </div>
           <div class="min-w-0">
-            <label class="block text-xs text-gray-400">
+            <label class="block text-xs text-[var(--muted-foreground)]">
               {{ t('admin.channels.form.timePricingDayScope') }}
             </label>
             <Select
@@ -38,7 +38,7 @@
       </div>
       <button
         type="button"
-        class="self-start text-xs text-primary-600 hover:text-primary-700 sm:self-end sm:pb-2"
+        class="self-start text-xs text-[var(--brand-text)] hover:underline sm:self-end sm:pb-2"
         data-testid="add-time-period"
         @click="addPeriod"
       >
@@ -50,10 +50,10 @@
       <div
         v-for="(period, index) in modelValue.periods"
         :key="index"
-        class="grid grid-cols-1 gap-2 border-t border-gray-200 pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2rem] sm:items-end dark:border-dark-600"
+        class="grid grid-cols-1 gap-2 border-t border-[var(--border)] pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2rem] sm:items-end"
       >
         <div class="min-w-0">
-          <label :for="`${inputIdPrefix}-start-${index}`" class="block text-xs text-gray-400">
+          <label :for="`${inputIdPrefix}-start-${index}`" class="block text-xs text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.startTime') }}
           </label>
           <input
@@ -65,12 +65,12 @@
             placeholder="HH:mm:ss"
             pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
             autocomplete="off"
-            class="input mt-1 w-full text-sm"
+            class="input tabular-nums mt-1 w-full text-sm"
             @input="updatePeriod(index, 'start_time', normalizeClockTime(($event.target as HTMLInputElement).value))"
           />
         </div>
         <div class="min-w-0">
-          <label :for="`${inputIdPrefix}-end-${index}`" class="block text-xs text-gray-400">
+          <label :for="`${inputIdPrefix}-end-${index}`" class="block text-xs text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.endTime') }}
           </label>
           <input
@@ -82,12 +82,12 @@
             placeholder="HH:mm:ss"
             pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
             autocomplete="off"
-            class="input mt-1 w-full text-sm"
+            class="input tabular-nums mt-1 w-full text-sm"
             @input="updatePeriod(index, 'end_time', normalizeClockTime(($event.target as HTMLInputElement).value))"
           />
         </div>
         <div class="min-w-0">
-          <label :for="`${inputIdPrefix}-multiplier-${index}`" class="block text-xs text-gray-400">
+          <label :for="`${inputIdPrefix}-multiplier-${index}`" class="block text-xs text-[var(--muted-foreground)]">
             {{ t('admin.channels.form.multiplier') }}
           </label>
           <input
@@ -96,14 +96,14 @@
             type="number"
             min="0.01"
             step="0.01"
-            class="input mt-1 w-full text-sm"
+            class="input tabular-nums mt-1 w-full text-sm"
             @input="updatePeriod(index, 'multiplier', ($event.target as HTMLInputElement).value)"
             @blur="formatMultiplier(index, ($event.target as HTMLInputElement).value)"
           />
         </div>
         <button
           type="button"
-          class="flex h-8 w-8 items-center justify-center rounded text-gray-400 hover:text-red-500"
+          class="flex h-8 w-8 items-center justify-center rounded text-[var(--muted-foreground)] hover:text-red-500"
           :title="t('admin.channels.form.removeTimePeriod')"
           :aria-label="t('admin.channels.form.removeTimePeriod')"
           :data-testid="`remove-time-period-${index}`"
@@ -186,3 +186,44 @@ function removePeriod(index: number) {
   })
 }
 </script>
+
+<style scoped>
+:is(input, select, textarea).input {
+  min-height: 40px;
+  min-width: 0;
+  border-radius: 8px;
+  border-color: var(--field-border, var(--input));
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: none;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
+:is(input, select, textarea).input:disabled { background: var(--surface-2); }
+:is(input, select, textarea).input:focus {
+  border-color: var(--field-border, var(--brand));
+  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.input-error { --field-border: var(--bad); }
+label.input-label { color: var(--foreground); }
+p.input-hint { color: var(--muted-foreground); }
+
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
+}
+</style>

@@ -1,16 +1,16 @@
 <template>
-  <TablePageLayout>
+  <TablePageLayout class="omnihive-groups-table">
     <template #filters>
       <div
-        class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
+        class="flex flex-col justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 xl:flex-row xl:items-start"
       >
         <!-- Left: fuzzy search + filters (can wrap to multiple lines) -->
-        <div class="flex flex-1 flex-wrap items-center gap-3">
+        <div class="flex flex-1 flex-wrap items-center gap-2">
           <div class="relative w-full sm:w-64">
             <Icon
               name="search"
               size="md"
-              class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+              class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
             />
             <input
               v-model="searchQuery"
@@ -46,7 +46,7 @@
 
         <!-- Right: actions -->
         <div
-          class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto"
+          class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-2 xl:w-auto"
         >
           <button
             @click="loadGroups"
@@ -73,20 +73,20 @@
             </button>
             <div
               v-if="showColumnDropdown"
-              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
             >
               <button
                 v-for="col in toggleableColumns"
                 :key="col.key"
                 @click="toggleColumn(col.key)"
-                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
                 <span>{{ col.label }}</span>
                 <Icon
                   v-if="isColumnVisible(col.key)"
                   name="check"
                   size="sm"
-                  class="text-primary-500"
+                  class="text-[var(--brand-text)]"
                   :stroke-width="2"
                 />
               </button>
@@ -124,42 +124,19 @@
         @sort="handleSort"
       >
         <template #cell-name="{ value }">
-          <span class="font-medium text-gray-900 dark:text-white">{{
+          <span class="font-medium text-[var(--foreground)]">{{
             value
           }}</span>
         </template>
 
         <template #cell-id="{ value }">
-          <span class="font-mono text-xs text-gray-500 dark:text-gray-400"
+          <span class="font-mono text-xs text-[var(--muted-foreground)]"
             >#{{ value }}</span
           >
         </template>
 
         <template #cell-platform="{ value }">
-          <span
-            :class="[
-              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-              value === 'anthropic'
-                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                : value === 'openai'
-                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                  : value === 'antigravity'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                    : value === 'grok'
-                      ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                      : value === 'kimi'
-                        ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-                        : value === 'zhipu'
-                          ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                          : value === 'deepseek'
-                            ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                            : value === 'minimax'
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-                              : value === 'opencode_go'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-            ]"
-          >
+          <span class="pill pill-ghost gap-1.5 text-[var(--foreground)]">
             <PlatformIcon :platform="value" size="xs" />
             {{ getPlatformLabel(value, t) }}
           </span>
@@ -168,14 +145,7 @@
         <template #cell-billing_type="{ row }">
           <div class="space-y-1">
             <!-- Type Badge -->
-            <span
-              :class="[
-                'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                row.subscription_type === 'subscription'
-                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
-                  : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-              ]"
-            >
+            <span class="pill pill-ghost text-[var(--muted-foreground)]">
               {{
                 row.subscription_type === "subscription"
                   ? t("admin.groups.subscription.subscription")
@@ -185,7 +155,7 @@
             <!-- Subscription Limits - compact single line -->
             <div
               v-if="row.subscription_type === 'subscription'"
-              class="space-y-0.5 text-xs text-gray-500 dark:text-gray-400"
+              class="space-y-0.5 text-xs text-[var(--muted-foreground)]"
             >
               <div
                 v-if="
@@ -198,7 +168,7 @@
                 <span v-if="row.daily_limit_usd" class="whitespace-nowrap">
                   <span
                     v-if="usageLoading"
-                    class="font-medium text-gray-400 dark:text-gray-500"
+                    class="font-medium text-[var(--muted-foreground)]"
                     >—</span
                   >
                   <span
@@ -213,7 +183,7 @@
                       formatUsd(usageMap.get(row.id)?.today_cost ?? 0)
                     }}</span
                   >
-                  <span class="text-gray-400 dark:text-gray-500">
+                  <span class="text-[var(--muted-foreground)]">
                     / {{ formatUsd(row.daily_limit_usd) }}/{{
                       t("admin.groups.limitDay")
                     }}</span
@@ -224,7 +194,7 @@
                     row.daily_limit_usd &&
                     (row.weekly_limit_usd || row.monthly_limit_usd)
                   "
-                  class="mx-1 text-gray-300 dark:text-gray-600"
+                  class="mx-1 text-[var(--muted-foreground)]"
                   >·</span
                 >
                 <span v-if="row.weekly_limit_usd" class="whitespace-nowrap"
@@ -234,7 +204,7 @@
                 >
                 <span
                   v-if="row.weekly_limit_usd && row.monthly_limit_usd"
-                  class="mx-1 text-gray-300 dark:text-gray-600"
+                  class="mx-1 text-[var(--muted-foreground)]"
                   >·</span
                 >
                 <span v-if="row.monthly_limit_usd" class="whitespace-nowrap"
@@ -243,13 +213,13 @@
                   }}</span
                 >
               </div>
-              <span v-else class="text-gray-400 dark:text-gray-500">{{
+              <span v-else class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.subscription.noLimit")
               }}</span>
-              <div class="text-gray-400 dark:text-gray-500">
+              <div class="text-[var(--muted-foreground)]">
                 {{ t("admin.groups.usageTotal") }}
                 <span
-                  class="ml-1 font-medium text-gray-600 dark:text-gray-300"
+                  class="ml-1 font-medium text-[var(--muted-foreground)]"
                   >{{
                     usageLoading
                       ? "—"
@@ -262,13 +232,13 @@
         </template>
 
         <template #cell-rate_multiplier="{ value }">
-          <span class="text-sm text-gray-700 dark:text-gray-300"
+          <span class="text-sm text-[var(--foreground)]"
             >{{ value }}x</span
           >
         </template>
 
         <template #cell-is_exclusive="{ value }">
-          <span :class="['badge', value ? 'badge-primary' : 'badge-gray']">
+          <span class="pill pill-ghost" :class="value ? 'text-[var(--brand-text)]' : 'text-[var(--muted-foreground)]'">
             {{ value ? t("admin.groups.exclusive") : t("admin.groups.public") }}
           </span>
         </template>
@@ -276,40 +246,40 @@
         <template #cell-account_count="{ row }">
           <div class="space-y-0.5 text-xs">
             <div>
-              <span class="text-gray-500 dark:text-gray-400">{{
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.accountsAvailable")
               }}</span>
               <span
-                class="ml-1 font-medium text-emerald-600 dark:text-emerald-400"
+                class="ml-1 font-medium text-[var(--ok-text)]"
                 >{{ row.active_account_count || 0 }}</span
               >
               <span
-                class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+                class="ml-1 inline-flex items-center rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-medium text-[var(--foreground)]"
                 >{{ t("admin.groups.accountsUnit") }}</span
               >
             </div>
             <div v-if="row.rate_limited_account_count">
-              <span class="text-gray-500 dark:text-gray-400">{{
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.accountsRateLimited")
               }}</span>
               <span
-                class="ml-1 font-medium text-amber-600 dark:text-amber-400"
+                class="ml-1 font-medium text-[var(--warn-text)]"
                 >{{ row.rate_limited_account_count }}</span
               >
               <span
-                class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+                class="ml-1 inline-flex items-center rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-medium text-[var(--foreground)]"
                 >{{ t("admin.groups.accountsUnit") }}</span
               >
             </div>
             <div>
-              <span class="text-gray-500 dark:text-gray-400">{{
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.accountsTotal")
               }}</span>
-              <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{
+              <span class="ml-1 font-medium text-[var(--foreground)]">{{
                 row.account_count || 0
               }}</span>
               <span
-                class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
+                class="ml-1 inline-flex items-center rounded bg-[var(--surface-2)] px-1.5 py-0.5 font-medium text-[var(--foreground)]"
                 >{{ t("admin.groups.accountsUnit") }}</span
               >
             </div>
@@ -326,35 +296,35 @@
             :rpm-used="capacityMap.get(row.id)!.rpmUsed"
             :rpm-max="capacityMap.get(row.id)!.rpmMax"
           />
-          <span v-else class="text-xs text-gray-400">—</span>
+          <span v-else class="text-xs text-[var(--muted-foreground)]">—</span>
         </template>
 
         <template #cell-usage="{ row }">
-          <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
+          <div v-if="usageLoading" class="text-xs text-[var(--muted-foreground)]">—</div>
           <div v-else class="space-y-0.5 text-xs">
-            <div class="text-gray-500 dark:text-gray-400">
-              <span class="text-gray-400 dark:text-gray-500">{{
+            <div class="text-[var(--muted-foreground)]">
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.usageToday")
               }}</span>
-              <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+              <span class="ml-1 font-medium text-[var(--foreground)]"
                 >${{ formatCost(usageMap.get(row.id)?.today_cost ?? 0) }}</span
               >
             </div>
-            <div class="text-gray-500 dark:text-gray-400">
-              <span class="text-gray-400 dark:text-gray-500">{{
+            <div class="text-[var(--muted-foreground)]">
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.usageYesterday")
               }}</span>
-              <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+              <span class="ml-1 font-medium text-[var(--foreground)]"
                 >${{
                   formatCost(usageMap.get(row.id)?.yesterday_cost ?? 0)
                 }}</span
               >
             </div>
-            <div class="text-gray-500 dark:text-gray-400">
-              <span class="text-gray-400 dark:text-gray-500">{{
+            <div class="text-[var(--muted-foreground)]">
+              <span class="text-[var(--muted-foreground)]">{{
                 t("admin.groups.usageTotal")
               }}</span>
-              <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+              <span class="ml-1 font-medium text-[var(--foreground)]"
                 >${{ formatCost(usageMap.get(row.id)?.total_cost ?? 0) }}</span
               >
             </div>
@@ -368,15 +338,16 @@
               value === 'active' ? 'badge-success' : 'badge-danger',
             ]"
           >
+            <span class="pulse-dot bg-current" aria-hidden="true" />
             {{ t("admin.accounts.status." + value) }}
           </span>
         </template>
 
         <template #cell-actions="{ row }">
-          <div class="flex items-center gap-1">
+          <div class="group-table-actions grid grid-cols-2 gap-1">
             <button
               @click="emit('edit', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
             >
               <Icon name="edit" size="sm" />
               <span class="text-xs">{{ t("common.edit") }}</span>
@@ -391,7 +362,7 @@
               "
               :disabled="duplicatingGroupIds.has(row.id)"
               @click="emit('duplicate', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Icon name="copy" size="sm" />
               <span class="text-xs">
@@ -406,7 +377,7 @@
               v-if="!authStore.isSimpleMode && row.platform === 'composite'"
               data-testid="group-composite-routes"
               @click="emit('compositeRoutes', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-cyan-600 dark:hover:bg-dark-700 dark:hover:text-cyan-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="swap" size="sm" />
               <span class="text-xs">{{
@@ -417,7 +388,7 @@
               v-if="!authStore.isSimpleMode"
               data-testid="group-rate-multipliers"
               @click="emit('rateMultipliers', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="dollar" size="sm" />
               <span class="text-xs">{{
@@ -428,14 +399,14 @@
               v-if="!authStore.isSimpleMode"
               data-testid="group-rpm-overrides"
               @click="emit('rpmOverrides', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-orange-600 dark:hover:bg-dark-700 dark:hover:text-orange-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="bolt" size="sm" />
               <span class="text-xs">{{ t("admin.groups.rpmOverrides") }}</span>
             </button>
             <button
               @click="emit('delete', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
             >
               <Icon name="trash" size="sm" />
               <span class="text-xs">{{ t("common.delete") }}</span>
@@ -525,3 +496,41 @@ const {
   handleSort,
 } = props.controller;
 </script>
+
+<style scoped>
+.omnihive-groups-table :deep(td) {
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.group-table-actions {
+  min-width: 11rem;
+}
+
+.group-table-actions > button {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.group-table-actions > button:hover {
+  border-color: var(--border);
+  background: var(--surface-2);
+  color: var(--foreground);
+}
+
+.group-table-actions > button:last-child:hover {
+  color: var(--bad-text);
+}
+
+.group-table-actions > button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+</style>

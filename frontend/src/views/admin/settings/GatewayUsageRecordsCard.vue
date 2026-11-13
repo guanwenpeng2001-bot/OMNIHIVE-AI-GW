@@ -1,21 +1,21 @@
 <template>
-  <div class="card">
-    <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+  <div class="card border-[var(--border)] bg-[var(--card)] shadow-none">
+    <div class="border-b border-[var(--border)] px-4 py-4 sm:px-6">
+      <h2 class="text-base font-semibold tracking-tight text-[var(--foreground)]">
         {{ t("admin.settings.usageRecords.title") }}
       </h2>
-      <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+      <p class="mt-1 text-sm text-[var(--muted-foreground)]">
         {{ t("admin.settings.usageRecords.description") }}
       </p>
     </div>
-    <div class="space-y-4 p-6">
+    <div class="space-y-4 p-4 sm:p-6">
       <!-- User error requests visibility -->
       <div class="flex items-center justify-between">
         <div>
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label class="text-sm font-medium text-[var(--foreground)]">
             {{ t("admin.settings.user_error_view.label") }}
           </label>
-          <p class="text-xs text-gray-500 dark:text-gray-400">
+          <p class="text-xs text-[var(--muted-foreground)]">
             {{ t("admin.settings.user_error_view.description") }}
           </p>
         </div>

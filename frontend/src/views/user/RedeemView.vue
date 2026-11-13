@@ -1,26 +1,54 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-2xl space-y-6">
-      <!-- Current Balance Card -->
-      <div class="card overflow-hidden">
-        <div class="bg-gradient-to-br from-primary-500 to-primary-600 px-6 py-8 text-center">
-          <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-sm"
-          >
-            <Icon name="creditCard" size="xl" class="text-white" />
+    <div class="w-full space-y-6">
+      <!--  Hive Aura 账户余额与并发水位概览卡 -->
+      <div class="card oh-redeem-hero relative overflow-hidden p-6">
+        <div class="hive-dots pointer-events-none absolute inset-0 opacity-45" aria-hidden="true" />
+        <div class="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex items-center gap-4">
+            <div
+              class="oh-redeem-icon-box flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
+            >
+              <Icon name="creditCard" size="xl" />
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
+                  {{ t('redeem.currentBalance') }}
+                </p>
+                <span class="chip text-[11px]">
+                  <span class="pulse-dot pulse-ok" aria-hidden="true" />
+                  <span>实时入账</span>
+                </span>
+              </div>
+              <p class="stat-num mt-1 font-mono text-3xl font-bold tabular-nums tracking-tight text-[var(--foreground)] sm:text-4xl">
+                ${{ user?.balance?.toFixed(2) || '0.00' }}
+              </p>
+            </div>
           </div>
-          <p class="text-sm font-medium text-primary-100">{{ t('redeem.currentBalance') }}</p>
-          <p class="mt-2 text-4xl font-bold text-white">
-            ${{ user?.balance?.toFixed(2) || '0.00' }}
-          </p>
-          <p class="mt-2 text-sm text-primary-100">
-            {{ t('redeem.concurrency') }}: {{ user?.concurrency || 0 }} {{ t('redeem.requests') }}
-          </p>
+
+          <div class="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+            <span class="chip font-mono text-xs tabular-nums">
+              {{ t('redeem.concurrency') }}: {{ user?.concurrency || 0 }} {{ t('redeem.requests') }}
+            </span>
+            <span class="pill pill-ghost font-mono text-[11px]">
+              REDEEM CONSOLE
+            </span>
+          </div>
         </div>
       </div>
 
       <!-- Redeem Form -->
       <div class="card">
+        <div class="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
+          <div class="flex items-center gap-2">
+            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <h2 class="text-sm font-semibold text-[var(--foreground)]">
+              {{ t('redeem.redeemCodeLabel') }}
+            </h2>
+          </div>
+          <span class="kbd">ENTER</span>
+        </div>
         <div class="p-6">
           <form @submit.prevent="handleRedeem" class="space-y-5">
             <div>
@@ -29,7 +57,7 @@
               </label>
               <div class="relative mt-1">
                 <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                  <Icon name="gift" size="md" class="text-gray-400 dark:text-dark-500" />
+                  <Icon name="gift" size="md" class="text-[var(--muted-foreground)]" />
                 </div>
                 <input
                   id="code"
@@ -38,7 +66,7 @@
                   required
                   :placeholder="t('redeem.redeemCodePlaceholder')"
                   :disabled="submitting"
-                  class="input py-3 pl-12 text-lg"
+                  class="input py-3 pl-12 font-mono text-base tracking-wide sm:text-lg"
                 />
               </div>
               <p class="input-hint">
@@ -53,7 +81,7 @@
             >
               <svg
                 v-if="submitting"
-                class="-ml-1 mr-2 h-5 w-5 animate-spin"
+                class="-ml-1 mr-2 h-5 w-5 motion-safe:animate-spin"
                 fill="none"
                 viewBox="0 0 24 24"
               >
@@ -92,12 +120,13 @@
                 <Icon name="checkCircle" size="md" class="text-emerald-600 dark:text-emerald-400" />
               </div>
               <div class="flex-1">
-                <h3 class="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                <h3 class="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                  <span class="pulse-dot pulse-ok" aria-hidden="true" />
                   {{ t('redeem.redeemSuccess') }}
                 </h3>
                 <div class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">
                   <p>{{ redeemResult.message }}</p>
-                  <div class="mt-3 space-y-1">
+                  <div class="mt-3 space-y-1 font-mono tabular-nums">
                     <p v-if="redeemResult.type === 'balance'" class="font-medium">
                       {{ t('redeem.added') }}: ${{ redeemResult.value.toFixed(2) }}
                     </p>
@@ -150,7 +179,8 @@
                 />
               </div>
               <div class="flex-1">
-                <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">
+                <h3 class="flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-300">
+                  <span class="pulse-dot pulse-bad" aria-hidden="true" />
                   {{ t('redeem.redeemFailed') }}
                 </h3>
                 <p class="mt-2 text-sm text-red-700 dark:text-red-400">
@@ -164,51 +194,55 @@
 
       <!-- Information Card -->
       <div
-        class="card border-primary-200 bg-primary-50 dark:border-primary-800/50 dark:bg-primary-900/20"
+        class="card oh-redeem-info-card p-6"
       >
-        <div class="p-6">
-          <div class="flex items-start gap-4">
-            <div
-              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary-100 dark:bg-primary-900/30"
+        <div class="flex items-start gap-4">
+          <div
+            class="oh-redeem-icon-box flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
+          >
+            <Icon name="infoCircle" size="md" />
+          </div>
+          <div class="flex-1">
+            <h3 class="text-sm font-semibold text-amber-950 dark:text-amber-200">
+              {{ t('redeem.aboutCodes') }}
+            </h3>
+            <ul
+              class="mt-2 list-inside list-disc space-y-1 text-sm text-amber-900/85 dark:text-amber-200/85"
             >
-              <Icon name="infoCircle" size="md" class="text-primary-600 dark:text-primary-400" />
-            </div>
-            <div class="flex-1">
-              <h3 class="text-sm font-semibold text-primary-800 dark:text-primary-300">
-                {{ t('redeem.aboutCodes') }}
-              </h3>
-              <ul
-                class="mt-2 list-inside list-disc space-y-1 text-sm text-primary-700 dark:text-primary-400"
-              >
-                <li>{{ t('redeem.codeRule1') }}</li>
-                <li>{{ t('redeem.codeRule2') }}</li>
-                <li>
-                  {{ t('redeem.codeRule3') }}
-                  <span
-                    v-if="contactInfo"
-                    class="ml-1.5 inline-flex items-center rounded-md bg-primary-200/50 px-2 py-0.5 text-xs font-medium text-primary-800 dark:bg-primary-800/40 dark:text-primary-200"
-                  >
-                    {{ contactInfo }}
-                  </span>
-                </li>
-                <li>{{ t('redeem.codeRule4') }}</li>
-              </ul>
-            </div>
+              <li>{{ t('redeem.codeRule1') }}</li>
+              <li>{{ t('redeem.codeRule2') }}</li>
+              <li>
+                {{ t('redeem.codeRule3') }}
+                <span
+                  v-if="contactInfo"
+                  class="pill pill-ghost ml-1.5 font-mono text-xs font-medium"
+                >
+                  {{ contactInfo }}
+                </span>
+              </li>
+              <li>{{ t('redeem.codeRule4') }}</li>
+            </ul>
           </div>
         </div>
       </div>
 
       <!-- Recent Activity -->
       <div class="card">
-        <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-          <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-            {{ t('redeem.recentActivity') }}
-          </h2>
+        <div class="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
+          <div class="flex items-center gap-2">
+            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <h2 class="text-lg font-semibold text-[var(--foreground)]">
+              {{ t('redeem.recentActivity') }}
+            </h2>
+          </div>
+          <span class="chip font-mono text-xs tabular-nums">
+            {{ historyTotal }}
+          </span>
         </div>
         <div class="p-6">
           <!-- Loading State -->
           <div v-if="loadingHistory" class="flex items-center justify-center py-8">
-            <svg class="h-6 w-6 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24">
+            <svg class="h-6 w-6 motion-safe:animate-spin text-[var(--brand-text)]" fill="none" viewBox="0 0 24 24">
               <circle
                 class="opacity-25"
                 cx="12"
@@ -230,7 +264,7 @@
             <div
               v-for="item in history"
               :key="item.id"
-              class="flex items-center justify-between rounded-xl bg-gray-50 p-4 dark:bg-dark-800"
+              class="flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 transition-colors hover:bg-[var(--surface-2)]"
             >
               <div class="flex items-center gap-4">
                 <div
@@ -278,10 +312,10 @@
                   />
                 </div>
                 <div>
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">
+                  <p class="text-sm font-medium text-[var(--foreground)]">
                     {{ getHistoryItemTitle(item) }}
                   </p>
-                  <p class="text-xs text-gray-500 dark:text-dark-400">
+                  <p class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
                     {{ formatDateTime(item.used_at) }}
                   </p>
                 </div>
@@ -289,7 +323,7 @@
               <div class="text-right">
                 <p
                   :class="[
-                    'text-sm font-semibold',
+                    'stat-num font-mono text-sm font-semibold tabular-nums',
                     isBalanceType(item.type)
                       ? item.value >= 0
                         ? 'text-emerald-600 dark:text-emerald-400'
@@ -305,17 +339,17 @@
                 </p>
                 <p
                   v-if="!isAdminAdjustment(item.type)"
-                  class="font-mono text-xs text-gray-400 dark:text-dark-500"
+                  class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]"
                 >
                   {{ item.code.slice(0, 8) }}...
                 </p>
-                <p v-else class="text-xs text-gray-400 dark:text-dark-500">
+                <p v-else class="text-xs text-[var(--muted-foreground)]">
                   {{ t('redeem.adminAdjustment') }}
                 </p>
                 <!-- Display notes for admin adjustments -->
                 <p
                   v-if="item.notes"
-                  class="mt-1 text-xs text-gray-500 dark:text-dark-400 italic max-w-[200px] truncate"
+                  class="mt-1 text-xs text-[var(--muted-foreground)] italic max-w-[200px] truncate"
                   :title="item.notes"
                 >
                   {{ item.notes }}
@@ -327,21 +361,21 @@
           <!-- Empty State -->
           <div v-else class="empty-state py-8">
             <div
-              class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-dark-800"
+              class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--surface-2)]"
             >
-              <Icon name="clock" size="xl" class="text-gray-400 dark:text-dark-500" />
+              <Icon name="clock" size="xl" class="text-[var(--muted-foreground)]" />
             </div>
-            <p class="text-sm text-gray-500 dark:text-dark-400">
+            <p class="text-sm text-[var(--muted-foreground)]">
               {{ t('redeem.historyWillAppear') }}
             </p>
           </div>
-          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <span>{{ t('common.total') }}: {{ historyTotal }} {{ t('pagination.results') }}</span>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4 text-sm">
+            <span class="font-mono tabular-nums text-[var(--muted-foreground)]">{{ t('common.total') }}: {{ historyTotal }} {{ t('pagination.results') }}</span>
             <label>
               {{ t('pagination.perPage') }}
               <select
                 v-model="historyPageSize"
-                class="input w-20"
+                class="input w-20 font-mono tabular-nums"
                 :disabled="loadingHistory || submitting"
                 @change="fetchHistory(1)"
               >
@@ -533,6 +567,25 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.oh-redeem-hero {
+  background:
+    radial-gradient(420px circle at 100% 0%, color-mix(in srgb, var(--brand, #f59e0b) 14%, transparent), transparent 72%),
+    var(--card, #ffffff);
+}
+
+.oh-redeem-icon-box {
+  background: color-mix(in srgb, var(--brand, #f59e0b) 16%, var(--card, #ffffff));
+  color: var(--brand-text, #92610a);
+  border: 1px solid color-mix(in srgb, var(--brand, #f59e0b) 32%, transparent);
+}
+
+.oh-redeem-info-card {
+  border-color: color-mix(in srgb, var(--brand, #f59e0b) 38%, var(--border, #e9e9ee));
+  background: color-mix(in srgb, var(--brand, #f59e0b) 7%, var(--card, #ffffff));
+}
+</style>
 
 <style scoped>
 .fade-enter-active,

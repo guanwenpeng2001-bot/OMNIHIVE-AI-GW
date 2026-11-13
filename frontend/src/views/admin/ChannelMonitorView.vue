@@ -1,34 +1,34 @@
 <template>
   <AppLayout>
-    <p role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
-    <div class="w-full min-w-0 space-y-6 pb-8">
+    <p role="note" class="mb-4 rounded-xl bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--brand-text)]">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
+    <div class="w-full min-w-0 space-y-6 pb-8 text-[var(--foreground)] tabular-nums">
       <header
-        class="page-header mb-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6"
+        class="page-header mb-0 rounded-xl bg-[var(--card)] p-5 shadow-none border border-[var(--border)] sm:p-6"
       >
-        <h1 class="page-title flex items-center gap-2 text-xl font-black text-gray-900 dark:text-white">
-          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400">
+        <h1 class="page-title flex items-center gap-2 text-xl font-semibold text-[var(--foreground)]">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-[var(--surface-2)] text-[var(--brand-text)]">
             <Icon name="chart" size="sm" />
           </span>
           {{ t('admin.channelMonitor.title') }}
         </h1>
-        <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+        <p class="page-description mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{
             isV1Mode
               ? t('channelMonitorV2.admin.descriptionV1')
               : t('channelMonitorV2.admin.descriptionV2')
           }}
         </p>
-        <div v-if="!workspaceScoped" class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+        <div v-if="!workspaceScoped" class="mt-4 border-t border-[var(--border)] pt-4">
           <div
-            class="tabs inline-flex w-full max-w-xl flex-wrap sm:w-auto"
+            class="tabs segmented inline-flex w-full flex-wrap sm:w-auto"
             role="tablist"
             :aria-label="t('channelMonitorV2.admin.tabAria')"
           >
             <button
               type="button"
               role="tab"
-              class="tab flex-1 sm:flex-none"
-              :class="adminMonitorTab === 'v2' ? 'tab-active' : ''"
+              class="tab seg-btn flex-1 sm:flex-none"
+              :class="adminMonitorTab === 'v2' ? 'tab-active seg-active' : ''"
               :aria-selected="adminMonitorTab === 'v2'"
               @click="adminMonitorTab = 'v2'"
             >
@@ -37,8 +37,8 @@
             <button
               type="button"
               role="tab"
-              class="tab flex-1 sm:flex-none"
-              :class="adminMonitorTab === 'legacy' ? 'tab-active' : ''"
+              class="tab seg-btn flex-1 sm:flex-none"
+              :class="adminMonitorTab === 'legacy' ? 'tab-active seg-active' : ''"
               :aria-selected="adminMonitorTab === 'legacy'"
               @click="adminMonitorTab = 'legacy'"
             >
@@ -68,7 +68,7 @@
         <DataTable :columns="columns" :data="monitors" :loading="loading">
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span class="font-medium text-[var(--foreground)]">{{ value }}</span>
               <HelpTooltip v-if="row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
                 <Icon name="exclamationTriangle" size="sm" class="text-red-500" />
               </HelpTooltip>
@@ -76,11 +76,11 @@
           </template>
 
           <template #cell-provider="{ row }">
-            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="providerBadgeClass(row.provider)">
+            <span class="pill pill-ghost monitor-provider-badge font-medium" :class="providerBadgeClass(row.provider)">
               {{ providerLabel(row.provider) }}
             </span>
             <!-- 三种检测模式并列展示，quota 系配额数据源与纯探活一眼可分 -->
-            <span class="ml-1 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="checkModeBadgeClass(row.check_mode)">
+            <span class="pill ml-1 font-medium" :class="checkModeBadgeClass(row.check_mode)">
               {{ checkModeLabel(row.check_mode) }}
             </span>
           </template>
@@ -90,15 +90,15 @@
           </template>
 
           <template #cell-availability_7d="{ row }">
-            <span class="text-sm text-gray-900 dark:text-gray-100">{{ formatAvailability(row) }}</span>
+            <span class="text-sm text-[var(--foreground)]">{{ formatAvailability(row) }}</span>
           </template>
 
           <template #cell-latency="{ row }">
-            <span class="text-sm text-gray-900 dark:text-gray-100">{{ formatLatency(row.primary_latency_ms) }}</span>
+            <span class="text-sm text-[var(--foreground)]">{{ formatLatency(row.primary_latency_ms) }}</span>
           </template>
 
           <template #cell-enabled="{ row }">
-            <span v-if="String(row.provider) === 'cursor'" class="text-xs text-gray-500">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</span>
+            <span v-if="String(row.provider) === 'cursor'" class="text-xs text-[var(--muted-foreground)]">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</span>
             <Toggle v-else :modelValue="row.enabled" @update:modelValue="toggleEnabled(row)" />
           </template>
 
@@ -398,3 +398,11 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+
+<style scoped>
+.pill.monitor-provider-badge {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--muted-foreground);
+}
+</style>

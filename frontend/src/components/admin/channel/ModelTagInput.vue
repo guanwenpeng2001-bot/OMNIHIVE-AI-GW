@@ -1,18 +1,17 @@
 <template>
   <div>
     <!-- Tags display -->
-    <div class="flex flex-wrap gap-1.5 rounded-lg border border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-800 min-h-[2.5rem]">
+    <div class="model-tag-field flex min-h-[2.5rem] flex-wrap gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2">
       <span
         v-for="(model, idx) in models"
         :key="idx"
-        class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-sm"
-        :class="getPlatformTagClass(props.platform || '')"
+        class="pill pill-ghost model-tag max-w-full gap-1 text-[var(--foreground)]"
       >
         {{ model }}
         <button
           type="button"
           @click="removeModel(idx)"
-          class="ml-0.5 rounded-full p-0.5 hover:bg-primary-200 dark:hover:bg-primary-800"
+          class="ml-0.5 shrink-0 rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
         >
           <Icon name="x" size="xs" />
         </button>
@@ -21,7 +20,7 @@
         ref="inputRef"
         v-model="inputValue"
         type="text"
-        class="flex-1 min-w-[120px] border-none bg-transparent text-sm outline-none placeholder:text-gray-400 dark:text-white"
+        class="min-w-0 flex-1 basis-32 border-none bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--muted-foreground)]"
         :placeholder="models.length === 0 ? placeholder : ''"
         @keydown.enter="handleEnter"
         @keydown.tab="handleTab"
@@ -30,7 +29,7 @@
         @blur="addModel"
       />
     </div>
-    <p class="mt-1 text-xs text-gray-400">
+    <p class="mt-1 text-xs text-[var(--muted-foreground)]">
       {{ t('admin.channels.form.modelInputHint', 'Press Enter to add, supports paste for batch import.') }}
     </p>
   </div>
@@ -40,7 +39,6 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import { getPlatformTagClass } from './types'
 
 const { t } = useI18n()
 
@@ -101,3 +99,21 @@ function handlePaste(e: ClipboardEvent) {
   inputValue.value = ''
 }
 </script>
+
+<style scoped>
+.model-tag-field:focus-within {
+  border-color: var(--brand);
+  outline: 2px solid color-mix(in srgb, var(--brand) 22%, transparent);
+  outline-offset: 2px;
+}
+
+.model-tag {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+</style>

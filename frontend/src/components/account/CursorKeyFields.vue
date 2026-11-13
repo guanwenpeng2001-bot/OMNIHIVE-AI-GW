@@ -10,7 +10,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <fieldset class="space-y-4">
+  <fieldset class="min-w-0 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3 [&_input]:font-mono">
     <p class="input-hint" data-testid="cursor-protocol-hint">{{ t(mode === 'relay' ? 'admin.accounts.cursor.relayProtocolHint' : 'admin.accounts.cursor.nativeProtocolHint') }}</p>
     <div v-if="mode === 'auto'" class="space-y-3">
       <p class="input-hint">{{ t('admin.accounts.cursor.autoHint') }}</p>

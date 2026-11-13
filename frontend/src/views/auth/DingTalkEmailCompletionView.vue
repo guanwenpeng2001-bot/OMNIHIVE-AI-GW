@@ -1,14 +1,15 @@
 <template>
   <AuthLayout>
-    <div class="space-y-6">
-      <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+    <div class="space-y-4">
+      <div>
+        <h1 class="auth-title">
           {{ t('auth.dingtalk.createAccountTitle') }}
-        </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        </h1>
+        <p class="auth-intro">
           {{ t('auth.oauthFlow.createAccountHint') }}
         </p>
       </div>
+      <div v-if="initialEmail" class="auth-summary">{{ t('auth.emailLabel') }}：{{ initialEmail }}</div>
 
       <PendingOAuthCreateAccountForm
         test-id-prefix="dingtalk"
@@ -19,6 +20,12 @@
         @switch-to-bind="handleSwitchToBind"
       />
     </div>
+    <template #footer>
+      <div class="auth-actions">
+        <router-link to="/login" class="btn btn-outline">{{ t('auth.backToLogin') }}</router-link>
+        <router-link to="/home" class="btn btn-outline">← 首页</router-link>
+      </div>
+    </template>
   </AuthLayout>
 </template>
 
@@ -138,3 +145,20 @@ function handleSwitchToBind(email: string) {
   navigateToBindLogin(email)
 }
 </script>
+
+<style scoped>
+button:focus-visible, a:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+
+input[type='checkbox'] { accent-color: var(--brand); }
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
+  .agreement-fade-enter-active, .agreement-fade-leave-active,
+  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
+    transition: none;
+  }
+}
+</style>

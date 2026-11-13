@@ -1,12 +1,14 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
-const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock } = vi.hoisted(() => ({
+const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock, validateInvitationCodeMock, routeMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
   registerMock: vi.fn(),
   showErrorMock: vi.fn(),
   pushMock: vi.fn(),
+  validateInvitationCodeMock: vi.fn(),
+  routeMock: { query: {} as Record<string, string> },
   appStoreMock: {
     cachedPublicSettings: null as { promo_code_enabled?: boolean } | null,
     showError: (...args: unknown[]) => showErrorMock(...args),
@@ -34,7 +36,7 @@ const publicSettings = {
 
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: pushMock }),
-  useRoute: () => ({ query: {} })
+  useRoute: () => routeMock
 }))
 
 vi.mock('vue-i18n', () => ({
@@ -61,7 +63,8 @@ vi.mock('@/api/auth', async () => {
   const actual = await vi.importActual<typeof import('@/api/auth')>('@/api/auth')
   return {
     ...actual,
-    getPublicSettings: (...args: unknown[]) => getPublicSettingsMock(...args)
+    getPublicSettings: (...args: unknown[]) => getPublicSettingsMock(...args),
+    validateInvitationCode: (...args: unknown[]) => validateInvitationCodeMock(...args)
   }
 })
 
@@ -90,10 +93,121 @@ describe('RegisterView invitation layout', () => {
     registerMock.mockReset()
     showErrorMock.mockReset()
     pushMock.mockReset()
+    validateInvitationCodeMock.mockReset()
+    validateInvitationCodeMock.mockResolvedValue({ valid: true })
+    routeMock.query = {}
     appStoreMock.cachedPublicSettings = null
     sessionStorage.clear()
+    localStorage.clear()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it.each([true, false])('renders seven independent fields with affiliate enabled %j', async affiliateEnabled => {
+    vi.useFakeTimers()
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      promo_code_enabled: true,
+      affiliate_enabled: affiliateEnabled,
+      turnstile_enabled: false
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    const fields = ['email', 'username', 'password', 'confirmPassword', 'affiliate_code', 'promo_code', 'aff_code']
+    expect(wrapper.findAll('input').map(input => input.attributes('id'))).toEqual(fields)
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('test-password')
+    await wrapper.get('#confirmPassword').setValue('test-password')
+    await wrapper.get('#affiliate_code').setValue('INVITE-123')
+    expect((wrapper.get('#aff_code').element as HTMLInputElement).value).toBe('')
+    await wrapper.get('#aff_code').setValue('REFERRAL-456')
+    expect((wrapper.get('#affiliate_code').element as HTMLInputElement).value).toBe('INVITE-123')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(validateInvitationCodeMock).toHaveBeenCalledWith('INVITE-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
+      invitation_code: 'INVITE-123',
+      aff_code: 'REFERRAL-456'
+    }))
+    wrapper.unmount()
+  })
+
+  it('blocks pending and invalid optional invitations, then omits a cleared invitation', async () => {
+    vi.useFakeTimers()
+    validateInvitationCodeMock.mockResolvedValueOnce({ valid: false, error_code: 'INVITATION_CODE_NOT_FOUND' })
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      email_verify_enabled: true
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('test-password')
+    await wrapper.get('#confirmPassword').setValue('test-password')
+    await wrapper.get('#affiliate_code').setValue('INVALID')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.get('[role="alert"]').text()).toBe('auth.invitationCodeValidating')
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(wrapper.get('#affiliate_code').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('#affiliate_code').attributes('aria-describedby')).toBe('invitation-error')
+    expect(wrapper.get('#invitation-error').text()).toBe('auth.invitationCodeInvalid')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.text()).toContain('auth.invitationCodeInvalidCannotRegister')
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(registerMock).not.toHaveBeenCalled()
+    await wrapper.get('#affiliate_code').setValue('   ')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.parse(sessionStorage.getItem('register_data')!)).toEqual({
+      email: 'user@example.com',
+      password: 'test-password'
+    })
+    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    wrapper.unmount()
+  })
+
+  it('ignores an optional invitation response after the field is cleared', async () => {
+    vi.useFakeTimers()
+    let finishValidation!: (result: { valid: boolean }) => void
+    validateInvitationCodeMock.mockReturnValueOnce(new Promise(resolve => { finishValidation = resolve }))
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#affiliate_code').setValue('OLD-INVITE')
+    await vi.advanceTimersByTimeAsync(500)
+    await wrapper.get('#affiliate_code').setValue('')
+    finishValidation({ valid: false })
+    await flushPromises()
+    expect(wrapper.get('#affiliate_code').attributes('aria-invalid')).toBe('false')
+    expect(wrapper.find('#invitation-error').exists()).toBe(false)
+    await wrapper.get('#affiliate_code').setValue('CANCELLED')
+    await wrapper.get('#affiliate_code').setValue('')
+    await vi.advanceTimersByTimeAsync(500)
+    expect(validateInvitationCodeMock).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('loads URL invitation independently from referral with invitation required %j', async invitationRequired => {
+    routeMock.query = { invitation_code: ' URL-INVITE ', aff_code: 'URL-REFERRAL' }
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, invitation_code_enabled: invitationRequired })
+    const wrapper = mountRegister()
+    await flushPromises()
+    expect((wrapper.get(invitationRequired ? '#invitation_code' : '#affiliate_code').element as HTMLInputElement).value).toBe('URL-INVITE')
+    expect((wrapper.get('#aff_code').element as HTMLInputElement).value).toBe('URL-REFERRAL')
+    expect(validateInvitationCodeMock).toHaveBeenCalledWith('URL-INVITE')
+    expect(
+      wrapper.get('[data-testid="referral-code-field"]').element.compareDocumentPosition(
+        wrapper.get('[data-testid="registration-turnstile"]').element
+      ) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    wrapper.unmount()
   })
 
 

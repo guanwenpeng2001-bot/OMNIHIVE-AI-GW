@@ -1,11 +1,11 @@
 <template>
-  <component :is="isPopup ? 'div' : AppLayout" :class="isPopup ? 'min-h-screen bg-gray-50 dark:bg-dark-900' : ''">
-    <div class="mx-auto max-w-lg space-y-6 py-8" :class="isPopup ? 'px-4' : ''">
+  <component :is="isPopup ? 'div' : AppLayout" :class="isPopup ? 'min-h-screen bg-[var(--background)]' : ''">
+    <div class="mx-auto w-full max-w-lg space-y-4 py-6" :class="isPopup ? 'px-4' : ''">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <LoadingSpinner size="md" color="primary" />
       </div>
       <div v-else-if="initError" class="card p-8 text-center">
-        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
           <Icon name="exclamationCircle" size="xl" class="text-red-500" />
         </div>
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('payment.stripeLoadFailed') }}</h3>
@@ -15,9 +15,9 @@
       <template v-else>
         <!-- 金额头部 -->
         <div v-if="order" class="card overflow-hidden">
-          <div class="bg-gradient-to-br from-[#635bff] to-[#4f46e5] px-6 py-6 text-center">
-            <p class="text-sm font-medium text-indigo-200">{{ t('payment.actualPay') }}</p>
-            <p class="mt-1 text-3xl font-bold text-white">{{ formatGatewayAmount(order.pay_amount) }}</p>
+          <div class="bg-[var(--surface-2)] px-6 py-6 text-center">
+            <p class="text-sm font-medium text-[var(--muted-foreground)]">{{ t('payment.actualPay') }}</p>
+            <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums text-[var(--foreground)]">{{ formatGatewayAmount(order.pay_amount) }}</p>
           </div>
         </div>
 
@@ -26,7 +26,7 @@
           <div class="card p-6">
             <div class="flex flex-col items-center space-y-4">
               <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('payment.qr.scanWxpay') }}</p>
-              <div class="relative rounded-lg border-2 border-[#2BB741] bg-green-50 p-4 dark:border-[#2BB741]/70 dark:bg-green-950/20">
+              <div class="relative rounded-lg border border-[var(--border)] bg-white p-4">
                 <img :src="wechatQrUrl" alt="WeChat Pay QR" class="h-56 w-56 rounded" />
                 <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <span class="rounded-full bg-[#2BB741] p-2 shadow ring-2 ring-white">
@@ -56,7 +56,7 @@
         <template v-else-if="stripeSuccess">
           <div class="card p-6 text-center">
             <div class="flex flex-col items-center gap-3 py-4">
-              <div class="flex h-16 w-16 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
+              <div class="flex h-16 w-16 items-center justify-center rounded-xl border border-[var(--border)] bg-[var(--surface-2)]">
                 <Icon name="check" size="lg" class="text-green-500" />
               </div>
               <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.result.success') }}</p>
@@ -70,7 +70,7 @@
           <div class="card p-6">
             <div id="stripe-payment-element" class="min-h-[200px]"></div>
             <p v-if="stripeError" class="mt-4 text-sm text-red-600 dark:text-red-400">{{ stripeError }}</p>
-            <button class="btn btn-stripe mt-6 w-full py-3 text-base" :disabled="stripeSubmitting || !stripeReady" @click="handleGenericPay">
+            <button class="btn btn-primary btn-stripe mt-6 w-full py-3 text-base" :disabled="stripeSubmitting || !stripeReady" @click="handleGenericPay">
               <span v-if="stripeSubmitting" class="flex items-center justify-center gap-2">
                 <LoadingSpinner size="sm" color="white" />
                 {{ t('common.processing') }}
@@ -335,3 +335,15 @@ function scheduleClose() {
 }
 
 </script>
+
+<style scoped>
+.btn-stripe {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: none;
+}
+.btn-stripe:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 90%, var(--card));
+  box-shadow: none;
+}
+</style>

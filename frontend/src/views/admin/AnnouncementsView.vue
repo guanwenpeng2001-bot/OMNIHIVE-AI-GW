@@ -1,10 +1,18 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="w-full min-w-0">
       <template #filters>
-        <div class="flex flex-wrap items-center gap-3">
+        <section class="mb-3 flex w-full flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+          <h1 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.announcements.title') }}</h1>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]" role="status">
+            <span class="pulse-dot" :class="loading ? 'pulse-warn' : 'bg-[var(--muted-foreground)]'" aria-hidden="true"></span>
+            {{ loading ? t('common.loading') : t('common.view') }}
+          </span>
+          <span class="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">{{ t('common.total') }} <strong class="font-mono tabular-nums text-[var(--foreground)]">{{ loading ? '—' : pagination.total }}</strong></span>
+        </section>
+        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
           <!-- Left: Search + Filters -->
-          <div class="flex-1 sm:max-w-64">
+          <div class="w-full sm:w-64">
             <input
               v-model="searchQuery"
               type="text"
@@ -16,7 +24,7 @@
           <Select
             v-model="filters.status"
             :options="statusFilterOptions"
-            class="w-40"
+            class="w-full sm:w-40"
             @change="handleStatusChange"
           />
 
@@ -25,12 +33,12 @@
             <button
               @click="loadAnnouncements"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary btn-sm"
               :title="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
-            <button @click="openCreateDialog" class="btn btn-primary">
+            <button @click="openCreateDialog" class="btn btn-primary btn-sm">
               <Icon name="plus" size="md" class="mr-1" />
               {{ t('admin.announcements.createAnnouncement') }}
             </button>
@@ -51,11 +59,11 @@
           <template #cell-title="{ value, row }">
             <div class="min-w-0">
               <div class="flex items-center gap-2">
-                <span class="truncate font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                <span class="truncate font-medium text-[var(--foreground)]">{{ value }}</span>
               </div>
-              <div class="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-dark-400">
+              <div class="mt-1 flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
                 <span>#{{ row.id }}</span>
-                <span class="text-gray-300 dark:text-dark-700">·</span>
+                <span class="text-[var(--muted-foreground)]">·</span>
                 <span>{{ formatDateTime(row.created_at) }}</span>
               </div>
             </div>
@@ -90,54 +98,54 @@
           </template>
 
           <template #cell-targeting="{ row }">
-            <span class="text-sm text-gray-600 dark:text-gray-300">
+            <span class="text-sm text-[var(--muted-foreground)]">
               {{ targetingSummary(row.targeting) }}
             </span>
           </template>
 
           <template #cell-timeRange="{ row }">
-            <div class="text-sm text-gray-600 dark:text-gray-300">
+            <div class="text-sm text-[var(--muted-foreground)]">
               <div>
                 <span class="font-medium">{{ t('admin.announcements.form.startsAt') }}:</span>
-                <span class="ml-1">{{ row.starts_at ? formatDateTime(row.starts_at) : t('admin.announcements.timeImmediate') }}</span>
+                <span class="ml-1 font-mono tabular-nums">{{ row.starts_at ? formatDateTime(row.starts_at) : t('admin.announcements.timeImmediate') }}</span>
               </div>
               <div class="mt-0.5">
                 <span class="font-medium">{{ t('admin.announcements.form.endsAt') }}:</span>
-                <span class="ml-1">{{ row.ends_at ? formatDateTime(row.ends_at) : t('admin.announcements.timeNever') }}</span>
+                <span class="ml-1 font-mono tabular-nums">{{ row.ends_at ? formatDateTime(row.ends_at) : t('admin.announcements.timeNever') }}</span>
               </div>
             </div>
           </template>
 
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
+            <span class="font-mono text-sm tabular-nums text-[var(--muted-foreground)]">{{ formatDateTime(value) }}</span>
           </template>
 
           <template #cell-actions="{ row }">
             <div class="flex items-center space-x-1">
               <button
                 @click="openPreview(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="btn btn-ghost btn-sm"
                 :title="t('admin.announcements.preview')"
               >
                 <Icon name="eye" size="sm" />
               </button>
               <button
                 @click="openReadStatus(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="btn btn-ghost btn-sm"
                 :title="t('admin.announcements.readStatus')"
               >
                 <Icon name="chartBar" size="sm" />
               </button>
               <button
                 @click="openEditDialog(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-300"
+                class="btn btn-ghost btn-sm"
                 :title="t('common.edit')"
               >
                 <Icon name="edit" size="sm" />
               </button>
               <button
                 @click="handleDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                class="btn btn-ghost btn-sm text-[var(--bad-text)]"
                 :title="t('common.delete')"
               >
                 <Icon name="trash" size="sm" />
@@ -625,3 +633,28 @@ onUnmounted(() => {
   currentController?.abort()
 })
 </script>
+
+<style scoped>
+.btn {
+  border-radius: var(--radius-sm);
+  background-image: none;
+  box-shadow: none;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-secondary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.btn-ghost:hover {
+  background: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+</style>

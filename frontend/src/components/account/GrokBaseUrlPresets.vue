@@ -1,5 +1,5 @@
 <template>
-  <AccountEndpointPresets :presets="presets" test-id="grok-base-url-preset" @select="emit('select', $event.url)" />
+  <AccountEndpointPresets class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2" :presets="presets" test-id="grok-base-url-preset" @select="emit('select', $event.url)" />
 </template>
 
 <script setup lang="ts">

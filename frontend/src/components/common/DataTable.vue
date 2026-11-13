@@ -2,27 +2,27 @@
   <div v-if="!isDesktopViewport" class="space-y-3" :aria-busy="loading">
     <span v-if="loading" role="status" class="sr-only">{{ t('common.loading') }}</span>
     <template v-if="loading">
-      <div v-for="i in 5" :key="i" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+      <div v-for="i in 5" :key="i" class="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
         <div class="space-y-3">
           <div v-for="column in dataColumns" :key="column.key" class="flex justify-between">
-            <div class="h-4 w-20 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
-            <div class="h-4 w-32 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
+            <div class="h-4 w-20 animate-pulse rounded bg-[var(--surface-2)]"></div>
+            <div class="h-4 w-32 animate-pulse rounded bg-[var(--surface-2)]"></div>
           </div>
-          <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700">
-            <div class="h-8 w-full animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
+          <div v-if="hasActionsColumn" class="border-t border-[var(--border)] pt-3">
+            <div class="h-8 w-full animate-pulse rounded bg-[var(--surface-2)]"></div>
           </div>
         </div>
       </div>
     </template>
 
     <template v-else-if="!data || data.length === 0">
-      <div class="rounded-lg border border-gray-200 bg-white p-12 text-center dark:border-dark-700 dark:bg-dark-900">
+      <div class="rounded-lg border border-[var(--border)] bg-[var(--card)] p-12 text-center">
         <slot name="empty">
           <div class="flex flex-col items-center">
             <Icon
               name="inbox"
               size="xl"
-              class="mb-4 h-12 w-12 text-gray-400 dark:text-dark-500"
+              class="mb-4 h-12 w-12 text-[var(--muted-foreground)]"
             />
             <p class="text-lg font-medium text-gray-900 dark:text-gray-100">
               {{ t('empty.noData') }}
@@ -37,7 +37,7 @@
         <label class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
           <input
             type="checkbox"
-            class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
+            class="h-4 w-4 rounded border-[var(--border)] bg-[var(--card)] text-[var(--brand-text)] focus:ring-[var(--ring)]"
             :checked="allVisibleSelected"
             :indeterminate="someVisibleSelected"
             data-test="select-all-mobile"
@@ -49,7 +49,7 @@
       <div
         v-for="(row, index) in sortedData"
         :key="resolveRowKey(row, index)"
-        class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+        class="oh-mobile-row-card rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 transition-colors"
         :class="{
           'cursor-pointer': clickableRows,
           'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
@@ -60,7 +60,7 @@
           <div v-if="selectable" class="flex justify-end">
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
+              class="h-4 w-4 rounded border-[var(--border)] bg-[var(--card)] text-[var(--brand-text)] focus:ring-[var(--ring)]"
               :checked="isRowSelected(row, index)"
               :aria-label="getRowSelectionLabel(row, index)"
               data-test="select-row"
@@ -74,7 +74,7 @@
             :data-field="column.key"
             class="flex min-w-0 items-start justify-between gap-4"
           >
-            <span class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">
+            <span class="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
               {{ column.label }}
             </span>
             <div class="min-w-0 max-w-full text-right text-sm text-gray-900 dark:text-gray-100">
@@ -83,7 +83,7 @@
               </slot>
             </div>
           </div>
-          <div v-if="hasActionsColumn" class="border-t border-gray-200 pt-3 dark:border-dark-700">
+          <div v-if="hasActionsColumn" class="border-t border-[var(--border)] pt-3">
             <slot name="cell-actions" :row="row" :value="row['actions']" :expanded="actionsExpanded"></slot>
           </div>
         </div>
@@ -101,8 +101,8 @@
     }"
   >
     <span v-if="loading" role="status" class="sr-only">{{ t('common.loading') }}</span>
-    <table :aria-busy="loading" class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
-      <thead class="table-header bg-gray-50 dark:bg-dark-800">
+    <table :aria-busy="loading" class="w-full min-w-max divide-y divide-[var(--border)]">
+      <thead class="table-header bg-[var(--surface-2)]">
         <tr>
           <th
             v-if="selectable"
@@ -111,7 +111,7 @@
           >
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
+              class="h-4 w-4 rounded border-[var(--border)] bg-[var(--card)] text-[var(--brand-text)] focus:ring-[var(--ring)]"
               :checked="allVisibleSelected"
               :indeterminate="someVisibleSelected"
               :aria-label="t('common.selectAll')"
@@ -125,9 +125,9 @@
             scope="col"
             :aria-sort="column.sortable ? getColumnAriaSort(column.key) : undefined"
             :class="[
-              'sticky-header-cell py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400',
+              'sticky-header-cell py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]',
               getAdaptivePaddingClass(),
-              { 'cursor-pointer hover:bg-gray-100 dark:hover:bg-dark-700': column.sortable },
+              { 'cursor-pointer hover:bg-[var(--surface-2)]': column.sortable },
               getStickyColumnClass(column, index),
               column.class
             ]"
@@ -172,15 +172,15 @@
           </th>
         </tr>
       </thead>
-      <tbody class="table-body divide-y divide-gray-200 bg-white dark:divide-dark-700 dark:bg-dark-900">
+      <tbody class="table-body divide-y divide-[var(--border)] bg-[var(--card)]">
         <!-- Loading skeleton -->
         <tr v-if="loading" v-for="i in 5" :key="i">
           <td v-if="selectable" class="w-11 min-w-11 px-3 py-4">
-            <div class="mx-auto h-4 w-4 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
+            <div class="mx-auto h-4 w-4 animate-pulse rounded bg-[var(--surface-2)]"></div>
           </td>
           <td v-for="column in columns" :key="column.key" :class="['whitespace-nowrap py-4', getAdaptivePaddingClass()]">
             <div class="animate-pulse">
-              <div class="h-4 w-3/4 rounded bg-gray-200 dark:bg-dark-700"></div>
+              <div class="h-4 w-3/4 rounded bg-[var(--surface-2)]"></div>
             </div>
           </td>
         </tr>
@@ -189,14 +189,14 @@
         <tr v-else-if="!data || data.length === 0">
           <td
             :colspan="tableColumnCount"
-            :class="['py-12 text-center text-gray-500 dark:text-dark-400', getAdaptivePaddingClass()]"
+            :class="['py-12 text-center text-[var(--muted-foreground)]', getAdaptivePaddingClass()]"
           >
             <slot name="empty">
               <div class="flex flex-col items-center">
                 <Icon
                   name="inbox"
                   size="xl"
-                  class="mb-4 h-12 w-12 text-gray-400 dark:text-dark-500"
+                  class="mb-4 h-12 w-12 text-[var(--muted-foreground)]"
                 />
                 <p class="text-lg font-medium text-gray-900 dark:text-gray-100">
                   {{ t('empty.noData') }}
@@ -219,17 +219,17 @@
             :data-row-id="resolveRowKey(item.row, item.index)"
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
-            class="hover:bg-gray-50 dark:hover:bg-dark-800"
+            class="oh-table-row hover:bg-[var(--surface-2)]"
             :class="{
               'cursor-pointer': clickableRows,
-              'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
+              'oh-row-selected bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
             }"
             @click="clickableRows && emit('rowClick', item.row)"
           >
-            <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">
+            <td v-if="selectable" class="w-10 min-w-10 px-2.5 py-2.5 text-center">
               <input
                 type="checkbox"
-                class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
+                class="h-4 w-4 rounded border-[var(--border)] bg-[var(--card)] text-[var(--brand-text)] focus:ring-[var(--ring)]"
                 :checked="isRowSelected(item.row, item.index)"
                 :aria-label="getRowSelectionLabel(item.row, item.index)"
                 data-test="select-row"
@@ -241,7 +241,7 @@
               v-for="(column, colIndex) in columns"
               :key="column.key"
               :class="[
-                'whitespace-nowrap py-4 text-sm text-gray-900 dark:text-gray-100',
+                'whitespace-nowrap py-2.5 text-sm text-gray-900 dark:text-gray-100',
                 getAdaptivePaddingClass(),
                 getStickyColumnClass(column, colIndex),
                 column.class
@@ -564,7 +564,7 @@ const applySortState = (state: PersistedSortState | null) => {
 const getSortIndicatorClass = (key: string, order: 'asc' | 'desc') => {
   return sortKey.value === key && sortOrder.value === order
     ? 'text-primary-600 dark:text-primary-400'
-    : 'text-gray-300 transition-colors dark:text-dark-500'
+    : 'text-[var(--muted-foreground)] opacity-50 transition-colors'
 }
 
 const getColumnAriaSort = (key: string) => {
@@ -973,11 +973,13 @@ defineExpose({
   position: sticky;
   top: 0;
   z-index: 200;
-  background-color: rgb(249 250 251);
+  background-color: color-mix(in srgb, var(--surface-2, #f4f4f5) 68%, var(--card, #ffffff));
+  border-bottom: 1px solid var(--border, #e9e9ee);
 }
 
 .dark .table-wrapper .table-header {
-  background-color: rgb(31 41 55);
+  background-color: color-mix(in srgb, var(--surface-2, #17171b) 85%, var(--card, #131316));
+  border-bottom-color: var(--border, #232329);
 }
 
 /* 表体保持在表头下方 */
@@ -991,11 +993,14 @@ defineExpose({
   position: sticky;
   top: 0;
   z-index: 210; /* 必须高于所有表体内容 */
-  background-color: rgb(249 250 251);
+  background-color: color-mix(in srgb, var(--surface-2, #f4f4f5) 68%, var(--card, #ffffff));
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
 }
 
 .dark .sticky-header-cell {
-  background-color: rgb(31 41 55);
+  background-color: color-mix(in srgb, var(--surface-2, #17171b) 85%, var(--card, #131316));
 }
 
 /* Sticky 列基础样式 */
@@ -1031,20 +1036,41 @@ defineExpose({
 
 /* 表体 sticky 列背景 */
 tbody .sticky-col {
-  background-color: white;
+  background-color: var(--card, #ffffff);
 }
 
 .dark tbody .sticky-col {
-  background-color: rgb(17 24 39);
+  background-color: var(--card, #131316);
 }
 
 /* hover 状态保持 */
+.oh-table-row {
+  transition: background-color 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.oh-table-row:hover {
+  background-color: color-mix(in srgb, var(--brand, #f59e0b) 4.5%, transparent);
+}
+
+.oh-row-selected {
+  background-color: color-mix(in srgb, var(--brand, #f59e0b) 10%, transparent);
+}
+
 tbody tr:hover .sticky-col {
-  background-color: rgb(249 250 251);
+  background-color: color-mix(in srgb, var(--brand, #f59e0b) 4.5%, var(--card, #ffffff));
 }
 
 .dark tbody tr:hover .sticky-col {
-  background-color: rgb(31 41 55);
+  background-color: color-mix(in srgb, var(--brand, #fbbf24) 6%, var(--card, #131316));
+}
+
+.oh-mobile-row-card {
+  border-color: var(--border, #e9e9ee);
+  box-shadow: 0 1px 2px rgba(19, 19, 22, 0.03);
+}
+
+.dark .oh-mobile-row-card {
+  border-color: var(--border, #232329);
 }
 
 /* 阴影只在可滚动时显示 */

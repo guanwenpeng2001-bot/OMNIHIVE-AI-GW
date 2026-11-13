@@ -14,92 +14,149 @@
       ref="accountForm"
       @invalid.capture="revealInvalidField"
       @submit.prevent="handleSubmit()"
-      class="space-y-5"
+      class="space-y-4"
     >
-      <div v-if="account.platform === 'commandcode'" class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+      <!-- OmniHive 编辑账号分段工作台导航栏 -->
+      <div class="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--border)] bg-[var(--card)]/95 p-2 shadow-2xs backdrop-blur-md">
+        <div class="segmented flex-wrap">
+          <button type="button" :class="{ on: editActiveTab === 'basic' }" @click="selectEditTab('basic')">
+            {{ t('admin.accounts.editSections.basic') }}
+          </button>
+          <button type="button" :class="{ on: editActiveTab === 'connection' }" @click="selectEditTab('connection')">
+            {{ t('admin.accounts.editSections.connection') }}
+          </button>
+          <button type="button" :class="{ on: editActiveTab === 'advanced' }" @click="selectEditTab('advanced')">
+            {{ t('admin.accounts.editSections.advanced') }}
+          </button>
+          <button type="button" :class="{ on: editActiveTab === 'models' }" @click="selectEditTab('models')">
+            模型与凭证
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="pill pill-ghost font-mono text-[11px] tabular-nums">#{{ account.id }} · {{ connectionTypeLabel }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm text-xs"
+            :class="editActiveTab === 'all' ? 'bg-[var(--accent)] text-[var(--brand-text)] font-semibold' : ''"
+            @click="selectEditTab(editActiveTab === 'all' ? 'basic' : 'all')"
+          >
+            {{ editActiveTab === 'all' ? '收起分段' : '展开全部' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="account.platform === 'commandcode'" class="space-y-2 rounded-lg border p-3 border-[var(--border)]">
         <p class="text-sm font-medium">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
         <p class="input-hint">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
         <CNProviderQuotaCell :account="account" />
       </div>
-      <section class="space-y-4" data-testid="account-basic-settings">
-      <h3 class="font-medium">{{ t('admin.accounts.editSections.basic') }}</h3>
-      <div>
-        <label class="input-label">{{ t('common.name') }}</label>
-        <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
+      <section v-show="editActiveTab === 'all' || editActiveTab === 'basic'" class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="account-basic-settings">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-2.5">
+        <div class="flex items-center gap-2">
+          <span class="pulse-dot" :class="form.status === 'active' ? 'pulse-ok' : 'pulse-warn'" aria-hidden="true"></span>
+          <h3 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.accounts.editSections.basic') }}</h3>
+        </div>
+        <div class="flex items-center gap-1.5 text-xs">
+          <span class="pill pill-ghost">{{ t(`admin.accounts.platforms.${account.platform}`) }}</span>
+          <span class="pill pill-ghost font-mono">{{ connectionTypeLabel }}</span>
+        </div>
       </div>
-      <div>
-        <label class="input-label">{{ t('admin.accounts.notes') }}</label>
-        <textarea
-          v-model="form.notes"
-          rows="3"
-          class="input"
-          :placeholder="t('admin.accounts.notesPlaceholder')"
-        ></textarea>
-        <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label class="input-label">{{ t('common.name') }}</label>
+          <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
+        </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.notes') }}</label>
+          <textarea
+            v-model="form.notes"
+            rows="1"
+            class="input min-h-[36px] resize-y"
+            :placeholder="t('admin.accounts.notesPlaceholder')"
+          ></textarea>
+          <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
+        </div>
       </div>
 
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div class="grid grid-cols-1 gap-3 border-t border-[var(--border)] pt-3.5 sm:grid-cols-2">
         <div>
           <label class="input-label">{{ t('common.status') }}</label>
           <Select v-model="form.status" :options="statusOptions" />
+          <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
+          <div v-if="account?.platform === 'antigravity'" class="mt-2 flex items-center gap-2">
+            <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+              <input
+                type="checkbox"
+                v-model="mixedScheduling"
+                disabled
+                class="h-4 w-4 cursor-not-allowed rounded text-primary-500 focus:ring-primary-500 border-[var(--border)]"
+              />
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.accounts.mixedScheduling') }}
+              </span>
+            </label>
+            <div class="group relative">
+              <span
+                class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-xs text-gray-500 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]"
+              >
+                ?
+              </span>
+              <!-- Tooltip（向下显示避免被弹窗裁剪） -->
+              <div
+                class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
+              >
+                {{ t('admin.accounts.mixedSchedulingTooltip') }}
+                <div
+                  class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
+                ></div>
+              </div>
+            </div>
+          </div>
+          <div v-if="account?.platform === 'antigravity'" class="mt-2 flex items-center gap-2">
+            <label class="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                v-model="allowOverages"
+                class="h-4 w-4 rounded text-primary-500 focus:ring-primary-500 border-[var(--border)]"
+              />
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.accounts.allowOverages') }}
+              </span>
+            </label>
+            <div class="group relative">
+              <span
+                class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full text-xs text-gray-500 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]"
+              >
+                ?
+              </span>
+              <div
+                class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
+              >
+                {{ t('admin.accounts.allowOveragesTooltip') }}
+                <div
+                  class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
+                ></div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
-        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
-          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
-            <input
-              type="checkbox"
-              v-model="mixedScheduling"
-              disabled
-              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-            />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.mixedScheduling') }}
-            </span>
-          </label>
-          <div class="group relative">
-            <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
-            >
-              ?
-            </span>
-            <!-- Tooltip（向下显示避免被弹窗裁剪） -->
-            <div
-              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-            >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
-              <div
-                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
-              ></div>
+        <div>
+          <div class="mb-1.5 flex items-center justify-between gap-2">
+            <label class="input-label mb-0">{{ t('admin.accounts.expiresAt') }}</label>
+            <div class="flex items-center gap-1">
+              <button type="button" class="pill pill-ghost cursor-pointer hover:border-[var(--brand)]" @click="form.expires_at = getAccountExpiryTimestamp(1)">
+                {{ t('payment.oneMonth') }}
+              </button>
+              <button type="button" class="pill pill-ghost cursor-pointer hover:border-[var(--brand)]" @click="form.expires_at = getAccountExpiryTimestamp(12)">
+                {{ t('payment.oneYear') }}
+              </button>
             </div>
           </div>
-        </div>
-        <div v-if="account?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
-          <label class="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              v-model="allowOverages"
-              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-            />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.allowOverages') }}
-            </span>
-          </label>
-          <div class="group relative">
-            <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
-            >
-              ?
-            </span>
-            <div
-              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-            >
-              {{ t('admin.accounts.allowOveragesTooltip') }}
-              <div
-                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
-              ></div>
-            </div>
-          </div>
+          <input v-model="expiresAtInput" type="datetime-local" class="input" />
+          <p class="input-hint truncate" :title="`${t('admin.accounts.expiresAtHint')} ${t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone })}`">
+            {{ t('admin.accounts.expiresAtHint') }} {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
+          </p>
         </div>
       </div>
 
@@ -112,28 +169,11 @@
         data-tour="account-form-groups"
       />
 
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
-        <input v-model="expiresAtInput" type="datetime-local" class="input" />
-        <div class="mt-2 flex gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(1)">
-            {{ t('payment.oneMonth') }}
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(12)">
-            {{ t('payment.oneYear') }}
-          </button>
-        </div>
-        <p class="input-hint">
-          {{ t('admin.accounts.expiresAtHint') }}
-          {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
-        </p>
-      </div>
-
       </section>
-      <details class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="account-connection-settings">
-        <summary class="cursor-pointer rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+      <details v-show="editActiveTab === 'all' || editActiveTab === 'connection'" class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="account-connection-settings">
+        <summary class="cursor-pointer rounded-lg text-sm font-semibold text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">
           {{ t('admin.accounts.editSections.connection') }}
-          <span class="mt-1 block text-sm font-normal text-secondary">{{ t('admin.accounts.editSections.connectionSummary', { platform: t(`admin.accounts.platforms.${account.platform}`), type: connectionTypeLabel }) }}</span>
+          <span class="mt-1 block text-xs font-normal text-[var(--muted-foreground)]">{{ t('admin.accounts.editSections.connectionSummary', { platform: t(`admin.accounts.platforms.${account.platform}`), type: connectionTypeLabel }) }}</span>
         </summary>
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
@@ -156,12 +196,12 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50',
               cursorKeyMode === option.value
                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                : 'border-gray-200 dark:border-dark-600'
+                : 'border-[var(--border)]'
             ]"
           >
             <div :class="[
               'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-              cursorKeyMode === option.value ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              cursorKeyMode === option.value ? 'bg-primary-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
             ]">
               <Icon :name="option.icon" size="sm" />
             </div>
@@ -185,13 +225,13 @@
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               editApiProtocol === option.value
                 ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
             ]"
             @click="editApiProtocol = option.value" role="radio" :aria-checked="editApiProtocol === option.value" :tabindex="editApiProtocol === option.value ? 0 : -1"
           >
             <div :class="[
               'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-              editApiProtocol === option.value ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              editApiProtocol === option.value ? 'bg-primary-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
             ]">
               <Icon :name="option.icon" size="sm" />
             </div>
@@ -263,13 +303,13 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'zen'
                   ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
               ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'zen'" :tabindex="editOpenCodeAccountMode === 'zen' ? 0 : -1"
             >
               <div
                 :class="[
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                  editOpenCodeAccountMode === 'zen' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  editOpenCodeAccountMode === 'zen' ? 'bg-amber-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
                 ]"
               >
                 <Icon name="creditCard" size="sm" />
@@ -286,13 +326,13 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editOpenCodeAccountMode === 'go'
                   ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
               ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'go'" :tabindex="editOpenCodeAccountMode === 'go' ? 0 : -1"
             >
               <div
                 :class="[
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                  editOpenCodeAccountMode === 'go' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                  editOpenCodeAccountMode === 'go' ? 'bg-amber-500 text-white' : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
                 ]"
               >
                 <Icon name="bolt" size="sm" />
@@ -316,13 +356,13 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editAccountMode === opt.value
                   ? cnAccentActiveClass
-                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
               ]"
               @click="editAccountMode = opt.value" role="radio" :aria-checked="editAccountMode === opt.value" :tabindex="editAccountMode === opt.value ? 0 : -1"
             >
               <div :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                editAccountMode === opt.value ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                editAccountMode === opt.value ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]">
                 <Icon :name="opt.value === 'payg' ? 'creditCard' : 'bolt'" size="sm" />
               </div>
@@ -349,13 +389,13 @@
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editApiProtocol === opt.value
                   ? cnAccentActiveClass
-                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                  : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
               ]"
               @click="editApiProtocol = opt.value" role="radio" :aria-checked="editApiProtocol === opt.value" :tabindex="editApiProtocol === opt.value ? 0 : -1"
             >
               <div :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                editApiProtocol === opt.value ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+                editApiProtocol === opt.value ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
               ]">
                 <Icon :name="opt.value === 'adaptive' ? 'swap' : opt.value === 'anthropic' ? 'sparkles' : opt.value === 'responses' ? 'terminal' : 'chat'" size="sm" />
               </div>
@@ -428,7 +468,7 @@
         </div>
 
         <!-- Pool Mode Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -441,7 +481,7 @@
               @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                poolModeEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -455,7 +495,7 @@
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
               <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
-              {{ t('admin.accounts.poolModeInfo') }}
+              {{ t('admin.accounts.poolModeInfo').replace(/sub2api/gi, 'OmniHive') }}
             </p>
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
@@ -492,7 +532,7 @@
         </div>
 
         <!-- Custom Error Codes Section -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.customErrorCodes') }}</label>
@@ -505,7 +545,7 @@
               @click="customErrorCodesEnabled = !customErrorCodesEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customErrorCodesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                customErrorCodesEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -536,7 +576,7 @@
                   'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   selectedErrorCodes.includes(code.value)
                     ? 'bg-red-100 text-red-700 ring-1 ring-red-500 dark:bg-red-900/30 dark:text-red-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                    : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                 ]"
               >
                 {{ code.value }} {{ code.label }}
@@ -594,7 +634,7 @@
       <!-- Grok OAuth client-tool prompt cache opt-in -->
       <div
         v-if="account.platform === 'grok' && account.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
@@ -614,7 +654,7 @@
       <!-- Grok OAuth media generation eligibility override -->
       <div
         v-if="isGrokOAuthAccount"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
         data-testid="grok-media-eligibility-card"
       >
         <div class="space-y-3">
@@ -640,7 +680,7 @@
           <p v-else-if="grokMediaEligibilityError" class="text-xs text-red-600 dark:text-red-400">
             {{ grokMediaEligibilityError }}
           </p>
-          <div v-else-if="grokMediaEligibilityState" class="rounded-lg bg-gray-50 p-3 text-xs dark:bg-dark-700">
+          <div v-else-if="grokMediaEligibilityState" class="rounded-lg p-3 text-xs bg-[var(--surface-2)]">
             <span class="font-medium">{{ t('admin.accounts.grokMediaEligibility.current') }}</span>
             <span class="ml-1" data-testid="grok-media-eligibility-status">
               {{ grokMediaEligibilityState.eligible ? t('admin.accounts.grokMediaEligibility.eligible') : t('admin.accounts.grokMediaEligibility.ineligible') }}
@@ -665,7 +705,7 @@
       <!-- Grok OAuth Custom Upstream URL (仅改写转发端点，OAuth 授权/刷新不受影响) -->
       <div
         v-if="account.platform === 'grok' && account.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="mb-3 flex items-center justify-between">
           <div>
@@ -680,7 +720,7 @@
             @click="grokOAuthCustomBaseUrlEnabled = !grokOAuthCustomBaseUrlEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -704,7 +744,7 @@
       </div>
 
       <!-- Header Override Section (eligible API-key platforms + grok OAuth) -->
-      <div v-if="headerOverrideCapable" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <div v-if="headerOverrideCapable" class="border-t pt-4 border-[var(--border)]">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.headerOverride.title') }}</label>
@@ -717,7 +757,7 @@
             @click="headerOverrideEnabled = !headerOverrideEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              headerOverrideEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -869,7 +909,7 @@
             <input
               v-model="editBedrockForceGlobal"
               type="checkbox"
-              class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+              class="rounded text-primary-600 focus:ring-primary-500 border-[var(--border)]"
             />
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockForceGlobal') }}</span>
           </label>
@@ -877,7 +917,7 @@
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="border-t pt-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.poolMode') }}</label>
@@ -890,7 +930,7 @@
               @click="poolModeEnabled = !poolModeEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                poolModeEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -904,7 +944,7 @@
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
               <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
-              {{ t('admin.accounts.poolModeInfo') }}
+              {{ t('admin.accounts.poolModeInfo').replace(/sub2api/gi, 'OmniHive') }}
             </p>
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
@@ -943,7 +983,7 @@
 
       <div
         v-if="account.platform === 'antigravity' && account.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
         <input
@@ -957,15 +997,15 @@
       </div>
 
       </details>
-      <details class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-600 sm:p-5" data-testid="account-advanced-settings">
-        <summary class="cursor-pointer rounded-lg font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+      <details v-show="editActiveTab === 'all' || editActiveTab === 'advanced'" class="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface-2)]/30 p-4 sm:p-5" data-testid="account-advanced-settings">
+        <summary class="cursor-pointer rounded-lg text-sm font-semibold text-[var(--foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]">
           {{ t('admin.accounts.editSections.advanced') }}
-          <span class="mt-1 block text-sm font-normal text-secondary">{{ t('admin.accounts.editSections.advancedSummary', { concurrency: form.concurrency, priority: form.priority }) }}</span>
+          <span class="mt-1 block text-xs font-normal text-[var(--muted-foreground)]">{{ t('admin.accounts.editSections.advancedSummary', { concurrency: form.concurrency, priority: form.priority }) }}</span>
         </summary>
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
 
       <!-- Temp Unschedulable Rules -->
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
+      <div class="border-t pt-4 border-[var(--border)] space-y-4">
         <div class="mb-3 flex items-center justify-between">
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.tempUnschedulable.title') }}</label>
@@ -978,7 +1018,7 @@
             @click="tempUnschedEnabled = !tempUnschedEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              tempUnschedEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              tempUnschedEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1004,7 +1044,7 @@
               :key="preset.label"
               type="button"
               @click="addTempUnschedRule(preset.rule)"
-              class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
+              class="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors bg-[var(--surface-2)] dark:text-gray-300 hover:bg-[var(--surface-2)]"
             >
               + {{ preset.label }}
             </button>
@@ -1014,7 +1054,7 @@
             <div
               v-for="(rule, index) in tempUnschedRules"
               :key="getTempUnschedRuleKey(rule)"
-              class="rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+              class="rounded-lg border p-3 border-[var(--border)]"
             >
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -1097,7 +1137,7 @@
           <button
             type="button"
             @click="addTempUnschedRule()"
-            class="w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
+            class="w-full rounded-lg border-2 border-dashed px-4 py-2 text-sm text-gray-600 transition-colors hover:text-gray-700 border-[var(--border)] dark:text-gray-400 hover:border-[var(--border)] dark:hover:text-gray-300"
           >
             <svg
               class="mr-1 inline h-4 w-4"
@@ -1114,7 +1154,7 @@
 
       <div
         v-if="supportsAccountSchedulingThresholdOverride"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
         data-testid="account-scheduling-threshold-section"
       >
         <div class="mb-3 flex items-center justify-between">
@@ -1148,7 +1188,7 @@
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
         v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1164,7 +1204,7 @@
             @click="interceptWarmupRequests = !interceptWarmupRequests"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              interceptWarmupRequests ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              interceptWarmupRequests ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1260,7 +1300,7 @@
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1274,7 +1314,7 @@
             @click="openaiPassthroughEnabled = !openaiPassthroughEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1290,7 +1330,7 @@
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1305,7 +1345,7 @@
             @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1321,11 +1361,11 @@
       <!-- OpenAI Codex hosted image_generation bridge policy -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="overflow-hidden rounded-lg border border-sky-100 bg-sky-50/60 shadow-sm dark:border-sky-900/50 dark:bg-sky-950/20">
           <div class="flex items-start gap-3 px-4 py-3">
-            <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-sky-600 shadow-sm ring-1 ring-sky-100 dark:bg-dark-800 dark:text-sky-300 dark:ring-sky-900/60">
+            <div class="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-sky-600 shadow-sm ring-1 ring-sky-100 bg-[var(--card)] dark:text-sky-300 dark:ring-sky-900/60">
               <Icon name="sparkles" size="sm" />
             </div>
             <div class="min-w-0 flex-1">
@@ -1343,7 +1383,7 @@
               </p>
             </div>
           </div>
-          <div class="border-t border-sky-100 bg-white/70 p-2 dark:border-sky-900/50 dark:bg-dark-800/70">
+          <div class="border-t border-sky-100 p-2 dark:border-sky-900/50 bg-[var(--card)]">
             <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.openai.codexImageToolDesc')" @keydown="navigateAccountChoices">
               <button
                 v-for="option in codexImageToolOptions"
@@ -1355,7 +1395,7 @@
                   'group flex min-h-[62px] items-start gap-2 rounded-md border px-3 py-2 text-left transition-all',
                   codexImageToolMode === option.value
                     ? option.selectedCardClass
-                    : 'border-transparent bg-transparent text-slate-600 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-300 dark:hover:border-dark-500 dark:hover:bg-dark-700'
+                    : 'border-transparent bg-transparent text-slate-600 dark:text-slate-300 hover:border-[var(--border)] hover:bg-[var(--surface-2)]'
                 ]" role="radio" :aria-checked="codexImageToolMode === option.value" :tabindex="codexImageToolMode === option.value ? 0 : -1"
               >
                 <span
@@ -1363,7 +1403,7 @@
                     'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
                     codexImageToolMode === option.value
                       ? option.selectedDotClass
-                      : 'border-gray-300 text-transparent group-hover:border-gray-400 dark:border-dark-500'
+                      : 'text-transparent group-hover:border-gray-400 border-[var(--border)]'
                   ]"
                 >
                   <Icon name="check" size="xs" :stroke-width="2" />
@@ -1381,7 +1421,7 @@
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1402,7 +1442,7 @@
       <!-- OpenAI APIKey Responses API support mode -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'apikey'"
-        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="space-y-4 border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -1422,7 +1462,7 @@
         </div>
         <div
           v-if="openAITextGenerationCapabilityEnabled"
-          class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+          class="rounded-lg px-3 py-2 text-xs text-gray-600 bg-[var(--surface-2)] dark:text-gray-300"
         >
           <span class="font-medium">{{ t(openAIResponsesStatusKey) }}</span>
         </div>
@@ -1439,11 +1479,11 @@
             <label
               v-for="option in openAIEndpointCapabilityOptions"
               :key="option.value"
-              class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
+              class="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm border-[var(--border)]"
             >
               <input
                 type="checkbox"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                class="rounded text-primary-600 focus:ring-primary-500 border-[var(--border)]"
                 :data-testid="`openai-endpoint-capability-${option.value}`"
                 :checked="openAIEndpointCapabilities.includes(option.value)"
                 @change="toggleOpenAIEndpointCapability(option.value, $event)"
@@ -1458,7 +1498,7 @@
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="flex items-center justify-between gap-4 border-t pt-4 border-[var(--border)]"
       >
         <div>
           <label class="input-label mb-0">{{ t('admin.accounts.openai.imagesUrlToB64Json') }}</label>
@@ -1474,7 +1514,7 @@
           @click="openAIImagesUrlToB64JsonEnabled = !openAIImagesUrlToB64JsonEnabled"
           :class="[
             'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-            openAIImagesUrlToB64JsonEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            openAIImagesUrlToB64JsonEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
           ]"
         >
           <span
@@ -1488,7 +1528,7 @@
 
       <div
         v-if="!selectedCompatibleProvider && ((account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream'))"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="flex items-center justify-between gap-4 border-t pt-4 border-[var(--border)]"
       >
         <div>
           <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
@@ -1513,7 +1553,7 @@
       <!-- Anthropic API Key 自动透传开关 -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1527,7 +1567,7 @@
             @click="anthropicPassthroughEnabled = !anthropicPassthroughEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1542,7 +1582,7 @@
 
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -1561,7 +1601,7 @@
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
         v-if="account?.platform === 'anthropic' && account?.type === 'apikey' && webSearchGlobalEnabled"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1581,7 +1621,7 @@
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
         v-if="account?.platform === 'anthropic' && (account?.type === 'apikey' || account?.type === 'bedrock')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -1632,7 +1672,7 @@
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
         v-else-if="account?.type === 'apikey' || account?.type === 'bedrock'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -1684,7 +1724,7 @@
       <!-- OpenAI API 长上下文计费开关 -->
       <div
         v-if="account?.platform === 'openai' && !isSparkShadow && !hideAccountLongContextBilling && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div>
@@ -1701,7 +1741,7 @@
             @click="openAILongContextBillingEnabled = !openAILongContextBillingEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1716,7 +1756,7 @@
 
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1730,7 +1770,7 @@
             @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1743,7 +1783,7 @@
         </div>
         <div
           v-if="codexCLIOnlyEnabled"
-          class="mt-4 flex items-center justify-between border-l-2 border-gray-200 pl-4 dark:border-dark-600"
+          class="mt-4 flex items-center justify-between border-l-2 pl-4 border-[var(--border)]"
         >
           <div>
             <label class="input-label mb-0">{{ t('admin.accounts.openai.codexCLIOnlyAppServer') }}</label>
@@ -1756,7 +1796,7 @@
             @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1772,7 +1812,7 @@
       <!-- Codex 指纹收敛模式（仅 OpenAI OAuth） -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
@@ -1790,7 +1830,7 @@
       <!-- OpenAI 订阅档位手动覆盖（Plus/Pro/Free），仅 OAuth 非影子账号 -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="border-t pt-4 border-[var(--border)]"
       >
         <div class="flex items-center justify-between gap-4">
           <div class="min-w-0">
@@ -1802,7 +1842,7 @@
           <div class="w-44 flex-shrink-0">
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.openai.planTypeDesc')" @keydown="navigateAccountChoices">
               <button v-for="option in planTypeOptions" :key="option.value" type="button" @click="editPlanType = option.value"
-                :class="['rounded-lg border-2 p-3 text-left text-sm', editPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-dark-600']" role="radio" :aria-checked="editPlanType === option.value" :tabindex="editPlanType === option.value ? 0 : -1">{{ option.label }}</button>
+                :class="['rounded-lg border-2 p-3 text-left text-sm', editPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-[var(--border)]']" role="radio" :aria-checked="editPlanType === option.value" :tabindex="editPlanType === option.value ? 0 : -1">{{ option.label }}</button>
             </div>
           </div>
         </div>
@@ -1810,7 +1850,7 @@
 
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="flex items-center justify-between">
           <div>
@@ -1823,7 +1863,7 @@
             <Select v-model="openAICompactMode" :options="openAICompactModeOptions" />
           </div>
         </div>
-        <div class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">
+        <div class="rounded-lg px-3 py-2 text-xs text-gray-600 bg-[var(--surface-2)] dark:text-gray-300">
           <span class="font-medium">{{ t(openAICompactStatusKey) }}</span>
           <span
             v-if="account?.extra?.openai_compact_checked_at"
@@ -1881,7 +1921,7 @@
             @click="autoPauseOnExpired = !autoPauseOnExpired"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              autoPauseOnExpired ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -1896,7 +1936,7 @@
 
       <div
         v-if="account?.platform === 'openai'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="space-y-2">
           <div class="flex items-center justify-between">
@@ -1906,7 +1946,7 @@
               @click="autoPause5hDisabled = !autoPause5hDisabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                autoPause5hDisabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                autoPause5hDisabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
               data-testid="auto-pause-5h-disabled"
             >
@@ -1942,7 +1982,7 @@
               @click="autoPause7dDisabled = !autoPause7dDisabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                autoPause7dDisabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                autoPause7dDisabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
               data-testid="auto-pause-7d-disabled"
             >
@@ -1974,7 +2014,7 @@
 
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth' && !isSparkShadow"
-        class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
+        class="space-y-4 border-t pt-4 border-[var(--border)]"
         data-testid="auto-reset-credit-settings"
       >
         <div class="flex items-center justify-between gap-4">
@@ -1990,7 +2030,7 @@
             @click="autoResetCreditEnabled = !autoResetCreditEnabled"
             :class="[
               'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoResetCreditEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              autoResetCreditEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
             ]"
           >
             <span
@@ -2035,7 +2075,7 @@
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
         v-if="account?.platform === 'anthropic' && (account?.type === 'oauth' || account?.type === 'setup-token')"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
+        class="border-t pt-4 border-[var(--border)] space-y-4"
       >
         <div class="mb-3">
           <h3 class="input-label mb-0 text-base font-semibold">{{ t('admin.accounts.quotaControl.title') }}</h3>
@@ -2045,7 +2085,7 @@
         </div>
 
         <!-- Window Cost Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.windowCost.label') }}</label>
@@ -2058,7 +2098,7 @@
               @click="windowCostEnabled = !windowCostEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                windowCostEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2105,7 +2145,7 @@
         </div>
 
         <!-- Session Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.sessionLimit.label') }}</label>
@@ -2118,7 +2158,7 @@
               @click="sessionLimitEnabled = !sessionLimitEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                sessionLimitEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2162,7 +2202,7 @@
         </div>
 
         <!-- RPM Limit -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="mb-3 flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.rpmLimit.label') }}</label>
@@ -2175,7 +2215,7 @@
               @click="rpmLimitEnabled = !rpmLimitEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                rpmLimitEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2212,7 +2252,7 @@
                     'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
                     rpmStrategy === 'tiered'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                      : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                   ]" role="radio" :aria-checked="rpmStrategy === 'tiered'" :tabindex="rpmStrategy === 'tiered' ? 0 : -1"
                 >
                   <div class="text-center">
@@ -2227,7 +2267,7 @@
                     'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
                     rpmStrategy === 'sticky_exempt'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
+                      : 'text-gray-600 bg-[var(--surface-2)] dark:text-gray-400 hover:bg-[var(--surface-2)]'
                   ]" role="radio" :aria-checked="rpmStrategy === 'sticky_exempt'" :tabindex="rpmStrategy === 'sticky_exempt' ? 0 : -1"
                 >
                   <div class="text-center">
@@ -2266,7 +2306,7 @@
                   'px-3 py-1.5 text-sm rounded-md border transition-colors',
                   userMsgQueueMode === opt.value
                     ? 'bg-primary-600 text-white border-primary-600'
-                    : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
+                    : 'bg-[var(--surface-2)] text-gray-700 dark:text-gray-300 border-[var(--border)] hover:bg-[var(--surface-2)]'
                 ]" role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
                 {{ opt.label }}
               </button>
@@ -2275,7 +2315,7 @@
         </div>
 
         <!-- TLS Fingerprint -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.tlsFingerprint.label') }}</label>
@@ -2288,7 +2328,7 @@
               @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2310,7 +2350,7 @@
         </div>
 
         <!-- Session ID Masking -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.sessionIdMasking.label') }}</label>
@@ -2323,7 +2363,7 @@
               @click="sessionIdMaskingEnabled = !sessionIdMaskingEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2337,7 +2377,7 @@
         </div>
 
         <!-- Cache TTL Override -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.cacheTTLOverride.label') }}</label>
@@ -2350,7 +2390,7 @@
               @click="cacheTTLOverrideEnabled = !cacheTTLOverrideEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                cacheTTLOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                cacheTTLOverrideEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2365,7 +2405,7 @@
             <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.cacheTTLOverride.target') }}</label>
             <select
               v-model="cacheTTLOverrideTarget"
-              class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700 dark:text-white"
+              class="mt-1 block w-full rounded-md border px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 border-[var(--border)] bg-[var(--surface-2)] dark:text-white"
             >
               <option value="5m">5m</option>
               <option value="1h">1h</option>
@@ -2377,7 +2417,7 @@
         </div>
 
         <!-- Custom Base URL Relay -->
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+        <div class="rounded-lg border p-4 border-[var(--border)]">
           <div class="flex items-center justify-between">
             <div>
               <label class="input-label mb-0">{{ t('admin.accounts.quotaControl.customBaseUrl.label') }}</label>
@@ -2390,7 +2430,7 @@
               @click="customBaseUrlEnabled = !customBaseUrlEnabled"
               :class="[
                 'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+                customBaseUrlEnabled ? 'bg-primary-600' : 'bg-[var(--surface-2)]'
               ]"
             >
               <span
@@ -2413,6 +2453,7 @@
       </div>
 
       </details>
+      <div v-show="editActiveTab === 'all' || editActiveTab === 'models'" class="space-y-4">
       <AccountModelConfigurationSection ref="modelConfigurationSection" :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="allowedModels" v-model:mappings="modelMappings" :presets="presetMappings"
         :discovery-disabled="compatibleDiscoveryDisabled(selectedCompatibleProvider, compatibleDraft)" :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
@@ -2427,11 +2468,13 @@
         :active="show"
         @changed="handleCredentialSecretChanged"
       />
+      </div>
     </form>
 
     <template #footer>
-      <div v-if="account" class="flex flex-wrap items-center justify-end gap-3">
-        <p class="w-full text-sm text-secondary">{{ t('admin.accounts.editSections.independentSaves') }}</p>
+      <div v-if="account" class="flex w-full flex-wrap items-center justify-between gap-3">
+        <p class="max-w-[420px] truncate text-xs text-[var(--muted-foreground)]" :title="t('admin.accounts.editSections.independentSaves')">{{ t('admin.accounts.editSections.independentSaves') }}</p>
+        <div class="ml-auto flex items-center gap-2.5">
         <button @click="handleClose" type="button" class="btn btn-secondary">
           {{ t('common.close') }}
         </button>
@@ -2464,6 +2507,7 @@
           </svg>
           {{ submitting ? t('admin.accounts.updating') : t('admin.accounts.editSections.save') }}
         </button>
+        </div>
       </div>
     </template>
   </BaseDialog>
@@ -2618,7 +2662,22 @@ interface Props {
 
 const accountForm = ref<HTMLFormElement>()
 const modelConfigurationSection = ref<InstanceType<typeof AccountModelConfigurationSection>>()
+const editActiveTab = ref<'basic' | 'connection' | 'advanced' | 'models' | 'all'>('basic')
+function selectEditTab(tab: 'basic' | 'connection' | 'advanced' | 'models' | 'all') {
+  editActiveTab.value = tab
+  if (tab === 'connection') {
+    const el = accountForm.value?.querySelector<HTMLDetailsElement>('[data-testid="account-connection-settings"]')
+    if (el) el.open = true
+  } else if (tab === 'advanced') {
+    const el = accountForm.value?.querySelector<HTMLDetailsElement>('[data-testid="account-advanced-settings"]')
+    if (el) el.open = true
+  } else if (tab === 'models') {
+    const el = accountForm.value?.querySelector<HTMLDetailsElement>('[data-testid="model-selection"]')
+    if (el) el.open = true
+  }
+}
 function revealField(target: HTMLElement) {
+  editActiveTab.value = 'all'
   let ancestor = target.parentElement
   let expanded = false
   while (ancestor && ancestor !== accountForm.value) {
@@ -3370,7 +3429,7 @@ const codexImageToolBadgeClass = computed(() => {
     case 'block':
       return 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300'
     default:
-      return 'bg-slate-100 text-slate-600 dark:bg-dark-600 dark:text-slate-300'
+      return 'bg-slate-100 text-slate-600 bg-[var(--surface-2)] dark:text-slate-300'
   }
 })
 const openAICompactModeOptions = computed(() => [
@@ -5496,3 +5555,25 @@ const handleMixedChannelCancel = () => {
   clearMixedChannelDialog()
 }
 </script>
+
+<style scoped>
+#edit-account-form :deep(input[type="number"]),
+#edit-account-form :deep(input[type="password"]),
+#edit-account-form :deep(input[type="url"]),
+#edit-account-form :deep(textarea) {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+#edit-account-form :deep(.border-t) {
+  border-color: var(--border);
+}
+
+#edit-account-form :deep(.rounded-lg.border),
+#edit-account-form :deep(.rounded-xl.border),
+#edit-account-form :deep(.rounded-lg.border-2) {
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+</style>

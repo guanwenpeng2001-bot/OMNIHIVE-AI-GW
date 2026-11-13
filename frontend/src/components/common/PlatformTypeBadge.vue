@@ -1,8 +1,8 @@
 <template>
-  <div class="inline-flex flex-col gap-0.5 text-xs font-medium">
+  <div class="inline-flex max-w-full flex-col gap-0.5 text-xs font-medium">
     <!-- Row 1: Platform + Type -->
-    <div class="inline-flex items-center overflow-hidden rounded-md">
-      <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
+    <div class="inline-flex flex-wrap items-center gap-y-0.5 rounded-md">
+      <span :class="['inline-flex items-center gap-1 rounded-md px-1.5 py-1', platformClass]">
         <PlatformIcon :platform="platform" :account-type="type" size="xs" />
         <span data-testid="platform-label">{{ platformLabel }}</span>
       </span>
@@ -31,7 +31,7 @@
       </span>
     </div>
     <!-- Row 2: Plan type + Privacy mode (only if either exists) -->
-    <div v-if="planLabel || privacyBadge" class="inline-flex items-center overflow-hidden rounded-md">
+    <div v-if="planLabel || privacyBadge" class="inline-flex flex-wrap items-center gap-y-0.5 rounded-md">
       <span v-if="planLabel" :class="['inline-flex items-center gap-1 px-1.5 py-1', planBadgeClass]">
         <GrokFreeIcon
           v-if="isGrokFreePlan"
@@ -58,7 +58,7 @@
       </span>
     </div>
     <!-- Row 3: Subscription expiration (non-free paid accounts only) -->
-    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-600 dark:text-dark-400 pl-0.5" :title="subscriptionExpiresAt">
+    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-600 dark:text-gray-300 pl-0.5" :title="subscriptionExpiresAt">
       {{ expiresLabel }}
     </div>
   </div>

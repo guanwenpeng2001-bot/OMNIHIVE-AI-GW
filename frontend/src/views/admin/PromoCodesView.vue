@@ -1,10 +1,18 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <TablePageLayout class="w-full min-w-0">
       <template #filters>
-        <div class="flex flex-wrap items-center gap-3">
+        <section class="mb-3 flex w-full flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--card)] px-4 py-3">
+          <h1 class="text-sm font-semibold text-[var(--foreground)]">{{ t('admin.promo.title') }}</h1>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted-foreground)]" role="status">
+            <span class="pulse-dot" :class="loading ? 'pulse-warn' : 'bg-[var(--muted-foreground)]'" aria-hidden="true"></span>
+            {{ loading ? t('common.loading') : t('common.view') }}
+          </span>
+          <span class="ml-auto flex items-center gap-2 text-xs text-[var(--muted-foreground)]">{{ t('common.total') }} <strong class="font-mono tabular-nums text-[var(--foreground)]">{{ loading ? '—' : pagination.total }}</strong></span>
+        </section>
+        <div class="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3">
           <!-- Left: Search + Filters -->
-          <div class="flex-1 sm:max-w-64">
+          <div class="w-full sm:w-64">
             <input
               v-model="searchQuery"
               type="text"
@@ -16,7 +24,7 @@
           <Select
             v-model="filters.status"
             :options="filterStatusOptions"
-            class="w-36"
+            class="w-full sm:w-36"
             @change="loadCodes"
           />
 
@@ -25,12 +33,12 @@
             <button
               @click="loadCodes"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn btn-secondary btn-sm"
               :title="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
-            <button @click="showCreateDialog = true" class="btn btn-primary">
+            <button @click="showCreateDialog = true" class="btn btn-primary btn-sm">
               <Icon name="plus" size="md" class="mr-1" />
               {{ t('admin.promo.createCode') }}
             </button>
@@ -50,14 +58,14 @@
         >
           <template #cell-code="{ value }">
             <div class="flex items-center space-x-2">
-              <code class="font-mono text-sm text-gray-900 dark:text-gray-100">{{ value }}</code>
+              <code class="font-mono text-sm tabular-nums text-[var(--foreground)]">{{ value }}</code>
               <button
                 @click="copyToClipboard(value)"
                 :class="[
                   'flex items-center transition-colors',
                   copiedCode === value
                     ? 'text-green-500'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)]'
                 ]"
                 :title="copiedCode === value ? t('admin.promo.copied') : t('keys.copyToClipboard')"
               >
@@ -75,13 +83,13 @@
           </template>
 
           <template #cell-bonus_amount="{ value }">
-            <span class="text-sm font-medium text-gray-900 dark:text-white">
+            <span class="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
               ${{ value.toFixed(2) }}
             </span>
           </template>
 
           <template #cell-usage="{ row }">
-            <span class="text-sm text-gray-600 dark:text-gray-300">
+            <span class="font-mono text-sm tabular-nums text-[var(--muted-foreground)]">
               {{ row.used_count }} / {{ row.max_uses === 0 ? '∞' : row.max_uses }}
             </span>
           </template>
@@ -98,13 +106,13 @@
           </template>
 
           <template #cell-expires_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">
+            <span class="font-mono text-sm tabular-nums text-[var(--muted-foreground)]">
               {{ value ? formatDateTime(value) : t('admin.promo.neverExpires') }}
             </span>
           </template>
 
           <template #cell-created_at="{ value }">
-            <span class="text-sm text-gray-500 dark:text-dark-400">
+            <span class="font-mono text-sm tabular-nums text-[var(--muted-foreground)]">
               {{ formatDateTime(value) }}
             </span>
           </template>
@@ -113,28 +121,28 @@
             <div class="flex items-center space-x-1">
               <button
                 @click="copyRegisterLink(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+                class="btn btn-ghost btn-sm"
                 :title="t('admin.promo.copyRegisterLink')"
               >
                 <Icon name="link" size="sm" />
               </button>
               <button
                 @click="handleViewUsages(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="btn btn-ghost btn-sm"
                 :title="t('admin.promo.viewUsages')"
               >
                 <Icon name="eye" size="sm" />
               </button>
               <button
                 @click="handleEdit(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-dark-600 dark:hover:text-gray-300"
+                class="btn btn-ghost btn-sm"
                 :title="t('common.edit')"
               >
                 <Icon name="edit" size="sm" />
               </button>
               <button
                 @click="handleDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                class="btn btn-ghost btn-sm text-[var(--bad-text)]"
                 :title="t('common.delete')"
               >
                 <Icon name="trash" size="sm" />
@@ -167,12 +175,12 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.code') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('admin.promo.autoGenerate') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('admin.promo.autoGenerate') }})</span>
           </label>
           <input
             v-model="createForm.code"
             type="text"
-            class="input font-mono uppercase"
+            class="input font-mono tabular-nums uppercase"
             :placeholder="t('admin.promo.codePlaceholder')"
           />
         </div>
@@ -190,7 +198,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.maxUses') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('admin.promo.zeroUnlimited') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('admin.promo.zeroUnlimited') }})</span>
           </label>
           <input
             v-model.number="createForm.max_uses"
@@ -202,7 +210,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.expiresAt') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <input
             v-model="createForm.expires_at_str"
@@ -213,7 +221,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.notes') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <textarea
             v-model="createForm.notes"
@@ -248,7 +256,7 @@
           <input
             v-model="editForm.code"
             type="text"
-            class="input font-mono uppercase"
+            class="input font-mono tabular-nums uppercase"
           />
         </div>
         <div>
@@ -265,7 +273,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.maxUses') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('admin.promo.zeroUnlimited') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('admin.promo.zeroUnlimited') }})</span>
           </label>
           <input
             v-model.number="editForm.max_uses"
@@ -281,7 +289,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.expiresAt') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <input
             v-model="editForm.expires_at_str"
@@ -292,7 +300,7 @@
         <div>
           <label class="input-label">
             {{ t('admin.promo.notes') }}
-            <span class="ml-1 text-xs font-normal text-gray-400">({{ t('common.optional') }})</span>
+            <span class="ml-1 text-xs font-normal text-[var(--muted-foreground)]">({{ t('common.optional') }})</span>
           </label>
           <textarea
             v-model="editForm.notes"
@@ -321,32 +329,30 @@
       @close="showUsagesDialog = false"
     >
       <div v-if="usagesLoading" class="flex items-center justify-center py-8">
-        <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+        <Icon name="refresh" size="lg" class="animate-spin text-[var(--muted-foreground)]" />
       </div>
-      <div v-else-if="usages.length === 0" class="py-8 text-center text-gray-500 dark:text-gray-400">
+      <div v-else-if="usages.length === 0" class="py-8 text-center text-[var(--muted-foreground)]">
         {{ t('admin.promo.noUsages') }}
       </div>
       <div v-else class="space-y-3">
         <div
           v-for="usage in usages"
           :key="usage.id"
-          class="flex items-center justify-between rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+          class="flex items-center justify-between rounded-lg border border-[var(--border)] p-3"
         >
           <div class="flex items-center gap-3">
-            <div class="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30">
-              <Icon name="user" size="sm" class="text-green-600 dark:text-green-400" />
-            </div>
+            <Icon name="user" size="sm" class="text-[var(--muted-foreground)]" />
             <div>
-              <p class="text-sm font-medium text-gray-900 dark:text-white">
+              <p class="text-sm font-medium text-[var(--foreground)]">
                 {{ usage.user?.email || t('admin.promo.userPrefix', { id: usage.user_id }) }}
               </p>
-              <p class="text-xs text-gray-500 dark:text-gray-400">
+              <p class="text-xs text-[var(--muted-foreground)]">
                 {{ formatDateTime(usage.used_at) }}
               </p>
             </div>
           </div>
           <div class="text-right">
-            <span class="text-sm font-medium text-green-600 dark:text-green-400">
+            <span class="font-mono text-sm font-medium tabular-nums text-[var(--foreground)]">
               +${{ usage.bonus_amount.toFixed(2) }}
             </span>
           </div>
@@ -747,3 +753,28 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+
+<style scoped>
+.btn {
+  border-radius: var(--radius-sm);
+  background-image: none;
+  box-shadow: none;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-secondary {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--foreground);
+}
+.btn-ghost:hover {
+  background: var(--muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}
+</style>

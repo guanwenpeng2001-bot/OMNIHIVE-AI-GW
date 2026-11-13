@@ -1,6 +1,6 @@
 <template>
   <a
-    class="inline-flex max-w-full shrink-0 items-center gap-1 truncate text-xs font-normal text-primary-600 transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-2 dark:text-primary-400 dark:focus:ring-offset-dark-800"
+    class="inline-flex max-w-full shrink-0 items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs font-normal text-[var(--brand-text)] transition-colors hover:underline focus:outline-none focus:ring-2 focus:ring-[var(--ring)] focus:ring-offset-2 focus:ring-offset-[var(--card)]"
     href="https://sub2api.io/proxyip"
     target="_blank"
     rel="noopener noreferrer"

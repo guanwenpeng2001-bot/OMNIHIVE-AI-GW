@@ -1,5 +1,5 @@
 <template>
-  <p class="text-xs text-gray-600 dark:text-gray-400" data-testid="report-time-context">
+  <p class="border-l-2 border-[var(--border)] pl-2 text-xs leading-relaxed tabular-nums text-[var(--muted-foreground)]" data-testid="report-time-context">
     {{ t('common.displayTimeZone', { timezone: timeZone }) }} · {{ note }}
   </p>
 </template>

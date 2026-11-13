@@ -36,7 +36,7 @@ const isVisible = computed(() => isLoading.value)
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 2px;
   z-index: 9999;
   overflow: hidden;
   background: transparent;
@@ -48,9 +48,9 @@ const isVisible = computed(() => isLoading.value)
   background: linear-gradient(
     90deg,
     transparent 0%,
-    theme('colors.primary.400') 20%,
-    theme('colors.primary.500') 50%,
-    theme('colors.primary.400') 80%,
+    color-mix(in srgb, var(--brand, #f59e0b) 65%, transparent) 20%,
+    var(--brand, #f59e0b) 50%,
+    color-mix(in srgb, var(--brand, #f59e0b) 65%, transparent) 80%,
     transparent 100%
   );
   animation: progress-slide 1.5s ease-in-out infinite;
@@ -61,9 +61,9 @@ const isVisible = computed(() => isLoading.value)
   background: linear-gradient(
     90deg,
     transparent 0%,
-    theme('colors.primary.500') 20%,
-    theme('colors.primary.400') 50%,
-    theme('colors.primary.500') 80%,
+    color-mix(in srgb, var(--brand, #fbbf24) 70%, transparent) 20%,
+    var(--brand, #fbbf24) 50%,
+    color-mix(in srgb, var(--brand, #fbbf24) 70%, transparent) 80%,
     transparent 100%
   );
 }

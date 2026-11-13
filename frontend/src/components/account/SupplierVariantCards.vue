@@ -21,12 +21,12 @@ function options(axis: SupplierAxis) {
 </script>
 
 <template>
-  <div class="space-y-4" data-testid="supplier-variants">
+  <div class="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-3" data-testid="supplier-variants">
     <AccountChoiceCards v-for="axis in supplier.axes" :key="axis" :data-testid="`supplier-${axis}`"
       :label="t(`admin.accounts.supplier.${axis}`)" :options="options(axis)" :model-value="modelValue[axis]" :locked="locked"
       @update:model-value="emit('update:modelValue', { ...modelValue, [axis]: $event })" />
     <p v-if="locked" class="input-hint" data-testid="supplier-locked">{{ t('admin.accounts.supplier.locked') }}</p>
     <p v-else-if="!member" role="status" class="input-hint">{{ t('admin.accounts.supplier.chooseVariant') }}</p>
-    <p v-if="host" class="input-hint break-all" data-testid="supplier-endpoint">{{ host }}</p>
+    <p v-if="host" class="input-hint break-all rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 font-mono text-[11px]" data-testid="supplier-endpoint">{{ host }}</p>
   </div>
 </template>

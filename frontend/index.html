@@ -4,7 +4,25 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sub2API - AI API Gateway</title>
+    <title>OmniHive · Sub2API - AI API Gateway</title>
+    <script nonce="__CSP_NONCE_VALUE__">
+      (function () {
+        try {
+          if (window.location.protocol === 'file:') {
+            window.location.replace('http://localhost:3000/')
+            return
+          }
+          var mode = localStorage.getItem('omnihive.mode') || localStorage.getItem('theme')
+          if (mode === 'dark' || (!mode && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('dark')
+          }
+          var style = localStorage.getItem('omnihive.style')
+          if (style && style !== 'teal') {
+            document.documentElement.setAttribute('data-theme', style)
+          }
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>
