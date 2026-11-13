@@ -3039,7 +3039,8 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if strings.TrimSpace(tc.secondPayload) != "" {
 		turnCount++
 	}
-	upstreamPayloadCh := make(chan []byte, turnCount)
+	expectedUpstreamTurns := turnCount
+	upstreamPayloadCh := make(chan []byte, expectedUpstreamTurns)
 	upstreamErrCh := make(chan error, 1)
 	var channelSvc *service.ChannelService
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3054,7 +3055,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			_ = conn.CloseNow()
 		}()
 
-		for turn := 1; turn <= turnCount; turn++ {
+		for turn := 1; turn <= expectedUpstreamTurns; turn++ {
 			readCtx, cancelRead := context.WithTimeout(r.Context(), 3*time.Second)
 			msgType, payload, readErr := conn.Read(readCtx)
 			cancelRead()

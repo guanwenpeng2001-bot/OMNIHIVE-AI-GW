@@ -50,12 +50,16 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	// custom secret cannot leave an orphaned key without a credential.
 	secret := key.Key
 	tx, err := r.client.Tx(ctx)
-	if err != nil {
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	exec := r.client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		exec = tx.Client()
+	}
 
-	builder := tx.Client().APIKey.Create().
+	builder := exec.APIKey.Create().
 		SetUserID(key.UserID).
 		SetName(key.Name).
 		SetTpmLimit(key.TPMLimit).
@@ -84,7 +88,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	// Timestamps come from Go rather than a database function so the statement stays
 	// portable across the Postgres deployment and the SQLite-backed unit tests.
 	createdAt := time.Now().UTC()
-	if _, err := tx.Client().ExecContext(ctx, `
+	if _, err := exec.ExecContext(ctx, `
 		INSERT INTO api_key_credentials (workspace_id, api_key_id, credential_digest, display_suffix, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
 		created.WorkspaceID,
@@ -97,8 +101,10 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 	}
 
 	key.ID = created.ID
@@ -378,15 +384,19 @@ func (r *apiKeyRepository) lookupCredentialRow(ctx context.Context, digest strin
 // operation idempotent: only the first presentation of an expired credential writes.
 func (r *apiKeyRepository) retireExpiredCredential(ctx context.Context, digest string, apiKeyID int64, now time.Time) {
 	tx, err := r.client.Tx(ctx)
-	if err != nil {
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return
 	}
-	defer func() { _ = tx.Rollback() }()
+	exec := r.client
+	if err == nil {
+		defer func() { _ = tx.Rollback() }()
+		exec = tx.Client()
+	}
 
 	// The caller established that this row's deadline has passed from the same row, so the
 	// statement only needs to guard against a concurrent revoke. It deliberately avoids a
 	// second timestamp comparison in SQL, which would depend on the dialect's literal format.
-	result, err := tx.Client().ExecContext(ctx, `
+	result, err := exec.ExecContext(ctx, `
 		UPDATE api_key_credentials
 		SET status = $3, revoked_at = $2, updated_at = $2
 		WHERE credential_digest = $1 AND revoked_at IS NULL AND status = $4`,
@@ -398,7 +408,7 @@ func (r *apiKeyRepository) retireExpiredCredential(ctx context.Context, digest s
 	if err != nil || affected == 0 {
 		return
 	}
-	if err := insertAPIKeyCredentialAudit(ctx, tx.Client(), service.ConfigurationAuditActor{Role: auditActorRoleSystem},
+	if err := insertAPIKeyCredentialAudit(ctx, exec, service.ConfigurationAuditActor{Role: auditActorRoleSystem},
 		auditActionAPIKeyCredentialExpire, apiKeyID, map[string]any{
 			"api_key_id": apiKeyID,
 			"credential": "grace",
@@ -406,7 +416,9 @@ func (r *apiKeyRepository) retireExpiredCredential(ctx context.Context, digest s
 		}); err != nil {
 		return
 	}
-	_ = tx.Commit()
+	if tx != nil {
+		_ = tx.Commit()
+	}
 }
 
 // GetByKeyForAuth resolves a presented secret through its credential digest to the

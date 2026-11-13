@@ -15,11 +15,10 @@ jobs:
       - name: Use Homebrew Bash 4+
         shell: bash
         run: |
-          if [ -x /opt/homebrew/bin/bash ]; then
-            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-          elif [ -x /usr/local/bin/bash ]; then
-            echo "/usr/local/bin" >> "$GITHUB_PATH"
+          if ! bash -c 'test "${BASH_VERSINFO[0]:-0}" -ge 4'; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install bash
           fi
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
       - name: Reject tracked process artifacts
         shell: bash
         run: |
@@ -35,6 +34,20 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: job_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d job_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -49,8 +62,14 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: make test-unit
+      - name: Prepare integration databases
+        run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres stats_test
       - name: Integration tests
         working-directory: backend
+        env:
+          UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          NEW_PLATFORMS_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
         run: make test-integration
 
   postgres:
