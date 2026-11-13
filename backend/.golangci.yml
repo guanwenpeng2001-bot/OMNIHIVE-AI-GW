@@ -137,6 +137,8 @@ linters:
       - path: '(gemini_actions|gateway_resource_jobs|cursor_refresh_persistence|anthropic_actions|volcengine_actions|cursor_auth_service|token_refresh_service|qianwen_realtime|qianwen_native|qianwen_images)\.go$'
         linters: [ staticcheck ]
         text: 'ST1005'
+      - linters: [ staticcheck ]
+        text: 'SA1019:.*http2\.'
 
 formatters:
   enable:

@@ -23,8 +23,8 @@ EOF
 run_api_curl() {
     CURL_ARGS_LOG="$1" HOME="$TEMP_DIR/home" PATH="$TEMP_DIR:$PATH" UPDATE_GITHUB_TOKEN="${2:-}" \
         GITHUB_TOKEN="github-fallback" GH_TOKEN="gh-fallback" \
-        bash -c 'source <(sed "\$d" "$1"); github_api_curl -s "$2"' bash \
-        "$ROOT_DIR/deploy/install.sh" "https://api.github.com/repos/guanwenpeng2001-bot/OMNIHIVE-AI-GW/releases/latest"
+        bash -c 'lib="$3/install-lib.sh"; sed "\$d" "$1" > "$lib"; . "$lib"; github_api_curl -s "$2"' bash \
+        "$ROOT_DIR/deploy/install.sh" "https://api.github.com/repos/guanwenpeng2001-bot/OMNIHIVE-AI-GW/releases/latest" "$TEMP_DIR"
 }
 
 run_api_curl "$TEMP_DIR/authenticated" "update-secret"

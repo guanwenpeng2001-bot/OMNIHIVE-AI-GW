@@ -41,7 +41,7 @@ func TestHTTPUpstreamSlowDripStopsAtRequestDeadline(t *testing.T) {
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NotEmpty(t, body)
-	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.ErrorIs(t, ctx.Err(), context.DeadlineExceeded)
 }
 

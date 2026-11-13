@@ -487,7 +487,8 @@ func TestGitHubReleaseClientAssetAuthorization(t *testing.T) {
 		for _, host := range []string{"api.github.com", "github.com", "objects.githubusercontent.com"} {
 			t.Run(host+"/"+fmt.Sprint(token != ""), func(t *testing.T) {
 				t.Setenv("UPDATE_GITHUB_TOKEN", token)
-				client := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+				client, ok := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+				require.True(t, ok)
 				calls := 0
 				transport := githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 					calls++
@@ -514,7 +515,8 @@ func TestGitHubReleaseClientAssetAuthorization(t *testing.T) {
 
 func TestGitHubReleaseClientAssetRedirectStripsAuthorization(t *testing.T) {
 	t.Setenv("UPDATE_GITHUB_TOKEN", "update-secret")
-	client := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+	client, ok := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+	require.True(t, ok)
 	calls := 0
 	transport := githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++

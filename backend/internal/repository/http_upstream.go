@@ -204,7 +204,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 		if response == nil || response.Body == nil || requestError != nil {
 			cancelRequest()
 		} else {
-			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, ctx: requestContext, cancel: cancelRequest}
 		}
 	}()
 	applyGrokCLIProxyHeaders(req)
@@ -261,7 +261,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		if response == nil || response.Body == nil || requestError != nil {
 			cancelRequest()
 		} else {
-			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, ctx: requestContext, cancel: cancelRequest}
 		}
 	}()
 	if profile == nil {
@@ -330,6 +330,7 @@ func (s *httpUpstreamService) requestClient(entry *upstreamClientEntry, req *htt
 
 type cancelOnCloseBody struct {
 	io.ReadCloser
+	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
 	err    error
@@ -343,7 +344,16 @@ func (b *cancelOnCloseBody) Read(buffer []byte) (int, error) {
 	if b.closed {
 		return 0, http.ErrBodyReadAfterClose
 	}
-	return b.ReadCloser.Read(buffer)
+	if err := b.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := b.ReadCloser.Read(buffer)
+	// A transport or decompressor can report clean EOF as the attempt expires.
+	// Preserve the execution budget error even in that case.
+	if contextErr := b.ctx.Err(); contextErr != nil {
+		return n, contextErr
+	}
+	return n, err
 }
 
 func (b *cancelOnCloseBody) Close() error {

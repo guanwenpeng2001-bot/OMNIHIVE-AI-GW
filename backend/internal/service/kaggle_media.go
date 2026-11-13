@@ -50,7 +50,7 @@ func trimJSONPadding(raw []byte) []byte {
 func (gateway *OpenAIGatewayService) ForwardKaggleMedia(ctx context.Context, request *gin.Context, account *Account, action string, body []byte, contentType string) (*OpenAIForwardResult, error) {
 	started := time.Now()
 	if action != "image.generate" || account == nil || account.Platform != PlatformKaggle || account.Type != AccountTypeAPIKey {
-		return nil, fmt.Errorf("Kaggle API-key image account required")
+		return nil, fmt.Errorf("kaggle API-key image account required")
 	}
 	original := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	prepared, err := prepareKaggleImage(body)
@@ -73,7 +73,7 @@ func (gateway *OpenAIGatewayService) ForwardKaggleMedia(ctx context.Context, req
 		return nil, err
 	}
 	if strings.TrimSpace(token) == "" {
-		return nil, fmt.Errorf("Kaggle key is missing")
+		return nil, fmt.Errorf("kaggle key is missing")
 	}
 	path := "/v1/images/generations"
 	response, err := gateway.sendMistralActionRequest(WithHTTPUpstreamRedirectsDisabled(ctx), request, account, http.MethodPost, account.buildOpenAIEndpointURL(base, path), outbound, "application/json", "application/json", token, path)

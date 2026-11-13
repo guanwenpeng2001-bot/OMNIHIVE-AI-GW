@@ -171,8 +171,13 @@ func TestMcpGrantOnboarding(t *testing.T) {
 	require.Contains(t, initial.Snippets["cursor"], initial.BaseURL)
 	var config map[string]any
 	require.NoError(t, json.Unmarshal([]byte(initial.Snippets["opencode"]), &config))
-	provider := config["provider"].(map[string]any)["omnihive"].(map[string]any)
-	require.Equal(t, initial.BaseURL, provider["options"].(map[string]any)["baseURL"])
+	providersMap, ok := config["provider"].(map[string]any)
+	require.True(t, ok)
+	provider, ok := providersMap["omnihive"].(map[string]any)
+	require.True(t, ok)
+	optionsMap, ok := provider["options"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, initial.BaseURL, optionsMap["baseURL"])
 	require.Contains(t, initial.Snippets["openai_sdk"], initial.BaseURL)
 	for i := 0; i < 2; i++ {
 		result := mcpData[OnboardingDTO](t, mcpRequest(h, 1, "user", "PUT", "/onboarding", `{"hidden":true,"step_index":1,"completed":true}`))
@@ -250,7 +255,9 @@ func TestMcpGrantAdminPulse(t *testing.T) {
 	}
 	require.Equal(t, float64(50), data["quota_health_percent"])
 	require.Equal(t, "accounts_not_rate_limited", data["quota_health_basis"])
-	_, err := time.Parse(time.RFC3339Nano, data["updated_at"].(string))
+	updatedAtStr, ok := data["updated_at"].(string)
+	require.True(t, ok)
+	_, err := time.Parse(time.RFC3339Nano, updatedAtStr)
 	require.NoError(t, err)
 	h.pulseReader = mcpPulseReader{fail: true}
 	require.Equal(t, "unavailable", mcpData[map[string]any](t, mcpRequest(h, 1, "admin", "GET", "/pulse", ""))["status"])
@@ -420,7 +427,9 @@ func TestMcpGrantPlaygroundChat(t *testing.T) {
 	require.Equal(t, "Claude Enterprise Pool", result["routed_group"])
 	require.Equal(t, float64(28), result["prompt_tokens"])
 	require.Equal(t, float64(64), result["completion_tokens"])
-	require.GreaterOrEqual(t, result["latency_ms"].(float64), float64(0))
+	latencyMs, ok := result["latency_ms"].(float64)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, latencyMs, float64(0))
 }
 func TestMcpGrantPlaygroundChatUpstreamErrors(t *testing.T) {
 	for _, tc := range []struct {

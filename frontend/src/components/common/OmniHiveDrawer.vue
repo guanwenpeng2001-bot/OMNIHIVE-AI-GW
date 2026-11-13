@@ -179,8 +179,9 @@ onMounted(() => {
   document.addEventListener('dblclick', handleGlobalDblClick)
   window.addEventListener('keydown', handleGlobalKeydown)
   if (typeof window !== 'undefined') {
-    ;(window as unknown as Record<string, unknown>).openOmniHiveDrawer = openDrawer
-    ;(window as unknown as Record<string, unknown>).closeOmniHiveDrawer = closeDrawer
+    const win = window as unknown as Record<string, unknown>
+    win.openOmniHiveDrawer = openDrawer
+    win.closeOmniHiveDrawer = closeDrawer
   }
 })
 

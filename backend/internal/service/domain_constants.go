@@ -44,17 +44,17 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformGrok        = domain.PlatformGrok
 	// 国产 OpenAI 兼容供应商（与 grok 一样经 OpenAI 网关转发）。
-	PlatformKimi        = domain.PlatformKimi
-	PlatformZhipu       = domain.PlatformZhipu
-	PlatformDeepseek    = domain.PlatformDeepseek
-	PlatformMiniMax     = domain.PlatformMiniMax
-	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
-	PlatformCursor      = domain.PlatformCursor
-	PlatformQianwen     = domain.PlatformQianwen
-	PlatformQianfan     = domain.PlatformQianfan
-	PlatformHunyuan     = domain.PlatformHunyuan
-	PlatformMistral     = domain.PlatformMistral
-	PlatformOpenRouter  = domain.PlatformOpenRouter
+	PlatformKimi       = domain.PlatformKimi
+	PlatformZhipu      = domain.PlatformZhipu
+	PlatformDeepseek   = domain.PlatformDeepseek
+	PlatformMiniMax    = domain.PlatformMiniMax
+	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
+	PlatformCursor     = domain.PlatformCursor
+	PlatformQianwen    = domain.PlatformQianwen
+	PlatformQianfan    = domain.PlatformQianfan
+	PlatformHunyuan    = domain.PlatformHunyuan
+	PlatformMistral    = domain.PlatformMistral
+	PlatformOpenRouter = domain.PlatformOpenRouter
 	// PlatformKaggle is the compatible-provider id for self-hosted Kaggle notebooks.
 	PlatformKaggle      = "kaggle"
 	PlatformBedrock     = domain.PlatformBedrock

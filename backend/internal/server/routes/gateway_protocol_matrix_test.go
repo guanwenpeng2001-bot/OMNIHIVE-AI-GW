@@ -170,7 +170,10 @@ func testCompatibleProviderProtocolMatrix(test *testing.T, provider domain.Compa
 					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
 					options := service.AccountModelBindingOptions{Endpoint: wireEndpoint, FinalModel: "fixture-model"}
 					ctx := service.WithGatewayRequestPlan(context.Background(), service.NewGatewayRequestPlan(service.GatewayRequestSpec{Action: action}))
-					require.Equal(test, supported, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
+					// ResolveAction describes text protocol transports only. Notebook
+					// media uses its own adapter and wire endpoint, declared by Action.
+					cell := provider.Action(mode.Mode, domain.ActionIdentity{Platform: provider.ID, HostedAccountType: account.Type, Protocol: protocol}, action)
+					require.Equal(test, cell.Status == domain.ActionImplemented, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported)
 					if support == domain.EndpointBridge {
 						incompatible := options
 						incompatible.Endpoint = map[string]string{"chat": "chat_completions"}[action]

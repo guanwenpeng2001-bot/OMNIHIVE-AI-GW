@@ -178,13 +178,13 @@ func copyUpdateBinary(source, target string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.CreateTemp(filepath.Dir(target), ".binary-*")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(out.Name())
-	defer out.Close()
+	defer func() { _ = os.Remove(out.Name()) }()
+	defer func() { _ = out.Close() }()
 	if _, err := io.Copy(out, in); err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	defer os.Remove(probe)
+	defer func() { _ = os.Remove(probe) }()
 	current := filepath.Join(updatesDir, "current", "sub2api")
 	previous := current
 	if _, err := os.Stat(current); os.IsNotExist(err) {

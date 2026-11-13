@@ -95,7 +95,7 @@ func (gateway *OpenAIGatewayService) kaggleVideoAccount(ctx context.Context, job
 		return nil, err
 	}
 	if account == nil || account.Platform != PlatformKaggle || account.Type != AccountTypeAPIKey || !account.IsActive() {
-		return nil, errors.New("Kaggle video account unavailable")
+		return nil, errors.New("kaggle video account unavailable")
 	}
 	if err := account.RestoreJobEgress(ctx, job.Billing.Egress); err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func (gateway *OpenAIGatewayService) kaggleVideoRequest(ctx context.Context, acc
 	}
 	credential := strings.TrimSpace(account.GetCredential("api_key"))
 	if credential == "" {
-		return nil, fmt.Errorf("Kaggle key missing")
+		return nil, fmt.Errorf("kaggle key missing")
 	}
 	base, err := gateway.validateUpstreamBaseURL(account.GetOpenAIBaseURL())
 	if err != nil {
@@ -221,7 +221,7 @@ func (gateway *OpenAIGatewayService) PollKaggleVideo(ctx context.Context, job *U
 		return UpstreamJobUpdate{}, fmt.Errorf("invalid video poll response")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return UpstreamJobUpdate{}, fmt.Errorf("Kaggle video poll status %d", response.StatusCode)
+		return UpstreamJobUpdate{}, fmt.Errorf("kaggle video poll status %d", response.StatusCode)
 	}
 	return parseKaggleVideo(raw)
 }

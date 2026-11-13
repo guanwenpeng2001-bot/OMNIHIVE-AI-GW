@@ -522,6 +522,13 @@ func (provider CompatibleProvider) Action(mode string, identity ActionIdentity, 
 		return descriptor
 	}
 	if adapter := compatibleMediaAdapter(provider.ID, action); adapter != "" {
+		protocol := identity.Protocol
+		if protocol == "" || protocol == APIProtocolAdaptive {
+			protocol = selected.DefaultProtocol
+		}
+		if _, ok := selected.LookupEndpoint(protocol); !ok {
+			return descriptor
+		}
 		descriptor.Adapter = adapter
 		descriptor.Status = ActionImplemented
 		descriptor.Evidence = fmt.Sprintf("Declared notebook media path for %s in mode %s; %s (observed %s); runtime account/model validation required", action, selected.Mode, provider.EvidenceURL, provider.EvidenceObserved)

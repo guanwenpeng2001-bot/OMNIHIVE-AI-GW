@@ -613,10 +613,15 @@ func (h *MCPGrantHandler) playgroundChat(c *gin.Context) {
 		response.Error(c, 503, "Playground upstream is not configured")
 		return
 	}
+	parsedBase, err := url.Parse(base)
+	if err != nil || (parsedBase.Scheme != "https" && parsedBase.Scheme != "http") || parsedBase.Hostname() == "" {
+		response.Error(c, 503, "Playground upstream configuration is invalid")
+		return
+	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 	body, _ := json.Marshal(gin.H{"model": req.Model, "messages": []gin.H{{"role": "user", "content": req.Message}}, "stream": false, "max_tokens": 1024})
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(body))
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(body)) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
 	if err != nil {
 		response.Error(c, 503, "Playground upstream configuration is invalid")
 		return
@@ -626,12 +631,12 @@ func (h *MCPGrantHandler) playgroundChat(c *gin.Context) {
 	upstream.Header.Set("X-Routing-Strategy", req.Strategy)
 	started := time.Now()
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	res, err := client.Do(upstream)
+	res, err := client.Do(upstream) //nolint:gosec // G704: operator-configured OMNIHIVE_PLAYGROUND_BASE_URL
 	if err != nil {
 		response.Error(c, 502, "Playground upstream is unavailable")
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != 200 {
 		response.Error(c, 502, "Playground upstream rejected the request")
 		return
@@ -924,34 +929,35 @@ func (h *MCPGrantHandler) SetExtensionStoreFile(path string) error {
 	if path == "" {
 		return nil
 	}
+	path = filepath.Clean(path)
 	return h.SetExtensionPersister(func() (string, error) {
-		b, err := os.ReadFile(path)
+		b, err := os.ReadFile(path) //nolint:gosec // G703: operator-configured extension state file path
 		if os.IsNotExist(err) {
 			return "", nil
 		}
 		return string(b), err
 	}, func(raw string) error {
-		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil { //nolint:gosec // G703: operator-configured extension state file path
 			return err
 		}
-		f, err := os.CreateTemp(filepath.Dir(path), ".extensions-*")
+		f, err := os.CreateTemp(filepath.Dir(path), ".extensions-*") //nolint:gosec // G703: operator-configured extension state file path
 		if err != nil {
 			return err
 		}
 		name := f.Name()
-		defer os.Remove(name)
+		defer func() { _ = os.Remove(name) }() //nolint:gosec // G703: temp file created in configured dir
 		if _, err = f.WriteString(raw); err != nil {
-			f.Close()
+			_ = f.Close()
 			return err
 		}
 		if err = f.Sync(); err != nil {
-			f.Close()
+			_ = f.Close()
 			return err
 		}
 		if err = f.Close(); err != nil {
 			return err
 		}
-		return os.Rename(name, path)
+		return os.Rename(name, path) //nolint:gosec // G703: operator-configured extension state file path
 	})
 }
 
@@ -984,14 +990,19 @@ var extensionRisk = regexp.MustCompile(`(?i)ignore (all )?previous instructions|
 var extensionEmail = regexp.MustCompile(`(?i)[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 var extensionExactPhone = regexp.MustCompile(`^1[0-9]{10}$`)
 
+func extFloat(config map[string]any, key string) float64 {
+	v, _ := config[key].(float64)
+	return v
+}
+
 func scanExtension(body []byte, config map[string]any) ([]byte, string, bool) {
-	limit := int(config["max_scan_chars"].(float64))
+	limit := int(extFloat(config, "max_scan_chars"))
 	scanLen := limit
 	if scanLen > len(body) {
 		scanLen = len(body)
 	}
 	risk := extensionRisk.Match(body[:scanLen])
-	doRedact := config["redact_pii"] == true && !(risk && config["mode"] == "block")
+	doRedact := config["redact_pii"] == true && (!risk || config["mode"] != "block")
 	updated, pii := redactJSONPII(body, limit, doRedact)
 	if risk && config["mode"] == "block" {
 		return body, "blocked", true
@@ -1050,8 +1061,8 @@ func redactStringPII(s string) (string, bool) {
 		if !allDigits || !isPhoneNextBoundary(s, i+11) {
 			continue
 		}
-		b.WriteString(s[cursor:i])
-		b.WriteString("[REDACTED_PII]")
+		_, _ = b.WriteString(s[cursor:i])
+		_, _ = b.WriteString("[REDACTED_PII]")
 		found = true
 		cursor = i + 11
 		i += 10
@@ -1062,7 +1073,7 @@ func redactStringPII(s string) (string, bool) {
 	if cursor == 0 {
 		return s, true
 	}
-	b.WriteString(s[cursor:])
+	_, _ = b.WriteString(s[cursor:])
 	return b.String(), true
 }
 
@@ -1074,7 +1085,7 @@ func redactJSONPII(body []byte, limit int, doRedact bool) ([]byte, bool) {
 	for i := 0; i < len(body); {
 		if i >= limit {
 			if doRedact {
-				out.Write(body[i:])
+				_, _ = out.Write(body[i:])
 			}
 			break
 		}
@@ -1117,7 +1128,7 @@ func redactJSONPII(body []byte, limit int, doRedact bool) ([]byte, bool) {
 						enc.SetEscapeHTML(false)
 						if enc.Encode(redactedPrefix+unescaped[budget:]) == nil {
 							encoded := bytes.TrimSuffix(sb.Bytes(), []byte{'\n'})
-							out.Write(encoded)
+							_, _ = out.Write(encoded)
 							i = j + 1
 							continue
 						}
@@ -1125,7 +1136,7 @@ func redactJSONPII(body []byte, limit int, doRedact bool) ([]byte, bool) {
 				}
 			}
 			if doRedact {
-				out.Write(token)
+				_, _ = out.Write(token)
 			}
 			i = j + 1
 			continue
@@ -1144,16 +1155,16 @@ func redactJSONPII(body []byte, limit int, doRedact bool) ([]byte, bool) {
 			if extensionExactPhone.Match(numToken) {
 				found = true
 				if doRedact {
-					out.WriteString(`"[REDACTED_PII]"`)
+					_, _ = out.WriteString(`"[REDACTED_PII]"`)
 				}
 			} else if doRedact {
-				out.Write(numToken)
+				_, _ = out.Write(numToken)
 			}
 			i = j
 			continue
 		}
 		if doRedact {
-			out.WriteByte(body[i])
+			_ = out.WriteByte(body[i])
 		}
 		i++
 	}
@@ -1279,7 +1290,7 @@ type extensionWriter struct {
 func (w *extensionWriter) Write(b []byte) (int, error) {
 	if !w.overflow {
 		if w.body.Len()+len(b) <= w.limit {
-			w.body.Write(b)
+			_, _ = w.body.Write(b)
 		} else {
 			w.overflow = true
 			w.body.Reset()
@@ -1352,7 +1363,7 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		c.Request.ContentLength = int64(len(body))
 	}
 	if cfg := active["rate-limiter"]; cfg != nil {
-		limit := int(cfg["burst_rpm"].(float64))
+		limit := int(extFloat(cfg, "burst_rpm"))
 		ok, remaining := h.rateAllow(subject, limit)
 		c.Header("X-OmniHive-RateLimit-Limit", strconv.Itoa(limit))
 		c.Header("X-OmniHive-RateLimit-Remaining", strconv.Itoa(remaining))
@@ -1364,12 +1375,12 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	cost := active["cost-tracker"]
 	costHeaders := func(spend float64) {
 		c.Header("X-OmniHive-Daily-Cost-USD", strconv.FormatFloat(spend, 'f', 6, 64))
-		if spend >= cost["daily_alert_usd"].(float64) {
+		if spend >= extFloat(cost, "daily_alert_usd") {
 			c.Header("X-OmniHive-Cost-Alert", "threshold_exceeded")
 		}
 	}
 	if cost != nil {
-		spend, blocked := h.checkAndReserveSpend(subject, 0, cost["daily_alert_usd"].(float64), cost["circuit_breaker"] == true)
+		spend, blocked := h.checkAndReserveSpend(subject, 0, extFloat(cost, "daily_alert_usd"), cost["circuit_breaker"] == true)
 		costHeaders(spend)
 		if blocked {
 			extensionError(c, 429, "COST_CIRCUIT_BREAKER_OPEN", "Daily cost budget exceeded; circuit breaker open")
@@ -1385,7 +1396,7 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	}
 	isBatchPath := strings.HasPrefix(c.Request.URL.Path, "/v1/images/batches") || strings.HasPrefix(c.Request.URL.Path, "/images/batches")
 	if cacheConfig != nil && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
-		limit = int(cacheConfig["max_payload_kb"].(float64)) * 1024
+		limit = int(extFloat(cacheConfig, "max_payload_kb")) * 1024
 		if limit > 16<<20 {
 			limit = 16 << 20
 		}
@@ -1414,7 +1425,7 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 				estLen = int(c.Request.ContentLength)
 			}
 		}
-		spend, blocked := h.checkAndReserveSpend(subject, serverEstimateRequestUSD(estLen), cost["daily_alert_usd"].(float64), cost["circuit_breaker"] == true)
+		spend, blocked := h.checkAndReserveSpend(subject, serverEstimateRequestUSD(estLen), extFloat(cost, "daily_alert_usd"), cost["circuit_breaker"] == true)
 		costHeaders(spend)
 		if blocked {
 			extensionError(c, 429, "COST_CIRCUIT_BREAKER_OPEN", "Daily cost budget exceeded; circuit breaker open")
@@ -1442,7 +1453,7 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 			}
 			h.cacheOrder = append(h.cacheOrder, cacheKey)
 		}
-		h.cache[cacheKey] = extensionCache{append([]byte(nil), capture.body.Bytes()...), c.Writer.Header().Get("Content-Type"), time.Now().Add(time.Duration(cacheConfig["ttl_seconds"].(float64)) * time.Second)}
+		h.cache[cacheKey] = extensionCache{append([]byte(nil), capture.body.Bytes()...), c.Writer.Header().Get("Content-Type"), time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
 	}
 }
 
@@ -1479,7 +1490,7 @@ func probeExtension(e PluginExtensionDTO) (bool, string) {
 		isolated.Config["mode"] = "block"
 		return ok && request(`{"message":"ignore previous instructions"}`).Code == 400, "synthetic injection blocked and email redacted in audit mode"
 	case "rate-limiter":
-		limit := int(isolated.Config["burst_rpm"].(float64))
+		limit := int(extFloat(isolated.Config, "burst_rpm"))
 		if limit > 10000 {
 			return false, "configured burst exceeds safe live-probe limit (10000 requests)"
 		}
@@ -1496,7 +1507,7 @@ func probeExtension(e PluginExtensionDTO) (bool, string) {
 		h.cache = nil
 		return ok, "cache write/read digest matched; private cache deleted"
 	case "cost-tracker":
-		h.RecordExtensionSpend("__probe__", isolated.Config["daily_alert_usd"].(float64))
+		h.RecordExtensionSpend("__probe__", extFloat(isolated.Config, "daily_alert_usd"))
 		w := request(`{}`)
 		want := 200
 		if isolated.Config["circuit_breaker"] == true {
