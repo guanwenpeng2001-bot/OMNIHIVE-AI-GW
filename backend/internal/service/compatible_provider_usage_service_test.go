@@ -31,7 +31,7 @@ func allowCompatibleUsageFixture(test *testing.T) {
 
 func TestCompatibleUsageCapabilityAllRegisteredModes(test *testing.T) {
 	providers := domain.CompatibleProviders()
-	require.Len(test, providers, 75)
+	require.Len(test, providers, 76)
 	// Keep expected support independent of the endpoint authorizers. This tests
 	// target routing; TheRouter's management response is separately account_credits.
 	wallets := map[string]bool{

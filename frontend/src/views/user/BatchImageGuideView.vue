@@ -2069,7 +2069,7 @@ function packZip(files: Array<{ name: string; data: Uint8Array }>): Blob {
   footer.setUint16(10, files.length, true)
   footer.setUint32(12, directorySize, true)
   footer.setUint32(16, offset, true)
-  return new Blob([...entries, ...directory, end] as Array<Uint8Array<ArrayBuffer>>, { type: 'application/zip' })
+  return new Blob([...entries, ...directory, end] as never, { type: 'application/zip' })
 }
 
 async function deleteJob(job: BatchImageJobRow) {

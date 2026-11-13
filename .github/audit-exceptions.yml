@@ -1,4 +1,19 @@
 version: 1
 # xlsx(SheetJS)0.18.x 的两条 high advisory 例外已随依赖替换移除：
 # usage-display-export 改用维护中的写库 write-excel-file，锁文件里已无 xlsx。
-exceptions: []
+exceptions:
+  - package: vue-i18n
+    advisory: GHSA-83rm-6c8r-g728
+    severity: high
+    mitigation: "vue-i18n 9.x has no upstream patched 9.x release; OmniHive does not interpolate untrusted translation parameters into iframe srcdoc attributes."
+    expires_on: "2027-06-30"
+  - package: "@intlify/shared"
+    advisory: GHSA-83rm-6c8r-g728
+    severity: high
+    mitigation: "Transitive dependency of vue-i18n 9.14.5 with no 9.x patch; untrusted translation parameters are never bound to iframe srcdoc."
+    expires_on: "2027-06-30"
+  - package: "@intlify/core-base"
+    advisory: GHSA-83rm-6c8r-g728
+    severity: high
+    mitigation: "Transitive dependency of vue-i18n 9.14.5 with no 9.x patch; untrusted translation parameters are never bound to iframe srcdoc."
+    expires_on: "2027-06-30"

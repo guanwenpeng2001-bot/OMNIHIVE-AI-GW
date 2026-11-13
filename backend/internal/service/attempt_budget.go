@@ -357,7 +357,11 @@ func AttemptExecutionContext(ctx context.Context) (context.Context, context.Canc
 	deadline := b.deadline
 	b.mu.Unlock()
 	child, cancel := context.WithDeadline(ctx, deadline)
-	stop := context.AfterFunc(b.root, cancel)
+	stop := context.AfterFunc(b.root, func() {
+		if !errors.Is(b.root.Err(), context.DeadlineExceeded) {
+			cancel()
+		}
+	})
 	return child, func() { stop(); cancel() }
 }
 

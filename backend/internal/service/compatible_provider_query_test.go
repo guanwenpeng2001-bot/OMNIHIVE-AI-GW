@@ -167,7 +167,7 @@ func TestCompatibleBalanceCustomRelayAndConsumedNeverSend(test *testing.T) {
 
 func TestCompatibleQueryPersistedPlanMatrix(test *testing.T) {
 	providers := domain.CompatibleProviders()
-	require.Len(test, providers, 75)
+	require.Len(test, providers, 76)
 	for _, provider := range providers {
 		for _, mode := range provider.Modes {
 			account := compatibleBalanceAccount(provider.ID)
