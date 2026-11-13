@@ -72,7 +72,7 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	}
 	ctx := context.Background()
 	options := service.AccountModelBindingOptions{Endpoint: "messages"}
-	require.False(t, service.AccountSupportsResolvedModel(ctx, loadAccount(51), "public-model", options), "audit B1 before upgrade")
+	require.Nil(t, loadAccount(51).GetUpstreamModelCatalog(), "audit B1 before upgrade")
 	var originalCredentials string
 	require.NoError(t, database.QueryRow(`SELECT credentials::text FROM accounts WHERE id=51`).Scan(&originalCredentials))
 

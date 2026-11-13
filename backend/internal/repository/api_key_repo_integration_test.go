@@ -51,7 +51,10 @@ func (s *APIKeyRepoSuite) TestCreate() {
 
 	got, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err, "GetByID")
-	s.Require().Equal("sk-create-test", got.Key)
+	s.Require().Empty(got.Key, "plaintext key must not be persisted on api_keys")
+	gotByKey, err := s.repo.GetByKey(s.ctx, "sk-create-test")
+	s.Require().NoError(err, "GetByKey")
+	s.Require().Equal(key.ID, gotByKey.ID)
 }
 
 func (s *APIKeyRepoSuite) TestGetByID_NotFound() {
@@ -144,7 +147,10 @@ func (s *APIKeyRepoSuite) TestUpdate() {
 
 	got, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err, "GetByID after update")
-	s.Require().Equal("sk-update", got.Key, "Update should not change key")
+	s.Require().Empty(got.Key, "plaintext key must not be persisted on api_keys")
+	gotByKey, err := s.repo.GetByKey(s.ctx, "sk-update")
+	s.Require().NoError(err, "Update should preserve credential lookup")
+	s.Require().Equal(key.ID, gotByKey.ID)
 	s.Require().Equal(user.ID, got.UserID, "Update should not change user_id")
 	s.Require().Equal("Renamed", got.Name)
 	s.Require().Equal(service.StatusDisabled, got.Status)
@@ -210,9 +216,7 @@ func (s *APIKeyRepoSuite) TestCreate_AfterSoftDelete_AllowsSameKey() {
 		Name:   "Second Key",
 		Status: service.StatusActive,
 	}
-	s.Require().NoError(s.repo.Create(s.ctx, second), "create second key with same key")
-	s.Require().NotZero(second.ID)
-	s.Require().NotEqual(first.ID, second.ID, "recreated key should be a new row")
+	s.Require().ErrorIs(s.repo.Create(s.ctx, second), service.ErrAPIKeyExists, "deleted credential digest must not be reusable")
 }
 
 // --- ListByUserID / CountByUserID ---
@@ -372,7 +376,7 @@ func (s *APIKeyRepoSuite) TestCRUD_Search_ClearGroupID() {
 
 	got2, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err, "GetByID")
-	s.Require().Equal("sk-test-1", got2.Key, "Update should not change key")
+	s.Require().Empty(got2.Key, "plaintext key must not be persisted on api_keys")
 	s.Require().Equal(user.ID, got2.UserID, "Update should not change user_id")
 	s.Require().Equal("Renamed", got2.Name)
 	s.Require().Equal(service.StatusDisabled, got2.Status)
@@ -494,7 +498,7 @@ func (s *APIKeyRepoSuite) TestIncrementQuotaUsedAndGetState() {
 	s.Require().Equal(3.5, state.QuotaUsed)
 	s.Require().Equal(3.0, state.Quota)
 	s.Require().Equal(service.StatusAPIKeyQuotaExhausted, state.Status)
-	s.Require().Equal(key.Key, state.Key)
+	s.Require().Empty(state.Key, "plaintext key must not be returned in quota state")
 
 	got, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().NoError(err, "GetByID")
@@ -571,15 +575,15 @@ func (s *APIKeyRepoSuite) TestDeleteWithAudit_TombstonesWithoutRetainingCredenti
 	_, err := s.repo.GetByID(s.ctx, key.ID)
 	s.Require().Error(err)
 
-	var tombstone string
+	var tombstone sql.NullString
 	var deletedAt time.Time
 	rows, err := s.repo.sql.QueryContext(s.ctx, `SELECT key, deleted_at FROM api_keys WHERE id = $1`, key.ID)
 	s.Require().NoError(err)
 	s.Require().True(rows.Next())
 	s.Require().NoError(rows.Scan(&tombstone, &deletedAt))
 	s.Require().NoError(rows.Close())
-	s.Require().NotEqual("sk-del-audit-1", tombstone)
-	s.Require().Contains(tombstone, "__deleted__")
+	s.Require().NotEqual("sk-del-audit-1", tombstone.String)
+	s.Require().False(tombstone.Valid && tombstone.String == "sk-del-audit-1")
 
 	var auditCount int
 	auditRows, err := s.repo.sql.QueryContext(s.ctx,
