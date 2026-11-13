@@ -42,7 +42,7 @@
             <div class="text-[10px] opacity-60">智能算力中转蜂巢</div>
           </div>
         </router-link>
-        <div class="shell-version hidden shrink-0 2xl:block">
+        <div class="shell-version hidden shrink-0 sm:block">
           <VersionBadge :version="appStore.siteVersion" />
         </div>
         <div class="shell-breadcrumb hidden min-w-0 items-center gap-2 whitespace-nowrap text-xs sm:flex" :title="pageDescription">
@@ -699,7 +699,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1799px) {
-  .shell-version,
   .shell-subscription,
   .shell-user-copy,
   .shell-density {

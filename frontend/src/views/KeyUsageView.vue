@@ -491,7 +491,7 @@ const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.ca
 const siteName = computed(() => (appStore.cachedPublicSettings?.site_name || appStore.siteName || 'OmniHive').replace(/sub2api|omniscription/gi, 'OmniHive'))
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const githubUrl = 'https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW'
 
 // ==================== Theme (same as HomeView) ====================
 

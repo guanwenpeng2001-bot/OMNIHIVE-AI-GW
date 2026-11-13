@@ -4,7 +4,8 @@
     <template v-if="isAdmin">
       <button
         @click="toggleDropdown"
-        class="flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-xs transition-colors"
+        :aria-expanded="dropdownOpen"
+        class="flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-colors"
         :class="[
           hasUpdate
             ? 'border-[var(--warn)]/35 bg-[var(--warn)]/12 text-[var(--warn-text)]'
@@ -24,6 +25,12 @@
           ></span>
           <span class="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
         </span>
+        <span
+          v-if="!hasUpdate"
+          class="h-1.5 w-1.5 rounded-full"
+          :class="loading ? 'bg-amber-400' : 'bg-emerald-500/70'"
+          aria-hidden="true"
+        ></span>
       </button>
 
       <!-- Dropdown -->
@@ -59,7 +66,7 @@
           <div class="p-4">
             <!-- Loading state -->
             <div v-if="loading" class="flex items-center justify-center py-6">
-              <svg class="h-6 w-6 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24">
+              <svg class="h-6 w-6 animate-spin text-[var(--brand)]" fill="none" viewBox="0 0 24 24">
                 <circle
                   class="opacity-25"
                   cx="12"
@@ -83,7 +90,7 @@
                 <div class="inline-flex items-center gap-2">
                   <span
                     v-if="currentVersion"
-                    class="text-2xl font-bold text-gray-900 dark:text-white"
+                    class="text-2xl font-bold text-[var(--foreground)]"
                     >v{{ currentVersion }}</span
                   >
                   <span v-else class="text-2xl font-bold text-[var(--muted-foreground)]">--</span>
@@ -234,8 +241,7 @@
               <!-- Priority 3: Update available for source build - show git pull hint -->
               <div v-else-if="hasUpdate && !isReleaseBuild" class="space-y-2">
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  :href="releaseURL"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="group flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition-colors hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-900/20 dark:hover:bg-amber-900/30"
@@ -321,7 +327,7 @@
                 <button
                   @click="handleUpdate"
                   :disabled="updating"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="flex w-full items-center justify-center gap-2 btn btn-primary rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <svg v-if="updating" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle
@@ -344,8 +350,7 @@
 
                 <!-- View release link -->
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  :href="releaseURL"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="flex items-center justify-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-gray-700"
@@ -358,8 +363,7 @@
               <!-- Priority 5: Up to date - GitHub link + version rollback -->
               <div v-else class="space-y-2">
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  :href="releaseURL"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="flex items-center justify-center gap-2 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-gray-700"
@@ -424,7 +428,7 @@
                         class="flex items-center justify-center py-4"
                       >
                         <svg
-                          class="h-5 w-5 animate-spin text-primary-500"
+                          class="h-5 w-5 animate-spin text-[var(--brand)]"
                           fill="none"
                           viewBox="0 0 24 24"
                         >
@@ -653,9 +657,9 @@ import {
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 
-const GITHUB_REPO = 'Wei-Shaw/sub2api'
-// Docker Hub image published by CI (tags carry no "v" prefix, e.g. weishaw/sub2api:0.1.146)
-const DOCKER_IMAGE = 'weishaw/sub2api'
+const GITHUB_REPO = 'guanwenpeng2001-bot/OMNIHIVE-AI-GW'
+// GHCR image published by CI (tags carry no "v" prefix).
+const DOCKER_IMAGE = 'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw'
 
 const { t } = useI18n()
 
@@ -677,6 +681,10 @@ const currentVersion = computed(() => appStore.currentVersion || props.version |
 const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
+const releaseURL = computed(() => {
+  const url = releaseInfo.value?.html_url
+  return url && url !== '#' ? url : `https://github.com/${GITHUB_REPO}/releases`
+})
 const buildType = computed(() => appStore.buildType)
 
 // Update process states (local to this component)

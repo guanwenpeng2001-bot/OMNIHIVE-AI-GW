@@ -1,6 +1,6 @@
-# Sub2API Docker Image
+# OmniHive Docker Image
 
-Sub2API distributes and manages AI API quotas. Production images include the web UI,
+OmniHive distributes and manages AI API quotas. Production images include the web UI,
 runtime pricing resources and PostgreSQL 18 `pg_dump`/`psql` for backup and restore.
 
 ## Quick start with external PostgreSQL and Redis
@@ -40,7 +40,7 @@ docker run -d \
   -p 8080:8080 \
   --env-file sub2api.env \
   -v sub2api_data:/app/data \
-  weishaw/sub2api:latest
+  'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest'
 ```
 
 For `docker run`, keep `SERVER_PORT` consistent with the container side of `-p`.
@@ -51,8 +51,8 @@ For example, publish host port 8081 with `-p 8081:8080` and `SERVER_PORT=8080`.
 Use Docker Compose 2.24 or newer and the maintained configurations in the repository:
 
 ```bash
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
+git clone 'https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW.git'
+cd OMNIHIVE-AI-GW/deploy
 cp .env.example .env
 chmod 600 .env
 # Edit .env: set POSTGRES_PASSWORD, JWT_SECRET and TOTP_ENCRYPTION_KEY.
@@ -100,7 +100,7 @@ application limits for the deployment's resources before increasing load.
 
 ## Startup, probes and security
 
-Sub2API applies database migrations on startup. Transient PostgreSQL startup/connection
+OmniHive applies database migrations on startup. Transient PostgreSQL startup/connection
 errors receive bounded retries; bad credentials, checksum mismatches and incompatible
 data fail immediately. Compose dependency healthchecks order initial startup; they do
 not replace the application's recovery logic after a host restart.
@@ -126,7 +126,7 @@ Build from the repository root with `docker build -f Dockerfile .` or
 backend development only. Published production architectures are `linux/amd64` and
 `linux/arm64`; select an available release tag or digest for reproducible deployments.
 
-- [GitHub repository](https://github.com/Wei-Shaw/sub2api)
-- [Deployment guide](https://github.com/Wei-Shaw/sub2api/blob/main/deploy/README.md)
-- [Environment template](https://github.com/Wei-Shaw/sub2api/blob/main/deploy/.env.example)
-- [Edge security guide](https://github.com/Wei-Shaw/sub2api/blob/main/deploy/EDGE_SECURITY.md)
+- [GitHub repository](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW)
+- [Deployment guide](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/blob/main/deploy/README.md)
+- [Environment template](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/blob/main/deploy/.env.example)
+- [Edge security guide](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/blob/main/deploy/EDGE_SECURITY.md)

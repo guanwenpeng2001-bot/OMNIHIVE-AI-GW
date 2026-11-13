@@ -61,6 +61,7 @@ func NewGitHubReleaseClient(proxyURL string, allowDirectOnProxyError bool) servi
 		downloadClient = &http.Client{Timeout: 10 * time.Minute}
 	}
 	downloadClient = cloneHTTPClient(downloadClient)
+	downloadClient.CheckRedirect = githubAPICheckRedirect(downloadClient.CheckRedirect)
 
 	return &githubReleaseClient{
 		httpClient:         apiClient,
@@ -87,6 +88,9 @@ func githubAPICheckRedirect(previous func(*http.Request, []*http.Request) error)
 		if previous != nil {
 			return previous(req, via)
 		}
+		if len(via) >= 10 {
+			return fmt.Errorf("stopped after 10 redirects")
+		}
 		return nil
 	}
 }
@@ -97,7 +101,7 @@ func (c *githubReleaseClient) newAPIRequest(ctx context.Context, url string) (*h
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "Sub2API-Updater")
+	req.Header.Set("User-Agent", "OmniHive-Updater")
 	if c.updateGitHubToken != "" && isGitHubAPIURL(req.URL) {
 		req.Header.Set("Authorization", "Bearer "+c.updateGitHubToken)
 	}
@@ -185,6 +189,12 @@ func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string
 	}
 
 	// 使用预配置的下载客户端（已包含代理配置）
+	if c.updateGitHubToken != "" && isGitHubAPIURL(req.URL) {
+		req.Header.Set("Authorization", "Bearer "+c.updateGitHubToken)
+		req.Header.Set("Accept", "application/octet-stream")
+		req.Header.Set("User-Agent", "OmniHive-Updater")
+	}
+
 	resp, err := c.downloadHTTPClient.Do(req)
 	if err != nil {
 		return err
@@ -230,6 +240,12 @@ func (c *githubReleaseClient) FetchChecksumFile(ctx context.Context, url string)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if c.updateGitHubToken != "" && isGitHubAPIURL(req.URL) {
+		req.Header.Set("Authorization", "Bearer "+c.updateGitHubToken)
+		req.Header.Set("Accept", "application/octet-stream")
+		req.Header.Set("User-Agent", "OmniHive-Updater")
 	}
 
 	resp, err := c.httpClient.Do(req)

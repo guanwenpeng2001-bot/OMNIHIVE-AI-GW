@@ -3,6 +3,7 @@ package repository
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -318,7 +319,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Success() {
 	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(s.T(), "/repos/test/repo/releases/latest", r.URL.Path)
 		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
-		require.Equal(s.T(), "Sub2API-Updater", r.Header.Get("User-Agent"))
+		require.Equal(s.T(), "OmniHive-Updater", r.Header.Get("User-Agent"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(releaseJSON))
@@ -370,7 +371,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Success() {
 		require.Equal(s.T(), "/repos/test/repo/releases", r.URL.Path)
 		require.Equal(s.T(), "15", r.URL.Query().Get("per_page"))
 		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
-		require.Equal(s.T(), "Sub2API-Updater", r.Header.Get("User-Agent"))
+		require.Equal(s.T(), "OmniHive-Updater", r.Header.Get("User-Agent"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(releasesJSON))
@@ -479,4 +480,57 @@ func (s *GitHubReleaseServiceSuite) TestFetchChecksumFile_ContextCancel() {
 
 func TestGitHubReleaseServiceSuite(t *testing.T) {
 	suite.Run(t, new(GitHubReleaseServiceSuite))
+}
+
+func TestGitHubReleaseClientAssetAuthorization(t *testing.T) {
+	for _, token := range []string{"", "update-secret"} {
+		for _, host := range []string{"api.github.com", "github.com", "objects.githubusercontent.com"} {
+			t.Run(host+"/"+fmt.Sprint(token != ""), func(t *testing.T) {
+				t.Setenv("UPDATE_GITHUB_TOKEN", token)
+				client := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+				calls := 0
+				transport := githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+					calls++
+					if host == "api.github.com" && token != "" {
+						require.Equal(t, "Bearer "+token, req.Header.Get("Authorization"))
+						require.Equal(t, "application/octet-stream", req.Header.Get("Accept"))
+						require.Equal(t, "OmniHive-Updater", req.Header.Get("User-Agent"))
+					} else {
+						require.Empty(t, req.Header.Get("Authorization"))
+					}
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("asset")), Request: req}, nil
+				})
+				client.httpClient.Transport = transport
+				client.downloadHTTPClient.Transport = transport
+				assetURL := "https://" + host + "/repos/owner/repo/releases/assets/123"
+				require.NoError(t, client.DownloadFile(context.Background(), assetURL, filepath.Join(t.TempDir(), "asset"), 100))
+				_, err := client.FetchChecksumFile(context.Background(), assetURL)
+				require.NoError(t, err)
+				require.Equal(t, 2, calls)
+			})
+		}
+	}
+}
+
+func TestGitHubReleaseClientAssetRedirectStripsAuthorization(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_TOKEN", "update-secret")
+	client := NewGitHubReleaseClient("", false).(*githubReleaseClient)
+	calls := 0
+	transport := githubReleaseRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if req.URL.Host == "api.github.com" {
+			require.Equal(t, "Bearer update-secret", req.Header.Get("Authorization"))
+			return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": []string{"https://objects.githubusercontent.com/asset"}}, Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		}
+		require.Equal(t, "objects.githubusercontent.com", req.URL.Host)
+		require.Empty(t, req.Header.Get("Authorization"))
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("asset")), Request: req}, nil
+	})
+	client.httpClient.Transport = transport
+	client.downloadHTTPClient.Transport = transport
+	assetURL := "https://api.github.com/repos/owner/repo/releases/assets/123"
+	require.NoError(t, client.DownloadFile(context.Background(), assetURL, filepath.Join(t.TempDir(), "asset"), 100))
+	_, err := client.FetchChecksumFile(context.Background(), assetURL)
+	require.NoError(t, err)
+	require.Equal(t, 4, calls)
 }

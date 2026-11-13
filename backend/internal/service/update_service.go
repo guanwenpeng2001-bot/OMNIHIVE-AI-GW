@@ -30,7 +30,7 @@ var (
 const (
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	githubRepo     = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -61,6 +61,7 @@ type GitHubReleaseClient interface {
 
 // UpdateService handles software updates
 type UpdateService struct {
+	executablePath func() (string, error)
 	cache          UpdateCache
 	githubClient   GitHubReleaseClient
 	currentVersion string
@@ -70,6 +71,7 @@ type UpdateService struct {
 // NewUpdateService creates a new UpdateService
 func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
 	return &UpdateService{
+		executablePath: os.Executable,
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
@@ -124,9 +126,108 @@ type RollbackVersion struct {
 }
 
 type GitHubAsset struct {
+	URL                string `json:"url"`
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Size               int64  `json:"size"`
+}
+
+func resolveGitHubRepo() string {
+	if repo := strings.TrimSpace(os.Getenv("UPDATE_GITHUB_REPO")); repo != "" {
+		return repo
+	}
+	return githubRepo
+}
+
+func resolveAssetDownloadURL(a GitHubAsset) string {
+	if strings.TrimSpace(os.Getenv("UPDATE_GITHUB_TOKEN")) != "" && strings.HasPrefix(a.URL, "https://api.github.com/") {
+		return a.URL
+	}
+	return a.BrowserDownloadURL
+}
+
+func resolveDockerDataDir() string {
+	if dir := strings.TrimSpace(os.Getenv("OMNIHIVE_DATA_DIR")); dir != "" {
+		return dir
+	}
+	return "/app/data"
+}
+
+func createUpdateTempDir(exeDir string) (string, bool, error) {
+	tempDir, err := os.MkdirTemp(exeDir, ".omnihive-update-*")
+	if err == nil {
+		return tempDir, true, nil
+	}
+	updatesDir := filepath.Join(resolveDockerDataDir(), ".updates")
+	if err := os.MkdirAll(updatesDir, 0755); err != nil {
+		return "", false, fmt.Errorf("failed to create persistent update directory: %w", err)
+	}
+	tempDir, err = os.MkdirTemp(updatesDir, ".stage-*")
+	if err != nil {
+		return "", false, fmt.Errorf("failed to create temp dir: %w", err)
+	}
+	return tempDir, false, nil
+}
+
+// copyUpdateBinary publishes a complete file by renaming within the target filesystem.
+func copyUpdateBinary(source, target string) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+		return err
+	}
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.CreateTemp(filepath.Dir(target), ".binary-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(out.Name())
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	if err := out.Chmod(0755); err != nil {
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(out.Name(), target)
+}
+
+func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
+	dataDir := resolveDockerDataDir()
+	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
+		return false, nil
+	}
+	updatesDir := filepath.Join(dataDir, ".updates")
+	if err := os.MkdirAll(updatesDir, 0755); err != nil {
+		return false, nil
+	}
+	probe, err := os.MkdirTemp(updatesDir, ".probe-*")
+	if err != nil {
+		return false, nil
+	}
+	defer os.Remove(probe)
+	current := filepath.Join(updatesDir, "current", "sub2api")
+	previous := current
+	if _, err := os.Stat(current); os.IsNotExist(err) {
+		previous = exePath
+	} else if err != nil {
+		return false, err
+	}
+	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", "sub2api")); err != nil {
+		return false, err
+	}
+	if err := copyUpdateBinary(newBinaryPath, current); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // CheckUpdate checks for available updates
@@ -182,11 +283,13 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	// Find matching archive and checksum for current platform
 	archiveName := s.getArchiveName()
 	var downloadURL string
+	var downloadName string
 	var checksumURL string
 
 	for _, asset := range releaseAssets {
 		if strings.Contains(asset.Name, archiveName) && !strings.HasSuffix(asset.Name, ".txt") {
 			downloadURL = asset.DownloadURL
+			downloadName = filepath.Base(asset.Name)
 		}
 		if asset.Name == "checksums.txt" {
 			checksumURL = asset.DownloadURL
@@ -208,7 +311,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	}
 
 	// Get current executable path
-	exePath, err := os.Executable()
+	exePath, err := s.executablePath()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
@@ -221,14 +324,14 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 	// Create temp directory in the SAME directory as executable
 	// This ensures os.Rename is atomic (same filesystem)
-	tempDir, err := os.MkdirTemp(exeDir, ".sub2api-update-*")
+	tempDir, exeDirWritable, err := createUpdateTempDir(exeDir)
 	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %w", err)
+		return err
 	}
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Download archive
-	archivePath := filepath.Join(tempDir, filepath.Base(downloadURL))
+	archivePath := filepath.Join(tempDir, downloadName)
 	if err := s.downloadFile(ctx, downloadURL, archivePath); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -251,6 +354,17 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
+	staged, err := stagePersistentBinary(exePath, newBinaryPath)
+	if err != nil {
+		return fmt.Errorf("persistent staging failed: %w", err)
+	}
+	if !exeDirWritable {
+		if staged {
+			return nil // The root entrypoint installs the staged binary on restart.
+		}
+		return fmt.Errorf("executable directory and persistent data directory are not writable")
+	}
+
 	// Atomic replacement using rename pattern:
 	// 1. Rename current -> backup (atomic on Unix)
 	// 2. Rename new -> current (atomic on Unix, same filesystem)
@@ -262,6 +376,9 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 	// Step 1: Move current binary to backup
 	if err := os.Rename(exePath, backupPath); err != nil {
+		if staged {
+			return nil
+		}
 		return fmt.Errorf("backup failed: %w", err)
 	}
 
@@ -270,6 +387,9 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		// Restore backup on failure
 		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
 			return fmt.Errorf("replace failed and restore failed: %w (restore error: %v)", err, restoreErr)
+		}
+		if staged {
+			return nil
 		}
 		return fmt.Errorf("replace failed (restored backup): %w", err)
 	}
@@ -281,7 +401,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
-	exePath, err := os.Executable()
+	exePath, err := s.executablePath()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
@@ -290,14 +410,28 @@ func (s *UpdateService) Rollback() error {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
-	backupFile := exePath + ".backup"
-	if _, err := os.Stat(backupFile); os.IsNotExist(err) {
-		return fmt.Errorf("no backup found")
+	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", "sub2api")
+	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", "sub2api")
+	staged := false
+	if _, err := os.Stat(persistentBackup); err == nil {
+		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
+			return err
+		}
+		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
+			return fmt.Errorf("persistent rollback failed: %w", err)
+		}
+		staged = true
+	} else if !os.IsNotExist(err) {
+		return err
 	}
 
-	// Replace current with backup
-	if err := os.Rename(backupFile, exePath); err != nil {
-		return fmt.Errorf("rollback failed: %w", err)
+	backupFile := exePath + ".backup"
+	if _, err := os.Stat(backupFile); err == nil {
+		if err := os.Rename(backupFile, exePath); err != nil && !staged {
+			return fmt.Errorf("rollback failed: %w", err)
+		}
+	} else if !staged {
+		return fmt.Errorf("no backup found: %w", err)
 	}
 
 	return nil
@@ -352,7 +486,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 	for i, a := range match.Assets {
 		assets[i] = Asset{
 			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
+			DownloadURL: resolveAssetDownloadURL(a),
 			Size:        a.Size,
 		}
 	}
@@ -363,7 +497,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, resolveGitHubRepo(), rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +534,10 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, resolveGitHubRepo())
+	if err != nil && strings.Contains(err.Error(), "GitHub API returned 404") {
+		return &UpdateInfo{CurrentVersion: s.currentVersion, LatestVersion: s.currentVersion, BuildType: s.buildType}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +548,7 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 	for i, a := range release.Assets {
 		assets[i] = Asset{
 			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
+			DownloadURL: resolveAssetDownloadURL(a),
 			Size:        a.Size,
 		}
 	}
@@ -458,7 +595,7 @@ func validateDownloadURL(rawURL string) error {
 	// Check against allowed hosts
 	host := parsedURL.Host
 	// GitHub release URLs can be from github.com or objects.githubusercontent.com
-	if host != allowedDownloadHost &&
+	if host != "api.github.com" && host != allowedDownloadHost &&
 		!strings.HasSuffix(host, "."+allowedDownloadHost) &&
 		host != allowedAssetHost &&
 		!strings.HasSuffix(host, "."+allowedAssetHost) {
@@ -551,7 +688,7 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 			}
 
 			// Only extract the specific binary we need
-			if baseName == "sub2api" || baseName == "sub2api.exe" {
+			if baseName == "sub2api" || baseName == "sub2api.exe" || baseName == "omnihive" || baseName == "omnihive.exe" || baseName == "omnihive-ai-gw" || baseName == "omnihive-ai-gw.exe" {
 				// Additional security: limit file size (max 500MB)
 				const maxBinarySize = 500 * 1024 * 1024
 				if hdr.Size > maxBinarySize {

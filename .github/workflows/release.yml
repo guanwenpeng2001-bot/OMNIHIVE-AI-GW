@@ -11,7 +11,7 @@ on:
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        description: 'Simple release: x86_64 GHCR image and self-update assets'
         required: false
         type: boolean
         default: false
@@ -86,7 +86,7 @@ jobs:
 
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          go version | grep -q 'go1.27'
 
       # Docker setup for GoReleaser
       - name: Set up QEMU

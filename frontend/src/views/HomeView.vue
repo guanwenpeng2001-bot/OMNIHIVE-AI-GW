@@ -1276,7 +1276,7 @@ const isHomeContentUrl = computed(() => {
 })
 
 // GitHub URL
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const githubUrl = 'https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW'
 
 // Auth state
 const isAuthenticated = computed(() => authStore.isAuthenticated)
