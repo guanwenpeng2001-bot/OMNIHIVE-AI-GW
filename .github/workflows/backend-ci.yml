@@ -12,6 +12,14 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+      - name: Use Homebrew Bash 4+
+        shell: bash
+        run: |
+          if [ -x /opt/homebrew/bin/bash ]; then
+            echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
+          elif [ -x /usr/local/bin/bash ]; then
+            echo "/usr/local/bin" >> "$GITHUB_PATH"
+          fi
       - name: Reject tracked process artifacts
         shell: bash
         run: |

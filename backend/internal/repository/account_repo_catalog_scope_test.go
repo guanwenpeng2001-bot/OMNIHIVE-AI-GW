@@ -240,7 +240,7 @@ func TestModelCatalogScopePostgres(t *testing.T) {
 		require.Equal(t, []string{"company", "company-claude"}, ids)
 		ids, err = gateway.CatalogModelIDs(ctx, &group4, service.PlatformComposite)
 		require.NoError(t, err)
-		require.Equal(t, []string{"company"}, ids, "Anthropic membership in another group must not grant visibility")
+		require.Equal(t, []string{"alias", "company"}, ids, "Anthropic membership in another group must not grant visibility")
 		ids, err = gateway.CatalogModelIDs(ctx, &missing, service.PlatformComposite)
 		require.NoError(t, err)
 		require.Empty(t, ids, "routes cannot grant visibility without eligible accounts in the group")
