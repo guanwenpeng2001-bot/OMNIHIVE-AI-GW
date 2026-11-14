@@ -41,7 +41,7 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	CREATE TABLE error_passthrough_rules(id bigint);
 	INSERT INTO accounts(id,platform,type,credentials,extra) VALUES
 	(51,'anthropic','apikey','{"model_mapping":{"public-model":"actual-model","duplicate":"actual-model","bad":"wild*","empty":"","number":42}}','{"note":"keep","upstream_model_metadata":{"source":"upstream","models":{"actual-model":{"id":"actual-model"}}}}'),
-	(52,'openai','apikey','{"model_mapping":{"actual-model":"actual-model"}}','{"openai_passthrough":true}'),
+	(52,'openai','apikey','{"model_mapping":{"actual-model":"actual-model"}}','{"openai_passthrough":true,"openai_responses_supported":true}'),
 	(53,'anthropic','apikey','{}','{"upstream_model_metadata":{"source":"models.dev","models":{"historical-model":{"id":"historical-model"},"*":{"id":"*"},"wrong-id":{"id":"different"}}}}'),
 	(54,'anthropic','apikey','{"model_mapping":{"*":"*"}}','{}'),
 	(55,'anthropic','apikey','{"model_mapping":{"public-model":"actual-model"}}','{"upstream_model_catalog":{"complete":true,"revision":9,"eligible_models":[],"discovered_models":[]}}'),
@@ -88,6 +88,11 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	require.Equal(t, "keep", account.Extra["note"])
 	require.True(t, service.AccountSupportsResolvedModel(ctx, loadAccount(52), "actual-model", service.AccountModelBindingOptions{Endpoint: "chat_completions"}))
 	require.True(t, service.AccountSupportsResolvedModel(ctx, loadAccount(52), "actual-model", service.AccountModelBindingOptions{Endpoint: "responses"}))
+	unobserved := loadAccount(52)
+	delete(unobserved.Extra, "openai_responses_supported")
+	require.False(t, service.AccountSupportsResolvedModel(ctx, unobserved, "actual-model", service.AccountModelBindingOptions{Endpoint: "responses"}), "HTTP passthrough requires Responses protocol evidence")
+	unobserved.Extra["openai_passthrough"] = false
+	require.True(t, service.AccountSupportsResolvedModel(ctx, unobserved, "actual-model", service.AccountModelBindingOptions{Endpoint: "responses"}), "legacy forwarding retains its default Responses path")
 	require.True(t, service.AccountSupportsResolvedModel(ctx, loadAccount(64), "any-public-alias", options))
 	for _, accountID := range []int64{53, 54, 56, 57, 58, 61, 62, 63} {
 		require.Nil(t, loadAccount(accountID).GetUpstreamModelCatalog(), "account %d must not receive a seed", accountID)
@@ -97,8 +102,17 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	shadow, parent := loadAccount(59), loadAccount(60)
 	shadowOptions := service.AccountModelBindingOptions{Endpoint: "responses", CredentialAccount: parent}
 	require.True(t, service.AccountSupportsResolvedModel(ctx, shadow, "actual-model", shadowOptions))
+	seedOnlyShadow := loadAccount(59)
+	seedOnlyShadow.Credentials["model_mapping"] = map[string]any{}
+	seedBinding := service.ResolveAccountModelBinding(ctx, seedOnlyShadow, "actual-model", shadowOptions)
+	require.True(t, seedBinding.Supported)
+	require.Equal(t, "legacy-mapping-upgrade", seedBinding.EvidenceKind)
 	parent.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 1}
-	require.False(t, service.AccountSupportsResolvedModel(ctx, shadow, "actual-model", shadowOptions))
+	currentBinding := service.ResolveAccountModelBinding(ctx, shadow, "actual-model", shadowOptions)
+	require.True(t, currentBinding.Supported, "saved selection survives discarded credential-owner evidence")
+	require.Equal(t, service.ModelEvidenceConfiguredSelection, currentBinding.EvidenceKind)
+	require.False(t, service.AccountSupportsResolvedModel(ctx, seedOnlyShadow, "actual-model", shadowOptions), "stale credential-owner evidence alone cannot authorize a model")
+	require.False(t, service.AccountSupportsResolvedModel(ctx, shadow, "unselected-model", shadowOptions))
 
 	var firstSeed, secondSeed, savedCredentials string
 	var firstGeneration, secondGeneration int64
@@ -119,9 +133,22 @@ func TestLegacyModelCatalogSeedUpgrade(t *testing.T) {
 	// Once new catalog evidence replaces the seed, a repeat cannot resurrect it.
 	_, err = database.Exec(`UPDATE accounts SET extra=jsonb_set(extra,'{upstream_model_catalog}','{"revision":2,"complete":true,"eligible_models":[],"discovered_models":[]}') WHERE id=51`)
 	require.NoError(t, err)
+	var replacedCatalog, reappliedCatalog string
+	require.NoError(t, database.QueryRow(`SELECT extra->'upstream_model_catalog' FROM accounts WHERE id=51`).Scan(&replacedCatalog))
 	_, err = database.Exec(string(contents))
 	require.NoError(t, err)
-	require.False(t, service.AccountSupportsResolvedModel(ctx, loadAccount(51), "public-model", options))
+	require.NoError(t, database.QueryRow(`SELECT extra->'upstream_model_catalog' FROM accounts WHERE id=51`).Scan(&reappliedCatalog))
+	require.Equal(t, replacedCatalog, reappliedCatalog, "reapplication must not resurrect replaced seed evidence")
+	replacement := loadAccount(51)
+	require.EqualValues(t, 2, replacement.GetUpstreamModelCatalog().Revision)
+	require.Empty(t, replacement.GetUpstreamModelCatalog().EligibleModels)
+	require.Empty(t, replacement.GetUpstreamModelCatalog().DiscoveredModels)
+	replacementBinding := service.ResolveAccountModelBinding(ctx, replacement, "public-model", options)
+	require.True(t, replacementBinding.Supported, "empty discovery preserves the saved selection")
+	require.Equal(t, service.ModelEvidenceConfiguredSelection, replacementBinding.EvidenceKind)
+	replacement.Credentials["model_mapping"] = map[string]any{}
+	service.NormalizeEmptyAccountModelSelection(replacement)
+	require.False(t, service.AccountSupportsResolvedModel(ctx, replacement, "public-model", options), "removing the saved selection revokes access")
 
 	_, err = database.Exec(`TRUNCATE accounts`)
 	require.NoError(t, err)
