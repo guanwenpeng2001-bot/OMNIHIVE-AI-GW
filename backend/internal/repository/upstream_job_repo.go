@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 type upstreamJobRepository struct{ db *sql.DB }
@@ -80,11 +81,17 @@ func (repository *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Conte
  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
  ON CONFLICT (submission_key) DO NOTHING RETURNING row_to_json(upstreamJob)`,
 		receipt.PublicRequestID, receipt.RequestFingerprint, receipt.Platform, receipt.Family, receipt.AccountID, receipt.UserID, receipt.APIKeyID, receipt.GroupID, receipt.SubmittedAt, receipt.NextPollAt, receipt.ExpiresAt, string(snapshot), receipt.SubmissionKey, receipt.UpstreamTaskID, string(receipt.UsageJSON), receipt.ResultRef, receipt.Status, receipt.FinishedAt, receipt.ErrorCode, receipt.ErrorMessage))
-	if !errors.Is(err, service.ErrUpstreamJobNotFound) {
+	insertErr := err
+	var uniqueErr *pq.Error
+	fingerprintConflict := errors.As(err, &uniqueErr) && uniqueErr.Code == "23505" && uniqueErr.Constraint == "upstream_jobs_request_fingerprint_key"
+	if !errors.Is(err, service.ErrUpstreamJobNotFound) && !fingerprintConflict {
 		return stored, err
 	}
 	// A separate statement sees the winning insert after ON CONFLICT waits for it.
 	stored, err = scanUpstreamJob(repository.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE submission_key=$1`, receipt.SubmissionKey))
+	if fingerprintConflict && errors.Is(err, service.ErrUpstreamJobNotFound) {
+		return nil, insertErr
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -195,6 +195,66 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		require.NoError(t, database.QueryRow(`SELECT balance FROM users WHERE id=$1`, session.UserID).Scan(&balance))
 		require.InDelta(t, 99.999675, balance, 1e-8)
 	})
+	t.Run("fingerprint_race_reloads_winner_without_double_charge", func(t *testing.T) {
+		session := fixture(t)
+		stopped := errors.New("receipt committed before settlement")
+		boundary := &realtimeReceiptCommitBoundary{UpstreamJobRepository: repository, receipts: repository, stop: stopped}
+		winner, err := newService(boundary).RecordQianwenRealtimeTurn(ctx, session, "response-fingerprint", usage, "completed")
+		require.ErrorIs(t, err, stopped)
+		require.NotNil(t, winner)
+		require.Nil(t, winner.ChargedUsageLogID)
+		_, err = database.Exec(`CREATE FUNCTION receipt_fingerprint_race() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+		 IF NEW.user_id = ` + fmt.Sprint(session.UserID) + ` AND EXISTS (SELECT 1 FROM upstream_jobs WHERE request_fingerprint=NEW.request_fingerprint) THEN
+		  RAISE EXCEPTION 'injected concurrent fingerprint violation' USING ERRCODE='23505', CONSTRAINT='upstream_jobs_request_fingerprint_key';
+		 END IF; RETURN NEW; END $$;
+		 CREATE TRIGGER receipt_fingerprint_race BEFORE INSERT ON upstream_jobs FOR EACH ROW EXECUTE FUNCTION receipt_fingerprint_race()`)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := database.Exec(`DROP TRIGGER receipt_fingerprint_race ON upstream_jobs; DROP FUNCTION receipt_fingerprint_race()`)
+			require.NoError(t, err)
+		})
+		svc := newService(repository)
+		settled, err := svc.RecordQianwenRealtimeTurn(ctx, session, "response-fingerprint", usage, "completed")
+		require.NoError(t, err)
+		require.Equal(t, winner.PublicRequestID, settled.PublicRequestID)
+		require.NotNil(t, settled.ChargedUsageLogID)
+		settled, err = repository.Get(ctx, winner.PublicRequestID, session.UserID, session.APIKeyID)
+		require.NoError(t, err)
+		replayed, err := svc.RecordQianwenRealtimeTurn(ctx, session, "response-fingerprint", []byte(`{ "characters": 25 }`), "completed")
+		require.NoError(t, err)
+		require.Equal(t, settled, replayed)
+		_, err = svc.RecordQianwenRealtimeTurn(ctx, session, "response-fingerprint", []byte(`{"characters":26}`), "completed")
+		require.ErrorIs(t, err, service.ErrQianwenRealtimeConflict)
+		for _, identity := range []string{"submission", "fingerprint"} {
+			attempt := *winner
+			attempt.PublicRequestID = uuid.NewString()
+			if identity == "submission" {
+				attempt.SubmissionKey = uuid.NewString()
+			} else {
+				attempt.RequestFingerprint = uuid.NewString()
+			}
+			_, err := repository.InsertRealtimeReceipt(ctx, &attempt)
+			if identity == "submission" {
+				var violation *pq.Error
+				require.ErrorAs(t, err, &violation)
+				require.Equal(t, pq.ErrorCode("23505"), violation.Code)
+				require.Equal(t, "upstream_jobs_request_fingerprint_key", violation.Constraint)
+			} else {
+				require.ErrorIs(t, err, service.ErrQianwenRealtimeConflict)
+			}
+		}
+		after, err := repository.Get(ctx, winner.PublicRequestID, session.UserID, session.APIKeyID)
+		require.NoError(t, err)
+		require.Equal(t, settled, after, "conflicts must preserve the winner and settlement anchor")
+		var receipts, logs int
+		var balance float64
+		require.NoError(t, database.QueryRow(`SELECT count(*) FROM upstream_jobs WHERE user_id=$1`, session.UserID).Scan(&receipts))
+		require.Equal(t, 1, receipts)
+		require.NoError(t, database.QueryRow(`SELECT count(*) FROM usage_logs WHERE user_id=$1`, session.UserID).Scan(&logs))
+		require.Equal(t, 1, logs)
+		require.NoError(t, database.QueryRow(`SELECT balance FROM users WHERE id=$1`, session.UserID).Scan(&balance))
+		require.InDelta(t, 99.999675, balance, 1e-8)
+	})
 	t.Run("insert_failure_leaves_no_empty_receipt", func(t *testing.T) {
 		session := fixture(t)
 		// Reject this user's INSERT in PostgreSQL after all values reach the server.
