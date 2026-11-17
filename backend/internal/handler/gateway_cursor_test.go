@@ -60,6 +60,18 @@ func (cursorRouteSessionCache) Get(context.Context, string) (cursor.Session, err
 	return cursor.Session{Token: "synthetic-session", ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
+type cursorCompositeRouteRepo struct {
+	service.CompositeModelRouteRepository
+	route service.CompositeModelRoute
+}
+
+func (repo cursorCompositeRouteRepo) ListByGroup(_ context.Context, groupID int64, _ bool) ([]service.CompositeModelRoute, error) {
+	if repo.route.GroupID != groupID {
+		return nil, nil
+	}
+	return []service.CompositeModelRoute{repo.route}, nil
+}
+
 type cursorRouteUsageRepo struct {
 	service.UsageLogRepository
 	logs  []*service.UsageLog
@@ -166,8 +178,11 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool)
 			groupID := int64(81)
 			group := &service.Group{ID: groupID, Hydrated: true, Platform: service.PlatformCursor, Status: service.StatusActive}
 			isComposite := len(composite) > 0 && composite[0]
+			publicModel := "default"
 			if isComposite {
 				group.Platform = service.PlatformComposite
+				publicModel = "Cumora.Public-Alias"
+				group.ModelAllowlist = service.GroupModelAllowlist{Enabled: true, Models: []string{publicModel}}
 			}
 			accounts := []*service.Account{}
 			for _, accountID := range []int64{1, 2} {
@@ -195,12 +210,37 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool)
 				requestContext.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 83, Concurrency: 10})
 				requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), ctxkey.Group, group))
 				if isComposite {
-					requestContext.Request = requestContext.Request.WithContext(service.WithCompositeRouteDecision(requestContext.Request.Context(), service.CompositeRouteDecision{
-						Matched: true, PublicModel: "default", TargetPlatform: service.PlatformCursor, UpstreamModel: "default",
-						Targets: []service.CompositeRouteTarget{{Position: 0, TargetPlatform: service.PlatformCursor, UpstreamModel: "default", Enabled: true}, {Position: 1, TargetPlatform: service.PlatformGrok, UpstreamModel: "default", Enabled: true}},
-					}))
+					// Freeze the same public-only policy for scheduler/forward binding
+					// as authentication would, in addition to ingress admission below.
+					requestContext.Request = requestContext.Request.WithContext(service.WithVisibleModelKeyPolicy(requestContext.Request.Context(), group.ModelAllowlist.Models))
 				}
 				requestContext.Next()
+			})
+			if isComposite {
+				resolver := service.NewCompositeRouteResolver(cursorCompositeRouteRepo{route: service.CompositeModelRoute{
+					ID: 1, GroupID: groupID, PublicModel: publicModel, MatchType: service.CompositeRouteMatchExact,
+					Endpoint: service.CompositeRouteEndpointAny, Enabled: true,
+					Targets: []service.CompositeRouteTarget{
+						{Position: 0, TargetPlatform: service.PlatformCursor, AccountType: service.AccountTypeAPIKey, UpstreamModel: "default", Enabled: true},
+						{Position: 1, TargetPlatform: service.PlatformGrok, UpstreamModel: "default", Enabled: true},
+					},
+				}})
+				router.Use(middleware2.GroupModelAllowlist(), service.CompositeTargetPlatformMiddleware(resolver))
+			}
+			router.Use(func(requestContext *gin.Context) {
+				if isComposite {
+					body, err := io.ReadAll(requestContext.Request.Body)
+					require.NoError(t, err)
+					requestContext.Request.Body = io.NopCloser(strings.NewReader(string(body)))
+					var payload map[string]any
+					require.NoError(t, json.Unmarshal(body, &payload))
+					require.Equal(t, "default", payload["model"], "the real route middleware must rewrite the public alias before scheduling")
+					original, ok := service.RequestedPublicModelFromContext(requestContext.Request.Context())
+					require.True(t, ok)
+					require.Equal(t, publicModel, original)
+				}
+				requestContext.Next()
+				require.Equal(t, http.StatusOK, requestContext.Writer.Status())
 				if scenario.path == EndpointMessages {
 					require.Equal(t, "/agent.v1.AgentService/Run", GetUpstreamEndpoint(requestContext, group.Platform))
 				}
@@ -223,7 +263,17 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool, composite ...bool)
 			router.POST(EndpointChatCompletions, handler.ChatCompletions)
 			router.POST(EndpointMessages, handler.Messages)
 			router.POST(EndpointResponses, handler.Responses)
-			body := fmt.Sprintf(`{"model":"default","stream":%t,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hi"}],"input":"hi","max_tokens":10}`, scenario.stream)
+			body := fmt.Sprintf(`{"model":%q,"stream":%t,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hi"}],"input":"hi","max_tokens":10}`, publicModel, scenario.stream)
+			if isComposite {
+				blocked := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(strings.Replace(body, publicModel, "default", 1)))
+				request.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(blocked, request)
+				require.Equal(t, http.StatusNotFound, blocked.Code, blocked.Body.String())
+				require.Contains(t, blocked.Body.String(), "not available for this group")
+				require.Zero(t, attempts.Load(), "direct upstream requests must be rejected before forwarding")
+				require.Empty(t, repo.logs)
+			}
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")

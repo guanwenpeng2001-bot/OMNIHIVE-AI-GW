@@ -254,6 +254,12 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 
 func (s *GatewayService) buildCompositeRouteDecision(ctx context.Context, group *Group, requestedModel, endpoint string) (CompositeRouteDecision, bool, error) {
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
+		// Routing may already have rewritten requestedModel to the upstream name.
+		// Keep the original public name for downstream model authorization.
+		publicModel := requestedModel
+		if originalModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK {
+			publicModel = originalModel
+		}
 		upstreamModel := requestedModel
 		if resolvedModel, modelOK := ResolvedUpstreamModelFromContext(ctx); modelOK {
 			upstreamModel = resolvedModel
@@ -266,7 +272,7 @@ func (s *GatewayService) buildCompositeRouteDecision(ctx context.Context, group 
 			Matched:        true,
 			Source:         source,
 			GroupID:        group.ID,
-			PublicModel:    requestedModel,
+			PublicModel:    publicModel,
 			TargetPlatform: platform,
 			AccountType:    RequiredRouteAccountType(ctx),
 			UpstreamModel:  upstreamModel,
