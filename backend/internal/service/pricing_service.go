@@ -691,7 +691,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 			entry.LongContextOutputCostMultiplier != nil
 		if !hasExplicitLongContext {
 			deriveLongContextFromAboveTierFields(rawEntry, pricing)
-			if isLopsidedLongContextLadder(pricing) {
+			if isLopsidedLongContextLadder(pricing, rawEntry) {
 				lopsidedLadders = append(lopsidedLadders, fmt.Sprintf("%s(input x%.2f, output x%.2f)", modelName,
 					pricing.LongContextInputCostMultiplier, pricing.LongContextOutputCostMultiplier))
 			}
@@ -794,14 +794,36 @@ func deriveLongContextFromAboveTierFields(rawEntry json.RawMessage, pricing *Lit
 	pricing.LongContextOutputCostMultiplier = outputMultiplier
 }
 
-// isLopsidedLongContextLadder 判断折算出的阶梯是否只有一侧带附加费。官方阶梯（OpenAI、
-// Google、Anthropic、xAI）都同时抬高 input 与 output；单侧附加费意味着条目的基础价与
-// above 档来自不同价格版本（如基础价被手工 pin、above 档随上游更新），折算出的倍率失真。
-func isLopsidedLongContextLadder(pricing *LiteLLMModelPricing) bool {
+// isLopsidedLongContextLadder 判断折算出的阶梯是否只有一侧带附加费，可能来自不同价格版本。
+// 仅当原始输出价明确为 0 且没有输出阶梯字段时，允许输入侧单独加价；缺失或未知值仍告警。
+// 此例外只影响告警，不改变价格、阶梯折算或计费。
+func isLopsidedLongContextLadder(pricing *LiteLLMModelPricing, rawEntry json.RawMessage) bool {
 	if pricing == nil || pricing.LongContextInputTokenThreshold <= 0 {
 		return false
 	}
-	return (pricing.LongContextInputCostMultiplier > 1) != (pricing.LongContextOutputCostMultiplier > 1)
+	inputSurcharge := pricing.LongContextInputCostMultiplier > 1
+	outputSurcharge := pricing.LongContextOutputCostMultiplier > 1
+	if inputSurcharge == outputSurcharge {
+		return false
+	}
+	if !inputSurcharge {
+		return true
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(rawEntry, &fields); err != nil {
+		return true
+	}
+	var outputPrice *float64
+	if err := json.Unmarshal(fields["output_cost_per_token"], &outputPrice); err != nil || outputPrice == nil || *outputPrice != 0 {
+		return true
+	}
+	for field := range fields {
+		// 保守按字段存在判断，包括零值、null、无效值和服务档变体，避免漏掉无法折算的输出阶梯。
+		if strings.HasPrefix(field, "output_cost_per_token_above_") {
+			return true
+		}
+	}
+	return false
 }
 
 // warnLopsidedLongContextLadders 对单侧附加费的折算阶梯打 WARN：应成组修正该条目的
