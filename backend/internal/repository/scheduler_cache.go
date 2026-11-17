@@ -42,6 +42,30 @@ const (
 	schedulerGroupLifecycleOwnerTokenBytes = 16
 )
 
+// Compare the actual Redis bytes, including legacy JSON values, on every write.
+// Keep the full account and its metadata in one atomic operation so concurrent
+// writers/deletions cannot interleave between the comparison and either SET.
+// MGET treats non-string values as missing, preserving SET's repair behavior.
+// An equal value must still lose any TTL, just like the previous SET(..., 0);
+// PERSIST on an already persistent key does not modify it or append to the AOF.
+// No digest/instance-local state may stand in for the current key contents.
+// Explicit effects replication also avoids logging the large EVAL arguments on
+// Redis 6 configured for verbatim scripts (Redis 7+ always replicates effects).
+var writeSchedulerAccountScript = redis.NewScript(`
+redis.replicate_commands()
+local current = redis.call('MGET', KEYS[1], KEYS[2])
+local written = 0
+for index = 1, 2 do
+    if current[index] ~= ARGV[index] then
+        redis.call('SET', KEYS[index], ARGV[index])
+        written = written + 1
+    else
+        redis.call('PERSIST', KEYS[index])
+    end
+end
+return written
+`)
+
 var updateSchedulerLastUsedScript = redis.NewScript(`
 local updated = 0
 for index = 1, #ARGV do
@@ -810,8 +834,11 @@ func (c *schedulerCache) writeAccountIDs(ctx context.Context, accounts []service
 		}
 
 		id := strconv.FormatInt(account.ID, 10)
-		pipe.Set(ctx, schedulerAccountKey(id), fullPayload, 0)
-		pipe.Set(ctx, schedulerAccountMetaKey(id), metaPayload, 0)
+		// Use EVAL in a pipeline: an EVALSHA cache miss cannot be retried by
+		// Script.Run until Exec, and restart/SCRIPT FLUSH must remain safe.
+		writeSchedulerAccountScript.Eval(ctx, pipe, []string{
+			schedulerAccountKey(id), schedulerAccountMetaKey(id),
+		}, fullPayload, metaPayload)
 		// Keep the hot LastUsedAt side key untouched: a lagging snapshot rebuild
 		// must not overwrite a newer scheduler update.
 		accountIDs = append(accountIDs, account.ID)

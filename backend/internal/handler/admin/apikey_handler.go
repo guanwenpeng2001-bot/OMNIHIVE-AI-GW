@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"encoding/json"
+	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -14,7 +17,8 @@ import (
 
 // AdminAPIKeyHandler handles admin API key management
 type AdminAPIKeyHandler struct {
-	adminService service.AdminService
+	adminService  service.AdminService
+	apiKeyService *service.APIKeyService
 }
 
 func (h *AdminAPIKeyHandler) UpdateTPMLimit(c *gin.Context) {
@@ -39,10 +43,61 @@ func (h *AdminAPIKeyHandler) UpdateTPMLimit(c *gin.Context) {
 }
 
 // NewAdminAPIKeyHandler creates a new admin API key handler
-func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandler {
+func NewAdminAPIKeyHandler(adminService service.AdminService, apiKeyService *service.APIKeyService) *AdminAPIKeyHandler {
 	return &AdminAPIKeyHandler{
-		adminService: adminService,
+		adminService:  adminService,
+		apiKeyService: apiKeyService,
 	}
+}
+
+// CreateForUser mints a credential owned by the target user, using the same
+// permissions and transactional digest storage as the user-facing create path.
+// POST /api/v1/admin/users/:id/api-keys
+func (h *AdminAPIKeyHandler) CreateForUser(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	userID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || userID <= 0 {
+		response.BadRequest(c, "Invalid user ID")
+		return
+	}
+
+	// This provisioning contract deliberately excludes ownership, workspace,
+	// custom secrets and quota/policy overrides. Reject unknown fields rather
+	// than silently accepting options that would imply broader permissions.
+	var req struct {
+		Name    string `json:"name"`
+		GroupID *int64 `json:"group_id"`
+	}
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		response.BadRequest(c, "Invalid request: expected name and group_id")
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		response.BadRequest(c, "Invalid request: expected a single JSON object")
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		response.BadRequest(c, "name is required")
+		return
+	}
+
+	key, err := h.apiKeyService.Create(c.Request.Context(), userID, service.CreateAPIKeyRequest{
+		Name: req.Name, GroupID: req.GroupID,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	// Cumora expects data.id and data.key, not the masked management DTO or
+	// APIKeyCredentialIssue. Never put this response in the idempotency store:
+	// the secret is returned only by the request that created it.
+	response.Success(c, struct {
+		ID  int64  `json:"id"`
+		Key string `json:"key"`
+	}{ID: key.ID, Key: key.Key})
 }
 
 // AdminUpdateAPIKeyGroupRequest represents the request to update an API key.

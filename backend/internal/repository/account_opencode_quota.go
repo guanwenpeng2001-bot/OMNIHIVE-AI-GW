@@ -113,7 +113,7 @@ func openCodeQuotaIdentityChangeSQL(incomingCredentials, incomingExtra, proxyCha
 	return "(platform='opencode_go' AND BTRIM(COALESCE(credentials->>'account_mode','go')) <> 'zen' AND (" + strings.Join(changes, " OR ") + "))"
 }
 
-func openCodeQuotaInvalidationClausesSQL(identityChanged string) []string {
+func openCodeQuotaInvalidationSQL(identityChanged string) (columns, values []string) {
 	pause := "(" + identityChanged + " AND (temp_unschedulable_reason LIKE 'opencode_payment_required%' OR temp_unschedulable_reason LIKE 'cn_quota_exhausted%'))"
 	matches := []string{}
 	for _, window := range []string{"5h", "weekly", "monthly"} {
@@ -123,11 +123,11 @@ func openCodeQuotaInvalidationClausesSQL(identityChanged string) []string {
 		matches = append(matches, `replace(regexp_replace(replace(`+stamp+`, '+00:00', 'Z'), '(\.[0-9]*?)0+Z$', '\1Z'), '.Z', 'Z') = rtrim(rtrim(to_char(rate_limit_reset_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US'), '0'), '.') || 'Z'`)
 	}
 	rate := "(" + identityChanged + " AND (" + strings.Join(matches, " OR ") + "))"
-	return []string{
-		"temp_unschedulable_until = CASE WHEN " + pause + " THEN NULL ELSE temp_unschedulable_until END",
-		"temp_unschedulable_reason = CASE WHEN " + pause + " THEN NULL ELSE temp_unschedulable_reason END",
-		"rate_limited_at = CASE WHEN " + rate + " THEN NULL ELSE rate_limited_at END",
-		"rate_limit_reset_at = CASE WHEN " + rate + " THEN NULL ELSE rate_limit_reset_at END",
+	return []string{"temp_unschedulable_until", "temp_unschedulable_reason", "rate_limited_at", "rate_limit_reset_at"}, []string{
+		"CASE WHEN " + pause + " THEN NULL ELSE temp_unschedulable_until END",
+		"CASE WHEN " + pause + " THEN NULL ELSE temp_unschedulable_reason END",
+		"CASE WHEN " + rate + " THEN NULL ELSE rate_limited_at END",
+		"CASE WHEN " + rate + " THEN NULL ELSE rate_limit_reset_at END",
 	}
 }
 

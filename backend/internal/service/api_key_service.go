@@ -27,6 +27,7 @@ var (
 	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
 	ErrAPIKeyGroupRequired  = infraerrors.BadRequest("API_KEY_GROUP_REQUIRED", "You must select a group before creating an API key / 创建密钥必须选择分组")
 	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyGroupNotActive = infraerrors.BadRequest("GROUP_NOT_ACTIVE", "target group is not active")
 	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
 	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
 	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
@@ -588,6 +589,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if err != nil {
 		return nil, fmt.Errorf("get user: %w", err)
 	}
+	if !user.IsActive() {
+		return nil, ErrUserNotActive
+	}
 
 	// 验证 IP 白名单格式
 	if len(req.IPWhitelist) > 0 {
@@ -608,6 +612,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
 		if err != nil {
 			return nil, fmt.Errorf("get group: %w", err)
+		}
+		if !group.IsActive() {
+			return nil, ErrAPIKeyGroupNotActive
 		}
 
 		// 检查用户是否可以绑定该分组

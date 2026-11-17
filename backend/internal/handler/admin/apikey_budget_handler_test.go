@@ -16,7 +16,7 @@ import (
 func setupAPIKeyBudgetHandler(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAdminAPIKeyHandler(adminSvc)
+	h := NewAdminAPIKeyHandler(adminSvc, nil)
 	// 管理端路由组已经挂了 adminAuth 与 auditLog；这里只补上身份注入。
 	router.PUT("/api/v1/admin/api-keys/:id/budget", func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 42})

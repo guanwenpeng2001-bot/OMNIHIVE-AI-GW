@@ -15,7 +15,7 @@ type createGroupUserRepo struct {
 }
 
 func (r *createGroupUserRepo) GetByID(context.Context, int64) (*User, error) {
-	return &User{ID: 1, Role: r.role}, nil
+	return &User{ID: 1, Role: r.role, Status: StatusActive}, nil
 }
 
 type createGroupRepo struct{ GroupRepository }

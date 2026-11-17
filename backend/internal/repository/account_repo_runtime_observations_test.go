@@ -100,11 +100,8 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 		query := normalizeSQLWhitespace(exec.recording.execQueries[0])
 		require.Contains(t, query, "cursor_usage_snapshot")
 		require.Contains(t, query, "credentials IS DISTINCT FROM")
-		extraIndex := strings.Index(query, "extra =")
-		credentialsIndex := strings.Index(query, "credentials = COALESCE")
-		require.GreaterOrEqual(t, extraIndex, 0)
-		require.GreaterOrEqual(t, credentialsIndex, 0)
-		require.Less(t, extraIndex, credentialsIndex, "extra must be assigned before credentials so identity comparisons still see the old row")
+		require.Contains(t, query, "(extra, temp_unschedulable_until, temp_unschedulable_reason, rate_limited_at, rate_limit_reset_at) = (SELECT ")
+		require.Contains(t, query, "credentials = COALESCE")
 		require.NoError(t, mock.ExpectationsWereMet())
 	})
 	t.Run("extra_revision", func(t *testing.T) {
@@ -114,7 +111,7 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 		client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 		t.Cleanup(func() { _ = client.Close() })
 		mock.ExpectBegin()
-		mock.ExpectExec(`(?s)UPDATE accounts SET extra = CASE WHEN \(.*cursor_usage_snapshot.*WHERE id = \$2 AND deleted_at IS NULL`).
+		mock.ExpectExec(`(?s)UPDATE accounts SET extra = \(SELECT .*cursor_usage_snapshot.*WHERE id = \$2 AND deleted_at IS NULL`).
 			WithArgs(`{"credential_secret_revision":2}`, int64(42)).
 			WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).

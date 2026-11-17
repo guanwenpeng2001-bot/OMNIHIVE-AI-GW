@@ -3009,15 +3009,16 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 			client = tx.Client()
 		}
 	}
-	extraExpression := "COALESCE(extra, '{}'::jsonb) || $1::jsonb"
-	extraExpression += " || " + accountCatalogRevisionPatchSQL("credentials", extraExpression, "", false)
+	var extraSQL accountExtraSQL
+	extraExpression := extraSQL.bind("merged_extra", "COALESCE(extra, '{}'::jsonb) || $1::jsonb")
+	extraExpression = extraSQL.bind("catalog_extra", extraExpression+" || "+accountCatalogRevisionPatchSQL("credentials", extraExpression, "", false))
 	if clearProbeSnapshot {
 		extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 	}
 	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
-		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+		extraExpression = extraSQL.bind("fingerprint_extra", ensureCodexFingerprintSeedSQL(extraExpression))
 	}
-	extraExpression = clearChangedAccountRuntimeObservationsSQL("credentials", extraExpression, "")
+	extraExpression = extraSQL.selectSQL(clearChangedAccountRuntimeObservationsSQL("credentials", extraExpression, ""))
 	result, err := client.ExecContext(
 		ctx,
 		"UPDATE accounts SET extra = "+extraExpression+", updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL",
@@ -3106,10 +3107,6 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	if err != nil {
 		return err
 	}
-	credentials, err := json.Marshal(account.Credentials)
-	if err != nil {
-		return err
-	}
 	var expectedSnapshot any
 	if account.Extra != nil {
 		expectedSnapshot = account.Extra[service.UpstreamBillingProbeExtraKey]
@@ -3141,6 +3138,10 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 	}
 	if !proxyMatches {
 		return service.ErrUpstreamBillingProbeIdentityChanged
+	}
+	credentials, err := lockUpstreamBillingProbeCredentials(ctx, client, account)
+	if err != nil {
+		return err
 	}
 	var proxyID any
 	if account.ProxyID != nil {
@@ -3179,6 +3180,50 @@ func (r *accountRepository) updateUpstreamBillingProbeSnapshotInTx(
 		return service.ErrUpstreamBillingProbeIdentityChanged
 	}
 	return enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, nil)
+}
+
+// lockUpstreamBillingProbeCredentials must run after the proxy identity lock:
+// proxy -> account -> credential secret is also the order used by writers.
+// Resolved reference credentials contain plaintext and cannot be compared to
+// accounts.credentials. Match the revision captured before resolution, then
+// bind the locked storage document (including its version) to the existing CAS.
+func lockUpstreamBillingProbeCredentials(ctx context.Context, client *dbent.Client, account *service.Account) ([]byte, error) {
+	reference, referenced := service.CredentialReference(account.Credentials)
+	if !referenced {
+		return json.Marshal(account.Credentials)
+	}
+	workspaceID, stored, _, err := lockCredentialAccount(ctx, client, account.ID)
+	if errors.Is(err, service.ErrAccountNotFound) {
+		return nil, service.ErrUpstreamBillingProbeIdentityChanged
+	}
+	if err != nil {
+		return nil, err
+	}
+	if account.CredentialRevision == "" || credentialRevision(stored) != account.CredentialRevision || workspaceID != account.WorkspaceID {
+		return nil, service.ErrUpstreamBillingProbeIdentityChanged
+	}
+	storedReference, storedReferenced := service.CredentialReference(stored)
+	version := service.CredentialVersion(account.Credentials)
+	if reference == "" || !storedReferenced || storedReference != reference || version <= 0 || service.CredentialVersion(stored) != version {
+		return nil, service.ErrUpstreamBillingProbeIdentityChanged
+	}
+	// The account lock serializes normal rotation/revocation. Also lock the
+	// matching secret so its ownership, version and live state hold until the
+	// snapshot and outbox commit, without decrypting or copying its ciphertext.
+	var matched int
+	err = scanSingleRow(ctx, client, `
+		SELECT 1 FROM credential_secrets
+		WHERE reference = $1 AND account_id = $2 AND workspace_id = $3
+			AND version = $4 AND revoked_at IS NULL
+		FOR SHARE
+	`, []any{reference, account.ID, workspaceID, version}, &matched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrUpstreamBillingProbeIdentityChanged
+	}
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(stored)
 }
 
 func lockAndMatchProbeProxyIdentity(ctx context.Context, client *dbent.Client, account *service.Account) (bool, error) {
@@ -3386,6 +3431,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 
 	if len(updates.Credentials) > 0 || len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" || updates.EnsureCodexFingerprintSeed {
+		var extraSQL accountExtraSQL
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -3402,6 +3448,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				extraExpression = "(" + extraExpression + ") - 'ollama_cloud_usage_snapshot'"
 			}
 		}
+		extraExpression = extraSQL.bind("merged_extra", extraExpression)
 		eligibleAccount := "platform IN (" + ollamaCloudUsagePlatformsSQL + ") AND type = 'apikey'"
 		groupIdentityChanged := ""
 		if len(ollamaGroupIdentityChanges) > 0 {
@@ -3424,20 +3471,26 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		} else if snapshotIdentityChanged != "" {
 			extraExpression = "CASE WHEN " + snapshotIdentityChanged + " THEN (" + extraExpression + ") - 'ollama_cloud_usage_snapshot' ELSE " + extraExpression + " END"
 		}
+		if snapshotIdentityChanged != "" {
+			extraExpression = extraSQL.bind("ollama_extra", extraExpression)
+		}
 		if updates.EnsureCodexFingerprintSeed {
-			extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
+			extraExpression = extraSQL.bind("fingerprint_extra", ensureCodexFingerprintSeedSQL(extraExpression))
 		}
 		incomingCredentials := "credentials"
 		if credentialPlaceholder != "" {
-			incomingCredentials = "(COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb)"
+			incomingCredentials = extraSQL.bind("incoming_credentials", "COALESCE(credentials, '{}'::jsonb) || "+credentialPlaceholder+"::jsonb")
 		}
-		extraExpression = "(" + extraExpression + ") || " + accountCatalogRevisionPatchSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged, true)
-		openCodeIdentityChanged := openCodeQuotaIdentityChangeSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
-		setClauses = append(setClauses, openCodeQuotaInvalidationClausesSQL(openCodeIdentityChanged)...)
-		extraExpression = clearChangedAccountRuntimeObservationsSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
+		extraExpression = extraSQL.bind("catalog_extra", extraExpression+" || "+accountCatalogRevisionPatchSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged, true))
+		openCodeIdentityChanged := extraSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged))
+		quotaColumns, quotaValues := openCodeQuotaInvalidationSQL(openCodeIdentityChanged)
+		extraExpression = extraSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged))
 		extraExpression = clearOpenCodeModelQuotaLimitsSQL(extraExpression, openCodeIdentityChanged)
 
-		setClauses = append(setClauses, "extra = "+extraExpression)
+		// One correlated subquery shares the stages across all affected columns.
+		columns := append([]string{"extra"}, quotaColumns...)
+		values := append([]string{extraExpression}, quotaValues...)
+		setClauses = append(setClauses, "("+strings.Join(columns, ", ")+") = "+extraSQL.selectSQL(values...))
 	}
 	if credentialsSetClause != "" {
 		setClauses = append(setClauses, credentialsSetClause)

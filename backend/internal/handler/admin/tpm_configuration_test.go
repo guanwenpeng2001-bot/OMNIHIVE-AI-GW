@@ -14,7 +14,7 @@ import (
 
 func TestTPMConfig_CreateUpdateReadRoundTrip(t *testing.T) {
 	admin := &stubAdminService{apiKeys: []service.APIKey{{ID: 7, TPMLimit: 12}}}
-	handler := NewAdminAPIKeyHandler(admin)
+	handler := NewAdminAPIKeyHandler(admin, nil)
 	for _, value := range []string{"31", "0"} {
 		response := httptest.NewRecorder()
 		request, _ := gin.CreateTestContext(response)

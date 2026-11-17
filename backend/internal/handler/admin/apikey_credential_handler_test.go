@@ -16,7 +16,7 @@ import (
 func setupAPIKeyCredentialHandler(adminSvc service.AdminService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	h := NewAdminAPIKeyHandler(adminSvc)
+	h := NewAdminAPIKeyHandler(adminSvc, nil)
 	router.PUT("/api/v1/admin/api-keys/:id/status", h.SetStatus)
 	router.DELETE("/api/v1/admin/api-keys/:id", h.Delete)
 	router.POST("/api/v1/admin/api-keys/:id/credentials/rotate", h.RotateCredential)
