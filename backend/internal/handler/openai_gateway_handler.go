@@ -994,7 +994,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						stop = "response_committed"
 					}
 					streamStarted = streamStarted || c.Writer.Written()
-					if failoverErr.ShouldReportAccountScheduleFailure() {
+					if stop == "" && failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, attemptForwardModel, requireCompact, nil), false, nil, err)
 					}
 					if stop == "" && failoverErr.ShouldRetryNextAccount() && openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
@@ -1554,7 +1554,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						stop = "response_committed"
 					}
 					streamStarted = streamStarted || c.Writer.Written()
-					if failoverErr.ShouldReportAccountScheduleFailure() {
+					if stop == "" && failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, nil), false, nil, err)
 					}
 					decision := attempts.next(c.Request.Context(), h.gatewayService, account, failoverErr, true, stop)
