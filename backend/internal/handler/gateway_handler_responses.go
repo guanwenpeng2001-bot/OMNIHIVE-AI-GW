@@ -369,11 +369,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
-				if result != nil || c.Writer.Size() != writerSizeBeforeForward {
+				if result != nil {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
-				action := fs.HandleFailoverError(requestCtx, h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+				action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+				streamStarted = streamStarted || streamTransportCommitted(c)
 				switch action {
 				case FailoverContinue:
 					continue
@@ -406,6 +407,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 // responsesErrorResponse writes an error in OpenAI Responses API format.
 func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code, message string) {
+	if streamTransportCommitted(c) {
+		writeGatewayStreamTerminal(c, status, code, "", message)
+		return
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    code,
@@ -448,8 +453,8 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		// official terminal bytes exist, preserve them without appending a second
 		// generic response.failed.
 		service.MarkOpsStreamError(c, code, message, status)
-		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
-			writeResponsesFailedSSE(c, code, "", message)
+		if c != nil && c.Writer != nil && (attemptResponse(c) != nil || c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
+			emitGatewayTerminal(c, func() { writeResponsesFailedSSE(c, code, "", message) })
 		}
 		return
 	}

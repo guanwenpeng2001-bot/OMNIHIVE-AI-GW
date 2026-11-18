@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
 )
@@ -53,7 +55,8 @@ type AttemptBudget struct {
 	root        context.Context
 	deadline    time.Time
 	limit       int
-	committed   bool
+	response    *lifecycle.Response
+	pendingWS   *AttemptRecord
 	uncertain   bool
 	attempts    []*AttemptRecord
 	streamTurns bool
@@ -66,8 +69,16 @@ func WithStreamAttemptBudget(ctx context.Context) context.Context {
 	if AttemptBudgetFromContext(ctx) != nil {
 		return ctx
 	}
-	b := &AttemptBudget{root: ctx, deadline: time.Now().Add(DefaultGenerationDeadline), limit: DefaultGenerationAttempts, streamTurns: true}
+	b := &AttemptBudget{response: new(lifecycle.Response), root: ctx, deadline: streamTurnDeadline(ctx), limit: DefaultGenerationAttempts, streamTurns: true}
 	return context.WithValue(ctx, attemptBudgetKey{}, b)
+}
+
+func streamTurnDeadline(ctx context.Context) time.Time {
+	deadline := time.Now().Add(DefaultGenerationDeadline)
+	if root, ok := ctx.Deadline(); ok && root.Before(deadline) {
+		return root
+	}
+	return deadline
 }
 
 func BeginAttemptStreamTurn(ctx context.Context, turn int) {
@@ -81,9 +92,10 @@ func BeginAttemptStreamTurn(ctx context.Context, turn int) {
 		return
 	}
 	if b.turn > 0 {
-		b.deadline = time.Now().Add(DefaultGenerationDeadline)
+		b.deadline = streamTurnDeadline(b.root)
 		b.attempts = nil
-		b.committed = false
+		b.response = new(lifecycle.Response)
+		b.pendingWS = nil
 		b.uncertain = false
 	}
 	b.turn = turn
@@ -112,6 +124,49 @@ func attemptTimeout(ctx context.Context, timeout time.Duration) time.Duration {
 	return timeout
 }
 
+// A provider rejection received before output reconciles this WS send. Losing
+// the upstream connection after a successful write leaves acceptance unknown.
+func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if r := b.pendingWS; r != nil && r.AccountID == accountID {
+		r.Outcome, r.Status = "rejected", status
+		b.pendingWS = nil
+	}
+}
+
+func writeAttemptWS(ctx context.Context, payload []byte, send func() error) error {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return send()
+	}
+	event := gjson.GetBytes(payload, "type").String()
+	b.mu.Lock()
+	r := b.response
+	if b.pendingWS != nil && strings.HasPrefix(event, "response.") {
+		b.pendingWS.Outcome = "transport_response"
+	}
+	b.mu.Unlock()
+	if isOpenAIWSTerminalEvent(event) {
+		if !r.BeginTerminal() {
+			return nil
+		}
+		err := send()
+		r.FinishTerminal(err == nil)
+		return err
+	}
+	if event == "ping" && IsStreamHeartbeatData(string(payload)) {
+		r.Heartbeat()
+	} else {
+		r.Semantic()
+	}
+	return send()
+}
+
 func generationWS(ctx context.Context, accountID int64, value any, send func(ctx context.Context) error) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -130,7 +185,7 @@ func generationWS(ctx context.Context, accountID int64, value any, send func(ctx
 		return send(ctx)
 	}
 	ctx = withTPMWire(ctx, payload, "/responses")
-	finish, err := BeginGenerationAttempt(ctx, accountID)
+	finish, err := beginGenerationAttempt(ctx, accountID, true)
 	if err != nil {
 		return err
 	}
@@ -155,7 +210,7 @@ func WithAttemptBudget(ctx context.Context, limit int, duration time.Duration) (
 	}
 	root, cancel := context.WithTimeout(ctx, duration)
 	deadline, _ := root.Deadline()
-	b := &AttemptBudget{root: root, deadline: deadline, limit: limit}
+	b := &AttemptBudget{response: new(lifecycle.Response), root: root, deadline: deadline, limit: limit}
 	return context.WithValue(root, attemptBudgetKey{}, b), cancel
 }
 
@@ -186,7 +241,7 @@ func (b *AttemptBudget) Commit() {
 		return
 	}
 	b.mu.Lock()
-	b.committed = true
+	b.response.Semantic()
 	b.mu.Unlock()
 }
 
@@ -200,7 +255,7 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if !time.Now().Before(b.deadline) {
 		return context.DeadlineExceeded
 	}
-	if b.committed {
+	if b.response.ReplayBlocked() {
 		return ErrResponseCommitted
 	}
 	if b.uncertain {
@@ -209,7 +264,57 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if len(b.attempts) >= b.limit {
 		return ErrAttemptBudgetExhausted
 	}
+	if b.pendingWS != nil {
+		return ErrAttemptOutcomeUnknown
+	}
 	return nil
+}
+
+func (b *AttemptBudget) Response() *lifecycle.Response {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.response
+}
+
+func AttemptDecisionBudget(ctx context.Context) attempt.Budget {
+	view := attempt.Budget{Acceptance: attempt.NotSent, Remaining: -1}
+	b := AttemptBudgetFromContext(ctx)
+	var err error
+	if b != nil {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		view.Number = len(b.attempts)
+		view.Remaining = b.limit - view.Number
+		view.Deadline = b.deadline
+		if view.Number > 0 {
+			switch b.attempts[view.Number-1].Outcome {
+			case "unknown":
+				view.Acceptance = attempt.Unknown
+			case "transport_response":
+				view.Acceptance = attempt.Accepted
+			}
+		}
+		err = b.checkLocked(ctx)
+	} else if ctx != nil {
+		err = ctx.Err()
+		view.Deadline, _ = ctx.Deadline()
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		view.StopReason = "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		view.StopReason = "deadline"
+	case errors.Is(err, ErrResponseCommitted):
+		view.StopReason = "response_committed"
+	case errors.Is(err, ErrAttemptOutcomeUnknown):
+		view.StopReason = "acceptance_unknown"
+	case errors.Is(err, ErrAttemptBudgetExhausted):
+		view.StopReason = "attempt_limit"
+	}
+	return view
 }
 
 func CheckAttemptBudget(ctx context.Context) error {
@@ -240,6 +345,10 @@ func (b *AttemptBudget) Snapshot() []AttemptRecord {
 // BeginGenerationAttempt is called after local validation and immediately before
 // the actual send. Denials never enter the upstream telemetry denominator.
 func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, error), error) {
+	return beginGenerationAttempt(ctx, accountID, false)
+}
+
+func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func(int, error), error) {
 	if err := CheckAttemptBudget(ctx); err != nil {
 		return nil, err
 	}
@@ -273,6 +382,9 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 		}
 		record = &AttemptRecord{Turn: b.turn, Number: index + 1, AccountID: accountID, Reason: reason, Outcome: "unknown"}
 		b.attempts = append(b.attempts, record)
+		if ws && b.streamTurns {
+			b.pendingWS = record
+		}
 		b.mu.Unlock()
 	} else if err := ctx.Err(); err != nil {
 		return nil, err
@@ -290,12 +402,19 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 					outcome = "transport_response"
 				}
 				b.mu.Lock()
-				record.Status = status
-				record.Outcome = outcome
+				if record.Status == 0 {
+					record.Status = status
+				}
+				if record.Outcome == "unknown" {
+					record.Outcome = outcome
+				}
 				if err != nil {
 					var networkError *net.OpError
 					unsent := errors.As(err, &networkError) && networkError.Op == "dial"
 					if unsent {
+						if b.pendingWS == record {
+							b.pendingWS = nil
+						}
 						record.Outcome = "not_sent"
 					} else if record.Turn == b.turn {
 						b.uncertain = true

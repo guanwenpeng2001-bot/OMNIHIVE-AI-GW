@@ -702,8 +702,7 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
-	CommitAttemptResponse(c.controlCtx)
-	return c.conn.Write(ctx, msgType, payload)
+	return writeAttemptWS(c.controlCtx, payload, func() error { return c.conn.Write(ctx, msgType, payload) })
 }
 
 func (c *openAIWSClientFrameConn) Close() error {
@@ -1379,6 +1378,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 						errors.New("later passthrough turn was rate limited before output"),
 					)
 				}
+				rejectAttemptWS(ctx, account.ID, http.StatusTooManyRequests)
 				return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, payload, errMsgRaw)
 			},
 			OnTrace: func(event openaiwsv2.RelayTraceEvent) {

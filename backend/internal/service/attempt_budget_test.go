@@ -15,6 +15,8 @@ import (
 	"time"
 
 	coderws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
@@ -293,4 +295,40 @@ func TestAttemptBudgetDoesNotCountDiscoveryUploadsCountingOrCancellation(t *test
 		require.True(t, called)
 	}
 	require.Empty(t, AttemptBudgetFromContext(ctx).Snapshot())
+}
+
+func TestAttemptBudgetWebSocketReconcileAndTerminal(t *testing.T) {
+	ctx := WithStreamAttemptBudget(t.Context())
+	ConfigureAttemptBudget(ctx, 3)
+	BeginAttemptStreamTurn(ctx, 1)
+	msg := json.RawMessage(`{"type":"response.create"}`)
+	send := func(context.Context) error { return nil }
+	require.NoError(t, generationWS(ctx, 7, msg, send))
+	require.Equal(t, attempt.Unknown, AttemptDecisionBudget(ctx).Acceptance)
+	BeginAttemptStreamTurn(ctx, 1)
+	require.ErrorIs(t, generationWS(ctx, 8, msg, send), ErrAttemptOutcomeUnknown)
+	rejectAttemptWS(ctx, 8, 429)
+	require.ErrorIs(t, CheckAttemptBudget(ctx), ErrAttemptOutcomeUnknown)
+	rejectAttemptWS(ctx, 7, 429)
+	require.NoError(t, CheckAttemptBudget(ctx))
+	require.Equal(t, attempt.NotSent, AttemptDecisionBudget(ctx).Acceptance)
+	require.NoError(t, generationWS(ctx, 8, msg, send))
+
+	calls := 0
+	frame := func() error { calls++; return nil }
+	require.NoError(t, writeAttemptWS(ctx, []byte(`{"type":"ping"}`), frame))
+	r := AttemptBudgetFromContext(ctx).Response()
+	require.Equal(t, lifecycle.HeartbeatOnly, r.State())
+	require.NoError(t, writeAttemptWS(ctx, []byte(`{"type":"response.output_text.delta","delta":"a"}`), frame))
+	require.Equal(t, lifecycle.SemanticOutput, r.State())
+	terminal := []byte(`{"type":"response.completed"}`)
+	require.ErrorIs(t, writeAttemptWS(ctx, terminal, func() error { calls++; return io.ErrClosedPipe }), io.ErrClosedPipe)
+	require.NoError(t, writeAttemptWS(ctx, terminal, frame))
+	require.Equal(t, 3, calls)
+	require.Equal(t, lifecycle.TerminalFailed, r.State())
+	require.ErrorIs(t, CheckAttemptBudget(ctx), ErrResponseCommitted)
+	BeginAttemptStreamTurn(ctx, 2)
+	require.Equal(t, lifecycle.PreOutput, AttemptBudgetFromContext(ctx).Response().State())
+	require.Equal(t, lifecycle.TerminalFailed, r.State())
+	require.NoError(t, CheckAttemptBudget(ctx))
 }
