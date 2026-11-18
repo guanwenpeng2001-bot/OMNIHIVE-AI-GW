@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -182,4 +183,21 @@ func ResolveCredentialSecret(ctx context.Context, encryptor SecretEncryptor, met
 		return nil, ErrCredentialSecretInvalid
 	}
 	return payload.Credentials, nil
+}
+
+func EncryptVerifiedCredential(ctx context.Context, enc SecretEncryptor, m CredentialSecret, values map[string]any) (string, error) {
+	cipher, err := EncryptCredentialSecret(enc, m, values)
+	if err != nil {
+		return "", err
+	}
+	decoded, err := ResolveCredentialSecret(ctx, enc, m, cipher)
+	if err != nil {
+		return "", err
+	}
+	before, e1 := json.Marshal(values)
+	after, e2 := json.Marshal(decoded)
+	if e1 != nil || e2 != nil || !bytes.Equal(before, after) {
+		return "", ErrCredentialSecretInvalid
+	}
+	return cipher, nil
 }
