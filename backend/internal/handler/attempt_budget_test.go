@@ -232,3 +232,15 @@ func BenchmarkAttemptSSEWrite(b *testing.B) {
 		})
 	}
 }
+
+func TestAttemptLifecycleNativeJSONOnce(t *testing.T) {
+	c, rec := newHelperTestContext(http.MethodPost, "/v1/messages")
+	defer installAttemptBudget(c)()
+	h := &GatewayHandler{}
+	h.errorResponse(c, 403, "permission_error", "forbidden")
+	first := rec.Body.String()
+	require.Contains(t, first, "forbidden")
+	h.errorResponse(c, 502, "api_error", "late failure")
+	require.Equal(t, first, rec.Body.String())
+	require.Equal(t, lifecycle.Terminal, attemptResponse(c).State())
+}

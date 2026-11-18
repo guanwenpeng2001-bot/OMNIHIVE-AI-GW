@@ -1809,10 +1809,14 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	if streamTransportCommitted(c) {
+		writeGatewayStreamTerminal(c, status, errType, code, message)
+		return
+	}
 	if code == "" {
 		code = errType
 	}
-	gatewayerror.Write(c, status, code, message)
+	emitGatewayTerminal(c, func() { gatewayerror.Write(c, status, code, message) })
 }
 
 // CountTokens handles token counting endpoint

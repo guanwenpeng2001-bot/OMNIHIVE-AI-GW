@@ -411,11 +411,10 @@ func (h *GatewayHandler) responsesErrorResponse(c *gin.Context, status int, code
 		writeGatewayStreamTerminal(c, status, code, "", message)
 		return
 	}
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    code,
-			"message": message,
-		},
+	emitGatewayTerminal(c, func() {
+		c.JSON(status, gin.H{
+			"error": gin.H{"code": code, "message": message},
+		})
 	})
 }
 
@@ -448,10 +447,6 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		status, code, message = http.StatusTooManyRequests, "rate_limit_error", "All available accounts are currently rate-limited. Please retry later."
 	}
 	if streamStarted {
-		// A slot-wait heartbeat commits HTTP 200 before any upstream response.
-		// In that case a terminal frame is still required; once any semantic or
-		// official terminal bytes exist, preserve them without appending a second
-		// generic response.failed.
 		service.MarkOpsStreamError(c, code, message, status)
 		if c != nil && c.Writer != nil && (attemptResponse(c) != nil || c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
 			emitGatewayTerminal(c, func() { writeResponsesFailedSSE(c, code, "", message) })

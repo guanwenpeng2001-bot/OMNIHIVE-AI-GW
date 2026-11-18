@@ -1640,8 +1640,14 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 
 // anthropicErrorResponse writes an error in Anthropic Messages API format.
 func (h *OpenAIGatewayHandler) anthropicErrorResponse(c *gin.Context, status int, errType, message string) {
-	status, body := gatewayerror.Envelope("anthropic", status, errType, message)
-	c.JSON(status, body)
+	if streamTransportCommitted(c) {
+		emitGatewayTerminal(c, func() { gatewayerror.WriteStream(c, status, errType, message) })
+		return
+	}
+	emitGatewayTerminal(c, func() {
+		status, body := gatewayerror.Envelope("anthropic", status, errType, message)
+		c.JSON(status, body)
+	})
 }
 
 // anthropicStreamingAwareError handles errors that may occur during streaming,
@@ -3606,7 +3612,7 @@ func (h *OpenAIGatewayHandler) handleStreamingAwareErrorWithCode(
 		h.errorResponse(c, status, errType, message)
 		return
 	}
-	gatewayerror.Write(c, status, code, message)
+	emitGatewayTerminal(c, func() { gatewayerror.Write(c, status, code, message) })
 }
 
 func (h *OpenAIGatewayHandler) ensureOpenAIStreamReadErrorResponse(c *gin.Context, err error, streamStarted bool) bool {
@@ -3758,7 +3764,7 @@ func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType
 		writeGatewayStreamTerminal(c, status, errType, "", message)
 		return
 	}
-	gatewayerror.Write(c, status, errType, message)
+	emitGatewayTerminal(c, func() { gatewayerror.Write(c, status, errType, message) })
 }
 
 // openAICompactKeepaliveInterval 复用流式 keepalive 配置作为 compact 下游
