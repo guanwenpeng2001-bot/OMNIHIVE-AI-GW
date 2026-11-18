@@ -10,7 +10,8 @@ Status legend: todo / doing / review / merged / blocked
 | BE-01 | Identity, projects and access | gpt-6.2-astra | codex/be-01-identity | merged | 43daedeb8; integrated 66510a70b (smoke pass) |
 | INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | doing | per-package integration + smoke |
 | BE-04 | Connections, credentials and pools | gpt-6.2-astra | codex/be-04-connections | doing | based on 66510a70b |
-| BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | doing | rework: keep bounded silent-first-output WS failover as explicit uncertain exception |
+| BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
+| BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |
 | FE-WP2 | Public site, model plaza, detail/compare heatmap, pricing, status, docs | gemini | — | todo | after WP1 + BE-05 |

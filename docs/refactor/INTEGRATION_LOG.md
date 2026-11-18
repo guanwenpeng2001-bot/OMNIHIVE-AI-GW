@@ -42,3 +42,14 @@ Automatic setup with an empty PostgreSQL password bootstrapped the initial test 
 ## BE-02 · Exact money and historical fixtures
 
 Verified on the composed branch on 2026-11-19. The money package has no production routes or migrations. Its integration suite used the same dedicated `job_test` database and Redis service as the BE-01 suite. PostgreSQL numeric round-trips and Redis serialization passed alongside the historical v1 replay, JSON wire and exact rounding tests. The half-tie fixture `0.000078125` produced `0.00007813` for both the charge and reservation ceiling.
+
+## BE-03 · Attempt controller and stream lifecycle
+
+Merged `codex/be-03-attempt` (`712c2b6c6`) into `codex/refactor` as `50e4f9cf9` on 2026-11-19. No composition, router, Wire, OpenAPI or migration changes are required. The controller is internal to the gateway loops. Responses, Messages and WebSocket share one `AttemptDecision`. A verified silent first-output timeout allows one bounded replay on a different account. The abandoned attempt is recorded as `abandoned_uncertain` and is never charged. All other uncertain-acceptance cases stop without a second generation. See [the lifecycle contract](../../contracts/protocol/lifecycle/README.md).
+
+| Verification from `backend` on `50e4f9cf9` | Result |
+| --- | --- |
+| `go build ./...`, `go vet ./internal/gateway/...` | Passed |
+| `go test ./internal/handler/... ./internal/service/... ./internal/gateway/... ./internal/server/...` | Passed |
+| `go test -tags=unit ./internal/handler/... ./internal/service/... ./internal/gateway/...` | Passed |
+| Lifecycle protocol fixtures (34) | Passed on the package branch |
