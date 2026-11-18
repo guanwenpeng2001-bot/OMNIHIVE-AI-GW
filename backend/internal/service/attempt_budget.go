@@ -277,6 +277,21 @@ func interruptGeneration(ctx context.Context, accountID int64, silentFirstOutput
 	b.interrupted = r
 }
 
+// IsAbandonedAttemptReplacement identifies the actual replacement send in the current turn.
+func IsAbandonedAttemptReplacement(ctx context.Context, accountID int64) bool {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.replayFrom == nil {
+		return false
+	}
+	current := b.attempts[len(b.attempts)-1]
+	return current != b.replayFrom && current.AccountID == accountID
+}
+
 func pendingWSTurn(ctx context.Context) bool {
 	b := AttemptBudgetFromContext(ctx)
 	if b == nil {

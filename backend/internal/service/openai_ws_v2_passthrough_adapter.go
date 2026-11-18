@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -1229,6 +1230,44 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	upstreamFirstMessageSent = true
 
+	// The relay observes a terminal before it writes that frame. For a replacement,
+	// defer its first completion until at least one frame actually reaches the client.
+	var onFirstDelivery func()
+	if IsAbandonedAttemptReplacement(ctx, account.ID) && hooks != nil && hooks.AfterTurn != nil {
+		original := hooks.AfterTurn
+		replacementHooks := *hooks
+		delivered := false
+		var pending *OpenAIForwardResult
+		replacementHooks.AfterTurn = func(turn int, result *OpenAIForwardResult, err error) {
+			if pending != nil && err != nil {
+				// A terminal observation preceded a failed client write on the first turn.
+				pending = nil
+				original(1, nil, err)
+				return
+			}
+			if turn == 1 && !delivered && result != nil {
+				if err == nil {
+					pending = result
+					return
+				}
+				result = nil
+			}
+			original(turn, result, err)
+		}
+		hooks = &replacementHooks
+		onFirstDelivery = func() {
+			delivered = true
+			if pending != nil {
+				original(1, pending, nil)
+				pending = nil
+			}
+		}
+		defer func() {
+			if pending != nil {
+				original(1, nil, io.ErrClosedPipe)
+			}
+		}()
+	}
 	readNextClientFrame := func(readCtx context.Context, conn openaiwsv2.FrameConn) (coderws.MessageType, []byte, error) {
 		for {
 			msgType, payload, readErr := conn.ReadFrame(readCtx)
@@ -1333,6 +1372,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			AfterClientWrite: func(msgType coderws.MessageType, payload []byte, writeErr error) {
+				if onFirstDelivery != nil && writeErr == nil {
+					onFirstDelivery()
+					onFirstDelivery = nil
+				}
 				if msgType == coderws.MessageText && writeErr == nil {
 					eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
 					markOpenAIWSClientVisibleFailure(c, eventType, payload)

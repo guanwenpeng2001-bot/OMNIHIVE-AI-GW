@@ -143,6 +143,7 @@ func TestAttemptDecisionsAcrossGatewayLoops(t *testing.T) {
 func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 	var cases []struct {
 		Name                       string
+		CancelOnReplacement        bool `json:"cancel_on_replacement"`
 		Upstreams, Events, Reasons []string
 		Close                      websocket.StatusCode
 		Receipts                   []int64 `json:"receipt_accounts"`
@@ -155,6 +156,7 @@ func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 			var accounts []service.Account
 			var hits atomic.Int32
 			firstClosed := make(chan struct{})
+			replacementStarted := make(chan struct{})
 			for i := range 3 {
 				accountID := int64(i + 1)
 				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +179,7 @@ func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 					if i > 0 {
 						select {
 						case <-firstClosed:
+							close(replacementStarted)
 						case <-ctx.Done():
 							t.Error("previous upstream still open during replacement")
 							return
@@ -191,6 +194,8 @@ func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 						if i == 0 {
 							close(firstClosed)
 						}
+					case "client_disconnect":
+						_, _, _ = conn.Read(ctx)
 					case "complete":
 						_ = conn.Write(ctx, websocket.MessageText, []byte(`{"type":"response.completed","response":{"id":"resp_replayed","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`))
 						_, _, _ = conn.Read(ctx)
@@ -255,6 +260,13 @@ func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, expected, gjson.GetBytes(frame, "type").String())
 			}
+			if tc.CancelOnReplacement {
+				select {
+				case <-replacementStarted:
+				case <-ctx.Done():
+					t.Fatal("replacement did not receive request")
+				}
+			}
 			if tc.Close == websocket.StatusNormalClosure {
 				require.NoError(t, conn.Close(tc.Close, "done"))
 			} else {
@@ -294,7 +306,7 @@ func TestWebSocketFirstOutputAttemptFixtures(t *testing.T) {
 				billed = append(billed, r.Command.AccountID)
 			}
 			require.True(t, slices.Equal(tc.Receipts, billed), "receipt accounts %v", billed)
-			if tc.Close == websocket.StatusNormalClosure {
+			if tc.Upstreams[len(tc.Upstreams)-1] == "complete" {
 				require.Equal(t, "complete", receipts.stored[0].CompletionState)
 				require.Positive(t, receipts.stored[0].Command.BalanceCost)
 			}

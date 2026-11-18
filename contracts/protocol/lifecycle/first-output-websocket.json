@@ -1,5 +1,6 @@
 [
   {"name":"silent_then_success","upstreams":["silent","complete"],"events":["response.completed"],"close":1000,"receipt_accounts":[2],"reasons":["first_output_timeout_abandoned"]},
+  {"name":"silent_then_client_disconnect","upstreams":["silent","client_disconnect"],"cancel_on_replacement":true,"events":[],"close":1000,"receipt_accounts":[],"reasons":["first_output_timeout_abandoned"]},
   {"name":"silent_twice","upstreams":["silent","silent"],"events":[],"close":1013,"receipt_accounts":[],"reasons":["first_output_timeout_abandoned","acceptance_unknown"]},
   {"name":"transport_lost_after_delta","upstreams":["delta_disconnect"],"events":["response.output_text.delta"],"close":1013,"receipt_accounts":[1],"reasons":["acceptance_unknown"]},
   {"name":"partial_frame_at_timeout","upstreams":["partial_frame"],"events":[],"close":1013,"receipt_accounts":[],"reasons":["acceptance_unknown"]},
