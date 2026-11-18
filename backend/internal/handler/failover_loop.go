@@ -165,7 +165,7 @@ func (s *FailoverState) decide(ctx context.Context, id int64, failure *service.U
 	if stop == "" && !failure.ShouldRetryNextAccount() {
 		stop = "provider_stop"
 	}
-	d := s.Decide(service.AttemptDecisionBudget(ctx), attempt.Failure{AccountID: id, Retry: policy, StopReason: stop})
+	d := service.DecideAttempt(ctx, &s.Controller, attempt.Failure{AccountID: id, Retry: policy, StopReason: stop})
 	if d.Action != attempt.Cancel {
 		s.LastFailoverErr = failure
 	}

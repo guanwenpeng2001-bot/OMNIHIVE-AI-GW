@@ -1870,6 +1870,16 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 
 		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
+		var transportErr *openAIWSIngressTurnError
+		if pendingWSTurn(ctx) && errors.As(relayErr, &transportErr) &&
+			(transportErr.stage == "read_upstream" || transportErr.stage == "write_upstream") {
+			sessionLease.MarkBroken()
+			interruptGeneration(ctx, account.ID, false)
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(turn, result, relayErr)
+			}
+			return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Cause: relayErr}
+		}
 		if result != nil && result.ClientDisconnect {
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, result, relayErr)

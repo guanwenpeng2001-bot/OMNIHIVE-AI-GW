@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -54,7 +55,10 @@ func (w *attemptCommitWriter) Flush() {
 
 func (w *attemptCommitWriter) WriteHeaderNow() {
 	w.ResponseWriter.WriteHeaderNow()
-	w.response.Heartbeat()
+	// The upgrade handshake precedes the first logical WebSocket turn.
+	if w.Status() != http.StatusSwitchingProtocols {
+		w.response.Heartbeat()
+	}
 }
 
 func terminalSSEEvent(event string) bool {

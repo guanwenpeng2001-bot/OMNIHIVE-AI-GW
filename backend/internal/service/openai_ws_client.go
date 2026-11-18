@@ -339,11 +339,8 @@ func (c *coderOpenAIWSClientConn) ReadFrame(ctx context.Context) (coderws.Messag
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	msgType, payload, err := c.conn.Read(ctx)
-	if err != nil {
-		return coderws.MessageText, nil, err
-	}
-	return msgType, payload, nil
+	// Read returns partial message bytes on error. Keep them as timeout evidence.
+	return c.conn.Read(ctx)
 }
 
 func (c *coderOpenAIWSClientConn) WriteFrame(ctx context.Context, msgType coderws.MessageType, payload []byte) error {

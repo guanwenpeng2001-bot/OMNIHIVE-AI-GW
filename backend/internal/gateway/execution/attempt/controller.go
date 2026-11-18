@@ -23,14 +23,17 @@ const (
 	Unknown  Acceptance = "unknown"
 )
 
+const FirstOutputTimeoutAbandoned = "first_output_timeout_abandoned"
+
 type AttemptDecision struct {
-	AttemptNumber int        `json:"attempt_number"`
-	Action        Action     `json:"action"`
-	Reason        string     `json:"reason"`
-	Excluded      []int64    `json:"excluded"`
-	Acceptance    Acceptance `json:"acceptance"`
-	Remaining     int        `json:"remaining"`
-	Deadline      time.Time  `json:"deadline"`
+	AbandonedUncertain bool       `json:"abandoned_uncertain"`
+	AttemptNumber      int        `json:"attempt_number"`
+	Action             Action     `json:"action"`
+	Reason             string     `json:"reason"`
+	Excluded           []int64    `json:"excluded"`
+	Acceptance         Acceptance `json:"acceptance"`
+	Remaining          int        `json:"remaining"`
+	Deadline           time.Time  `json:"deadline"`
 }
 
 type Recorder interface {
@@ -53,11 +56,13 @@ func Record(ctx context.Context, d AttemptDecision) {
 
 // Budget is a snapshot of actual sends, including provider repairs and fallback transports.
 type Budget struct {
-	Number     int
-	Remaining  int
-	Acceptance Acceptance
-	Deadline   time.Time
-	StopReason string
+	AbandonedUncertain bool
+	ReplayAvailable    bool
+	Number             int
+	Remaining          int
+	Acceptance         Acceptance
+	Deadline           time.Time
+	StopReason         string
 }
 
 type Failure struct {
@@ -82,15 +87,22 @@ func New(maxSwitches int) Controller {
 }
 
 func (c *Controller) Decide(b Budget, f Failure) AttemptDecision {
-	d := AttemptDecision{AttemptNumber: b.Number, Remaining: b.Remaining, Deadline: b.Deadline, Acceptance: b.Acceptance, Action: Stop}
+	d := AttemptDecision{AbandonedUncertain: b.AbandonedUncertain, AttemptNumber: b.Number, Remaining: b.Remaining, Deadline: b.Deadline, Acceptance: b.Acceptance, Action: Stop}
 	now := time.Now()
 	switch {
 	case b.StopReason == "canceled":
 		d.Action, d.Reason = Cancel, b.StopReason
-	case b.StopReason != "":
-		d.Reason = b.StopReason
 	case !b.Deadline.IsZero() && !now.Before(b.Deadline):
 		d.Reason = "deadline"
+	case b.StopReason == "acceptance_unknown" && b.ReplayAvailable:
+		d.Reason = b.StopReason
+		if b.Acceptance == Unknown && b.Remaining > 0 && f.StopReason == "" && c.SwitchCount < c.MaxSwitches {
+			c.FailedAccountIDs[f.AccountID] = struct{}{}
+			c.SwitchCount++
+			d.Action, d.Reason = Switch, FirstOutputTimeoutAbandoned
+		}
+	case b.StopReason != "":
+		d.Reason = b.StopReason
 	case b.Acceptance == Unknown:
 		d.Reason = "acceptance_unknown"
 	case b.Remaining == 0:

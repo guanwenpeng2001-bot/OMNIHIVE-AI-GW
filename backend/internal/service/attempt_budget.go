@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -42,25 +43,33 @@ func (b *attemptResponseBody) Close() error {
 // AttemptRecord contains no credentials, request bodies or caller-controlled labels.
 // A transport error cannot prove that the upstream did not execute the request.
 type AttemptRecord struct {
-	Turn      int
-	Number    int
-	AccountID int64
-	Reason    string
-	Outcome   string
-	Status    int
+	AbandonedUncertain bool
+	Turn               int
+	Number             int
+	AccountID          int64
+	Reason             string
+	Outcome            string
+	Status             int
 }
 
 type AttemptBudget struct {
+	// Serialize send admission, including the TPM reservation. Competing replacements
+	// must see the consumed permit before creating a reservation for another send.
+	admissionMu sync.Mutex
 	mu          sync.Mutex
 	root        context.Context
 	deadline    time.Time
 	limit       int
 	response    *lifecycle.Response
 	pendingWS   *AttemptRecord
-	uncertain   bool
-	attempts    []*AttemptRecord
-	streamTurns bool
-	turn        int
+	interrupted *AttemptRecord
+	// replayFrom identifies the sole abandoned attempt whose replacement is authorized.
+	replayFrom     *AttemptRecord
+	replayExcluded []int64
+	uncertain      bool
+	attempts       []*AttemptRecord
+	streamTurns    bool
+	turn           int
 }
 
 // A WebSocket connection is long-lived; only a new client logical turn may
@@ -96,6 +105,9 @@ func BeginAttemptStreamTurn(ctx context.Context, turn int) {
 		b.attempts = nil
 		b.response = new(lifecycle.Response)
 		b.pendingWS = nil
+		b.interrupted = nil
+		b.replayFrom = nil
+		b.replayExcluded = nil
 		b.uncertain = false
 	}
 	b.turn = turn
@@ -245,6 +257,36 @@ func (b *AttemptBudget) Commit() {
 	b.mu.Unlock()
 }
 
+// interruptGeneration records the outcome only after the upstream has been closed or canceled.
+func interruptGeneration(ctx context.Context, accountID int64, silentFirstOutputTimeout bool) {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.attempts) == 0 {
+		return
+	}
+	r := b.attempts[len(b.attempts)-1]
+	if r.AccountID != accountID || r.Outcome == "not_sent" || r.Outcome == "rejected" {
+		return
+	}
+	r.Outcome = "unknown"
+	r.AbandonedUncertain = silentFirstOutputTimeout && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+	b.interrupted = r
+}
+
+func pendingWSTurn(ctx context.Context) bool {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.pendingWS != nil && b.response.State() < lifecycle.EmittingTerminal
+}
+
 func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -255,16 +297,22 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	if !time.Now().Before(b.deadline) {
 		return context.DeadlineExceeded
 	}
+	if b.interrupted != nil && (b.interrupted != b.replayFrom || b.response.State() != lifecycle.PreOutput || b.response.ReplayBlocked()) {
+		return ErrAttemptOutcomeUnknown
+	}
+	if b.replayFrom != nil && b.attempts[len(b.attempts)-1] != b.replayFrom {
+		return ErrAttemptOutcomeUnknown
+	}
 	if b.response.ReplayBlocked() {
 		return ErrResponseCommitted
 	}
-	if b.uncertain {
+	if b.uncertain && b.interrupted == nil {
 		return ErrAttemptOutcomeUnknown
 	}
 	if len(b.attempts) >= b.limit {
 		return ErrAttemptBudgetExhausted
 	}
-	if b.pendingWS != nil {
+	if b.pendingWS != nil && b.pendingWS != b.replayFrom {
 		return ErrAttemptOutcomeUnknown
 	}
 	return nil
@@ -280,17 +328,26 @@ func (b *AttemptBudget) Response() *lifecycle.Response {
 }
 
 func AttemptDecisionBudget(ctx context.Context) attempt.Budget {
-	view := attempt.Budget{Acceptance: attempt.NotSent, Remaining: -1}
 	b := AttemptBudgetFromContext(ctx)
-	var err error
 	if b != nil {
 		b.mu.Lock()
 		defer b.mu.Unlock()
+	}
+	return decisionBudgetLocked(ctx, b)
+}
+
+func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget {
+	view := attempt.Budget{Acceptance: attempt.NotSent, Remaining: -1}
+	var err error
+	if b != nil {
 		view.Number = len(b.attempts)
 		view.Remaining = b.limit - view.Number
 		view.Deadline = b.deadline
 		if view.Number > 0 {
-			switch b.attempts[view.Number-1].Outcome {
+			r := b.attempts[view.Number-1]
+			view.AbandonedUncertain = r.AbandonedUncertain
+			view.ReplayAvailable = b.replayFrom == nil && view.AbandonedUncertain && b.response.State() == lifecycle.PreOutput && !b.response.ReplayBlocked()
+			switch r.Outcome {
 			case "unknown":
 				view.Acceptance = attempt.Unknown
 			case "transport_response":
@@ -315,6 +372,34 @@ func AttemptDecisionBudget(ctx context.Context) attempt.Budget {
 		view.StopReason = "attempt_limit"
 	}
 	return view
+}
+
+// DecideAttempt authorizes a silent-timeout switch atomically with its budget snapshot.
+func DecideAttempt(ctx context.Context, controller *attempt.Controller, failure attempt.Failure) attempt.AttemptDecision {
+	b := AttemptBudgetFromContext(ctx)
+	if b == nil {
+		return controller.Decide(AttemptDecisionBudget(ctx), failure)
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	view := decisionBudgetLocked(ctx, b)
+	view.ReplayAvailable = view.ReplayAvailable && b.interrupted != nil && b.interrupted.AccountID == failure.AccountID
+	d := controller.Decide(view, failure)
+	if d.Action == attempt.Switch && d.Reason == attempt.FirstOutputTimeoutAbandoned {
+		b.replayFrom = b.interrupted
+		b.replayExcluded = slices.Clone(d.Excluded)
+	}
+	return d
+}
+
+func (b *AttemptBudget) checkSendLocked(ctx context.Context, accountID int64) error {
+	if err := b.checkLocked(ctx); err != nil {
+		return err
+	}
+	if slices.Contains(b.replayExcluded, accountID) {
+		return ErrAttemptOutcomeUnknown
+	}
+	return nil
 }
 
 func CheckAttemptBudget(ctx context.Context) error {
@@ -349,7 +434,17 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 }
 
 func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func(int, error), error) {
-	if err := CheckAttemptBudget(ctx); err != nil {
+	b := AttemptBudgetFromContext(ctx)
+	if b != nil {
+		b.admissionMu.Lock()
+		defer b.admissionMu.Unlock()
+		b.mu.Lock()
+		err := b.checkSendLocked(ctx, accountID)
+		b.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+	} else if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	plan := GatewayRequestPlanFromContext(ctx)
@@ -357,11 +452,10 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 	if tpmErr != nil {
 		return nil, tpmErr
 	}
-	b := AttemptBudgetFromContext(ctx)
 	var record *AttemptRecord
 	if b != nil {
 		b.mu.Lock()
-		if err := b.checkLocked(ctx); err != nil {
+		if err := b.checkSendLocked(ctx, accountID); err != nil {
 			b.mu.Unlock()
 			return nil, err
 		}
@@ -382,6 +476,9 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		}
 		record = &AttemptRecord{Turn: b.turn, Number: index + 1, AccountID: accountID, Reason: reason, Outcome: "unknown"}
 		b.attempts = append(b.attempts, record)
+		b.interrupted = nil
+		b.uncertain = false
+		b.pendingWS = nil
 		if ws && b.streamTurns {
 			b.pendingWS = record
 		}

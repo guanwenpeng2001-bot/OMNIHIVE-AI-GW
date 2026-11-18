@@ -332,3 +332,76 @@ func TestAttemptBudgetWebSocketReconcileAndTerminal(t *testing.T) {
 	require.Equal(t, lifecycle.TerminalFailed, r.State())
 	require.NoError(t, CheckAttemptBudget(ctx))
 }
+
+func TestAttemptBudgetSilentTimeoutPermit(t *testing.T) {
+	repo := &tpmBoundaryRepository{}
+	ctx := WithStreamAttemptBudget(WithGatewayRequestPlan(t.Context(), boundaryTPMPlan(repo, "replay")))
+	ConfigureAttemptBudget(ctx, 4)
+	BeginAttemptStreamTurn(ctx, 1)
+	send := func(context.Context) error { return nil }
+	msg := json.RawMessage(`{"type":"response.create"}`)
+	require.NoError(t, generationWS(ctx, 1, msg, send))
+	interruptGeneration(ctx, 1, true)
+	controller := attempt.New(3)
+	require.ErrorIs(t, generationWS(ctx, 2, msg, send), ErrAttemptOutcomeUnknown)
+	// Only the failing account's decision may open the send boundary.
+	require.Equal(t, attempt.Stop, DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 2}).Action)
+	controller.FailedAccountIDs[99] = struct{}{}
+	d := DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 1})
+	require.Equal(t, attempt.Switch, d.Action)
+	BeginAttemptStreamTurn(ctx, 1)
+	require.ErrorIs(t, generationWS(ctx, 1, msg, send), ErrAttemptOutcomeUnknown)
+	require.ErrorIs(t, generationWS(ctx, 99, msg, send), ErrAttemptOutcomeUnknown)
+	var sent atomic.Int32
+	var wg sync.WaitGroup
+	for i := range 6 {
+		wg.Go(func() {
+			_ = generationWS(ctx, int64(2+i), msg, func(context.Context) error { sent.Add(1); return nil })
+		})
+	}
+	wg.Wait()
+	require.EqualValues(t, 1, sent.Load())
+	require.Len(t, repo.commands, 2)
+	records := AttemptBudgetFromContext(ctx).Snapshot()
+	require.Len(t, records, 2)
+	require.True(t, records[0].AbandonedUncertain)
+	require.Equal(t, "unknown", records[0].Outcome)
+	interruptGeneration(ctx, records[1].AccountID, true)
+	controller = attempt.New(3)
+	d = DecideAttempt(ctx, &controller, attempt.Failure{AccountID: records[1].AccountID})
+	require.Equal(t, attempt.Stop, d.Action)
+	require.Equal(t, "acceptance_unknown", d.Reason)
+	BeginAttemptStreamTurn(ctx, 2)
+	require.NoError(t, generationWS(ctx, 1, msg, send))
+}
+
+func TestWebSocketSilentAttemptClosesUpstreamBeforeReplay(t *testing.T) {
+	ctx := WithStreamAttemptBudget(t.Context())
+	ConfigureAttemptBudget(ctx, 3)
+	upstream := newStagedPassthroughConn()
+	account := passthroughLifecycleAccount()
+	svc := newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream)
+	server, serverErr := startPassthroughLifecycleServer(t, ctx, svc, account)
+	defer server.Close()
+	conn := dialPassthroughLifecycleClient(t, server)
+	defer conn.CloseNow()
+	requirePassthroughUpstreamWrite(t, upstream, time.Second)
+	controller := attempt.New(3)
+	require.Equal(t, "acceptance_unknown", AttemptDecisionBudget(ctx).StopReason)
+	require.False(t, AttemptDecisionBudget(ctx).ReplayAvailable)
+	select {
+	case err := <-serverErr:
+		var failover *UpstreamFailoverError
+		require.ErrorAs(t, err, &failover)
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout did not return")
+	}
+	select {
+	case <-upstream.closed:
+	default:
+		t.Fatal("timeout returned before upstream close")
+	}
+	require.ErrorIs(t, CheckAttemptBudget(ctx), ErrAttemptOutcomeUnknown)
+	require.Equal(t, attempt.Switch, DecideAttempt(ctx, &controller, attempt.Failure{AccountID: account.ID}).Action)
+	require.NoError(t, CheckAttemptBudget(ctx))
+}

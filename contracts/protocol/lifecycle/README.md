@@ -8,9 +8,13 @@ For BE-06, install `attempt.WithRecorder` on the admitted request context. The c
 
 For BE-12, HTTP error encoding still uses the native gateway encoders. The writer recognizes SSE comment and ping forms, protects semantic output, and observes terminal delivery. The WS native, HTTP bridge and passthrough frame writers report the result of the native write. Known WS field rejections, missing previous responses and provider rate limits reconcile a pending send before a same-turn retry. Further ingress codecs can use the same lifecycle and replay decision.
 
-## Legacy WS first-output expectation
+## Silent first-output timeout
 
-At base `555a92ab7`, `TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClientForOneFailover` requires a second account to receive `response.create` after the first received the request and returned no acknowledgement. The fixture has no idempotency key or provider reconciliation. The protected controller reports `acceptance_unknown` and the client receives the existing retryable WS close. An explicit upstream rejection before any output still permits failover. The legacy expectation requires a contract decision before integration.
+Native Responses WS passthrough and native Responses SSE allow one replacement on a different account when the configured first-output deadline expires. The relay must close or cancel the upstream, observe zero semantic bytes and write zero downstream body or frame bytes for that turn. The original deadline, exclusions and send limit still apply. For SSE this includes a canceled response-header wait and a closed stream containing only confirmed preamble or heartbeat lines. A downstream keepalive uses the turn’s first bytes and closes this exception. Native WS retains the initial request for recovery. A later passthrough turn that depends on the existing session ends with a retryable close. Messages has no equivalent inherited first-output timeout path.
+
+BE-06 receives `acceptance=unknown`, `reason=first_output_timeout_abandoned`, and `abandoned_uncertain=true` for the switch. The gateway creates no customer charge or usage receipt for the abandoned attempt. BE-06 can reconcile its unknown provider execution separately. A second silent timeout retains that flag and stops with `acceptance_unknown`. Native WS sends close 1013 on exhaustion or ambiguous transport loss. Delivered partial output retains its existing interrupted-usage settlement path. A session’s upgrade handshake precedes the first turn and does not count as output.
+
+The native WS cases in `first-output-websocket.json` exercise silent recovery, repeated silence, a lost transport after a delivered delta, partial upstream frames, delivered preamble and loss before acknowledgement. The tests check account dispatches, decisions, deadlines, native closes and persisted receipt accounts.
 
 ## Microbenchmarks
 

@@ -135,7 +135,7 @@ type CancelableJobAdapter interface {
 
 `EventSink` records transport commitment, semantic-output commitment and terminal status. Heartbeats can commit headers while leaving generation replay rules dependent on semantic commitment and upstream acceptance. Terminal emission is once-only. WS connections own sessions, with a separate request/receipt identity per logical turn.
 
-`AttemptController` is built around existing AttemptBudget and FailoverState behavior. It records deadline, total attempts, same-account attempts, exclusion reasons, backoff and upstream acceptance (`not_sent`, `accepted`, `unknown`). A new generation after uncertain acceptance requires provider idempotency or a reconciled submission result. Protocol encoders retain native terminal and error forms.
+`AttemptController` is built around existing AttemptBudget and FailoverState behavior. It records deadline, total attempts, same-account attempts, exclusion reasons, backoff and upstream acceptance (`not_sent`, `accepted`, `unknown`). A new generation after uncertain acceptance normally requires provider idempotency or a reconciled submission result. Native Responses WS passthrough and SSE may replay once on a different account within the original budget after a silent first-output timeout closes or cancels the prior upstream with zero upstream semantic bytes and zero downstream bytes, recording `first_output_timeout_abandoned` and `abandoned_uncertain` with unknown acceptance and zero charge or receipt for the abandoned attempt. Protocol encoders retain native terminal and error forms.
 
 ## Exact money and price design
 
