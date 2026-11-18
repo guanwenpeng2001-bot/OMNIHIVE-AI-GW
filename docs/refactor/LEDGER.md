@@ -8,16 +8,19 @@ Status legend: todo / doing / review / merged / blocked
 | A0 | Backend current state, target architecture, work packages, API contracts | gpt-6.2-astra | codex/architecture | merged | 874358e84 |
 | BE-02 | Exact Money, rate and historical fixtures | gpt-6.2-astra | codex/be-02-money | merged | 555a92ab7 |
 | BE-01 | Identity, projects and access | gpt-6.2-astra | codex/be-01-identity | merged | 43daedeb8; integrated 66510a70b (smoke pass) |
-| INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | doing | per-package integration + smoke |
+| INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | idle | BE-01, BE-04 integrated |
 | BE-04 | Connections, credentials and pools | gpt-6.2-astra | codex/be-04-connections | merged | b58c783e7 → fd601fcb6; integrated c7c7d0961 (smoke pass) |
 | BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | doing | based on integrated BE-04 tip |
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
-| BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 |
+| BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 (resumed after interruption) |
+| BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | doing | based on 1e5012626 |
+| RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | doing | report only |
+| QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | doing | scripts/quality-gate.sh, QUALITY_GATE.md |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |
 | FE-WP2 | Public site, model plaza, detail/compare heatmap, pricing, status, docs | gemini | — | todo | after WP1 + BE-05 |
 | FE-WP3 | Overview, keys, playground, task center, workspaces | gemini | — | todo | after WP1 (+BE-13/15) |
-| FE-WP4 | 5-step connection wizard, egress | gemini | — | todo | after WP1 + BE-04 |
+| FE-WP4 | 5-step connection wizard, egress | gemini-4-hydrogen | codex/fe-wp4-connections | doing | parallel with WP1; routes applied after WP1 merge |
 | FE-WP5 | Pools, mapping, routing simulator | gemini | — | todo | after WP1 + BE-08/10 |
 | FE-WP6 | Request waterfall, cost & quota, billing | gemini | — | todo | after WP1 + BE-14/16 |
 | FE-WP7 | Ops, members, audit, backup, settings, profile | gemini | — | todo | after WP1 |
