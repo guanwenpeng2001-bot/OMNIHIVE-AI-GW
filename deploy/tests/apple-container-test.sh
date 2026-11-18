@@ -105,6 +105,14 @@ assert_missing "${STATE_DIR}/volumes/omnihive-apple-data"
 assert_missing "${STATE_DIR}/volumes/omnihive-apple-postgres-data"
 assert_missing "${STATE_DIR}/volumes/omnihive-apple-redis-data"
 
+touch "${STATE_DIR}/volumes/sub2api-apple-data"
+legacy_output="$("${SCRIPT}" up 2>&1)"
+[[ "$legacy_output" == *"Using the deprecated stack names"* ]] || fail "legacy stack fallback was not logged"
+assert_exists "${STATE_DIR}/running/sub2api-apple"
+assert_exists "${STATE_DIR}/volumes/sub2api-apple-data"
+assert_missing "${STATE_DIR}/volumes/omnihive-apple-data"
+"${SCRIPT}" destroy --volumes --yes
+
 touch "${STATE_DIR}/system-running"
 touch "${STATE_DIR}/containers/omnihive-apple"
 touch "${STATE_DIR}/unowned/container/omnihive-apple"
