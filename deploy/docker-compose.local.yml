@@ -9,12 +9,12 @@
 #   1. Copy .env.example to .env and configure
 #   2. mkdir -p data postgres_data redis_data
 #   3. docker-compose -f docker-compose.local.yml up -d
-#   4. Check logs: docker-compose -f docker-compose.local.yml logs -f sub2api
+#   4. Check logs: docker-compose -f docker-compose.local.yml logs -f omnihive
 #   5. Access: http://localhost:8080
 #
 # Migration to New Server:
 #   1. docker-compose -f docker-compose.local.yml down
-#   2. tar czf sub2api-deploy.tar.gz deploy/
+#   2. tar czf omnihive-deploy.tar.gz deploy/
 #   3. Transfer to new server and extract
 #   4. docker-compose -f docker-compose.local.yml up -d
 # =============================================================================
@@ -23,9 +23,9 @@ services:
   # ===========================================================================
   # OmniHive Application
   # ===========================================================================
-  sub2api:
+  omnihive:
     image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
-    container_name: sub2api
+    container_name: omnihive
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -75,9 +75,9 @@ services:
       # =======================================================================
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
-      - DATABASE_USER=${POSTGRES_USER:-sub2api}
+      - DATABASE_USER=${POSTGRES_USER:-omnihive}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - DATABASE_DBNAME=${POSTGRES_DB:-sub2api}
+      - DATABASE_DBNAME=${POSTGRES_DB:-omnihive}
       - DATABASE_SSLMODE=disable
       - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-256}
       - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-128}
@@ -99,7 +99,7 @@ services:
       # =======================================================================
       # Admin Account (auto-created on first run)
       # =======================================================================
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@omnihive.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
 
       # =======================================================================
@@ -178,7 +178,7 @@ services:
       # Fallbacks mirror OmniHive backend defaults so omitted values preserve behavior.
       - GATEWAY_FORCE_CODEX_CLI=${GATEWAY_FORCE_CODEX_CLI:-false}
       - GATEWAY_OPENAI_COMPACT_MODEL=${GATEWAY_OPENAI_COMPACT_MODEL:-gpt-5.4}
-      - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}
+      - OMNIHIVE_IMAGES_MAIN_MODEL=${OMNIHIVE_IMAGES_MAIN_MODEL-${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}
       - GATEWAY_OPENAI_WS_FORCE_HTTP=${GATEWAY_OPENAI_WS_FORCE_HTTP:-false}
       - GATEWAY_OPENAI_HTTP2_ENABLED=${GATEWAY_OPENAI_HTTP2_ENABLED:-true}
@@ -223,7 +223,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
@@ -236,7 +236,7 @@ services:
   # ===========================================================================
   postgres:
     image: postgres:18-alpine
-    container_name: sub2api-postgres
+    container_name: omnihive-postgres
     restart: unless-stopped
     command: >
       postgres
@@ -252,15 +252,15 @@ services:
       # Local directory mapping for easy migration
       - ./postgres_data:/var/lib/postgresql/data:Z
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-sub2api}
+      - POSTGRES_USER=${POSTGRES_USER:-omnihive}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - POSTGRES_DB=${POSTGRES_DB:-sub2api}
+      - POSTGRES_DB=${POSTGRES_DB:-omnihive}
       - PGDATA=/var/lib/postgresql/data
       - TZ=${TZ:-Asia/Shanghai}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omnihive} -d ${POSTGRES_DB:-omnihive}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -273,7 +273,7 @@ services:
   # ===========================================================================
   redis:
     image: redis:8-alpine
-    container_name: sub2api-redis
+    container_name: omnihive-redis
     restart: unless-stopped
     ulimits:
       nofile:
@@ -300,7 +300,7 @@ services:
       # REDISCLI_AUTH is used by redis-cli for authentication (safer than -a flag)
       - REDISCLI_AUTH=${REDIS_PASSWORD:-}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -312,5 +312,5 @@ services:
 # Networks
 # =============================================================================
 networks:
-  sub2api-network:
+  omnihive-network:
     driver: bridge

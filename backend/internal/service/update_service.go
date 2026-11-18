@@ -20,6 +20,7 @@ import (
 	"time"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 var (
@@ -28,9 +29,11 @@ var (
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
+	updateCacheKey         = "update_check_cache"
+	updateCacheTTL         = 1200 // 20 minutes
+	updateBinaryName       = "omnihive"
+	legacyUpdateBinaryName = "sub2api"
+	githubRepo             = "guanwenpeng2001-bot/OMNIHIVE-AI-GW"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -147,10 +150,10 @@ func resolveAssetDownloadURL(a GitHubAsset) string {
 }
 
 func resolveDockerDataDir() string {
-	if dir := strings.TrimSpace(os.Getenv("OMNIHIVE_DATA_DIR")); dir != "" {
+	if dir := runtimeenv.DataDir(); dir != "" {
 		return dir
 	}
-	return "/app/data"
+	return runtimeenv.ContainerDataDir
 }
 
 func createUpdateTempDir(exeDir string) (string, bool, error) {
@@ -214,20 +217,42 @@ func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 		return false, nil
 	}
 	defer func() { _ = os.Remove(probe) }()
-	current := filepath.Join(updatesDir, "current", "sub2api")
+	current := filepath.Join(updatesDir, "current", updateBinaryName)
 	previous := current
 	if _, err := os.Stat(current); os.IsNotExist(err) {
 		previous = exePath
 	} else if err != nil {
 		return false, err
 	}
-	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", "sub2api")); err != nil {
+	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
 		return false, err
 	}
 	if err := copyUpdateBinary(newBinaryPath, current); err != nil {
 		return false, err
 	}
+	if err := bridgeLegacyContainerExecutable(exePath, current); err != nil {
+		return false, err
+	}
 	return true, nil
+}
+
+func bridgeLegacyContainerExecutable(exePath, current string) error {
+	if exePath != "/app/"+legacyUpdateBinaryName {
+		return nil
+	}
+	legacy := filepath.Join(filepath.Dir(current), legacyUpdateBinaryName)
+	runtimeenv.WarnLegacy(exePath, "/app/"+updateBinaryName)
+	// Old container entrypoints read this path on restart. Point them to the verified stage.
+	linkDir, err := os.MkdirTemp(filepath.Dir(current), ".legacy-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(linkDir) }()
+	link := filepath.Join(linkDir, legacyUpdateBinaryName)
+	if err := os.Symlink(updateBinaryName, link); err != nil {
+		return err
+	}
+	return os.Rename(link, legacy)
 }
 
 // CheckUpdate checks for available updates
@@ -273,31 +298,24 @@ func (s *UpdateService) PerformUpdate(ctx context.Context) error {
 		return ErrNoUpdateAvailable
 	}
 
-	return s.applyReleaseAssets(ctx, info.ReleaseInfo.Assets)
+	return s.applyReleaseAssets(ctx, info.LatestVersion, info.ReleaseInfo.Assets)
 }
 
 // applyReleaseAssets downloads the platform archive from the given release assets,
 // verifies its checksum, and atomically swaps the running binary.
 // Shared by PerformUpdate (latest) and RollbackToVersion (specific older version).
-func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []Asset) error {
-	// Find matching archive and checksum for current platform
-	archiveName := s.getArchiveName()
-	var downloadURL string
-	var downloadName string
-	var checksumURL string
-
-	for _, asset := range releaseAssets {
-		if strings.Contains(asset.Name, archiveName) && !strings.HasSuffix(asset.Name, ".txt") {
-			downloadURL = asset.DownloadURL
-			downloadName = filepath.Base(asset.Name)
-		}
-		if asset.Name == "checksums.txt" {
-			checksumURL = asset.DownloadURL
-		}
-	}
-
-	if downloadURL == "" {
+func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, releaseAssets []Asset) error {
+	asset, checksumURL := selectUpdateAssets(version, releaseAssets)
+	if asset.DownloadURL == "" {
 		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	downloadURL, downloadName := asset.DownloadURL, asset.Name
+	if strings.HasPrefix(downloadName, updateBinaryName+"_") {
+		if checksumURL == "" {
+			return fmt.Errorf("checksum asset not found for %s", downloadName)
+		}
+	} else {
+		runtimeenv.WarnLegacy(downloadName, updateBinaryName+"_<version>_<os>_<arch>.tar.gz")
 	}
 
 	// SECURITY: Validate download URL is from trusted domain
@@ -344,7 +362,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	}
 
 	// Extract binary from archive
-	newBinaryPath := filepath.Join(tempDir, "sub2api")
+	newBinaryPath := filepath.Join(tempDir, updateBinaryName)
 	if err := s.extractBinary(archivePath, newBinaryPath); err != nil {
 		return fmt.Errorf("extraction failed: %w", err)
 	}
@@ -410,8 +428,15 @@ func (s *UpdateService) Rollback() error {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
-	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", "sub2api")
-	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", "sub2api")
+	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
+	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", updateBinaryName)
+	if _, err := os.Stat(persistentBackup); os.IsNotExist(err) {
+		legacy := filepath.Join(filepath.Dir(persistentBackup), legacyUpdateBinaryName)
+		if _, err := os.Stat(legacy); err == nil {
+			runtimeenv.WarnLegacy(legacy, persistentBackup)
+			persistentBackup = legacy
+		}
+	}
 	staged := false
 	if _, err := os.Stat(persistentBackup); err == nil {
 		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
@@ -419,6 +444,9 @@ func (s *UpdateService) Rollback() error {
 		}
 		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
 			return fmt.Errorf("persistent rollback failed: %w", err)
+		}
+		if err := bridgeLegacyContainerExecutable(exePath, persistentCurrent); err != nil {
+			return fmt.Errorf("persistent rollback compatibility link failed: %w", err)
 		}
 		staged = true
 	} else if !os.IsNotExist(err) {
@@ -491,7 +519,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 		}
 	}
 
-	return s.applyReleaseAssets(ctx, assets)
+	return s.applyReleaseAssets(ctx, match.TagName, assets)
 }
 
 // fetchRollbackCandidates fetches recent releases and keeps the newest
@@ -573,10 +601,20 @@ func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest stri
 	return s.githubClient.DownloadFile(ctx, downloadURL, dest, maxDownloadSize)
 }
 
-func (s *UpdateService) getArchiveName() string {
-	osName := runtime.GOOS
-	arch := runtime.GOARCH
-	return fmt.Sprintf("%s_%s", osName, arch)
+func selectUpdateAssets(version string, releaseAssets []Asset) (Asset, string) {
+	version = strings.TrimPrefix(version, "v")
+	suffix := fmt.Sprintf("_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	assets := make(map[string]Asset, len(releaseAssets))
+	for _, asset := range releaseAssets {
+		assets[asset.Name] = asset
+	}
+	checksumURL := assets["checksums.txt"].DownloadURL
+	for _, prefix := range []string{updateBinaryName, "omnihive-ai-gw", legacyUpdateBinaryName} {
+		if asset, ok := assets[prefix+suffix]; ok {
+			return asset, checksumURL
+		}
+	}
+	return Asset{}, checksumURL
 }
 
 // validateDownloadURL checks if the URL is from an allowed domain
@@ -688,7 +726,11 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 			}
 
 			// Only extract the specific binary we need
-			if baseName == "sub2api" || baseName == "sub2api.exe" || baseName == "omnihive" || baseName == "omnihive.exe" || baseName == "omnihive-ai-gw" || baseName == "omnihive-ai-gw.exe" {
+			binaryName := strings.TrimSuffix(baseName, ".exe")
+			if binaryName == updateBinaryName || binaryName == legacyUpdateBinaryName || binaryName == "omnihive-ai-gw" {
+				if binaryName != updateBinaryName {
+					runtimeenv.WarnLegacy(binaryName, updateBinaryName)
+				}
 				// Additional security: limit file size (max 500MB)
 				const maxBinarySize = 500 * 1024 * 1024
 				if hdr.Size > maxBinarySize {

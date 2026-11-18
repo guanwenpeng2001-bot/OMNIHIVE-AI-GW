@@ -11,6 +11,7 @@ import (
 	"time"
 
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const (
@@ -19,8 +20,8 @@ const (
 	AdminComplianceDocumentPathEN = "docs/legal/admin-compliance.en.md"
 	AdminComplianceDocumentURLZH  = "https://github.com/Wei-Shaw/sub2api/blob/main/docs/legal/admin-compliance.zh.md"
 	AdminComplianceDocumentURLEN  = "https://github.com/Wei-Shaw/sub2api/blob/main/docs/legal/admin-compliance.en.md"
-	AdminComplianceAckPhraseZH    = "我已阅读、理解并同意 Sub2API 部署与运营合规承诺"
-	AdminComplianceAckPhraseEN    = "I have read, understood, and agree to the Sub2API Deployment and Operation Compliance Commitment"
+	AdminComplianceAckPhraseZH    = "我已阅读、理解并同意 OmniHive 部署与运营合规承诺"
+	AdminComplianceAckPhraseEN    = "I have read, understood, and agree to the OmniHive Deployment and Operation Compliance Commitment"
 
 	settingKeyAdminComplianceAcknowledgement = "admin_compliance_acknowledgement"
 )
@@ -136,8 +137,12 @@ func (s *SettingService) AcceptAdminCompliance(ctx context.Context, input AdminC
 		return nil, infraerrors.InternalServer("SETTING_SERVICE_UNAVAILABLE", "setting service is unavailable")
 	}
 	phrase := strings.TrimSpace(input.Phrase)
-	if phrase != expectedAdminCompliancePhrase(input.Language) {
-		return nil, ErrAdminComplianceInvalidPhrase
+	expectedPhrase := expectedAdminCompliancePhrase(input.Language)
+	if phrase != expectedPhrase {
+		if phrase != strings.Replace(expectedPhrase, "OmniHive", "Sub2API", 1) {
+			return nil, ErrAdminComplianceInvalidPhrase
+		}
+		runtimeenv.WarnLegacy("admin compliance phrase from an older console", "current OmniHive phrase")
 	}
 
 	ack := AdminComplianceAcknowledgement{

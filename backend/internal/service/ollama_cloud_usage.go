@@ -905,7 +905,7 @@ func (s *OllamaCloudUsageService) refreshLoadedAccount(ctx context.Context, acco
 	}
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 	req.Header.Set("Cookie", cookie)
-	req.Header.Set("User-Agent", "sub2api-ollama-usage/1")
+	req.Header.Set("User-Agent", "omnihive-ollama-usage/1")
 	resp, err := accountHTTPUpstream(s.httpUpstream, account).Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return s.persistFailure(ctx, account, intervalMinutes, now, 0, "request_failed", 0, false)

@@ -253,7 +253,7 @@ func (service *CNProviderBalanceService) requestManagementUsage(ctx context.Cont
 	if account.Platform == "github_copilot" {
 		request.Header.Set("Accept", "application/vnd.github+json")
 		request.Header.Set("X-GitHub-Api-Version", "2026-03-10")
-		request.Header.Set("User-Agent", "sub2api-management-usage")
+		request.Header.Set("User-Agent", "omnihive-management-usage")
 	}
 	// accountHTTPUpstream adds inference-only Copilot authentication. Management
 	// calls deliberately use the independent token and only reuse group egress.

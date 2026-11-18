@@ -1,16 +1,17 @@
 package logger
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const (
 	// DefaultContainerLogPath 为容器内默认日志文件路径。
-	DefaultContainerLogPath = "/app/data/logs/sub2api.log"
-	defaultLogFilename      = "sub2api.log"
+	DefaultContainerLogPath = "/app/data/logs/omnihive.log"
+	defaultLogFilename      = "omnihive.log"
 )
 
 type InitOptions struct {
@@ -57,7 +58,7 @@ func (o InitOptions) normalized() InitOptions {
 	}
 	out.ServiceName = strings.TrimSpace(out.ServiceName)
 	if out.ServiceName == "" {
-		out.ServiceName = "sub2api"
+		out.ServiceName = "omnihive"
 	}
 	out.Environment = strings.TrimSpace(out.Environment)
 	if out.Environment == "" {
@@ -96,7 +97,7 @@ func resolveLogFilePath(explicit string) string {
 	if explicit != "" {
 		return explicit
 	}
-	dataDir := strings.TrimSpace(os.Getenv("DATA_DIR"))
+	dataDir := runtimeenv.DataDir()
 	if dataDir != "" {
 		return filepath.Join(dataDir, "logs", defaultLogFilename)
 	}
@@ -107,7 +108,7 @@ func bootstrapOptions() InitOptions {
 	return InitOptions{
 		Level:       "info",
 		Format:      "console",
-		ServiceName: "sub2api",
+		ServiceName: "omnihive",
 		Environment: "bootstrap",
 		Output: OutputOptions{
 			ToStdout: true,

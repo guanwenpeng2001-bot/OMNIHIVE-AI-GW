@@ -14,7 +14,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
-	"os"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/imroc/req/v3"
 	"github.com/tidwall/gjson"
@@ -48,7 +48,7 @@ const (
 // of the image_generation tool model. An environment override lets operators
 // recover from upstream model retirement without rebuilding the gateway.
 func openAIImagesResponsesMainModelValue() string {
-	if model := strings.TrimSpace(os.Getenv("SUB2API_IMAGES_MAIN_MODEL")); model != "" {
+	if model := strings.TrimSpace(runtimeenv.Get("OMNIHIVE_IMAGES_MAIN_MODEL", "SUB2API_IMAGES_MAIN_MODEL")); model != "" {
 		return model
 	}
 	return openAIImagesResponsesMainModel

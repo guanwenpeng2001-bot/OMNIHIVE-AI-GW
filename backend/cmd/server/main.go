@@ -9,7 +9,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	// #nosec G108 -- pprof exposure is opt-in via SUB2API_PPROF and bound to 127.0.0.1:6060 only.
+	// #nosec G108 -- pprof exposure is opt-in via OMNIHIVE_PPROF and bound to 127.0.0.1:6060 only.
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -21,6 +21,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/setup"
@@ -65,7 +66,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
+		log.Printf("OmniHive %s (commit: %s, built: %s)\n", Version, Commit, Date)
 		return
 	}
 
@@ -121,7 +122,7 @@ func runSetupServer() {
 	// This allows users to run setup on a different address if needed
 	addr := config.GetServerAddress()
 	log.Printf("Setup wizard available at http://%s", addr)
-	log.Println("Complete the setup wizard to configure Sub2API")
+	log.Println("Complete the setup wizard to configure OmniHive")
 
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
@@ -193,8 +194,8 @@ func runMainServer() {
 		}
 	}()
 
-	// SUB2API_PPROF=1 时在 127.0.0.1:6060 暴露 pprof（仅本机，排障用）。
-	if os.Getenv("SUB2API_PPROF") == "1" {
+	// OMNIHIVE_PPROF=1 时在 127.0.0.1:6060 暴露 pprof（仅本机，排障用）。
+	if runtimeenv.Get("OMNIHIVE_PPROF", "SUB2API_PPROF") == "1" {
 		go func() {
 			log.Printf("pprof listening on 127.0.0.1:6060")
 			if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {

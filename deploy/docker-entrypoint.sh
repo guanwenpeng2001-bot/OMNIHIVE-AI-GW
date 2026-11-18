@@ -1,38 +1,35 @@
 #!/bin/sh
 set -e
 
-# Fix data directory permissions when running as root.
-# Docker named volumes / host bind-mounts may be owned by root,
-# preventing the non-root sub2api user from writing files.
-if [ "$(id -u)" = "0" ]; then
-    mkdir -p /app/data
-    if [ "${OMNIHIVE_DATA_DIR:-/app/data}" = /app/data ] && [ -f /app/data/.updates/current/sub2api ]; then
-        cp -f /app/data/.updates/current/sub2api /app/sub2api
-        chmod 0755 /app/sub2api
-        chown sub2api:sub2api /app/sub2api
+if [ "$(id -u)" = 0 ]; then
+    data_dir=${OMNIHIVE_DATA_DIR-${DATA_DIR-}}
+    data_dir=${data_dir:-/app/data}
+    mkdir -p /app/data "$data_dir"
+
+    staged_binary="$data_dir/.updates/current/omnihive"
+    if [ -f "$staged_binary" ]; then
+        staged_copy=$(mktemp /app/.omnihive.XXXXXX)
+        trap 'rm -f -- "$staged_copy"' EXIT
+        su-exec omnihive cat "$staged_binary" > "$staged_copy"
+        chmod 0755 "$staged_copy"
+        chown omnihive:omnihive "$staged_copy"
+        mv -f "$staged_copy" /app/omnihive
+        trap - EXIT
+    elif [ -f "$data_dir/.updates/current/sub2api" ]; then
+        echo 'OmniHive found a deprecated staged executable. Keeping the image executable and retaining the old file for recovery.' >&2
     fi
-    # A custom persistent data volume uses the same staging layout.
-    if [ -n "${OMNIHIVE_DATA_DIR:-}" ] && [ "$OMNIHIVE_DATA_DIR" != /app/data ]; then
-        if [ -f "$OMNIHIVE_DATA_DIR/.updates/current/sub2api" ]; then
-            cp -f "$OMNIHIVE_DATA_DIR/.updates/current/sub2api" /app/sub2api
-            chmod 0755 /app/sub2api
-            chown sub2api:sub2api /app/sub2api
-        fi
-        mkdir -p "$OMNIHIVE_DATA_DIR"
-        chown -R sub2api:sub2api "$OMNIHIVE_DATA_DIR" 2>/dev/null || true
-    fi
-    # Use || true to avoid failure on read-only mounted files (e.g. config.yaml:ro)
-    chown -R sub2api:sub2api /app/data 2>/dev/null || true
-    # Re-invoke this script as sub2api so the flag-detection below
-    # also runs under the correct user.
-    exec su-exec sub2api "$0" "$@"
+
+    chown -R omnihive:omnihive /app/data "$data_dir" 2>/dev/null || true
+    exec su-exec omnihive "$0" "$@"
 fi
 
-# Compatibility: if the first arg looks like a flag (e.g. --help),
-# prepend the default binary so it behaves the same as the old
-# ENTRYPOINT ["/app/sub2api"] style.
-if [ "${1#-}" != "$1" ]; then
-    set -- /app/sub2api "$@"
-fi
+case "${1:-}" in
+    /app/sub2api)
+        echo 'Warning: /app/sub2api is deprecated. Use /app/omnihive.' >&2
+        shift
+        set -- /app/omnihive "$@"
+        ;;
+    -*|'') set -- /app/omnihive "$@" ;;
+esac
 
 exec "$@"

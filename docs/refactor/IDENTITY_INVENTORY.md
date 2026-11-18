@@ -18,6 +18,15 @@ Plugin packages retain their v1 bytes and signature verification. The separate v
 
 Cryptographic salts, fingerprint namespaces, TOTP secrets, identity tickets, Redis locks/queues, prompt-audit payloads and SQL settings retain their established values until a dedicated dual-read and coordinated-drain migration is tested. Public protocol aliases require old endpoint/header support during the same window. The frontend owner handles auth refresh locks, storage keys, export formats and plugin administration fields.
 
+## Cross-component compatibility boundaries
+
+| Locations at the baseline | Class | Planned action |
+| --- | --- | --- |
+| `frontend/src/stores/auth.ts:19`, `frontend/src/api/auth.ts:72`, `frontend/src/api/client.ts:78`, `frontend/src/api/tokenRefresh.ts:9`, `frontend/src/api/tokenRefresh.ts:28` | b | Migrate access and refresh token storage, expiry, user metadata, pending identity sessions and refresh lock as one versioned contract. Keep mixed-version tabs coordinated until they drain. |
+| `backend/internal/handler/auth_oidc_oauth.go:37` and the provider-specific OAuth handlers | b | Preserve active OAuth callback cookies and secrets across upgrades. Age out old cookies before renaming any key. |
+| `backend/internal/handler/admin/account_data.go:23`, `frontend/src/views/admin/AccountsView.vue` | b | Coordinate the accepted export discriminator, filenames, and versioned backups with the console importer. |
+| `backend/internal/server/middleware/admin_auth.go:39`, `backend/internal/handler/admin/ops_ws_handler.go:53` | b | Negotiate the new and legacy WebSocket subprotocols before changing the console client. Continue stripping short-lived ticket values from handshake responses. |
+
 ## Matching locations
 
 | Locations | Class | Planned action |

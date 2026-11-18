@@ -15,6 +15,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
@@ -43,15 +44,15 @@ func setupDefaultAdminConcurrency() int {
 }
 
 // GetDataDir returns the data directory for storing config and lock files.
-// Priority: DATA_DIR env > /app/data (if exists and writable) > current directory
+// Priority: OMNIHIVE_DATA_DIR env > /app/data (if exists and writable) > current directory
 func GetDataDir() string {
 	// Check DATA_DIR environment variable first
-	if dir := os.Getenv("DATA_DIR"); dir != "" {
+	if dir := runtimeenv.DataDir(); dir != "" {
 		return dir
 	}
 
 	// Check if /app/data exists and is writable (Docker environment)
-	dockerDataDir := "/app/data"
+	dockerDataDir := runtimeenv.ContainerDataDir
 	if info, err := os.Stat(dockerDataDir); err == nil && info.IsDir() {
 		// Try to check if writable by creating a temp file
 		testFile := dockerDataDir + "/.write_test"
@@ -68,6 +69,9 @@ func GetDataDir() string {
 
 // GetConfigFilePath returns the full path to config.yaml
 func GetConfigFilePath() string {
+	if configFile := strings.TrimSpace(os.Getenv("CONFIG_FILE")); configFile != "" {
+		return configFile
+	}
 	return GetDataDir() + "/" + ConfigFileName
 }
 
@@ -171,6 +175,10 @@ func NeedsSetup() bool {
 	// Check 1: Config file must not exist
 	if _, err := os.Stat(GetConfigFilePath()); !os.IsNotExist(err) {
 		return false // Config exists, no setup needed
+	}
+
+	if config.HasSystemConfig() {
+		return false
 	}
 
 	// Check 2: Installation lock file (harder to bypass)
@@ -584,7 +592,7 @@ func AutoSetupFromEnv() error {
 			Port:     getEnvIntOrDefault("DATABASE_PORT", 5432),
 			User:     getEnvOrDefault("DATABASE_USER", "postgres"),
 			Password: getEnvOrDefault("DATABASE_PASSWORD", ""),
-			DBName:   getEnvOrDefault("DATABASE_DBNAME", "sub2api"),
+			DBName:   getEnvOrDefault("DATABASE_DBNAME", "omnihive"),
 			SSLMode:  getEnvOrDefault("DATABASE_SSLMODE", "disable"),
 		},
 		Redis: RedisConfig{
@@ -596,7 +604,7 @@ func AutoSetupFromEnv() error {
 			EnableTLS: getEnvOrDefault("REDIS_ENABLE_TLS", "false") == "true",
 		},
 		Admin: AdminConfig{
-			Email:    getEnvOrDefault("ADMIN_EMAIL", "admin@sub2api.local"),
+			Email:    getEnvOrDefault("ADMIN_EMAIL", "admin@omnihive.local"),
 			Password: getEnvOrDefault("ADMIN_PASSWORD", ""),
 		},
 		Server: ServerConfig{
