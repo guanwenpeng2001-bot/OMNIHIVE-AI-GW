@@ -1,0 +1,88 @@
+[
+  {
+    "name": "header precedence",
+    "method": "GET",
+    "path": "/v1/usage",
+    "bearer": "valid",
+    "google_header": "invalid",
+    "status": 200
+  },
+  {
+    "name": "Google header precedence",
+    "google": true,
+    "method": "GET",
+    "path": "/v1beta/models",
+    "bearer": "invalid",
+    "google_header": "valid",
+    "status": 200
+  },
+  {
+    "name": "native Google query",
+    "google": true,
+    "method": "GET",
+    "path": "/v1beta/models?key=valid",
+    "status": 200
+  },
+  {
+    "name": "Google alias query",
+    "google": true,
+    "method": "GET",
+    "path": "/antigravity/v1beta/models?key=valid",
+    "status": 200
+  },
+  {
+    "name": "query outside Google",
+    "google": true,
+    "method": "GET",
+    "path": "/v1/models?key=valid",
+    "status": 401
+  },
+  {
+    "name": "ordinary query",
+    "method": "GET",
+    "path": "/v1/models?key=valid",
+    "status": 400
+  },
+  {
+    "name": "diagnostic after expiry",
+    "method": "GET",
+    "path": "/v1/usage",
+    "bearer": "valid",
+    "expired": true,
+    "status": 200
+  },
+  {
+    "name": "native expiry",
+    "google": true,
+    "method": "GET",
+    "path": "/v1beta/models",
+    "bearer": "valid",
+    "expired": true,
+    "status": 403
+  },
+  {
+    "name": "inference after expiry",
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "bearer": "valid",
+    "expired": true,
+    "status": 403
+  },
+  {
+    "name": "ordinary zero balance diagnostic",
+    "method": "GET",
+    "path": "/v1/usage",
+    "bearer": "valid",
+    "empty_balance": true,
+    "status": 200
+  },
+  {
+    "name": "Google zero balance",
+    "google": true,
+    "method": "GET",
+    "path": "/v1beta/models",
+    "bearer": "valid",
+    "empty_balance": true,
+    "status": 429
+  }
+]
