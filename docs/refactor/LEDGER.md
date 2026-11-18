@@ -14,7 +14,9 @@ Status legend: todo / doing / review / merged / blocked
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
 | BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 (resumed after interruption) |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | doing | based on 1e5012626 |
-| RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | doing | report only |
+| RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
+| ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | doing | RV-1 P0/P1 outside WP1 |
+| DS-A11Y | Design-system contrast and IconButton a11y fixes | gemini-3.8-flash | codex/ds-a11y | doing | RV-1 P1 #6 |
 | QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | doing | scripts/quality-gate.sh, QUALITY_GATE.md |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |
@@ -23,4 +25,4 @@ Status legend: todo / doing / review / merged / blocked
 | FE-WP4 | 5-step connection wizard, egress | gemini-4-hydrogen | codex/fe-wp4-connections | doing | parallel with WP1; routes applied after WP1 merge |
 | FE-WP5 | Pools, mapping, routing simulator | gemini | — | todo | after WP1 + BE-08/10 |
 | FE-WP6 | Request waterfall, cost & quota, billing | gemini | — | todo | after WP1 + BE-14/16 |
-| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini | — | todo | after WP1 |
+| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini-4-hydrogen | codex/fe-wp7-ops | doing | parallel with WP1; routes applied after WP1 merge |
