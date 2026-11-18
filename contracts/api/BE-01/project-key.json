@@ -1,0 +1,56 @@
+{
+  "request": {
+    "name": "Search",
+    "model_access": {
+      "mode": "allow_list",
+      "ids": [
+        "model-a"
+      ]
+    },
+    "actions": [
+      "text.chat"
+    ],
+    "expires_at": null
+  },
+  "created": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "id": "51",
+      "owner_id": "3",
+      "name": "Search",
+      "prefix": "oh_p_",
+      "credential": "<one-time credential>",
+      "version": "1"
+    }
+  },
+  "replay": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "id": "51",
+      "owner_id": "3",
+      "name": "Search",
+      "prefix": "oh_p_",
+      "credential": null,
+      "version": "1"
+    }
+  },
+  "access": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "actor_id": "3",
+      "workspace_id": "12",
+      "project_id": "23",
+      "actions": [
+        "keys.create",
+        "models.read",
+        "projects.read",
+        "text.chat"
+      ],
+      "scope_version": "7",
+      "expires_at": "2026-11-19T10:01:00Z"
+    }
+  }
+}
