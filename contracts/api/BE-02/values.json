@@ -1,0 +1,9 @@
+{
+  "schema_version": "2",
+  "money_encoding": "decimal_string",
+  "settled": {"currency":"USD","amount":"0.00007813"},
+  "adjustment": {"currency":"USD","amount":"-0.00007813"},
+  "rate": {"currency":"USD","amount":"1.25","unit":"input_token","per":"1000000"},
+  "count": {"kind":"input_token","quantity":"9007199254740993"},
+  "duration": {"kind":"second","quantity":"10.5"}
+}
