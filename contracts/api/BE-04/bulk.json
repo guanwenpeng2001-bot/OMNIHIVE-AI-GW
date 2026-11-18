@@ -1,0 +1,6 @@
+{
+  "input": {"ids":["50","51"],"patch":{"model_ids":["example-model"],"pool_ids":[]}},
+  "preview": {"preview_id":"e13fe941-4299-4a88-89a5-e479a4cd54ee","adds":[],"removes":[],"blocked":[],"items":[{"id":"50","base_version":"3","state":"applicable"},{"id":"51","base_version":"6","state":"blocked","reason":"INCOMPATIBLE_PROVIDER"}],"expires_at":"2026-11-19T10:05:00Z"},
+  "apply": {"preview_id":"e13fe941-4299-4a88-89a5-e479a4cd54ee","selected_ids":["50"]},
+  "result": {"items":[{"id":"50","base_version":"3","state":"applied","version":"4"}]}
+}
