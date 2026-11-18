@@ -1,6 +1,7 @@
 package logredact
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/url"
 	"regexp"
@@ -96,8 +97,13 @@ func RedactJSON(raw []byte, extraKeys ...string) string {
 	if len(raw) == 0 {
 		return ""
 	}
+	if !json.Valid(raw) {
+		return "<non-json payload redacted>"
+	}
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
 		return "<non-json payload redacted>"
 	}
 	keys := buildKeySet(extraKeys)

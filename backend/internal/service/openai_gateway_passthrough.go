@@ -375,6 +375,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if actualModel == "" {
 			actualModel = reqModel
 		}
+		if blocked := validateOpenAIGPT62OutboundRequest(account, actualModel, body); blocked != nil {
+			writeOpenAIFastPolicyBlockedResponse(c, blocked)
+			return nil, blocked
+		}
+		if openAIGPT62RequestModel(account, actualModel) != "" {
+			reasoningEffort = extractOpenAIReasoningEffortFromBody(body, actualModel)
+		}
 		SetOpsUpstreamModel(c, actualModel)
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		upstreamReq, buildErr := s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, body, token)

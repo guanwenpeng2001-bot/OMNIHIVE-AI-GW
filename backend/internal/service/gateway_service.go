@@ -564,6 +564,11 @@ func shouldClearStickySession(account *Account, requestedModel string) bool {
 	if !account.IsSchedulable() {
 		return true
 	}
+	// Identity revocation is permanent for the old publication. Let the existing
+	// request-aware version CAS retire its binding without deleting a new one.
+	if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && snapshot.SourceKind != modelEvidenceLegacyMappingUpgrade && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+		return true
+	}
 	if remaining := account.GetRateLimitRemainingTimeWithContext(context.Background(), requestedModel); remaining > 0 {
 		return true
 	}
@@ -1348,6 +1353,9 @@ func (s *GatewayService) hashContent(content string) string {
 
 // GetAccessToken 获取账号凭证
 func (s *GatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", "", err
+	}
 	// Cursor credentials belong exclusively to the Cursor relay. Reject them here
 	// so an incorrect platform dispatch cannot send them to Anthropic.
 	if account.Platform == PlatformCursor {

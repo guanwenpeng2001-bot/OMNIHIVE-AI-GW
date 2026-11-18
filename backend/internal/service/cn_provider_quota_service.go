@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -106,6 +107,9 @@ func (s *CNProviderQuotaService) QueryUsage(ctx context.Context, accountID int64
 // QueryUsageForAccount 探测已加载账号（配额监控 fetcher 复用，避免二次 GetByID）。
 // singleflight key 与 QueryUsage 相同，按账号 ID 与 admin 侧并发探测合并。
 func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	if s == nil || s.accountRepo == nil || s.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "CN_QUOTA_NOT_CONFIGURED", "cn provider quota service is not configured")
 	}
@@ -285,6 +289,11 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	switch provider {
 	case PlatformKimi:
 		tiers = parseKimiUsageTiers(bodyBytes)
+		if len(tiers) == 0 {
+			result.CredentialValid = true
+			result.Error = "Kimi quota is unknown: no valid observed windows"
+			return result, nil
+		}
 	case PlatformOpenCodeGo:
 		tiers = parseOpenCodeGoUsageTiers(bodyBytes)
 		result.PlanLevel = "OpenCode Go"
@@ -406,6 +415,9 @@ func validateCodingPlanAccount(account *Account) error {
 }
 
 func (s *CNProviderQuotaService) resolveProxyURL(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account != nil && account.ProxyGroupID != nil {
 		return account.EgressProxyURL(ctx)
 	}
@@ -461,58 +473,79 @@ func zhipuQuotaHost(baseURL string) string {
 	}
 }
 
-// parseKimiUsageTiers 解析 Kimi For Coding 的 /usages 响应。
-//
-//   - limits[].detail.{limit,remaining,resetTime} → 5h 窗口（取首个 detail）
-//   - usage.{limit,remaining,resetTime} → 周窗口
-//
-// utilization = (limit-remaining)/limit*100。
+// parseKimiUsageTiers supports both legacy count windows and new ratio windows.
+// Reject malformed advertised windows as a whole: clearing them as "absent"
+// could release an exhausted account. New windows take precedence over legacy.
 func parseKimiUsageTiers(body []byte) []CNQuotaTier {
+	if !gjson.ValidBytes(body) {
+		return nil
+	}
 	var tiers []CNQuotaTier
-
-	if limits := gjson.GetBytes(body, "limits"); limits.IsArray() {
-		limits.ForEach(func(_, item gjson.Result) bool {
-			detail := item.Get("detail")
-			if !detail.Exists() {
-				return true
+	readRatio := func(node gjson.Result, window string) (CNQuotaTier, bool) {
+		ratio, ok := cnParseF64(node.Get("used_ratio").Value())
+		if !ok || math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1 {
+			return CNQuotaTier{}, false
+		}
+		return CNQuotaTier{Window: window, UsedPercent: ratio * 100, ResetAt: cnNormalizeResetTime(node.Get("reset_time").Value())}, true
+	}
+	readCounts := func(node gjson.Result, window string) (CNQuotaTier, bool) {
+		limit, lok := cnParseF64(node.Get("limit").Value())
+		remaining, rok := cnParseF64(node.Get("remaining").Value())
+		if !lok || !rok || math.IsNaN(limit) || math.IsInf(limit, 0) || math.IsNaN(remaining) || math.IsInf(remaining, 0) || limit <= 0 || remaining < 0 || remaining > limit {
+			return CNQuotaTier{}, false
+		}
+		return CNQuotaTier{Window: window, UsedPercent: (limit - remaining) / limit * 100, ResetAt: cnNormalizeResetTime(node.Get("resetTime").Value())}, true
+	}
+	for _, spec := range []struct{ key, window string }{{"limit_5h", "5h"}, {"limit_7d", "weekly"}} {
+		if node := gjson.GetBytes(body, "usages."+spec.key); node.Exists() {
+			tier, ok := readRatio(node, spec.window)
+			if !ok {
+				return nil
 			}
-			limit, _ := cnParseF64(detail.Get("limit").Value())
-			remaining, _ := cnParseF64(detail.Get("remaining").Value())
-			used := limit - remaining
-			if used < 0 {
-				used = 0
-			}
-			var util float64
-			if limit > 0 {
-				util = used / limit * 100
-			}
-			tiers = append(tiers, CNQuotaTier{
-				Window:      "5h",
-				UsedPercent: util,
-				ResetAt:     cnNormalizeResetTime(detail.Get("resetTime").Value()),
+			tiers = append(tiers, tier)
+			continue
+		}
+		var legacy gjson.Result
+		if spec.window == "5h" {
+			gjson.GetBytes(body, "limits").ForEach(func(_, item gjson.Result) bool {
+				legacy = item.Get("detail")
+				return !legacy.Exists()
 			})
-			return false // 取首个 detail 作为 5h 窗口
-		})
-	}
-
-	if usage := gjson.GetBytes(body, "usage"); usage.Exists() {
-		limit, _ := cnParseF64(usage.Get("limit").Value())
-		remaining, _ := cnParseF64(usage.Get("remaining").Value())
-		used := limit - remaining
-		if used < 0 {
-			used = 0
+		} else {
+			legacy = gjson.GetBytes(body, "usage")
 		}
-		var util float64
-		if limit > 0 {
-			util = used / limit * 100
+		if legacy.Exists() {
+			tier, ok := readCounts(legacy, spec.window)
+			if !ok {
+				return nil
+			}
+			tiers = append(tiers, tier)
 		}
-		tiers = append(tiers, CNQuotaTier{
-			Window:      "weekly",
-			UsedPercent: util,
-			ResetAt:     cnNormalizeResetTime(usage.Get("resetTime").Value()),
-		})
 	}
-
+	var monthly *CNQuotaTier
+	for _, key := range []string{"limit_month_total", "limit_month_code"} {
+		node := gjson.GetBytes(body, "usages."+key)
+		if !node.Exists() {
+			continue
+		}
+		tier, ok := readRatio(node, "monthly")
+		if !ok {
+			return nil
+		}
+		if monthly == nil {
+			monthly = &tier
+			continue
+		}
+		monthly.UsedPercent = math.Max(monthly.UsedPercent, tier.UsedPercent)
+		// Both independent monthly pools must reset before aggregate exhaustion
+		// can be considered cleared. Normalized UTC RFC3339 sorts chronologically.
+		if tier.ResetAt > monthly.ResetAt {
+			monthly.ResetAt = tier.ResetAt
+		}
+	}
+	if monthly != nil {
+		tiers = append(tiers, *monthly)
+	}
 	return tiers
 }
 
@@ -719,9 +752,20 @@ func parseZhipuTokenTiers(data gjson.Result) []CNQuotaTier {
 
 // cnQuotaExtraUpdates 根据 tier 列表构造 provider 维度的 Extra 快照更新。
 func cnQuotaExtraUpdates(provider string, tiers []CNQuotaTier, now time.Time) map[string]any {
+	if provider == PlatformKimi && len(tiers) == 0 {
+		return nil
+	}
 	updates := map[string]any{
 		cnExtraKey(provider, cnExtraSuffixUsageUpdated): now.Format(time.RFC3339),
 	}
+	if provider == PlatformKimi {
+		// Runtime snapshot writes merge JSONB: explicit nulls retire old plan
+		// windows AND old reset dates absent from this valid observation.
+		for _, suffix := range []string{cnExtraSuffix5hUsed, cnExtraSuffix5hReset, cnExtraSuffixWeeklyUsed, cnExtraSuffixWeeklyReset, cnExtraSuffixMonthlyUsed, cnExtraSuffixMonthlyReset} {
+			updates[cnExtraKey(provider, suffix)] = nil
+		}
+	}
+
 	for _, t := range tiers {
 		switch t.Window {
 		case "5h":

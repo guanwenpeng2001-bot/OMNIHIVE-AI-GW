@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 )
 
 const defaultImageMaxDownloadBytes int64 = 32 << 20 // 32 MiB
@@ -54,7 +56,10 @@ func NewImageResultUploader(storage ImageStorage, prefix string, maxDownloadByte
 }
 
 func defaultImageDownloadHTTPClient() *http.Client {
-	return &http.Client{Timeout: 60 * time.Second}
+	return &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: httpclient.NewPublicTransport(http.DefaultTransport.(*http.Transport).Clone()),
+	}
 }
 
 // Rewrite 将 result（上游生图响应 JSON）里的每张图片转存到对象存储，
@@ -215,9 +220,12 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 	if int64(len(data)) > limit {
 		return nil, "", fmt.Errorf("downloaded image exceeds %d bytes", limit)
 	}
-	contentType := strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0])
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(resp.Header.Get("Content-Type"), ";")[0]))
 	if !strings.HasPrefix(contentType, "image/") {
-		contentType = detectImageContentType(data)
+		contentType = detectedImageContentType(data)
+		if contentType == "" {
+			return nil, "", errors.New("download image: content is not an image")
+		}
 	}
 	return data, contentType, nil
 }

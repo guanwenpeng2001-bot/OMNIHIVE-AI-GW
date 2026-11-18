@@ -96,6 +96,7 @@ var ProviderSet = wire.NewSet(
 	NewUpstreamJobRepository,
 	NewBatchImageRepository,
 	NewIdempotencyRepository,
+	NewStagedImportReceiptRepository,
 	NewUsageCleanupRepository,
 	NewDashboardAggregationRepository,
 	NewSettingRepository,

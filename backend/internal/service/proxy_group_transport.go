@@ -17,10 +17,34 @@ func accountHTTPUpstream(base HTTPUpstream, account *Account) HTTPUpstream {
 	if isCopilotNous(account) {
 		base = &compatibleSpecialUpstream{base: base, account: account}
 	}
-	if account == nil || account.ProxyGroupID == nil {
-		return base
+	if account != nil && account.ProxyGroupID != nil {
+		base = &groupAccountUpstream{base: base, account: account}
 	}
-	return &groupAccountUpstream{base: base, account: account}
+	if account.hasStagedProxyDependency() {
+		base = &stagedProxyGuardUpstream{base: base, account: account}
+	}
+	return base
+}
+
+// Check at send time, outside both the proxy-group and credential adapters.
+// A supplied proxyURL cannot override an unresolved account dependency.
+type stagedProxyGuardUpstream struct {
+	base    HTTPUpstream
+	account *Account
+}
+
+func (u *stagedProxyGuardUpstream) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
+	if err := u.account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
+	return u.base.Do(req, proxyURL, accountID, concurrency)
+}
+
+func (u *stagedProxyGuardUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	if err := u.account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
+	return u.base.DoWithTLS(req, proxyURL, accountID, concurrency, profile)
 }
 
 func (u *groupAccountUpstream) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {

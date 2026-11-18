@@ -48,6 +48,9 @@ func (f *AntigravityQuotaFetcher) CanFetch(account *Account) bool {
 
 // FetchQuota 获取 Antigravity 账户额度信息
 func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Account, proxyURL string) (*QuotaResult, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	// Callers may omit an explicit route; still honor the saved account binding.
 	if proxyURL == "" {
 		var err error

@@ -150,7 +150,8 @@ func writeOpenAICompactSSEFailureMessage(c *gin.Context, statusCode int, errType
 // 携带完整 response 对象。Codex 的 SSE 解析只从 output_item.done 收集 item，
 // 并要求 response.completed 的 response.id 必填、usage（若存在）必须携带
 // input_tokens/output_tokens/total_tokens 整数字段，否则整条 completed 事件
-// 解析失败，故此处做兜底修补。
+// 解析失败，故此处做兜底修补。每帧还要带单调的 sequence_number：grok-build
+// 把它当必填，缺了整轮反序列化失败。
 func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 	if len(finalResponse) == 0 || !gjson.ValidBytes(finalResponse) {
 		return nil, false
@@ -183,17 +184,17 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 
 	var buf bytes.Buffer
 	outputIndex := 0
-	sequence := 0
+	sequenceNumber := 0
 	appendEvent := func(eventType string, data []byte) bool {
-		data, err := sjson.SetBytes(data, "sequence_number", sequence)
+		numbered, err := sjson.SetBytes(data, "sequence_number", sequenceNumber)
 		if err != nil {
 			return false
 		}
-		sequence++
+		sequenceNumber++
 		_, _ = buf.WriteString("event: ")
 		_, _ = buf.WriteString(eventType)
 		_, _ = buf.WriteString("\ndata: ")
-		_, _ = buf.Write(data)
+		_, _ = buf.Write(numbered)
 		_, _ = buf.WriteString("\n\n")
 		return true
 	}

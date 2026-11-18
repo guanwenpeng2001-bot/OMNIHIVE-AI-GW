@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 func NormalizeOpenAICompatRequestedModel(model string) string {
@@ -106,7 +107,10 @@ func openAIReasoningEffortToClaudeOutputEffort(effort string) string {
 // Anthropic bridge after the final upstream model is known. Anthropic's max is
 // normally translated to OpenAI xhigh, but GPT-5.6 accepts the original max
 // value on Responses and Chat Completions.
-func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstreamModel, convertedEffort string) string {
+func openAICompatAnthropicReasoningEffort(req *apicompat.AnthropicRequest, upstreamModel, convertedEffort string, account *Account) string {
+	if openai.GPT62ModelID(upstreamModel) != "" && (account == nil || !account.IsOpenAI()) {
+		return convertedEffort
+	}
 	if convertedEffort == "none" {
 		return convertedEffort
 	}

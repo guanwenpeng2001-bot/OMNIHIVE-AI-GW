@@ -516,6 +516,17 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if IsStagedAccountImport(ctx) {
+		if dbent.TxFromContext(ctx) == nil || input.ProxyID != nil || input.ProxyGroupID != nil || len(input.GroupIDs) != 0 {
+			return nil, infraerrors.BadRequest("INVALID_STAGED_ACCOUNT_IMPORT", "staging requires an account transaction without proxy or group bindings")
+		}
+		if err := validateStagedAccountCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+			return nil, err
+		}
+		copy := *input
+		copy.Status, copy.SkipDefaultGroupBind, copy.ProbeEnabled = "inactive", true, nil
+		input = &copy
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -568,6 +579,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	account, err := buildAccountForCreate(input, accountExtra)
 	if err != nil {
 		return nil, err
+	}
+	if IsStagedAccountImport(ctx) {
+		account.Schedulable = false
 	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
@@ -755,6 +769,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
+			StagedAccountImportExtraKey,
+			StagedProxyDependencyExtraKey,
 			"quota_used",
 			"quota_daily_used",
 			"quota_daily_start",
@@ -1044,6 +1060,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
+	delete(updates, StagedAccountImportExtraKey)
+	delete(updates, StagedProxyDependencyExtraKey)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
 	delete(updates, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(updates, UpstreamBillingProbeExtraKey)
@@ -1076,6 +1094,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Managed probe/session state may only enter through dedicated typed endpoints.
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
 	input.Extra = stripOpenAIAutoResetCreditManagedExtra(input.Extra, true)
+	delete(input.Extra, StagedAccountImportExtraKey)
+	delete(input.Extra, StagedProxyDependencyExtraKey)
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(input.Extra, UpstreamBillingProbeExtraKey)
@@ -1884,6 +1904,9 @@ func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, id int64) erro
 // EnsureOpenAIPrivacy 检查 OpenAI OAuth 账号是否已设置 privacy_mode，
 // 未设置则调用 disableOpenAITraining 并持久化到 Extra，返回设置的 mode 值。
 func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Account) string {
+	if account.CheckStagedCredentialUse() != nil {
+		return ""
+	}
 	// 影子账号不持凭据，隐私设置由母账号管理，直接跳过。
 	if account.IsCredentialShadow() {
 		return ""
@@ -1924,6 +1947,9 @@ func (s *adminServiceImpl) EnsureOpenAIPrivacy(ctx context.Context, account *Acc
 
 // ForceOpenAIPrivacy 强制重新设置 OpenAI OAuth 账号隐私，无论当前状态。
 func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Account) string {
+	if account.CheckStagedCredentialUse() != nil {
+		return ""
+	}
 	// 影子账号不持凭据,隐私由母账号管理,直接跳过(与 EnsureOpenAIPrivacy 一致——外审第4轮)。
 	if account.IsCredentialShadow() {
 		return ""
@@ -1970,6 +1996,9 @@ func (s *adminServiceImpl) ForceOpenAIPrivacy(ctx context.Context, account *Acco
 // 仅当 privacy_mode 已成功设置（"privacy_set"）时跳过；
 // 未设置或之前失败（"privacy_set_failed"）均会重试。
 func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account *Account) string {
+	if account.CheckStagedCredentialUse() != nil {
+		return ""
+	}
 	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}
@@ -2011,6 +2040,9 @@ func (s *adminServiceImpl) EnsureAntigravityPrivacy(ctx context.Context, account
 
 // ForceAntigravityPrivacy 强制重新设置 Antigravity OAuth 账号隐私，无论当前状态。
 func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account *Account) string {
+	if account.CheckStagedCredentialUse() != nil {
+		return ""
+	}
 	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return ""
 	}

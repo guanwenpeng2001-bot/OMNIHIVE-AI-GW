@@ -2881,6 +2881,10 @@ func (s *oauthPendingFlowRefreshTokenCacheStub) DeleteTokenFamily(context.Contex
 	return nil
 }
 
+func (s *oauthPendingFlowRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
+	return nil, service.ErrRefreshTokenNotFound
+}
+
 func (s *oauthPendingFlowRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
 	return nil
 }
@@ -3592,4 +3596,44 @@ func (oauthPendingFlowTotpEncryptorStub) Encrypt(plaintext string) (string, erro
 
 func (oauthPendingFlowTotpEncryptorStub) Decrypt(ciphertext string) (string, error) {
 	return ciphertext, nil
+}
+
+func (s *oauthPendingFlowEmailCacheStub) VerifyVerificationCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetVerificationCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteVerificationCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *oauthPendingFlowEmailCacheStub) VerifyNotifyCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetNotifyVerifyCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteNotifyVerifyCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *oauthPendingFlowEmailCacheStub) ConsumePasswordResetToken(context.Context, string, string) (bool, error) {
+	return false, nil
 }

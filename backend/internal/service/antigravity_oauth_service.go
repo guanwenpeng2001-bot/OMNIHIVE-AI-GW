@@ -293,6 +293,9 @@ func isNonRetryableAntigravityOAuthError(err error) bool {
 
 // RefreshAccountToken 刷新账户的 token
 func (s *AntigravityOAuthService) RefreshAccountToken(ctx context.Context, account *Account) (*AntigravityTokenInfo, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	if account.Platform != PlatformAntigravity || account.Type != AccountTypeOAuth {
 		return nil, fmt.Errorf("非 Antigravity OAuth 账户")
 	}

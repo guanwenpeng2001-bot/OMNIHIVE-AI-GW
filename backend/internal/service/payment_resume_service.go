@@ -247,6 +247,8 @@ func CanonicalizeReturnURL(raw string, srcHost string, srcURL string) (string, e
 		return "", infraerrors.BadRequest("INVALID_RETURN_URL", "return_url must use http or https")
 	}
 	parsed.Fragment = ""
+	// Only the server may add query fields to the signed payment return URL.
+	parsed.RawQuery = ""
 	if parsed.Path == "" {
 		parsed.Path = "/"
 	}

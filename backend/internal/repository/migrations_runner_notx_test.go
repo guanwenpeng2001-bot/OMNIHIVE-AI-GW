@@ -7,8 +7,40 @@ import (
 	"testing/fstest"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
+
+func TestApplyMigrationsFS_NonTransactionalMigration_TerminalReviewIndexRetry(t *testing.T) {
+	for _, invalid := range []bool{false, true} {
+		name := "preserve valid or absent index"
+		if invalid {
+			name = "remove invalid index before retry"
+		}
+		t.Run(name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer db.Close()
+			prepareMigrationsBootstrapExpectations(mock)
+			mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename").WithArgs(upstreamJobsTerminalReviewIndexMigration).
+				WillReturnError(sql.ErrNoRows)
+			mock.ExpectQuery("SELECT EXISTS").WithArgs(upstreamJobsTerminalReviewIndex).
+				WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(invalid))
+			if invalid {
+				mock.ExpectExec("DROP INDEX CONCURRENTLY IF EXISTS idx_upstream_jobs_terminal_review").WillReturnResult(sqlmock.NewResult(0, 0))
+			}
+			mock.ExpectExec("CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_upstream_jobs_terminal_review").WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectExec("INSERT INTO schema_migrations").WithArgs(upstreamJobsTerminalReviewIndexMigration, sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("SELECT pg_advisory_unlock").WithArgs(migrationsAdvisoryLockID).WillReturnResult(sqlmock.NewResult(0, 1))
+			content, err := migrations.FS.ReadFile(upstreamJobsTerminalReviewIndexMigration)
+			require.NoError(t, err)
+			require.NoError(t, applyMigrationsFS(context.Background(), db, fstest.MapFS{
+				upstreamJobsTerminalReviewIndexMigration: &fstest.MapFile{Data: content},
+			}))
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
 
 func TestValidateMigrationExecutionMode(t *testing.T) {
 	t.Run("事务迁移包含CONCURRENTLY会被拒绝", func(t *testing.T) {

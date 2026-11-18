@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
@@ -37,16 +38,20 @@ type EmailCache interface {
 	GetVerificationCode(ctx context.Context, email string) (*VerificationCodeData, error)
 	SetVerificationCode(ctx context.Context, email string, data *VerificationCodeData, ttl time.Duration) error
 	DeleteVerificationCode(ctx context.Context, email string) error
+	// VerifyVerificationCode reserves an attempt and consumes a matching code atomically.
+	VerifyVerificationCode(ctx context.Context, email, code string, maxAttempts int) error
 
 	// Notify email verification code methods
 	GetNotifyVerifyCode(ctx context.Context, email string) (*VerificationCodeData, error)
 	SetNotifyVerifyCode(ctx context.Context, email string, data *VerificationCodeData, ttl time.Duration) error
 	DeleteNotifyVerifyCode(ctx context.Context, email string) error
+	VerifyNotifyCode(ctx context.Context, email, code string, maxAttempts int) error
 
 	// Password reset token methods
 	GetPasswordResetToken(ctx context.Context, email string) (*PasswordResetTokenData, error)
 	SetPasswordResetToken(ctx context.Context, email string, data *PasswordResetTokenData, ttl time.Duration) error
 	DeletePasswordResetToken(ctx context.Context, email string) error
+	ConsumePasswordResetToken(ctx context.Context, email, expectedToken string) (bool, error)
 
 	// Password reset email cooldown methods
 	// Returns true if in cooldown period (email was sent recently)
@@ -376,37 +381,7 @@ func (s *EmailService) SendVerifyCode(ctx context.Context, email, siteName strin
 
 // VerifyCode 验证验证码
 func (s *EmailService) VerifyCode(ctx context.Context, email, code string) error {
-	data, err := s.cache.GetVerificationCode(ctx, email)
-	if err != nil || data == nil {
-		return ErrInvalidVerifyCode
-	}
-
-	// 检查是否已达到最大尝试次数
-	if data.Attempts >= maxVerifyCodeAttempts {
-		return ErrVerifyCodeMaxAttempts
-	}
-
-	// 验证码不匹配 (constant-time comparison to prevent timing attacks)
-	if subtle.ConstantTimeCompare([]byte(data.Code), []byte(code)) != 1 {
-		data.Attempts++
-		remaining := time.Until(data.ExpiresAt)
-		if remaining <= 0 {
-			return ErrInvalidVerifyCode
-		}
-		if err := s.cache.SetVerificationCode(ctx, email, data, remaining); err != nil {
-			slog.Error("failed to update verification attempt count", "email", email, "error", err)
-		}
-		if data.Attempts >= maxVerifyCodeAttempts {
-			return ErrVerifyCodeMaxAttempts
-		}
-		return ErrInvalidVerifyCode
-	}
-
-	// 验证成功，删除验证码
-	if err := s.cache.DeleteVerificationCode(ctx, email); err != nil {
-		slog.Error("failed to delete verification code after success", "email", email, "error", err)
-	}
-	return nil
+	return verificationCodeError(s.cache.VerifyVerificationCode(ctx, email, code, maxVerifyCodeAttempts))
 }
 
 // buildVerifyCodeEmailBody 构建验证码邮件HTML内容
@@ -480,33 +455,14 @@ func (s *EmailService) GeneratePasswordResetToken() (string, error) {
 
 // SendPasswordResetEmail sends a password reset email with a reset link
 func (s *EmailService) SendPasswordResetEmail(ctx context.Context, email, siteName, resetURL string, locale ...string) error {
-	var token string
-	var needSaveToken bool
-
-	// Check if token already exists
-	existing, err := s.cache.GetPasswordResetToken(ctx, email)
-	if err == nil && existing != nil {
-		// Token exists, reuse it (allows resending email without generating new token)
-		token = existing.Token
-		needSaveToken = false
-	} else {
-		// Generate new token
-		token, err = s.GeneratePasswordResetToken()
-		if err != nil {
-			return fmt.Errorf("generate token: %w", err)
-		}
-		needSaveToken = true
+	// Stored digests cannot be re-sent. A resend issues a fresh token.
+	token, err := s.GeneratePasswordResetToken()
+	if err != nil {
+		return fmt.Errorf("generate token: %w", err)
 	}
-
-	// Save token to Redis (only if new token generated)
-	if needSaveToken {
-		data := &PasswordResetTokenData{
-			Token:     token,
-			CreatedAt: time.Now(),
-		}
-		if err := s.cache.SetPasswordResetToken(ctx, email, data, passwordResetTokenTTL); err != nil {
-			return fmt.Errorf("save reset token: %w", err)
-		}
+	data := &PasswordResetTokenData{Token: hashPasswordResetToken(token), CreatedAt: time.Now()}
+	if err := s.cache.SetPasswordResetToken(ctx, email, data, passwordResetTokenTTL); err != nil {
+		return fmt.Errorf("save reset token: %w", err)
 	}
 
 	// Build full reset URL with URL-encoded token and email
@@ -566,31 +522,53 @@ func (s *EmailService) SendPasswordResetEmailWithCooldown(ctx context.Context, e
 	return nil
 }
 
-// VerifyPasswordResetToken verifies the password reset token without consuming it
-func (s *EmailService) VerifyPasswordResetToken(ctx context.Context, email, token string) error {
-	data, err := s.cache.GetPasswordResetToken(ctx, email)
-	if err != nil || data == nil {
-		return ErrInvalidResetToken
-	}
-
-	// Use constant-time comparison to prevent timing attacks
-	if subtle.ConstantTimeCompare([]byte(data.Token), []byte(token)) != 1 {
-		return ErrInvalidResetToken
-	}
-
-	return nil
-}
-
-// ConsumePasswordResetToken verifies and deletes the token (one-time use)
-func (s *EmailService) ConsumePasswordResetToken(ctx context.Context, email, token string) error {
-	// Verify first
-	if err := s.VerifyPasswordResetToken(ctx, email, token); err != nil {
+func verificationCodeError(err error) error {
+	if err == nil || errors.Is(err, ErrVerifyCodeMaxAttempts) {
 		return err
 	}
+	return ErrInvalidVerifyCode
+}
 
-	// Delete after verification (one-time use)
-	if err := s.cache.DeletePasswordResetToken(ctx, email); err != nil {
-		slog.Error("failed to delete password reset token after consumption", "email", email, "error", err)
+func hashPasswordResetToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func (s *EmailService) matchingPasswordResetToken(ctx context.Context, email, token string) (string, error) {
+	if token == "" {
+		return "", ErrInvalidResetToken
+	}
+	data, err := s.cache.GetPasswordResetToken(ctx, email)
+	if err != nil || data == nil {
+		return "", ErrInvalidResetToken
+	}
+	expected := token
+	// Pre-upgrade records contain a plaintext token. Keep outstanding links
+	// usable until their original Redis TTL expires, without extending it.
+	if strings.HasPrefix(data.Token, "sha256:") {
+		expected = hashPasswordResetToken(token)
+	}
+	if subtle.ConstantTimeCompare([]byte(data.Token), []byte(expected)) != 1 {
+		return "", ErrInvalidResetToken
+	}
+	return data.Token, nil
+}
+
+// VerifyPasswordResetToken checks the link without consuming it.
+func (s *EmailService) VerifyPasswordResetToken(ctx context.Context, email, token string) error {
+	_, err := s.matchingPasswordResetToken(ctx, email, token)
+	return err
+}
+
+// ConsumePasswordResetToken compares and deletes the same generation atomically.
+func (s *EmailService) ConsumePasswordResetToken(ctx context.Context, email, token string) error {
+	expected, err := s.matchingPasswordResetToken(ctx, email, token)
+	if err != nil {
+		return err
+	}
+	consumed, err := s.cache.ConsumePasswordResetToken(ctx, email, expected)
+	if err != nil || !consumed {
+		return ErrInvalidResetToken
 	}
 	return nil
 }

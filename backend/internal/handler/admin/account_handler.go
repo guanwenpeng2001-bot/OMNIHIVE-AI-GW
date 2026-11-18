@@ -178,6 +178,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	stagedImports *service.StagedAccountImportService
 	credentialDraftHandler
 	cursorAuthService       *service.CursorAuthService
 	cursorSessions          *service.CursorSessionProvider
@@ -1593,6 +1594,9 @@ func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
 // refreshSingleAccount refreshes credentials for a single OAuth account.
 // Returns (updatedAccount, warning, error) where warning is used for Antigravity ProjectIDMissing scenario.
 func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *service.Account) (*service.Account, string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, "", err
+	}
 	if !account.IsOAuth() {
 		return nil, "", infraerrors.BadRequest("NOT_OAUTH", "cannot refresh non-OAuth account")
 	}

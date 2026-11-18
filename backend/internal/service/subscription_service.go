@@ -607,6 +607,9 @@ func (s *SubscriptionService) RevokeSubscription(ctx context.Context, subscripti
 	if err := s.userSubRepo.Delete(ctx, subscriptionID); err != nil {
 		return err
 	}
+	if bulkSubscriptionCacheDeferred(ctx) {
+		return nil
+	}
 
 	if err := s.invalidateSubscriptionCaches(sub.UserID, sub.GroupID); err != nil {
 		return err
@@ -642,6 +645,9 @@ func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscript
 	restored, err := s.userSubRepo.Restore(ctx, subscriptionID, restoredStatus)
 	if err != nil {
 		return nil, err
+	}
+	if bulkSubscriptionCacheDeferred(ctx) {
+		return restored, nil
 	}
 
 	if err := s.invalidateSubscriptionCaches(restored.UserID, restored.GroupID); err != nil {
@@ -717,6 +723,9 @@ func (s *SubscriptionService) ExtendSubscription(ctx context.Context, subscripti
 		return nil, err
 	}
 
+	if bulkSubscriptionCacheDeferred(ctx) {
+		return s.userSubRepo.GetByID(ctx, subscriptionID)
+	}
 	// Invalidate from the locked row identity even if the response read fails.
 	// An outer transaction owns the commit boundary; rollback must keep caches.
 	invalidate := func() {
@@ -903,6 +912,9 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 	// 周/月窗口保持锚定重置时刻（期限对齐滚动窗口语义）。
 	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, timezone.StartOfDay(now), now); err != nil {
 		return nil, err
+	}
+	if bulkSubscriptionCacheDeferred(ctx) {
+		return s.userSubRepo.GetByID(ctx, subscriptionID)
 	}
 	// Invalidate L1 ristretto cache. Ristretto's Del() is asynchronous by design,
 	// so call Wait() immediately after to flush pending operations and guarantee

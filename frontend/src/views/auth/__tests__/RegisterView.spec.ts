@@ -2,11 +2,12 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
-const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock, validateInvitationCodeMock, routeMock } = vi.hoisted(() => ({
+const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock, validateInvitationCodeMock, routeMock, verifyActionMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
   registerMock: vi.fn(),
   showErrorMock: vi.fn(),
   pushMock: vi.fn(),
+  verifyActionMock: vi.fn(),
   validateInvitationCodeMock: vi.fn(),
   routeMock: { query: {} as Record<string, string> },
   appStoreMock: {
@@ -74,7 +75,10 @@ function mountRegister() {
       stubs: {
         AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
         Icon: true,
-        TurnstileWidget: { template: '<div data-testid="turnstile-widget" />' },
+        TurnstileWidget: {
+          template: '<div data-testid="turnstile-widget" />',
+          methods: { verifyAction: verifyActionMock, reset: vi.fn() }
+        },
         LoginAgreementPrompt: true,
         EmailOAuthButtons: true,
         LinuxDoOAuthSection: true,
@@ -87,7 +91,7 @@ function mountRegister() {
   })
 }
 
-describe('RegisterView invitation layout', () => {
+describe('RegisterView', () => {
   beforeEach(() => {
     getPublicSettingsMock.mockReset()
     registerMock.mockReset()
@@ -99,6 +103,8 @@ describe('RegisterView invitation layout', () => {
     appStoreMock.cachedPublicSettings = null
     sessionStorage.clear()
     localStorage.clear()
+    verifyActionMock.mockReset()
+    verifyActionMock.mockResolvedValue({ token: 'ticket', randstr: 'randstr' })
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
   })
@@ -214,8 +220,11 @@ describe('RegisterView invitation layout', () => {
   it.each([
     ['', 'auth.confirmPasswordRequired'],
     ['different-password', 'auth.passwordsDoNotMatch']
-  ])('blocks invalid confirmation %j and allows correction', async (confirmation, error) => {
-    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
+  ])('blocks invalid confirmation %j before captcha and allows correction', async (confirmation, error) => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings, turnstile_enabled: false,
+      tencent_captcha_enabled: true, tencent_captcha_app_id: 'app-id'
+    })
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
@@ -226,6 +235,7 @@ describe('RegisterView invitation layout', () => {
     expect(showErrorMock).toHaveBeenCalledWith(error)
     expect(wrapper.get('#confirmPassword').attributes('aria-invalid')).toBe('true')
     expect(registerMock).not.toHaveBeenCalled()
+    expect(verifyActionMock).not.toHaveBeenCalled()
     expect(pushMock).not.toHaveBeenCalled()
     expect(sessionStorage.getItem('register_data')).toBeNull()
     await wrapper.get('#confirmPassword').setValue('secret-123')
@@ -233,6 +243,10 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({ password: 'secret-123' }))
     expect(registerMock.mock.calls[0][0]).not.toHaveProperty('confirmPassword')
+    expect(verifyActionMock).toHaveBeenCalledOnce()
+    expect(registerMock.mock.calls[0][0]).toMatchObject({
+      tencent_captcha_ticket: 'ticket', tencent_captcha_randstr: 'randstr'
+    })
     expect(wrapper.get('#confirmPassword').attributes('aria-invalid')).toBe('false')
   })
 

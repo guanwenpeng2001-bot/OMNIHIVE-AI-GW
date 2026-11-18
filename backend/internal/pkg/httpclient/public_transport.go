@@ -69,12 +69,20 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("request host is empty")
 	}
 	host := req.URL.Hostname()
+	if urlvalidator.IsBlockedHost(host) {
+		return nil, fmt.Errorf("host is not allowed: %s", host)
+	}
 	ctx, cancel := context.WithTimeout(req.Context(), 5*time.Second)
 	lookup := t.lookupIP
 	if override, ok := ctx.Value(publicIPLookupKey{}).(func(context.Context, string, string) ([]net.IP, error)); ok && override != nil {
 		lookup = override
 	}
-	ips, err := lookup(ctx, "ip", host)
+	// Literal targets must not be reinterpreted by a request-local resolver.
+	ips := []net.IP{net.ParseIP(host)}
+	var err error
+	if ips[0] == nil {
+		ips, err = lookup(ctx, "ip", host)
+	}
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("dns resolution failed: %w", err)
@@ -83,7 +91,7 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("dns resolution returned no addresses for %s", host)
 	}
 	for _, ip := range ips {
-		if ip == nil || urlvalidator.IsBlockedHost(ip.String()) {
+		if !urlvalidator.IsPublicIP(ip) {
 			return nil, fmt.Errorf("resolved ip %s is not allowed", ip)
 		}
 	}

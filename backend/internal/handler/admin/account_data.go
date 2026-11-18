@@ -2,8 +2,10 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +68,7 @@ type DataAccount struct {
 	Credentials        map[string]any           `json:"credentials"`
 	Extra              map[string]any           `json:"extra,omitempty"`
 	ProxyKey           *string                  `json:"proxy_key,omitempty"`
+	ProxyDependency    string                   `json:"proxy_dependency,omitempty"`
 	Concurrency        int                      `json:"concurrency"`
 	Priority           int                      `json:"priority"`
 	RateMultiplier     *float64                 `json:"rate_multiplier,omitempty"`
@@ -74,12 +77,14 @@ type DataAccount struct {
 }
 
 type DataImportRequest struct {
+	StageInactive           bool        `json:"stage_inactive,omitempty"`
 	Data                    DataPayload `json:"data"`
 	SkipDefaultGroupBind    *bool       `json:"skip_default_group_bind"`
 	ConfirmMixedChannelRisk *bool       `json:"confirm_mixed_channel_risk,omitempty"`
 }
 
 type DataImportResult struct {
+	StagedInactive bool              `json:"staged_inactive,omitempty"`
 	ProxyCreated   int               `json:"proxy_created"`
 	ProxyReused    int               `json:"proxy_reused"`
 	ProxyFailed    int               `json:"proxy_failed"`
@@ -230,16 +235,41 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 
 func (h *AccountHandler) ImportData(c *gin.Context) {
 	var req DataImportRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if c.Request.Body == nil {
+		response.BadRequest(c, "Invalid account import request")
+		return
+	}
+	decoder := json.NewDecoder(c.Request.Body)
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		response.BadRequest(c, "Invalid account import request")
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		response.BadRequest(c, "Account import requires exactly one JSON document")
+		return
+	}
+	// Validate the entire document boundary before any mode-specific decoder runs.
+	if err := json.Unmarshal(raw, &req); err != nil {
+		response.BadRequest(c, "Invalid account import request")
 		return
 	}
 
-	if err := validateDataHeader(req.Data); err != nil {
+	if req.StageInactive {
+		if err := validateStagedDataImport(req); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		h.executeStagedDataImport(c, req)
+		return
+	} else if err := validateDataHeader(req.Data); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
+	if !h.reserveLegacyImportKey(c, req) {
+		return
+	}
 	executeAdminIdempotentJSON(c, "admin.accounts.import_data", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		return h.importData(ctx, req)
 	})
@@ -247,6 +277,12 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 
 func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
 	var result DataImportResult
+	if req.StageInactive {
+		if err := validateStagedDataImport(req); err != nil {
+			return result, err
+		}
+		ctx = service.WithStagedAccountImport(ctx)
+	}
 	if err := requireCredentialDraftStore(h.credentialDrafts); err != nil {
 		return result, err
 	}
@@ -256,12 +292,22 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		return err
 	})
 	if err != nil {
+		if req.StageInactive {
+			// Never echo driver/validation errors that may contain credential values.
+			if errors.Is(err, service.ErrEncryptionKeyRequired) {
+				return DataImportResult{}, service.ErrEncryptionKeyRequired
+			}
+			return DataImportResult{}, infraerrors.InternalServer("STAGED_ACCOUNT_IMPORT_FAILED", "Staged import failed; no accounts were imported")
+		}
 		return DataImportResult{}, err
 	}
 	return result, nil
 }
 
 func (h *AccountHandler) importDataInTransaction(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
+	if req.StageInactive {
+		return h.stageDataAccounts(ctx, req)
+	}
 	skipDefaultGroupBind := true
 	if req.SkipDefaultGroupBind != nil {
 		skipDefaultGroupBind = *req.SkipDefaultGroupBind

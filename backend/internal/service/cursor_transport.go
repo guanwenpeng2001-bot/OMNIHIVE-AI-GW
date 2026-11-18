@@ -7,6 +7,9 @@ import (
 )
 
 func cursorAccountContext(ctx context.Context, account *Account) (context.Context, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return ctx, err
+	}
 	if account != nil && account.ProxyGroupID != nil {
 		proxyURL, err := account.EgressProxyURL(ctx)
 		if err != nil {

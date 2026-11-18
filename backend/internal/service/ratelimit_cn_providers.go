@@ -183,7 +183,7 @@ func cnProviderQuotaSnapshotReset(account *Account, now time.Time) *time.Time {
 		return nil // Go usage snapshots do not establish a global generation limit.
 	}
 	suffixes := []string{cnExtraSuffix5hReset, cnExtraSuffixWeeklyReset}
-	if account.IsOpenCodeGo() {
+	if account.IsOpenCodeGo() || provider == PlatformKimi {
 		suffixes = append(suffixes, cnExtraSuffixMonthlyReset)
 	}
 	var earliest *time.Time

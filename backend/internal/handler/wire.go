@@ -52,10 +52,12 @@ func ProvideAdminHandlers(
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	authService *service.AuthService,
 	egressRuntime *service.ProxyGroupRuntime,
+	stagedImports *service.StagedAccountImportService,
 ) *AdminHandlers {
 	credentialDrafts, _ := authService.PendingIdentityService()
 	credentialDrafts.SetEgressRuntime(egressRuntime)
 	accountHandler.SetCredentialDraftService(credentialDrafts)
+	accountHandler.SetStagedAccountImportService(stagedImports)
 	oauthHandler.SetCredentialDraftService(credentialDrafts)
 	openaiOAuthHandler.SetCredentialDraftService(credentialDrafts)
 	geminiOAuthHandler.SetCredentialDraftService(credentialDrafts)

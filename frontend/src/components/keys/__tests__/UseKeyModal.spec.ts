@@ -32,6 +32,24 @@ const exportPlatforms = GROUP_PLATFORM_OPTIONS.map(option => option.value)
 describe('emitted client URL contracts', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it.each(['gpt-6.2-sol', 'gpt-6.2-astra'])('uses %s only when returned by the key-scoped Codex catalog', async model => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [{ slug: model, supported_reasoning_levels: [{ effort: 'max', description: 'Maximum' }] }] }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'test-catalog-key', baseUrl: 'https://gateway.example/proxy', platform: 'composite' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    await wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.cliTabs.codexCli')!.trigger('click')
+    expect(wrapper.findAll('pre code').map(code => code.text()).join('\n')).not.toContain(`model = "${model}"`)
+    await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
+    await flushPromises()
+    const generated = wrapper.findAll('pre code').map(code => code.text()).join('\n')
+    expect(generated).toContain(`model = "${model}"`)
+    expect(generated).not.toContain('service_tier = "ultrafast"')
+    expect(fetchMock).toHaveBeenCalledWith('https://gateway.example/proxy/v1/models?client_version=0.147.0', expect.anything())
+    wrapper.unmount()
+  })
+
   it.each([
     ['gemini', 'https://gateway.example/proxy/v1beta/'],
     ['antigravity', 'https://gateway.example/proxy/antigravity/v1/']

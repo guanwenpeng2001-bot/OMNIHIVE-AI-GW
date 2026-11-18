@@ -30,7 +30,6 @@ const (
 	settingKeyBackupSchedule = "backup_schedule"
 	settingKeyBackupRecords  = "backup_records"
 
-	maxBackupRecords           = 100
 	backupObjectCleanupTimeout = 2 * time.Minute
 
 	// backupScheduledLeaderLockKey gates the scheduled full-database backup so
@@ -420,12 +419,15 @@ func (s *BackupService) TestS3Connection(ctx context.Context, cfg BackupS3Config
 
 func (s *BackupService) GetSchedule(ctx context.Context) (*BackupScheduleConfig, error) {
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupSchedule)
-	if err != nil || raw == "" {
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, fmt.Errorf("load backup schedule: %w", err)
+	}
+	if raw == "" {
 		return &BackupScheduleConfig{}, nil
 	}
 	var cfg BackupScheduleConfig
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
-		return &BackupScheduleConfig{}, nil
+		return nil, infraerrors.InternalServer("BACKUP_SCHEDULE_CORRUPT", "backup schedule data is corrupted")
 	}
 	return &cfg, nil
 }
@@ -515,11 +517,12 @@ func (s *BackupService) runScheduledBackup() {
 	defer release()
 
 	// 读取定时备份配置中的过期天数
-	schedule, _ := s.GetSchedule(ctx)
-	expireDays := 14 // 默认14天过期
-	if schedule != nil && schedule.RetainDays > 0 {
-		expireDays = schedule.RetainDays
+	schedule, err := s.GetSchedule(ctx)
+	if err != nil {
+		logger.LegacyPrintf("service.backup", "[Backup] 加载备份配置失败: %v", err)
+		return
 	}
+	expireDays := schedule.RetainDays
 
 	logger.LegacyPrintf("service.backup", "[Backup] 开始执行定时备份, 过期天数: %d", expireDays)
 	record, err := s.CreateBackup(ctx, "scheduled", expireDays)
@@ -622,7 +625,7 @@ func (s *BackupService) CreateBackup(ctx context.Context, triggeredBy string, ex
 	record.Status = "completed"
 	record.FinishedAt = time.Now().Format(time.RFC3339)
 	if err := s.saveRecord(ctx, record); err != nil {
-		logger.LegacyPrintf("service.backup", "[Backup] 保存备份记录失败: %v", err)
+		return record, fmt.Errorf("save completed backup: %w", err)
 	}
 
 	return record, nil
@@ -1137,7 +1140,7 @@ func (s *BackupService) ListBackups(ctx context.Context) ([]BackupRecord, error)
 	}
 	// 倒序返回（最新在前）
 	sort.Slice(records, func(i, j int) bool {
-		return records[i].StartedAt > records[j].StartedAt
+		return backupStartedAfter(records[i], records[j])
 	})
 	return records, nil
 }
@@ -1302,7 +1305,10 @@ func (s *BackupService) loadRecords(ctx context.Context) ([]BackupRecord, error)
 // loadRecordsLocked 在已持有 recordsMu 锁的情况下加载记录
 func (s *BackupService) loadRecordsLocked(ctx context.Context) ([]BackupRecord, error) {
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyBackupRecords)
-	if err != nil || raw == "" {
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, fmt.Errorf("load backup records: %w", err)
+	}
+	if raw == "" {
 		return nil, nil //nolint:nilnil // no records is a valid state
 	}
 	var records []BackupRecord
@@ -1326,7 +1332,10 @@ func (s *BackupService) saveRecord(ctx context.Context, record *BackupRecord) er
 	s.recordsMu.Lock()
 	defer s.recordsMu.Unlock()
 
-	records, _ := s.loadRecordsLocked(ctx)
+	records, err := s.loadRecordsLocked(ctx)
+	if err != nil {
+		return err
+	}
 
 	// 更新已有记录或追加
 	found := false
@@ -1341,11 +1350,8 @@ func (s *BackupService) saveRecord(ctx context.Context, record *BackupRecord) er
 		records = append(records, *record)
 	}
 
-	// 限制记录数量
-	if len(records) > maxBackupRecords {
-		records = records[len(records)-maxBackupRecords:]
-	}
-
+	// Retention removes objects and metadata together. Dropping metadata here
+	// would leave retained objects inaccessible to restore and cleanup.
 	return s.saveRecordsLocked(ctx, records)
 }
 
@@ -1364,17 +1370,23 @@ func (s *BackupService) cleanupOldBackups(ctx context.Context, schedule *BackupS
 
 	// 按时间倒序
 	sort.Slice(records, func(i, j int) bool {
-		return records[i].StartedAt > records[j].StartedAt
+		return backupStartedAfter(records[i], records[j])
 	})
 
 	var toDelete []BackupRecord
 	var toKeep []BackupRecord
 
-	for i, r := range records {
+	completedCount := 0
+	for _, r := range records {
+		if r.Status != "completed" {
+			toKeep = append(toKeep, r)
+			continue
+		}
+		completedCount++
 		shouldDelete := false
 
 		// 按保留份数清理
-		if schedule.RetainCount > 0 && i >= schedule.RetainCount {
+		if schedule.RetainCount > 0 && completedCount > schedule.RetainCount {
 			shouldDelete = true
 		}
 

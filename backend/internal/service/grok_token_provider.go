@@ -59,6 +59,9 @@ func (p *GrokTokenProvider) SetTempUnschedCache(cache TempUnschedCache) {
 }
 
 func (p *GrokTokenProvider) GetAccessToken(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
@@ -184,6 +187,9 @@ func (p *GrokTokenProvider) GetAccessToken(ctx context.Context, account *Account
 // Credential rotation for non-active (disabled/error) accounts remains
 // blocked inside RefreshIfNeeded; their still-valid tokens are probed as-is.
 func (p *GrokTokenProvider) GetAccessTokenForManualTest(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account == nil {
 		return "", errors.New("account is nil")
 	}

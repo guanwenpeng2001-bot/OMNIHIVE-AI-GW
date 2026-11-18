@@ -439,6 +439,10 @@ func (s *userHandlerRefreshTokenCacheStub) DeleteTokenFamily(context.Context, st
 	return nil
 }
 
+func (s *userHandlerRefreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*service.RefreshTokenData, error) {
+	return nil, service.ErrRefreshTokenNotFound
+}
+
 func (s *userHandlerRefreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
 	return nil
 }
@@ -810,4 +814,44 @@ func TestUserHandlerStartIdentityBindingReturnsAuthorizeURL(t *testing.T) {
 	require.Contains(t, resp.Data.AuthorizeURL, "/api/v1/auth/oauth/wechat/bind/start")
 	require.Contains(t, resp.Data.AuthorizeURL, "intent=bind_current_user")
 	require.Contains(t, resp.Data.AuthorizeURL, "redirect=%2Fsettings%2Fprofile")
+}
+
+func (s *userHandlerEmailCacheStub) VerifyVerificationCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetVerificationCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteVerificationCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *userHandlerEmailCacheStub) VerifyNotifyCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetNotifyVerifyCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteNotifyVerifyCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *userHandlerEmailCacheStub) ConsumePasswordResetToken(context.Context, string, string) (bool, error) {
+	return false, nil
 }

@@ -19,8 +19,9 @@ import (
 var (
 	qianwenResultSystemLookup = net.DefaultResolver.LookupIP
 	qianwenResultDNSClient    = newQianwenResultDNSClient((&net.Dialer{Timeout: 5 * time.Second}).DialContext)
-	qianwenResultFakeIPv4     = netip.MustParsePrefix("198.18.0.0/16")
-	qianwenResultFakeIPv6     = netip.MustParsePrefix("fdfe:dcba:9876::/64")
+	qianwenResultFakeIPv4     = netip.MustParsePrefix("198.18.0.0/15")
+	qianwenResultFakeIPv6a    = netip.MustParsePrefix("fdfe:dcba:9876::/64")
+	qianwenResultFakeIPv6b    = netip.MustParsePrefix("2001:2::/48")
 )
 
 // Cloudflare's JSON DoH endpoint is documented at:
@@ -54,7 +55,13 @@ func withQianwenResultLookup(ctx context.Context, rawURL string) context.Context
 
 func isQianwenResultFakeIP(ip net.IP) bool {
 	address, ok := netip.AddrFromSlice(ip)
-	return ok && (qianwenResultFakeIPv4.Contains(address.Unmap()) || qianwenResultFakeIPv6.Contains(address.Unmap()))
+	if !ok {
+		return false
+	}
+	address = address.Unmap()
+	return qianwenResultFakeIPv4.Contains(address) ||
+		qianwenResultFakeIPv6a.Contains(address) ||
+		qianwenResultFakeIPv6b.Contains(address)
 }
 
 func lookupQianwenResultIP(ctx context.Context, network, host string) ([]net.IP, error) {

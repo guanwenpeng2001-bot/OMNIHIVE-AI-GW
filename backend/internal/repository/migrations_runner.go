@@ -66,6 +66,8 @@ const usageLogsUpstreamRequestIDIndexMigration = "233_add_usage_log_upstream_req
 const usageLogsUpstreamRequestIDIndex = "idx_usage_logs_upstream_request_id"
 const usageLogsSessionIDIndexMigration = "274_add_usage_log_session_id_index_notx.sql"
 const usageLogsSessionIDIndex = "idx_usage_logs_session_id"
+const upstreamJobsTerminalReviewIndexMigration = "288_upstream_jobs_terminal_review_index_notx.sql"
+const upstreamJobsTerminalReviewIndex = "idx_upstream_jobs_terminal_review"
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -338,6 +340,8 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return nil
 	case usageLogsUpstreamRequestIDIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, usageLogsUpstreamRequestIDIndex)
+	case upstreamJobsTerminalReviewIndexMigration:
+		return dropInvalidIndexIfPresent(ctx, db, upstreamJobsTerminalReviewIndex)
 	default:
 		return nil
 	}

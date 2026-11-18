@@ -44,8 +44,12 @@ func (r failingRenewalRepository) GetByID(ctx context.Context, id int64) (*servi
 // existing receipt integration suite; Redis uses only this fixture's key.
 func TestSubscriptionRenewalPostgresRedis(t *testing.T) {
 	dsn, redisAddr := os.Getenv("UPSTREAM_JOB_TEST_DSN"), os.Getenv("ACCOUNTING_TEST_REDIS_ADDR")
+	expectedDatabase := "job_test"
+	if auditDSN := os.Getenv("UPSTREAM_BILLING_AUDIT_DSN"); auditDSN != "" {
+		dsn, expectedDatabase = auditDSN, "billing_audit_test"
+	}
 	if dsn == "" || redisAddr == "" {
-		t.Skip("requires isolated job_test PostgreSQL and ACCOUNTING_TEST_REDIS_ADDR")
+		t.Skip("requires isolated job_test or billing_audit_test PostgreSQL and ACCOUNTING_TEST_REDIS_ADDR")
 	}
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
@@ -55,7 +59,7 @@ func TestSubscriptionRenewalPostgresRedis(t *testing.T) {
 	defer cancel()
 	var database string
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT current_database()").Scan(&database))
-	require.Equal(t, "job_test", database)
+	require.Equal(t, expectedDatabase, database)
 	require.NoError(t, ApplyMigrations(ctx, db))
 	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	t.Cleanup(func() { require.NoError(t, rdb.Close()) })

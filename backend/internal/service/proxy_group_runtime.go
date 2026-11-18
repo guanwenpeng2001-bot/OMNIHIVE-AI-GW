@@ -61,6 +61,9 @@ func (a *Account) EgressProxyURL(ctx context.Context) (string, error) {
 	if a == nil {
 		return "", ErrProxyGroupUnavailable
 	}
+	if a.StagedProxyPending() {
+		return "", ErrStagedProxyPending
+	}
 	if a.ProxyGroupID == nil {
 		if a.ProxyID != nil && a.Proxy != nil {
 			return a.Proxy.URL(), nil
@@ -118,6 +121,9 @@ func (r *ProxyGroupRuntime) resolve(ctx context.Context, a *Account) (EgressTarg
 }
 
 func (r *ProxyGroupRuntime) resolveExcluding(ctx context.Context, a *Account, excludedProxyID int64, advanceAfterFailure bool) (EgressTarget, error) {
+	if a.StagedProxyPending() {
+		return EgressTarget{}, ErrStagedProxyPending
+	}
 	if a.ProxyGroupID == nil {
 		if a.ProxyID != nil && a.Proxy != nil {
 			return EgressTarget{a.Proxy.URL(), *a.ProxyID, EgressSourceSingleProxy, true}, nil

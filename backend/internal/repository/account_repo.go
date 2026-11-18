@@ -128,7 +128,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	if account != nil && hasManagementQuerySecrets(account.Credentials) {
+	if account != nil && (hasManagementQuerySecrets(account.Credentials) || service.IsStagedAccountImport(ctx)) {
 		return r.CreateWithAccountGroups(ctx, account, nil)
 	}
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
@@ -261,6 +261,9 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	if service.IsStagedAccountImport(ctx) && (dbent.TxFromContext(ctx) == nil || account.Status != "inactive" || account.Schedulable || account.ProxyID != nil || account.ProxyGroupID != nil || len(groups) != 0) {
+		return service.ErrCredentialSecretInvalid
+	}
 	var tx *dbent.Tx
 	var txClient *dbent.Client
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
@@ -338,6 +341,10 @@ func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Acc
 }
 
 func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*service.Account, error) {
+	return r.getByIDs(ctx, ids, false)
+}
+
+func (r *accountRepository) getByIDs(ctx context.Context, ids []int64, skipUnavailableCredentials bool) ([]*service.Account, error) {
 	if len(ids) == 0 {
 		return []*service.Account{}, nil
 	}
@@ -390,9 +397,6 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
 		out := accountEntityToService(entAcc)
-		if out != nil {
-			out.AttachEgress(r.egressRuntime)
-		}
 		if out == nil {
 			continue
 		}
@@ -428,7 +432,7 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		}
 	}
 
-	return out, nil
+	return r.resolveAccountCredentialsBatch(ctx, clientFromContext(ctx, r.client), out, skipUnavailableCredentials)
 }
 
 // ExistsByID 检查指定 ID 的账号是否存在。
@@ -1447,7 +1451,11 @@ func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, 
 }
 
 func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, options service.OAuthRefreshPageOptions) (*service.OAuthRefreshCandidatePage, error) {
-	if r.sql == nil {
+	executor := r.sql
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		executor = tx.Client()
+	}
+	if executor == nil {
 		return nil, errors.New("account repository SQL executor not configured")
 	}
 	if len(options.Platforms) == 0 {
@@ -1483,8 +1491,8 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	}
 	if options.RequireRefreshToken {
 		query += `
-			AND credentials ? 'refresh_token'
-			AND btrim(credentials->>'refresh_token') <> ''`
+			AND ((credentials ? 'refresh_token' AND btrim(credentials->>'refresh_token') <> '')
+				OR credentials ? 'credential_secret_reference')`
 	}
 	if options.ExcludeRetryCooldown {
 		query += `
@@ -1497,7 +1505,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 		ORDER BY id ASC
 		LIMIT $3`
 
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(options.Platforms), options.AfterID, options.Limit)
+	rows, err := executor.QueryContext(ctx, query, pq.Array(options.Platforms), options.AfterID, options.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1514,11 +1522,16 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	// Release the scan connection before hydrating; this also supports a
+	// caller-owned transaction or a pool with one available connection.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
 	if len(ids) == 0 {
 		return &service.OAuthRefreshCandidatePage{Accounts: []service.Account{}}, nil
 	}
 
-	accounts, err := r.GetByIDs(ctx, ids)
+	accounts, err := r.getByIDs(ctx, ids, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1530,7 +1543,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 	}
 	out := make([]service.Account, 0, len(accounts))
 	for _, id := range ids {
-		if account := accountsByID[id]; account != nil {
+		if account := accountsByID[id]; account != nil && oauthRefreshPageEligible(account, options) {
 			out = append(out, *account)
 		}
 	}
@@ -1542,6 +1555,37 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 		page.NextAfterID = ids[len(ids)-1]
 	}
 	return page, nil
+}
+
+// Recheck mutable eligibility after hydration and inspect actual decrypted
+// refresh material. Scanned IDs, not this filtered result, drive the cursor.
+func oauthRefreshPageEligible(account *service.Account, options service.OAuthRefreshPageOptions) bool {
+	if options.ActiveOnly && account.Status != service.StatusActive {
+		return false
+	}
+	platformMatches := false
+	for _, platform := range options.Platforms {
+		if account.Platform == platform {
+			platformMatches = true
+			break
+		}
+	}
+	if !platformMatches {
+		return false
+	}
+	if account.Type != service.AccountTypeOAuth && !(options.IncludeSetupToken && account.Type == service.AccountTypeSetupToken) {
+		return false
+	}
+	if options.ExcludeRetryCooldown && account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) && strings.HasPrefix(account.TempUnschedulableReason, "token refresh retry exhausted:") {
+		return false
+	}
+	if options.RequireRefreshToken {
+		token, ok := account.Credentials["refresh_token"].(string)
+		if !ok || strings.TrimSpace(token) == "" {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *accountRepository) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
@@ -2629,6 +2673,61 @@ func (r *accountRepository) ClearRateLimitIfObserved(ctx context.Context, id int
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue observed rate-limit clear failed: account=%d err=%v", id, err)
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return true, nil
+}
+
+// SetRateLimitedIfUnchanged atomically applies a rate-limit reset only while the
+// account still carries exactly the generation the caller observed: its
+// UpdatedAt row version, its RateLimitedAt and its RateLimitResetAt (nil means
+// that field is currently unset). It is the write-back CAS counterpart to
+// ClearRateLimitIfObserved: an async rate-limit reset (e.g. an Ollama Cloud
+// usage probe) must not overwrite a newer 429, an admin clear, a re-armed
+// generation, or a key/state change observed by another writer between the
+// caller's read and this write. The whole update is a single statement, so the
+// write itself is race-free. updated reports whether the write happened, and the
+// caller must ONLY send its scheduling notification when updated == true (this
+// method already performed the DB update; no further SetRateLimited call is
+// allowed, as a second unconditional write would reintroduce the race). No new
+// migration is required.
+func (r *accountRepository) SetRateLimitedIfUnchanged(
+	ctx context.Context,
+	id int64,
+	expectedUpdatedAt time.Time,
+	expectedLimitedAt, expectedResetAt *time.Time,
+	newResetAt time.Time,
+) (bool, error) {
+	preds := []dbpredicate.Account{dbaccount.IDEQ(id), dbaccount.UpdatedAtEQ(expectedUpdatedAt)}
+	if expectedLimitedAt == nil {
+		preds = append(preds, dbaccount.RateLimitedAtIsNil())
+	} else {
+		preds = append(preds, dbaccount.RateLimitedAtEQ(*expectedLimitedAt))
+	}
+	if expectedResetAt == nil {
+		preds = append(preds, dbaccount.RateLimitResetAtIsNil())
+	} else {
+		preds = append(preds, dbaccount.RateLimitResetAtEQ(*expectedResetAt))
+	}
+
+	now := time.Now()
+	updated, err := r.client.Account.Update().
+		Where(preds...).
+		SetRateLimitedAt(now).
+		SetRateLimitResetAt(newResetAt).
+		Save(ctx)
+	if err != nil {
+		return false, err
+	}
+	if updated == 0 {
+		// The generation changed concurrently (cleared, re-armed, or the account
+		// was otherwise updated elsewhere): do not announce anything, just
+		// refresh the local scheduler snapshot.
+		r.syncSchedulerAccountSnapshot(ctx, id)
+		return false, nil
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue rate limit failed: account=%d err=%v", id, err)
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
 	return true, nil

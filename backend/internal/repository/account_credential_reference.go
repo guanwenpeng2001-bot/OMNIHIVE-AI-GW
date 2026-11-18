@@ -29,7 +29,7 @@ func ProvideAdminAccountRepositoryWithSecrets(client *dbent.Client, database *sq
 func (r *accountRepository) resolveAccountCredentials(ctx context.Context, database credentialSQL, account *service.Account) error {
 	account.AttachEgress(r.egressRuntime)
 	account.CredentialRevision = credentialRevision(account.Credentials)
-	reference, referenced := service.CredentialReference(account.Credentials)
+	_, referenced := service.CredentialReference(account.Credentials)
 	if !referenced {
 		return nil
 	}
@@ -37,23 +37,7 @@ func (r *accountRepository) resolveAccountCredentials(ctx context.Context, datab
 	if err != nil {
 		return err
 	}
-	if metadata.Reference != reference || metadata.WorkspaceID != account.WorkspaceID {
-		return service.ErrCredentialSecretNotFound
-	}
-	secrets, err := service.ResolveCredentialSecret(ctx, r.credentialEncryptor, *metadata, ciphertext)
-	if err != nil {
-		return err
-	}
-	resolved := make(map[string]any, len(account.Credentials)+len(secrets))
-	for field, value := range account.Credentials {
-		resolved[field] = value
-	}
-	for field, value := range secrets {
-		resolved[field] = value
-	}
-	resolved[service.CredentialSecretVersionKey] = metadata.Version
-	account.Credentials = resolved
-	return nil
+	return r.applyStoredCredentialSecret(ctx, account, metadata, ciphertext)
 }
 
 // UpdateCredentialsCAS preserves the expected read revision even if a caller

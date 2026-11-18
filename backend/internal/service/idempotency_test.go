@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -274,7 +275,7 @@ func TestIdempotencyCoordinator_ReclaimExpiredSucceededRecord(t *testing.T) {
 	require.True(t, third.Replayed)
 	payload, ok := third.Data.(map[string]any)
 	require.True(t, ok)
-	require.Equal(t, float64(2), payload["count"])
+	require.Equal(t, json.Number("2"), payload["count"])
 
 	metrics := GetIdempotencyMetricsSnapshot()
 	require.GreaterOrEqual(t, metrics.ClaimTotal, uint64(2))

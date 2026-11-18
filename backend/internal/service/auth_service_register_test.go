@@ -149,6 +149,10 @@ func (s *refreshTokenCacheStub) DeleteTokenFamily(context.Context, string) error
 	return nil
 }
 
+func (s *refreshTokenCacheStub) ConsumeRefreshToken(context.Context, string) (*RefreshTokenData, error) {
+	return nil, ErrRefreshTokenNotFound
+}
+
 func (s *refreshTokenCacheStub) AddToUserTokenSet(context.Context, int64, string, time.Duration) error {
 	return nil
 }
@@ -1009,4 +1013,44 @@ func TestCanBypassRegistrationDisabledForOAuth(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func (s *emailCacheStub) VerifyVerificationCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetVerificationCode(ctx, email)
+	if err != nil || data == nil {
+		return ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteVerificationCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return ErrVerifyCodeMaxAttempts
+	}
+	return ErrInvalidVerifyCode
+}
+
+func (s *emailCacheStub) VerifyNotifyCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetNotifyVerifyCode(ctx, email)
+	if err != nil || data == nil {
+		return ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteNotifyVerifyCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return ErrVerifyCodeMaxAttempts
+	}
+	return ErrInvalidVerifyCode
+}
+
+func (s *emailCacheStub) ConsumePasswordResetToken(context.Context, string, string) (bool, error) {
+	return false, nil
 }

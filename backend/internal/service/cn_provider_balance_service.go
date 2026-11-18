@@ -95,6 +95,9 @@ func (s *CNProviderBalanceService) QueryBalance(ctx context.Context, accountID i
 // QueryBalanceForAccount 探测已加载账号（配额监控 fetcher / 周期余额检测复用，
 // 避免二次 GetByID）。singleflight key 与 QueryBalance 相同，按账号 ID 合并。
 func (s *CNProviderBalanceService) QueryBalanceForAccount(ctx context.Context, account *Account) (*CNProviderBalanceResult, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	if s == nil || s.accountRepo == nil || s.httpUpstream == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "CN_BALANCE_NOT_CONFIGURED", "cn provider balance service is not configured")
 	}
@@ -318,6 +321,9 @@ func validatePayGAccount(account *Account) error {
 }
 
 func (s *CNProviderBalanceService) resolveProxyURL(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account != nil && account.ProxyGroupID != nil {
 		return account.EgressProxyURL(ctx)
 	}

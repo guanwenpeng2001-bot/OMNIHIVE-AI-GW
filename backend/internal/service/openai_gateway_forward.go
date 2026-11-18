@@ -26,6 +26,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	account = bound
 	defer func() { attachCompatibleUsage(account, forwarded, forwardErr) }()
+	if err := rejectOpenAIGPT62Alias(account, gjson.GetBytes(body, "model").String()); err != nil {
+		writeOpenAIFastPolicyBlockedResponse(c, err)
+		return nil, err
+	}
 	requestedEffort := CanonicalRequestedReasoningEffort(body, gjson.GetBytes(body, "model").String())
 	if c != nil && c.Request != nil {
 		if original := RequestedReasoningEffortFromContext(c.Request.Context()); original != nil {
@@ -1057,6 +1061,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, wsErr
 	}
 
+	// Normalize this initial HTTP body once. Subsequent attempts only check the
+	// final model's prohibitions, preserving the Fast policy's first match.
+	gpt62Body, gpt62Err := prepareOpenAIGPT62RequestBody(account, upstreamModel, body)
+	if gpt62Err != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(gpt62Err, &blocked) {
+			writeOpenAIFastPolicyBlockedResponse(c, blocked)
+		}
+		return nil, gpt62Err
+	}
+	if !bytes.Equal(gpt62Body, body) {
+		body = gpt62Body
+		requestView = newOpenAIRequestView(body)
+		reqBody = nil
+	}
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：此处 reqModel 已被 mapping 重写为 billingModel。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, reqModel)
@@ -1106,6 +1125,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}()
 	for {
 		// Build upstream request
+		actualModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+		if blocked := validateOpenAIGPT62OutboundRequest(account, actualModel, body); blocked != nil {
+			writeOpenAIFastPolicyBlockedResponse(c, blocked)
+			return nil, blocked
+		}
+		if openAIGPT62RequestModel(account, actualModel) != "" {
+			reasoningEffort = extractOpenAIReasoningEffortFromBody(body, actualModel)
+			reasoningEffortValue = optionalStringValue(reasoningEffort)
+		}
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {

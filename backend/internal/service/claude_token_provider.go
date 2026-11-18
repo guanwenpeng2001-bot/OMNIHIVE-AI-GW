@@ -53,6 +53,9 @@ func (p *ClaudeTokenProvider) SetRefreshPolicy(policy ProviderRefreshPolicy) {
 
 // GetAccessToken returns a valid access_token.
 func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account == nil {
 		return "", errors.New("account is nil")
 	}

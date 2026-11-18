@@ -108,6 +108,9 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 			case "binding":
 				response.AccountID, err = cache.GetSessionAccountID(ctx, groupID, session)
 				require.NoError(test, err)
+			case "binding_absent":
+				response.AccountID, err = cache.GetSessionAccountID(ctx, groupID, session)
+				require.ErrorIs(test, err, service.ErrStickySessionNotFound)
 			case "publish":
 				current, readErr := accounts.GetByID(ctx, pinned.ID)
 				require.NoError(test, readErr)
@@ -138,7 +141,7 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 	test.Cleanup(func() { require.NoError(test, redisClient.Close()) })
 	info, err := redisClient.Info(ctx, "server").Result()
 	require.NoError(test, err)
-	test.Logf("real storage PostgreSQL localhost:5433/job_test; Redis=%s namespace=%s server=%s", redisAddress, namespace, info)
+	test.Logf("real storage PostgreSQL database=job_test (validated UPSTREAM_JOB_TEST_DSN); Redis=%s namespace=%s server=%s", redisAddress, namespace, info)
 	group, err := client.Group.Create().SetName("composite-independent-" + uuid.NewString()).SetPlatform(service.PlatformComposite).SetStatus(service.StatusActive).Save(ctx)
 	require.NoError(test, err)
 	test.Cleanup(func() { require.NoError(test, client.Group.DeleteOneID(group.ID).Exec(ctx)) })
@@ -209,6 +212,9 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 		require.Equal(test, int64(8), current.GetUpstreamModelCatalog().SourceGeneration)
 	})
 	test.Run("identity_revocation_invalidates_sticky_and_fixed_clients", func(test *testing.T) {
+		// A subtest-only run has no earlier selection observation. Observe the
+		// current binding before deleting it, just as a real request would.
+		require.Empty(test, exchange(first, compositeProcessRequest{Operation: "select"}).Error)
 		// Rebind the preferred account, then rotate its identity in the real repository.
 		exchange(first, compositeProcessRequest{Operation: "failed_binding"})
 		selectAccount(first, 0, accountIDs[0])
@@ -217,9 +223,31 @@ func RunCompositeGroupIndependentClients(test *testing.T) {
 			UpdateCredentials(context.Context, int64, map[string]any) error
 		})
 		require.True(test, supportsCredentials)
+		beforeRotation, err := accounts.GetByID(ctx, accountIDs[0])
+		require.NoError(test, err)
+		priorCatalog := beforeRotation.GetUpstreamModelCatalog()
+		require.NotNil(test, priorCatalog)
 		require.NoError(test, writer.UpdateCredentials(ctx, accountIDs[0], map[string]any{"api_key": "rotated", "model_mapping": map[string]any{"fixture-target": "fixture-target"}}))
+		rotated, err := accounts.GetByID(ctx, accountIDs[0])
+		require.NoError(test, err)
+		require.Greater(test, rotated.ModelCatalogState().IdentityRevision, beforeRotation.ModelCatalogState().IdentityRevision)
+		require.NotNil(test, rotated.GetUpstreamModelCatalog())
+		require.Equal(test, priorCatalog.IdentityRevision, rotated.GetUpstreamModelCatalog().IdentityRevision, "old publication must not be relabeled during credential rotation")
+		test.Logf("identity rotation account=%d previous=%d current=%d stored_catalog=%d", rotated.ID, beforeRotation.ModelCatalogState().IdentityRevision, rotated.ModelCatalogState().IdentityRevision, rotated.GetUpstreamModelCatalog().IdentityRevision)
 		selectAccount(second, 0, accountIDs[1])
 		selectAccount(first, 0, accountIDs[1])
+		require.Zero(test, exchange(second, compositeProcessRequest{Operation: "binding_absent"}).AccountID, "revoked identity must not remain sticky")
+		require.Equal(test, "conflict", exchange(first, compositeProcessRequest{Operation: "publish"}).Error)
+		require.Equal(test, "conflict", exchange(second, compositeProcessRequest{Operation: "publish"}).Error)
+
+		// A fresh, authorized publication restores availability without reviving
+		// the old clients' pinned identity or changing the Composite group.
+		current, err := accounts.GetByID(ctx, accountIDs[0])
+		require.NoError(test, err)
+		require.NoError(test, committer.CommitAccountModelCatalog(ctx, current.ID, current.ModelCatalogBaseline(), compositeCatalogSnapshot(current, 9), current.ModelCatalogState(), &service.UpstreamModelMetadataSnapshot{}, false))
+		exchange(first, compositeProcessRequest{Operation: "failed_binding"})
+		selectAccount(first, 0, accountIDs[0])
+		selectAccount(second, 0, accountIDs[0])
 		require.Equal(test, "conflict", exchange(first, compositeProcessRequest{Operation: "publish"}).Error)
 		require.Equal(test, "conflict", exchange(second, compositeProcessRequest{Operation: "publish"}).Error)
 	})

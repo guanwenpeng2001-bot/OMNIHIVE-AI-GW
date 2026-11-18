@@ -139,7 +139,7 @@ func TestLegacyFingerprintEvidenceIsSeparateFromCurrentSelection(test *testing.T
 			scenario.change(&account, snapshot)
 			account.Extra[UpstreamModelCatalogExtraKey] = snapshot
 			options := AccountModelBindingOptions{Endpoint: "messages"}
-			denied := scenario.name == "disabled" || scenario.name == "expired" || scenario.name == "allowlist"
+			denied := scenario.name == "disabled" || scenario.name == "expired" || scenario.name == "allowlist" || scenario.name == "wrong source"
 			binding := ResolveAccountModelBinding(context.Background(), &account, "public-model", options)
 			require.Equal(test, !denied, binding.Supported)
 			if !denied {

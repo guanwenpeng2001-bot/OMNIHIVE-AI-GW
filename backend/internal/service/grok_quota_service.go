@@ -529,6 +529,9 @@ func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*
 }
 
 func (s *GrokQuotaService) resolveProxyURL(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account != nil && account.ProxyGroupID != nil {
 		return account.EgressProxyURL(ctx)
 	}
@@ -557,6 +560,9 @@ func (s *GrokQuotaService) loadGrokOAuthAccount(ctx context.Context, accountID i
 	}
 	if account == nil {
 		return nil, infraerrors.New(http.StatusNotFound, "GROK_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
 	}
 	if account.Platform != PlatformGrok {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_QUOTA_INVALID_PLATFORM", "account is not a Grok account")

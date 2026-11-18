@@ -1405,6 +1405,38 @@ func (s openAISelectionFilterStats) summary(extra string) string {
 	return b.String()
 }
 
+// Apply the same eligibility gate to the cached list and the authoritative
+// batch, before ranking. A newly disabled/changed row must not consume top-K.
+func (s *defaultOpenAIAccountScheduler) loadCandidateFailureReason(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest, group *Group) string {
+	if _, excluded := req.ExcludedIDs[account.ID]; excluded {
+		return "excluded"
+	}
+	if !account.IsSchedulable() {
+		return "not_schedulable"
+	}
+	if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
+		return "platform_mismatch"
+	}
+	hasGroupMetadata := len(account.GroupIDs) > 0 || len(account.AccountGroups) > 0
+	if hasGroupMetadata && !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) {
+		return "group_mismatch"
+	}
+	if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+		return "runtime_blocked"
+	}
+	// Privacy is group-scoped; never mutate the shared account projection.
+	if group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
+		return "privacy_not_set"
+	}
+	if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+		return reason
+	}
+	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+		return "transport_incompatible"
+	}
+	return ""
+}
+
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
@@ -1448,47 +1480,13 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	filtered := make([]*Account, 0, len(accounts))
-	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
-		if req.ExcludedIDs != nil {
-			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
-				filterStats.exclude("excluded")
-				continue
-			}
-		}
-		if !account.IsSchedulable() {
-			filterStats.exclude("not_schedulable")
-			continue
-		}
-		if account.Platform != NormalizeOpenAICompatiblePlatform(req.Platform) || !account.IsOpenAICompatible() {
-			filterStats.exclude("platform_mismatch")
-			continue
-		}
-		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
-			filterStats.exclude("runtime_blocked")
-			continue
-		}
-		// require_privacy_set is a group-scoped eligibility gate. Do not mutate the
-		// shared account: another group may intentionally allow accounts whose
-		// upstream privacy setting has not been confirmed.
-		if schedGroup != nil && schedGroup.RequirePrivacySet && !account.IsPrivacySet() {
-			filterStats.exclude("privacy_not_set")
-			continue
-		}
-		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+		if reason := s.loadCandidateFailureReason(ctx, account, req, schedGroup); reason != "" {
 			filterStats.exclude(reason)
 			continue
 		}
-		if !s.isAccountTransportCompatible(account, req.RequiredTransport) {
-			filterStats.exclude("transport_incompatible")
-			continue
-		}
 		filtered = append(filtered, account)
-		loadReq = append(loadReq, AccountWithConcurrency{
-			ID:             account.ID,
-			MaxConcurrency: account.EffectiveLoadFactor(),
-		})
 	}
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
@@ -1499,6 +1497,25 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		return nil, 0, 0, 0, err
 	}
 	ctx = withOpenAIAccountRecheckBatch(ctx, recheckBatch)
+	rechecked := openAIRecheckedCandidates(filtered, recheckBatch)
+	filtered = filtered[:0]
+	for _, account := range rechecked {
+		if reason := s.loadCandidateFailureReason(ctx, account, req, schedGroup); reason != "" {
+			filterStats.exclude(reason)
+			continue
+		}
+		filtered = append(filtered, account)
+	}
+	if len(filtered) == 0 {
+		// A weighted sticky target may be absent from a stale bucket. Preserve
+		// its existing validated fallback; in-batch rejects remain explicit nil.
+		fallback, err := s.tryFallbackToWeightedSticky(ctx, req)
+		if err != nil || fallback != nil {
+			return fallback, 0, 0, 0, err
+		}
+		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary("credential_recheck_empty"))
+	}
+	loadReq := buildOpenAIAccountLoadRequest(filtered)
 
 	loadMap := map[int64]*AccountLoadInfo{}
 	if s.service.concurrencyService != nil {

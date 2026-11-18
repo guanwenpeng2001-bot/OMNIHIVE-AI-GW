@@ -196,6 +196,32 @@ func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnap
 	return account.EffectiveUpstreamModelCatalogForCredentialAccount(nil)
 }
 
+// Keep the existing token-rotation exception and credential-owner checks shared
+// by catalog projection and configured-selection admission.
+func modelCatalogIdentityMatches(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) bool {
+	if snapshot == nil {
+		return true
+	}
+	if snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+		legacyRotationEvidence := snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)
+		if !legacyRotationEvidence {
+			return false
+		}
+	}
+	if account.IsShadow() || snapshot.CredentialAccountID != 0 {
+		return credentialAccount != nil && credentialAccount.ID == snapshot.CredentialAccountID && credentialAccount.IsOpenAIOAuth() && !credentialAccount.IsShadow() && credentialAccount.ModelCatalogState().IdentityRevision == snapshot.CredentialIdentityRevision
+	}
+	return true
+}
+
+func configuredSelectionIdentityMatches(account, credentialAccount *Account, snapshot *AccountModelCatalogSnapshot) bool {
+	// A migration seed describes historical configuration, not a publication.
+	// Its current explicit selection keeps the existing legacy edit semantics.
+	// A real publication, however, cannot be replaced with synthetic configured
+	// evidence after its account or credential-owner identity has been revoked.
+	return snapshot == nil || snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade || modelCatalogIdentityMatches(account, credentialAccount, snapshot)
+}
+
 func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount *Account) *AccountModelCatalogSnapshot {
 	if account != nil && account.modelCatalogReadEvidence != nil && account.modelCatalogCredentialAccount == credentialAccount {
 		return account.modelCatalogReadEvidence.catalog
@@ -204,26 +230,19 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 		return nil
 	}
 	snapshot := account.GetUpstreamModelCatalog()
-	if account.ModelCatalogState().Result == "credentials_invalid" {
+	identityMatches := modelCatalogIdentityMatches(account, credentialAccount, snapshot)
+	configuredIdentityMatches := configuredSelectionIdentityMatches(account, credentialAccount, snapshot)
+	if account.ModelCatalogState().Result == "credentials_invalid" || !identityMatches {
 		snapshot = nil
-	}
-	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
-		legacyRotationEvidence := snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)
-		if !legacyRotationEvidence {
-			snapshot = nil
-		}
-	}
-	if snapshot != nil && (account.IsShadow() || snapshot.CredentialAccountID != 0) {
-		if credentialAccount == nil || credentialAccount.ID != snapshot.CredentialAccountID || !credentialAccount.IsOpenAIOAuth() || credentialAccount.IsShadow() || credentialAccount.ModelCatalogState().IdentityRevision != snapshot.CredentialIdentityRevision {
-			snapshot = nil
-		}
 	}
 	if snapshot != nil && snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && !legacyModelCatalogValidFor(account, snapshot) {
 		snapshot = nil
 	}
 	snapshot = appendAvailabilityModels(account, credentialAccount, snapshot)
-	snapshot = appendConfiguredSelectionModels(account, credentialAccount, snapshot)
-	snapshot = appendConfiguredCompactSelectionModels(account, credentialAccount, snapshot)
+	if configuredIdentityMatches {
+		snapshot = appendConfiguredSelectionModels(account, credentialAccount, snapshot)
+		snapshot = appendConfiguredCompactSelectionModels(account, credentialAccount, snapshot)
+	}
 	if snapshot == nil {
 		return nil
 	}
@@ -389,6 +408,9 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		}
 	}
 	if (options.Passthrough && options.Endpoint == CompositeRouteEndpointResponses || httpPassthrough) && options.FinalModel != "" && configuredPassthroughModel(account, options.FinalModel) {
+		if !configuredSelectionIdentityMatches(account, options.CredentialAccount, account.GetUpstreamModelCatalog()) {
+			return binding
+		}
 		binding.UpstreamModel = options.FinalModel
 		binding.IdentityRevision = account.ModelCatalogState().IdentityRevision
 		binding.RulesRevision = account.ModelCatalogState().RulesRevision

@@ -1308,6 +1308,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		return nil, err
 	}
 	ctx = withOpenAIAccountRecheckBatch(ctx, recheckBatch)
+	candidates = openAIRecheckedCandidates(candidates, recheckBatch)
+	if len(candidates) == 0 {
+		return nil, noAvailableOpenAISelectionError(requestedModel, false, filterStats.summary("credential_recheck_empty"))
+	}
 	rateOrder := openAILegacyUpstreamRateOrder{}
 	if preferLowUpstreamRate {
 		rateOrder = newOpenAILegacyUpstreamRateOrder(candidates, time.Now(), s.openAIOAuthSchedulingRateMultiplier(ctx))
@@ -1563,7 +1567,7 @@ func (s *OpenAIGatewayService) resolveFreshSchedulableOpenAIAccountBeforeProfit(
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 
 	fresh := account
-	if s.schedulerSnapshot != nil {
+	if _, batched := openAIAccountRecheckBatch(ctx); batched || s.schedulerSnapshot != nil {
 		current, err := s.getSchedulableAccount(ctx, account.ID)
 		if err != nil || current == nil {
 			return nil
@@ -1626,12 +1630,20 @@ func openAIAccountRecheckBatch(ctx context.Context) (map[int64]*Account, bool) {
 
 // loadOpenAIAccountRecheckBatch 用一次 GetByIDs 载入全部候选行。
 func (s *OpenAIGatewayService) loadOpenAIAccountRecheckBatch(ctx context.Context, candidates []*Account) (map[int64]*Account, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if s.accountRepo == nil {
 		return map[int64]*Account{}, nil
 	}
 	ids := make([]int64, 0, len(candidates))
+	seen := make(map[int64]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		if candidate != nil && candidate.ID > 0 {
+			if _, duplicate := seen[candidate.ID]; duplicate {
+				continue
+			}
+			seen[candidate.ID] = struct{}{}
 			ids = append(ids, candidate.ID)
 		}
 	}
@@ -1639,8 +1651,11 @@ func (s *OpenAIGatewayService) loadOpenAIAccountRecheckBatch(ctx context.Context
 		return map[int64]*Account{}, nil
 	}
 	accounts, err := s.accountRepo.GetByIDs(ctx, ids)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil {
-		return nil, fmt.Errorf("load account recheck batch: %w", err)
+		return s.recoverOpenAIAccountRecheckBatch(ctx, ids, err)
 	}
 	batch := make(map[int64]*Account, len(ids))
 	for _, id := range ids {
@@ -1708,6 +1723,14 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfitErr
 		return nil, nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	if batch, ok := openAIAccountRecheckBatch(ctx); ok {
+		if current, requested := batch[account.ID]; requested {
+			if current == nil {
+				return nil, nil
+			}
+			account = current
+		}
+	}
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
 		if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
 			return nil, nil
@@ -1770,7 +1793,10 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 		account *Account
 		err     error
 	)
-	if s.schedulerSnapshot != nil {
+	batch, _ := openAIAccountRecheckBatch(ctx)
+	if current, requested := batch[accountID]; requested {
+		account = current
+	} else if s.schedulerSnapshot != nil {
 		account, err = s.schedulerSnapshot.GetAccount(ctx, accountID)
 	} else {
 		account, err = s.accountRepo.GetByID(ctx, accountID)
@@ -1819,6 +1845,18 @@ func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx c
 }
 
 func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
+	if account != nil {
+		if batch, ok := openAIAccountRecheckBatch(ctx); ok {
+			if current, requested := batch[account.ID]; requested {
+				if current == nil {
+					return nil, ErrAccountNotFound
+				}
+				// GetByIDs/GetByID already hydrated this row. Never replace its
+				// verified identity/credentials with a cache read or retry a bad ID.
+				return current, nil
+			}
+		}
+	}
 	if account == nil || s.schedulerSnapshot == nil {
 		return account, nil
 	}

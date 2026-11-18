@@ -919,6 +919,24 @@ func (s *emailBindRefreshTokenCacheStub) DeleteRefreshToken(_ context.Context, t
 	return nil
 }
 
+func (s *emailBindRefreshTokenCacheStub) ConsumeRefreshToken(_ context.Context, tokenHash string) (*service.RefreshTokenData, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.tokens[tokenHash]
+	if !ok {
+		return nil, service.ErrRefreshTokenNotFound
+	}
+	delete(s.tokens, tokenHash)
+	for _, tokenSet := range s.userSets {
+		delete(tokenSet, tokenHash)
+	}
+	for _, tokenSet := range s.families {
+		delete(tokenSet, tokenHash)
+	}
+	cloned := *data
+	return &cloned, nil
+}
+
 func (s *emailBindRefreshTokenCacheStub) DeleteUserRefreshTokens(_ context.Context, userID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1164,4 +1182,44 @@ func cloneEmailBindUser(user *service.User) *service.User {
 	}
 	cloned := *user
 	return &cloned
+}
+
+func (s *emailBindCacheStub) VerifyVerificationCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetVerificationCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteVerificationCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *emailBindCacheStub) VerifyNotifyCode(ctx context.Context, email, code string, maxAttempts int) error {
+	data, err := s.GetNotifyVerifyCode(ctx, email)
+	if err != nil || data == nil {
+		return service.ErrInvalidVerifyCode
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	data.Attempts++
+	if data.Code == code {
+		return s.DeleteNotifyVerifyCode(ctx, email)
+	}
+	if data.Attempts >= maxAttempts {
+		return service.ErrVerifyCodeMaxAttempts
+	}
+	return service.ErrInvalidVerifyCode
+}
+
+func (s *emailBindCacheStub) ConsumePasswordResetToken(context.Context, string, string) (bool, error) {
+	return false, nil
 }

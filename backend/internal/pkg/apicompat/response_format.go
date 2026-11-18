@@ -43,6 +43,11 @@ func chatResponseFormatToResponsesTextFormat(raw json.RawMessage) json.RawMessag
 		return raw
 	}
 	schema["type"] = rawJSONString("json_schema")
+	// Chat Completions leaves strict mode off by default. Preserve that mode
+	// explicitly when translating to Responses, without changing explicit values.
+	if _, exists := schema["strict"]; !exists {
+		schema["strict"] = json.RawMessage("false")
+	}
 
 	out, err := json.Marshal(schema)
 	if err != nil {

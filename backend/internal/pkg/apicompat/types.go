@@ -424,6 +424,9 @@ type ResponsesOutput struct {
 	Arguments string `json:"arguments,omitempty"`
 	// 来源为 namespace 子工具时的归属命名空间（codex 按 namespace+name 路由该调用）。
 	Namespace string `json:"namespace,omitempty"`
+	// Preserve explicit null/[] markers: absence can mislabel sealed arguments
+	// as plaintext when reconstructing an empty terminal response from SSE.
+	EncryptedFunctionArgs json.RawMessage `json:"encrypted_function_args,omitempty"`
 
 	// type=custom_tool_call（custom/freeform 工具，input 为自由文本）
 	Input string `json:"input,omitempty"`
@@ -657,7 +660,10 @@ type ResponsesStreamEvent struct {
 	Code  string `json:"code,omitempty"`
 	Param string `json:"param,omitempty"`
 
-	// Sequence number for ordering events
+	// SequenceNumber orders streamed events. Strict Responses clients (Grok Build,
+	// Codex CLI) declare it required and abort with `missing field 'sequence_number'`
+	// when it is absent, so it is always emitted — no omitempty. Same rule as
+	// ResponsesResponse.CreatedAt. Zero is a valid first-event value.
 	SequenceNumber  int `json:"sequence_number"`
 	sequencePresent bool
 }
@@ -813,6 +819,48 @@ type ChatTokenDetails struct {
 	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
 	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
 	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
+	cacheWriteTokensPresent  bool
+}
+
+// Preserve explicit zero across JSON round trips. Null follows the existing
+// ResponsesUsage contract: it is absent and may fall back to creation tokens.
+func (details *ChatTokenDetails) UnmarshalJSON(data []byte) error {
+	type alias ChatTokenDetails
+	var decoded struct {
+		alias
+		CacheWriteTokens *int `json:"cache_write_tokens"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*details = ChatTokenDetails(decoded.alias)
+	if decoded.CacheWriteTokens != nil {
+		details.CacheWriteTokens = *decoded.CacheWriteTokens
+		details.cacheWriteTokensPresent = true
+	}
+	return nil
+}
+
+func (details ChatTokenDetails) MarshalJSON() ([]byte, error) {
+	type alias ChatTokenDetails
+	var write *int
+	if details.cacheWriteTokensPresent || details.CacheWriteTokens != 0 {
+		write = &details.CacheWriteTokens
+	}
+	return json.Marshal(struct {
+		alias
+		CacheWriteTokens *int `json:"cache_write_tokens,omitempty"`
+	}{alias: alias(details), CacheWriteTokens: write})
+}
+
+func (details *ChatTokenDetails) cacheCreationInputTokens() int {
+	if details == nil {
+		return 0
+	}
+	if details.cacheWriteTokensPresent || details.CacheWriteTokens != 0 {
+		return max(details.CacheWriteTokens, 0)
+	}
+	return max(details.CacheCreationTokens, 0)
 }
 
 // ChatCompletionsChunk is a single streaming chunk from POST /v1/chat/completions.

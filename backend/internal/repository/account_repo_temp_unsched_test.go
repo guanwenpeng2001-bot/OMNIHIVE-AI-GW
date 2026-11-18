@@ -300,6 +300,7 @@ func TestAccountRepository_ListOAuthRefreshCandidatePage_SQLFilter(t *testing.T)
 		"candidate platforms must come from the refresher registry instead of a second hard-coded list")
 	require.Contains(t, normalized, "credentials ? 'refresh_token'")
 	require.Contains(t, normalized, "btrim(credentials->>'refresh_token') <> ''")
+	require.Contains(t, normalized, "OR credentials ? 'credential_secret_reference'", "referenced credentials need hydration before refresh eligibility can be decided")
 	require.Contains(t, normalized, "temp_unschedulable_until > NOW()")
 	require.Contains(t, normalized, "temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'")
 	require.Contains(t, normalized, "IS NOT TRUE",

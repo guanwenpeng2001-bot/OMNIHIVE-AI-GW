@@ -29,7 +29,7 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		{"mapping removed", func(account *Account) { delete(account.Credentials, "model_mapping") }, false},
 		{"identity replaced", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
-		}, true},
+		}, false},
 		{"configuration changed", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
 		}, true},
@@ -103,7 +103,7 @@ func TestUnlistedModelEligibility(test *testing.T) {
 		account.Extra[ModelAvailabilityExtraKey] = declarations
 		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
 		parent.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
-		require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
+		require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "private-alias", AccountModelBindingOptions{FinalModel: "private-target", Endpoint: "chat_completions", CredentialAccount: &parent}))
 	})
 
 	test.Run("probe monthly expiry", func(test *testing.T) {

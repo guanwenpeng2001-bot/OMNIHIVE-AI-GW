@@ -991,6 +991,9 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	// the full account. Dropping it silently falls back to the platform threshold.
 	keys := []string{
 		"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold",
+		// Preserve the reference so Account.MarshalJSON strips decrypted secrets
+		// from this metadata projection just as it does from the full snapshot.
+		service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey,
 		// Catalog binding resolves the same provider profile and native protocol
 		// as forwarding before the full account is hydrated.
 		"base_url", "api_base_urls", "account_mode", "api_protocol", "protocol_rules", "openai_capabilities",

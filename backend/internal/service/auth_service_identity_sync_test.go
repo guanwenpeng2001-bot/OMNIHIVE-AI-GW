@@ -26,6 +26,33 @@ type authIdentityDefaultSubAssignerStub struct {
 	calls []*service.AssignSubscriptionInput
 }
 
+func TestSecurityBackportLoginWithConflictingEmailIdentity(t *testing.T) {
+	assigner := &authIdentityDefaultSubAssignerStub{}
+	svc, _, client := newAuthServiceWithEnt(t, map[string]string{
+		service.SettingKeyRegistrationEnabled:                    "true",
+		service.SettingKeyAuthSourceDefaultEmailBalance:          "8.5",
+		service.SettingKeyAuthSourceDefaultEmailGrantOnFirstBind: "true",
+	}, assigner)
+	createUser := func(email string) *dbent.User {
+		user, err := client.User.Create().SetEmail(email).SetPasswordHash("synthetic").
+			SetBalance(1).SetConcurrency(1).SetRole(service.RoleUser).SetStatus(service.StatusActive).Save(t.Context())
+		require.NoError(t, err)
+		return user
+	}
+	owner := createUser("Shared@example.com")
+	other := createUser("shared@example.com")
+	require.NoError(t, client.AuthIdentity.Create().SetUserID(owner.ID).SetProviderType("email").
+		SetProviderKey("email").SetProviderSubject("shared@example.com").SetVerifiedAt(time.Now().UTC()).
+		SetMetadata(map[string]any{"source": "auth_service_dual_write"}).Exec(t.Context()))
+	require.NotPanics(t, func() { svc.RecordSuccessfulLogin(t.Context(), other.ID) })
+	stored, err := client.User.Get(t.Context(), other.ID)
+	require.NoError(t, err)
+	require.NotNil(t, stored.LastLoginAt)
+	require.Equal(t, 1.0, stored.Balance)
+	require.Empty(t, assigner.calls)
+	require.Zero(t, countProviderGrantRecords(t, client, other.ID, "email", "first_bind"))
+}
+
 func (s *authIdentityDefaultSubAssignerStub) AssignOrExtendSubscription(
 	_ context.Context,
 	input *service.AssignSubscriptionInput,

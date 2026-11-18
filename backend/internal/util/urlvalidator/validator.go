@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -106,7 +107,8 @@ func ValidateHTTPSURL(raw string, opts ValidationOptions) (string, error) {
 }
 
 // ValidateResolvedIP 验证 DNS 解析后的 IP 地址是否安全
-// 用于防止 DNS Rebinding 攻击：在实际 HTTP 请求时调用此函数验证解析后的 IP
+// This is a precheck only: callers must also validate and pin the addresses used
+// by their transport. A separate check followed by a hostname dial has a TOCTOU gap.
 func ValidateResolvedIP(ctx context.Context, host string) error {
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		var cancel context.CancelFunc
@@ -116,15 +118,20 @@ func ValidateResolvedIP(ctx context.Context, host string) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("dns resolution failed: %w", err)
 	}
+	if IsBlockedHost(host) {
+		return fmt.Errorf("host is not allowed: %s", host)
+	}
 
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil {
 		return fmt.Errorf("dns resolution failed: %w", err)
 	}
 
+	if len(ips) == 0 {
+		return fmt.Errorf("dns resolution returned no addresses for %s", host)
+	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		if !IsPublicIP(ip) {
 			return fmt.Errorf("resolved ip %s is not allowed", ip.String())
 		}
 	}
@@ -168,20 +175,20 @@ func isAllowedHost(host string, allowlist []string) bool {
 	return false
 }
 
-// IsBlockedHost 报告 host 是否为 localhost、*.localhost，或回环、私网、链路本地、未指定地址的字面量 IP。
+// IsBlockedHost reports localhost names and non-public literal IPs (including zones).
 // 只判断字面量，域名的解析结果由 ValidateResolvedIP 校验。
 func IsBlockedHost(host string) bool {
 	return isBlockedHost(strings.ToLower(strings.TrimSpace(host)))
 }
 
 func isBlockedHost(host string) bool {
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+	name := strings.TrimSuffix(host, ".")
+	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
 		return true
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			return true
-		}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return !isPublicAddr(addr)
 	}
-	return false
+	// Colons/zones cannot be DNS hostnames; malformed IPv6 must not fall through.
+	return strings.ContainsAny(host, ":%")
 }

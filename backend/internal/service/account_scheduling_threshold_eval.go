@@ -370,7 +370,7 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 		cnThresholdCandidate(account.Extra, provider, "5h"),
 		cnThresholdCandidate(account.Extra, provider, "weekly"),
 	}
-	if provider == PlatformOpenCodeGo {
+	if provider == PlatformOpenCodeGo || provider == PlatformKimi {
 		candidates = append(candidates, cnThresholdCandidate(account.Extra, provider, "monthly"))
 	}
 	return candidates

@@ -707,6 +707,9 @@ func batchUsageErrorMessage(err error) string {
 }
 
 func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *Account, forceProbe bool) (*UsageInfo, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	if account != nil && account.ProxyGroupID != nil {
 		if _, err := account.EgressProxyURL(ctx); err != nil {
 			return nil, err
@@ -719,6 +722,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	account, identityErr = loadRuntimeCredentialOwner(ctx, s.accountRepo, account)
 	if identityErr != nil {
 		return nil, identityErr
+	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
 	}
 	if account.Platform == PlatformOpenRouter {
 		return s.getOpenRouterUsage(ctx, account, forceProbe)
@@ -919,10 +925,11 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 	batchCtx, batchCancel := context.WithTimeout(ctx, usageBatchOverallTimeout)
 	defer batchCancel()
 	perAccountTimeout := usageBatchPerAccountTimeout
-	accounts, err := s.accountRepo.GetByIDs(batchCtx, uniqueIDs)
+	accounts, readErrors, err := s.loadUsageBatchAccounts(batchCtx, uniqueIDs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get accounts failed: %w", err)
 	}
+	errorsByAccount = readErrors
 
 	accountsByID := make(map[int64]*Account, len(accounts))
 	for _, account := range accounts {
@@ -933,7 +940,9 @@ func (s *AccountUsageService) GetUsageBatch(ctx context.Context, accountIDs []in
 	// Populate missing IDs before concurrent writers start.
 	for _, accountID := range uniqueIDs {
 		if accountsByID[accountID] == nil {
-			errorsByAccount[accountID] = ErrAccountNotFound.Error()
+			if _, failed := errorsByAccount[accountID]; !failed {
+				errorsByAccount[accountID] = ErrAccountNotFound.Error()
+			}
 		}
 	}
 	var mu sync.Mutex
@@ -1129,13 +1138,13 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, account *
 
 func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
 	now := time.Now()
-	usage := &UsageInfo{UpdatedAt: &now}
+	usage := &UsageInfo{}
 
 	if account == nil {
 		return usage, nil
 	}
 
-	applyExtraToUsage(usage, account.Extra, now)
+	applyExtraToUsage(usage, account.Extra, time.Now())
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account, now, force) {
 		if account.IsShadow() {
@@ -1145,26 +1154,20 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 			// Extra keys and immediately reflected in the returned UsageInfo.
 			if s.openAIQuotaService != nil {
 				if quotaUsage, err := s.openAIQuotaService.QueryUsage(ctx, account.ID); err == nil {
-					if updates := buildCodexSparkWindowExtraUpdates(quotaUsage, now); len(updates) > 0 {
+					if updates := buildCodexSparkWindowExtraUpdates(quotaUsage, now); hasOpenAIQuotaObservation(updates) {
 						mergeAccountExtra(account, updates)
 						s.persistOpenAICodexProbeSnapshot(account, updates)
 						if account.ParentAccountID != nil {
 							notifyOpenAIAutoReset(*account.ParentAccountID)
 						}
-						if usage.UpdatedAt == nil {
-							usage.UpdatedAt = &now
-						}
-						applyExtraToUsage(usage, account.Extra, now)
+						applyExtraToUsage(usage, account.Extra, time.Now())
 					}
 				}
 			}
 		} else {
-			if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && len(updates) > 0 {
+			if updates, err := s.probeOpenAICodexSnapshot(ctx, account); err == nil && hasOpenAIQuotaObservation(updates) {
 				mergeAccountExtra(account, updates)
-				if usage.UpdatedAt == nil {
-					usage.UpdatedAt = &now
-				}
-				applyExtraToUsage(usage, account.Extra, now)
+				applyExtraToUsage(usage, account.Extra, time.Now())
 			}
 		}
 	}
@@ -1325,7 +1328,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if err != nil {
 		return nil, err
 	}
-	if len(updates) > 0 {
+	if hasOpenAIQuotaObservation(updates) {
 		s.persistOpenAICodexProbeSnapshot(account, updates)
 		return updates, nil
 	}
@@ -1358,7 +1361,10 @@ func extractOpenAICodexProbeUpdates(resp *http.Response) (map[string]any, error)
 		return nil, nil
 	}
 	if snapshot := ParseCodexRateLimitHeaders(resp.Header); snapshot != nil {
-		return buildCodexUsageExtraUpdates(snapshot, time.Now()), nil
+		updates := buildCodexUsageExtraUpdates(snapshot, time.Now())
+		if hasOpenAIQuotaObservation(updates) {
+			return updates, nil
+		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("openai codex probe returned status %d", resp.StatusCode)
@@ -1385,12 +1391,26 @@ func applyExtraToUsage(usage *UsageInfo, extra map[string]any, now time.Time) {
 	if usage == nil {
 		return
 	}
+	// Reading a cached quota is not a new upstream observation. Unknown or
+	// future timestamps must not make stale data look freshly measured.
+	usage.UpdatedAt = nil
+	if observed := parseSchedulingResetAt(extra["codex_usage_updated_at"]); observed != nil && !observed.IsZero() && !observed.After(now) {
+		usage.UpdatedAt = observed
+	}
 	if progress := buildCodexUsageProgressFromExtra(extra, "5h", now); progress != nil {
 		usage.FiveHour = progress
 	}
 	if progress := buildCodexUsageProgressFromExtra(extra, "7d", now); progress != nil {
 		usage.SevenDay = progress
 	}
+}
+
+// Reset/window headers alone cannot establish a utilization observation.
+// Explicit zero utilization is a valid observation and must be preserved.
+func hasOpenAIQuotaObservation(updates map[string]any) bool {
+	_, has5h := updates["codex_5h_used_percent"]
+	_, has7d := updates["codex_7d_used_percent"]
+	return has5h || has7d
 }
 
 func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Account) (*UsageInfo, error) {

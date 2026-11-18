@@ -413,6 +413,9 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	if account == nil {
 		return "", "", "", false, infraerrors.New(http.StatusNotFound, "OPENAI_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
 	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", "", "", false, err
+	}
 	if account.Platform != PlatformOpenAI {
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_INVALID_PLATFORM", "account is not an OpenAI account")
 	}
@@ -429,6 +432,9 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 			return "", "", "", false, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_SHADOW_RESOLVE_FAILED", "failed to resolve shadow account: %v", rerr)
 		}
 		account = resolved
+	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", "", "", false, err
 	}
 
 	chatGPTAccountID = strings.TrimSpace(account.GetCredential("chatgpt_account_id"))
@@ -488,11 +494,17 @@ func (s *OpenAIQuotaService) recoverAgentIdentityTask(ctx context.Context, accou
 	if err != nil || account == nil {
 		return fmt.Errorf("account is unavailable")
 	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return err
+	}
 	if account.IsShadow() {
 		account, err = resolveCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil || account == nil {
 			return fmt.Errorf("credential account is unavailable")
 		}
+	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return err
 	}
 	if !account.IsOpenAIAgentIdentity() {
 		return nil
@@ -529,12 +541,18 @@ func (s *OpenAIQuotaService) buildCodexQuotaHeaders(ctx context.Context, account
 		}
 		return headers, "", nil
 	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, "", err
+	}
 	if account.IsShadow() {
 		if resolved, resolveErr := resolveCredentialAccount(ctx, s.accountRepo, account); resolveErr == nil && resolved != nil {
 			account = resolved
 		} else if strings.TrimSpace(accessToken) == "" {
 			return nil, "", fmt.Errorf("agent identity shadow credentials are unavailable")
 		}
+	}
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, "", err
 	}
 	if !account.IsOpenAIAgentIdentity() {
 		return headers, "", nil

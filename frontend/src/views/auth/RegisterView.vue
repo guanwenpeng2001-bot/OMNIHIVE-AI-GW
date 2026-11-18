@@ -435,7 +435,7 @@ const isLoading = ref<boolean>(false)
 const settingsLoaded = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
-const showConfirmPassword = ref(false)
+const showConfirmPassword = ref<boolean>(false)
 const confirmPassword = ref('')
 
 // Public settings

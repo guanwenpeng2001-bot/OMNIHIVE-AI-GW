@@ -246,7 +246,7 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 		}
 		_, _ = events.WriteString("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n") // strings.Builder writes cannot fail.
 		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
-		collected, _, collectErr := collectGeminiSSE(strings.NewReader(events.String()), false)
+		collected, _, collectErr := collectGeminiSSE(nil, strings.NewReader(events.String()), false)
 		require.NoError(t, collectErr)
 		require.Len(t, extractGeminiParts(collected), 2, "SSE aggregation must retain both calls")
 		_, err = (&GeminiMessagesCompatService{}).handleStreamingResponse(c, upstream, time.Now(), "test")

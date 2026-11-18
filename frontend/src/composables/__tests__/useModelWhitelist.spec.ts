@@ -9,6 +9,17 @@ vi.mock('@/api/admin/accounts', () => ({
 import { buildModelMappingObject, getModelsByPlatform, modelCandidateKey, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('projects GPT-6.2 only from matching server presets and preserves exact restrictions', () => {
+    const models = ['gpt-6.2-sol', 'gpt-6.2-astra'].map(id => ({ id, display_name: id, lifecycle: 'active' }))
+    const presets = [{ platform: 'openai', provider_profile: 'native', models }] as PlatformModelPreset[]
+    expect(getModelsByPlatform('openai', {}, presets)).toEqual(models.map(model => model.id))
+    expect(getModelsByPlatform('openai', {}, [])).toEqual([])
+    expect(getModelsByPlatform('grok', {}, presets)).toEqual([])
+    expect(getPresetMappingsByPlatform('openai', {}, presets).map(mapping => mapping.to)).toEqual(models.map(model => model.id))
+    const saved = { 'gpt-6.2-sol': 'gpt-6.2-sol', 'gpt-6.2-astra': 'gpt-6.2-astra', 'omnihive-alias': 'gpt-6.2-sol' }
+    const split = splitModelMappingObject(saved)
+    expect(buildModelMappingObject('combined', split.allowedModels, split.modelMappings)).toEqual(saved)
+  })
   it('excludes only retired editorial candidates without mutating metadata or saved mappings', () => {
     const models = [
       { id: 'retired', lifecycle: 'retired' },

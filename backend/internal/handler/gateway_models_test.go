@@ -102,6 +102,9 @@ func (s *gatewayModelsAccountRepoStub) ListModelCatalogAccounts(ctx context.Cont
 		account.Status = service.StatusActive
 		account.Schedulable = true
 		snapshot := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1}
+		if account.IsShadow() {
+			snapshot.CredentialAccountID = *account.ParentAccountID
+		}
 		mapping, _ := account.Credentials["model_mapping"].(map[string]any)
 		for _, rawTarget := range mapping {
 			target, _ := rawTarget.(string)

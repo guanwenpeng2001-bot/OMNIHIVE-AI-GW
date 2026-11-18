@@ -1469,6 +1469,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	if err := validateCostInput(input); err != nil {
 		return nil, err
 	}
+	if err := validateOpenAIGPT62BillingTier(input.Model, input.ServiceTier, input.Provider); err != nil {
+		return nil, err
+	}
 	if input.Resolver == nil && input.Mode != "" {
 		input.Resolver = NewModelPricingResolver(nil, s)
 	}
@@ -1486,6 +1489,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 			input.ServiceTier,
 			nil,
 			applyLongContextBilling,
+			input.Provider,
 		)
 		if err == nil {
 			applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, nil))
@@ -1818,8 +1822,9 @@ func (s *BillingService) calculateCostWithServiceTierPolicy(
 	rateMultiplier float64,
 	serviceTier string,
 	longContextBillingEnabled bool,
+	providers ...string,
 ) (*CostBreakdown, error) {
-	return s.calculateCostInternalWithPolicy(model, tokens, rateMultiplier, serviceTier, nil, longContextBillingEnabled)
+	return s.calculateCostInternalWithPolicy(model, tokens, rateMultiplier, serviceTier, nil, longContextBillingEnabled, providers...)
 }
 
 func (s *BillingService) calculateCostInternal(model string, tokens UsageTokens, rateMultiplier float64, serviceTier string, channelPricing *ChannelModelPricing) (*CostBreakdown, error) {
@@ -1833,7 +1838,11 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	serviceTier string,
 	channelPricing *ChannelModelPricing,
 	longContextBillingEnabled bool,
+	providers ...string,
 ) (*CostBreakdown, error) {
+	if err := validateOpenAIGPT62BillingTier(model, serviceTier, providers...); err != nil {
+		return pricingFailure(err), err
+	}
 	var pricing *ModelPricing
 	var err error
 	if channelPricing != nil {

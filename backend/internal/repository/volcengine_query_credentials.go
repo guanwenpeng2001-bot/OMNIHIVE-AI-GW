@@ -75,7 +75,16 @@ func splitManagementQuerySecrets(credentials map[string]any) (map[string]any, ma
 // Called only within CreateWithAccountGroups' transaction. The initial INSERT
 // contains configuration alone; the secret and reference publish atomically.
 func (r *accountRepository) createAccountWithQuerySecrets(ctx context.Context, client *dbent.Client, account *service.Account) error {
-	if !hasManagementQuerySecrets(account.Credentials) {
+	staged := service.IsStagedAccountImport(ctx)
+	if staged {
+		if err := service.ValidateStagedImportCredentials(account.Credentials); err != nil {
+			return err
+		}
+		if err := service.RequirePersistentEncryption(r.credentialEncryptor); err != nil {
+			return err
+		}
+	}
+	if !staged && !hasManagementQuerySecrets(account.Credentials) {
 		return createAccountRecord(ctx, client, account)
 	}
 	if r.credentialEncryptor == nil {

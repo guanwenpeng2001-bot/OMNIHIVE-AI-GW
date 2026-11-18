@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -1872,6 +1873,11 @@ func (e *OpenAIFastBlockedError) Error() string { return e.Message }
 //     发生重叠，admin 可通过规则顺序明确意图。因此采用 first-match 而
 //     非 BetaPolicy 那样的"block 覆盖 filter 覆盖 pass"语义。
 func (s *OpenAIGatewayService) evaluateOpenAIFastPolicy(ctx context.Context, account *Account, model, serviceTier string) (action, errMsg string) {
+	// This branch has no request-time Ultrafast tariff or entitlement projection.
+	// Do not let a newly recognized model fall through to the legacy 2x rate.
+	if account != nil && account.IsOpenAI() && openai.GPT62ModelID(model) != "" && normalizedOpenAIServiceTierValue(serviceTier) == OpenAIFastTierUltrafast {
+		return BetaPolicyActionBlock, "GPT-6.2 Ultrafast is not available on this gateway"
+	}
 	if s == nil || s.settingService == nil {
 		return BetaPolicyActionPass, ""
 	}
@@ -2024,6 +2030,11 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 	if len(body) == 0 {
 		return body, nil
 	}
+	prepared, err := prepareOpenAIGPT62RequestBody(account, model, body)
+	if err != nil {
+		return body, err
+	}
+	body = prepared
 	if openAIGroupForcesFast(ctx, account) {
 		updated, err := sjson.SetBytes(body, "service_tier", OpenAIFastTierPriority)
 		if err != nil {
@@ -2150,6 +2161,15 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	if frameType != "response.create" {
 		return frame, nil, nil
 	}
+	prepared, prepareErr := prepareOpenAIGPT62RequestBody(account, model, frame)
+	if prepareErr != nil {
+		var blocked *OpenAIFastBlockedError
+		if errors.As(prepareErr, &blocked) {
+			return frame, blocked, nil
+		}
+		return frame, nil, prepareErr
+	}
+	frame = prepared
 	if openAIGroupForcesFast(ctx, account) {
 		updated, err := sjson.SetBytes(frame, "service_tier", OpenAIFastTierPriority)
 		if err != nil {
@@ -2508,7 +2528,7 @@ func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
 // supportsOpenAIReasoningEffortMax reports model families whose upstream scale
 // has a distinct max level. Other models keep the legacy max -> xhigh behavior.
 func supportsOpenAIReasoningEffortMax(model string) bool {
-	if isOpenAIGPT6AstraModel(model) || isOpenAIGPT56Model(model) {
+	if openai.GPT62ModelID(model) != "" || isOpenAIGPT6AstraModel(model) || isOpenAIGPT56Model(model) {
 		return true
 	}
 

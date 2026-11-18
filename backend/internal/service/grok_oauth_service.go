@@ -340,6 +340,9 @@ func validateGrokTokenResponse(tokenResp *xai.TokenResponse) error {
 }
 
 func (s *GrokOAuthService) RefreshAccountToken(ctx context.Context, account *Account) (*GrokTokenInfo, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return nil, err
+	}
 	if account == nil || account.Platform != PlatformGrok {
 		return nil, infraerrors.New(http.StatusBadRequest, "GROK_OAUTH_INVALID_ACCOUNT", "account is not a Grok account")
 	}
@@ -464,6 +467,9 @@ func (s *GrokOAuthService) tokenInfoFromResponse(tokenResp *xai.TokenResponse, c
 }
 
 func (s *GrokOAuthService) resolveAccountProxyURL(ctx context.Context, account *Account) (string, error) {
+	if err := account.CheckStagedCredentialUse(); err != nil {
+		return "", err
+	}
 	if account.ProxyGroupID != nil {
 		return account.EgressProxyURL(ctx)
 	}

@@ -388,6 +388,10 @@ const toggle = () => {
   isOpen.value = !isOpen.value
 }
 
+watch(() => props.disabled, (disabled) => {
+  if (disabled) isOpen.value = false
+})
+
 watch(isOpen, (open) => {
   if (open) {
     dialogOwner.value = triggerRef.value?.closest<HTMLElement>('[data-dialog-id]')?.dataset.dialogId
@@ -439,6 +443,7 @@ watch(searchQuery, (query) => {
 })
 
 const selectOption = (option: any) => {
+  if (props.disabled) return
   const value = getOptionValue(option) ?? null
   emit('update:modelValue', value)
   emit('change', value, option)
@@ -455,6 +460,7 @@ const clearSelection = () => {
 
 // Keyboards
 const onTriggerKeyDown = (event: KeyboardEvent) => {
+  if (props.disabled || event.isComposing) return
   if (isOpen.value) return onDropdownKeyDown(event)
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
     event.preventDefault()
@@ -463,7 +469,7 @@ const onTriggerKeyDown = (event: KeyboardEvent) => {
 }
 
 const onDropdownKeyDown = (e: KeyboardEvent) => {
-  if (e.isComposing) return
+  if (props.disabled || e.isComposing) return
   if (e.key === ' ' && e.target === searchInputRef.value) return
   switch (e.key) {
     case 'ArrowDown':
