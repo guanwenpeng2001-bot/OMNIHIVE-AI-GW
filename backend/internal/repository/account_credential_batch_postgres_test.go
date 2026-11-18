@@ -168,7 +168,7 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			case "missing":
 				_, err = f.db.ExecContext(f.ctx, "DELETE FROM credential_secrets WHERE account_id=$1", bad.ID)
 			case "ciphertext":
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='broken-ciphertext' WHERE account_id=$1", bad.ID)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='broken-ciphertext' WHERE account_id=$1", bad.ID)
 			case "reference":
 				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET reference=$2 WHERE account_id=$1", bad.ID, uniqueName("unbound-fixture-reference"))
 			case "workspace":
@@ -181,11 +181,11 @@ func TestCredentialBatchPostgresScopeOwnershipCorruptionAndRace(t *testing.T) {
 			case "ciphertext_swap":
 				_, ciphertext, err = readCredentialSecret(f.ctx, f.db, good.ID)
 				require.NoError(t, err)
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
 			case "payload_injection":
 				ciphertext, err = service.EncryptCredentialSecret(f.encryptor, *metadata, map[string]any{"refresh_token": "bad-batch-refresh", "credential_secret_reference": "injected"})
 				require.NoError(t, err)
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext=$2 WHERE account_id=$1", bad.ID, ciphertext)
 			}
 			require.NoError(t, err)
 			out, err := f.accounts.GetByIDs(f.ctx, []int64{good.ID, bad.ID})
@@ -298,8 +298,7 @@ func TestCredentialBatchPostgresRefreshPagesActivationAndSkippedRows(t *testing.
 	_, err := f.secrets.Revoke(f.ctx, revoked.ID, 1)
 	require.NoError(t, err)
 	broken := create(map[string]any{"refresh_token": "broken-refresh"})
-	_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='bad' WHERE account_id=$1", broken.ID)
-	require.NoError(t, err)
+	f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='bad' WHERE account_id=$1", broken.ID)
 	paused := create(map[string]any{"refresh_token": "paused-refresh"})
 	_, err = f.client.Account.UpdateOneID(paused.ID).SetStatus("inactive").Save(f.ctx)
 	require.NoError(t, err)

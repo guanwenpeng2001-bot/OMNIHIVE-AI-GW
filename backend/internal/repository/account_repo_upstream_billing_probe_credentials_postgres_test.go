@@ -138,10 +138,9 @@ func TestUpstreamBillingProbeCredentialCASPostgres(t *testing.T) {
 			if tt.name == "secret owner" {
 				args = append(args, createProbeCASAccount(t, f, false).ID)
 			}
-			_, err := f.db.ExecContext(ctx, tt.sql, args...)
-			require.NoError(t, err)
+			f.writeInconsistentSecret(t, tt.sql, args...)
 			before := readProbeCASState(t, f, account.ID)
-			err = f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
+			err := f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
 			require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 			require.Equal(t, before, readProbeCASState(t, f, account.ID))
 		})

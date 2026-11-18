@@ -53,3 +53,41 @@ Merged `codex/be-03-attempt` (`712c2b6c6`) into `codex/refactor` as `50e4f9cf9` 
 | `go test ./internal/handler/... ./internal/service/... ./internal/gateway/... ./internal/server/...` | Passed |
 | `go test -tags=unit ./internal/handler/... ./internal/service/... ./internal/gateway/...` | Passed |
 | Lifecycle protocol fixtures (34) | Passed on the package branch |
+
+## BE-04 · Provider connections, credentials and pools
+
+Integrated on `codex/refactor` on 2026-11-19 after merge `fd601fcb6`. The production router mounts the v2 connections and pools endpoints and the v1 OAuth authorization bridge with the existing JWT, panel rate limit and audit middleware. Wire shares the PostgreSQL connection, identity evaluator, persistent secret encryptor and account test service. The connection store supplies BE-04 operation status through the BE-01 registry.
+
+The migration runner recorded `293_connection_workflows.sql` after migration 290 on isolated PostgreSQL 16.16. The backfill command converted one fixture account to an encrypted versioned reference and quarantined one with `MODEL_MAPPING_REVIEW`. Coverage reported one mapped, one quarantined and zero pending. An immediate repeat reported zero new conversions or quarantines. The native scheduler consumed the conversion event and its Redis cache held no inline API key for the converted account. The quarantined fixture retained its original credential.
+
+Storage tests used `UPSTREAM_JOB_TEST_DSN` with a dedicated `job_test` database and `AFFINITY_REDIS_TEST_ADDR` with Redis 7.4.7. Regenerate Wire, the composed OpenAPI document and the frontend transport types from the repository root with these commands.
+
+```sh
+(cd backend && go generate ./cmd/server && go run ./api/v2/compose)
+npm exec --yes --package=openapi-typescript@7.10.1 -- \
+  openapi-typescript backend/api/v2/openapi.yaml -o frontend/src/api/generated/v2.d.ts
+```
+
+| Verification from `backend` | Result |
+| --- | --- |
+| `go build ./...`, `go build -tags=embed ./cmd/server` | Passed |
+| `go vet ./cmd/... ./internal/server/...` | Passed |
+| `go test -tags=unit ./internal/server/... ./migrations ./cmd/server` | Passed |
+| `go test -p 1 ./internal/server/... ./internal/handler/... ./internal/service/... ./internal/repository/...` | Passed with PostgreSQL and Redis after updating the credential corruption fixtures |
+| `go test -tags=unit ./internal/modules/connections ./internal/modules/credentials` | Passed |
+| BE-04 account probe and credential tests | Passed |
+| `go test -p 1 -tags=integration -count=1` for identity, connections, credentials, the BE-04 backfill and money | Passed |
+| Repository credential storage tests with `CREDENTIAL_SECRET_TEST_DSN` | Passed |
+| Repeat Wire, OpenAPI and TypeScript generation | All outputs matched byte for byte |
+| Frontend `pnpm run typecheck` (`vue-tsc --noEmit`) | Passed |
+
+Migration 293's version fence rejected legacy test fixture writes that changed ciphertext or revocation metadata without advancing the version. The affected repository tests now seed deliberately inconsistent rows with the trigger disabled only within the fixture transaction and enabled again before commit. Normal rotation, revocation and refresh tests continue through the active trigger.
+
+The BE-01 and BE-04 production smokes passed against the standard-mode binary and the release-style `embed` build. Each used a fresh database, an explicit database password, isolated Redis, a persistent TOTP encryption key and a trusted loopback HTTPS fixture. The BE-04 smoke covered authenticated discovery, idempotent draft replay, pools, verification and operation lookup, preview, activation, rotation, revocation and history. See the [BE-01 smoke](../../contracts/migrations/BE-01/smoke.sh) and [BE-04 smoke](../../contracts/migrations/BE-04/smoke.sh).
+
+| Production check | Result |
+| --- | --- |
+| `PUT /api/v2/workspaces/{workspace}/connections/{id}/credential` | Successful and invalid requests retained the actor, action, status and request ID in PostgreSQL audit rows. The request bodies were omitted. |
+| `POST /api/v2/workspaces/{workspace}/connections/{id}/rotations` | The successful rotation and malformed request both omitted the request body. |
+| `PUT /api/v1/workspaces/{workspace}/connections/{id}/authorization` | The legacy OAuth start route issued an HttpOnly cookie scoped to the workspace path. The bridge consumed a synthetic draft with that cookie and rejected an attempt without the cookie. Consumption removed the access token from the pending draft. Successful, rejected and malformed requests omitted their audit bodies. |
+| Member without `connections.read` | Connection inventory, detail and event reads returned `403`. A member reading their own existing operation received `result: null` and `resource_id: null`. Disposable secret values were absent from the checked responses, audit rows and server logs. |

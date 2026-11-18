@@ -69,7 +69,7 @@ func TestCredentialBatchRecoveryPostgresUsage(t *testing.T) {
 			case "revoked":
 				_, err = f.secrets.Revoke(f.ctx, bad.ID, 1)
 			case "corrupt":
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-ciphertext' WHERE account_id=$1", bad.ID)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-ciphertext' WHERE account_id=$1", bad.ID)
 			case "missing":
 				// Remove only this test's newly created secret, never baseline rows.
 				_, err = f.db.ExecContext(f.ctx, "DELETE FROM credential_secrets WHERE account_id=$1", bad.ID)

@@ -16,14 +16,13 @@ import (
 	domain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type Handler struct{ store *domain.Store }
 
 func New(store *domain.Store) *Handler { return &Handler{store} }
 
-var ProviderSet = wire.NewSet(domain.New, wire.Bind(new(domain.Prober), new(*service.AccountTestService)), New)
+var ProviderSet = wire.NewSet(domain.New, New)
 
 type route struct {
 	action       string

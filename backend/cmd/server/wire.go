@@ -12,9 +12,11 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -49,6 +51,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		middleware.ProviderSet,
 		handler.ProviderSet,
 		identityhttp.ProviderSet,
+		connectionshttp.ProviderSet,
+		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
 		// Server layer ProviderSet
@@ -71,8 +75,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	return nil, nil
 }
 
-func provideIdentityOperations() identity.Operations {
-	return identity.Operations{}
+func provideIdentityOperations(store *connections.Store) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

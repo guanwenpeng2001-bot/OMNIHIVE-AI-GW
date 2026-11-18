@@ -102,6 +102,22 @@ func (f *credentialSecretFixture) accountRevision(t *testing.T, accountID int64)
 	return updatedAt.UTC().Format(time.RFC3339Nano)
 }
 
+// writeInconsistentSecret simulates a historical row whose credential version
+// was never advanced. Other transactions only see the trigger enabled.
+func (f *credentialSecretFixture) writeInconsistentSecret(t *testing.T, query string, args ...any) {
+	t.Helper()
+	tx, err := f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(f.ctx, `ALTER TABLE credential_secrets DISABLE TRIGGER connection_credential_version`)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, query, args...)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `ALTER TABLE credential_secrets ENABLE TRIGGER connection_credential_version`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+}
+
 type credentialAuditRow struct {
 	Extra     map[string]any
 	ExtraRaw  string

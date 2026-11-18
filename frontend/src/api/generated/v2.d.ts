@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/workspaces/{workspace_id}/connections/{id}/authorization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Consume a workspace and browser-bound authorization draft */
+        put: operations["connectionAttachAuthorization"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/me/scopes": {
         parameters: {
             query?: never;
@@ -15,6 +35,193 @@ export interface paths {
         get: operations["identityScopes"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get: operations["connectionList"];
+        put?: never;
+        post: operations["connectionCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get: operations["connectionGet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["connectionEdit"];
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionActivate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["connectionCredentialChange"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get: operations["connectionEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/rotations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionRotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/bulk-apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionBulkApply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/connections/bulk-previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["connectionBulkPreview"];
         delete?: never;
         options?: never;
         head?: never;
@@ -55,6 +262,24 @@ export interface paths {
         get: operations["identityOperation"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get: operations["connectionPools"];
+        put?: never;
+        post: operations["connectionCreatePool"];
         delete?: never;
         options?: never;
         head?: never;
@@ -144,10 +369,259 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/provider-schemas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get: operations["connectionSchemas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ConnectionActivate: {
+            /** Format: uuid */
+            preview_id: string;
+            /** Format: uuid */
+            verification_id: string;
+            expected_credential_version: string;
+        };
+        ConnectionAssignments: {
+            model_ids?: string[];
+            pool_ids?: string[];
+            limits?: components["schemas"]["ConnectionLimits"];
+        };
+        ConnectionAuthorization: {
+            credential_draft: string;
+            revision: string;
+        };
+        ConnectionBulkApply: {
+            /** Format: uuid */
+            preview_id: string;
+            selected_ids: string[];
+        };
+        ConnectionBulkIn: {
+            ids: string[];
+            patch: components["schemas"]["ConnectionAssignments"];
+        };
+        ConnectionCheck: {
+            /** @enum {string} */
+            name: "network" | "authorization" | "discover_models";
+            /** @enum {string} */
+            state: "passed" | "failed" | "unknown" | "unsupported";
+            reason: string | null;
+        };
+        ConnectionCreate: {
+            provider: string;
+            /** @constant */
+            schema_version: "1";
+            auth_type: string;
+            name: string;
+            endpoint?: string;
+            network_policy_id?: string;
+        };
+        ConnectionCredentialInput: {
+            /** @enum {string} */
+            operation: "keep" | "clear";
+        } | {
+            /** @constant */
+            operation: "set";
+            type: string;
+            /** Format: password */
+            secret: string;
+            /** Format: password */
+            refresh_token?: string;
+        };
+        ConnectionCredentialResult: {
+            connection_id?: string;
+            credential?: components["schemas"]["ConnectionMetadata"];
+            version: string;
+        };
+        ConnectionEvent: {
+            id: string;
+            type: string;
+            version: string;
+            /** Format: date-time */
+            at: string;
+            actor_id: string | null;
+        };
+        ConnectionEventPage: {
+            items: components["schemas"]["ConnectionEvent"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ConnectionField: {
+            path: string;
+            type: string;
+            required: boolean;
+            component: string;
+        };
+        ConnectionItem: {
+            id: string;
+            base_version: string;
+            /** @enum {string} */
+            state: "applicable" | "applied" | "blocked" | "conflict";
+            /** Format: uuid */
+            verification_id?: string;
+            reason?: string;
+            version?: string;
+        };
+        ConnectionLimits: {
+            concurrency: number;
+        };
+        ConnectionMetadata: {
+            version: string;
+            /** @enum {string} */
+            state: "unset" | "unverified" | "verified" | "revoked";
+            fingerprint: string | null;
+            last_four: string | null;
+        };
+        ConnectionNewPool: {
+            name: string;
+            connection_ids?: string[];
+            max_concurrency: number;
+        };
+        ConnectionOperation: components["schemas"]["IdentityOperation"] & {
+            result?: components["schemas"]["ConnectionVerification"] | {
+                /** @enum {string} */
+                phase: "validating" | "switching" | "draining" | "revoked" | "failed";
+                credential_version: string;
+                checks: components["schemas"]["ConnectionCheck"][];
+                phases: {
+                    /** @enum {string} */
+                    phase: "validating" | "switching" | "draining" | "revoked" | "failed";
+                    /** Format: date-time */
+                    at: string;
+                }[];
+            } | {
+                items: components["schemas"]["ConnectionItem"][];
+            } | null;
+        };
+        ConnectionPatch: {
+            name?: string;
+            endpoint?: string;
+            network_policy_id?: string;
+            model_ids?: string[];
+            pool_ids?: string[];
+            limits?: components["schemas"]["ConnectionLimits"];
+        };
+        ConnectionPool: {
+            id: string;
+            name: string;
+            connection_ids: string[];
+            max_concurrency: number;
+            version: string;
+        };
+        ConnectionPoolPage: {
+            items: components["schemas"]["ConnectionPool"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ConnectionPreview: {
+            /** Format: uuid */
+            preview_id: string;
+            base_version?: string;
+            adds: string[];
+            removes: string[];
+            blocked: string[];
+            items: components["schemas"]["ConnectionItem"][];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        ConnectionQuota: {
+            /** @enum {string} */
+            state: "unknown" | "stale" | "fresh";
+            remaining: string | null;
+            last_success_at: string | null;
+            source?: string;
+            unit?: string;
+            window?: string;
+        };
+        ConnectionRedacted: {
+            version: string;
+            redactions: string[];
+        };
+        ConnectionResource: {
+            id: string;
+            workspace_id: string;
+            provider: string;
+            /** @constant */
+            schema_version: "1";
+            auth_type: string;
+            name: string;
+            endpoint: string;
+            network_policy_id: string;
+            /** @enum {string} */
+            state: "draft" | "active" | "disabled";
+            version: string;
+            credential?: components["schemas"]["ConnectionMetadata"];
+            model_ids: string[];
+            pool_ids: string[];
+            limits: components["schemas"]["ConnectionLimits"];
+            last_verification: components["schemas"]["ConnectionVerification"] | null;
+            quota: components["schemas"]["ConnectionQuota"];
+            allowed_actions: string[];
+            redactions: string[];
+        };
+        ConnectionResourcePage: {
+            items: components["schemas"]["ConnectionResource"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ConnectionRotation: {
+            expected_credential_version: string;
+            replacement: {
+                type: string;
+                secret: string;
+                refresh_token?: string;
+            };
+        };
+        ConnectionSchema: {
+            provider: string;
+            schema_version: string;
+            auth_types: string[];
+            fields: components["schemas"]["ConnectionField"][];
+            supported_actions: string[];
+            authorization_workflows?: {
+                [key: string]: string;
+            };
+        };
+        ConnectionSchemaPage: {
+            items: components["schemas"]["ConnectionSchema"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ConnectionVerification: {
+            /** Format: uuid */
+            verification_id: string;
+            checks: components["schemas"]["ConnectionCheck"][];
+            models: string[];
+            /** Format: date-time */
+            verified_at: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        ConnectionVerify: {
+            checks: ("network" | "authorization" | "discover_models")[];
+            credential_version: string;
+        };
+        ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
         IdentityAccess: {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
@@ -242,6 +716,7 @@ export interface components {
     };
     responses: never;
     parameters: {
+        ConnectionID: components["schemas"]["IdentityID"];
         IdentityCursor: string;
         IdentityIdempotency: string;
         IdentityLimit: number;
@@ -257,6 +732,51 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    connectionAttachAuthorization: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionAuthorization"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionWriteResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
     identityScopes: {
         parameters: {
             query?: {
@@ -281,6 +801,525 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["IdentityWorkspacePage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionList: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+                provider?: string;
+                pool_id?: string;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionResourcePage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionCreate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionWriteResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionResource"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionEdit: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionPatch"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionWriteResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionActivate: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionActivate"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionWriteResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionCredentialChange: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionCredentialInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionCredentialResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionEventPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionPreview: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionAssignments"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionPreview"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionRotate: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionRotation"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ConnectionOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionVerify: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["ConnectionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionVerify"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ConnectionOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionBulkApply: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionBulkApply"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ConnectionOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionBulkPreview: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionBulkIn"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionPreview"];
                     };
                 };
             };
@@ -363,6 +1402,89 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["IdentityOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionPools: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionPoolPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionCreatePool: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectionNewPool"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionPool"];
                     };
                 };
             };
@@ -691,6 +1813,48 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["IdentityKey"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    connectionSchemas: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+                provider?: string;
+                auth_type?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ConnectionSchemaPage"];
                     };
                 };
             };
