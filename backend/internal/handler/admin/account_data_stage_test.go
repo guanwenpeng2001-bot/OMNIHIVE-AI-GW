@@ -144,7 +144,13 @@ func TestStagedDataImportRejectsUnsafeRequestBeforeWrites(t *testing.T) {
 			require.NoError(t, err)
 			var document map[string]any
 			require.NoError(t, json.Unmarshal(body, &document))
-			account := document["data"].(map[string]any)["accounts"].([]any)[0].(map[string]any)
+			data, ok := document["data"].(map[string]any)
+			require.True(t, ok)
+			accounts, ok := data["accounts"].([]any)
+			require.True(t, ok)
+			require.NotEmpty(t, accounts)
+			account, ok := accounts[0].(map[string]any)
+			require.True(t, ok)
 			account[field] = "test-only-secret"
 			body, err = json.Marshal(document)
 			require.NoError(t, err)

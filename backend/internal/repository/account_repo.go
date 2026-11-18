@@ -1573,8 +1573,10 @@ func oauthRefreshPageEligible(account *service.Account, options service.OAuthRef
 	if !platformMatches {
 		return false
 	}
-	if account.Type != service.AccountTypeOAuth && !(options.IncludeSetupToken && account.Type == service.AccountTypeSetupToken) {
-		return false
+	if account.Type != service.AccountTypeOAuth {
+		if account.Type != service.AccountTypeSetupToken || !options.IncludeSetupToken {
+			return false
+		}
 	}
 	if options.ExcludeRetryCooldown && account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) && strings.HasPrefix(account.TempUnschedulableReason, "token refresh retry exhausted:") {
 		return false

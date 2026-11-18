@@ -216,7 +216,7 @@ func TestAccountImportModePostgresFailureAndUnknownReservation(t *testing.T) {
 				key := uuid.NewString()
 				before := stagedTableCounts(t, f)
 				base := NewStagedImportReceiptRepository()
-				var repo service.StagedImportReceiptRepository = base
+				repo := service.StagedImportReceiptRepository(base)
 				if fault != "business" {
 					repo = modeFaultRepo{base, func(ctx context.Context, id service.StagedImportIdentity, mode string) error {
 						if err := base.InsertMode(ctx, id, mode); err != nil {
@@ -296,7 +296,7 @@ func TestAccountImportModePostgresSecrecyAndLegacyReplay(t *testing.T) {
 			require.NotContains(t, row, hex.EncodeToString(sum[:]))
 		}
 		require.NoError(t, rows.Err())
-		rows.Close()
+		require.NoError(t, rows.Close())
 	}
 	// Existing pre-guard LEGACY success records still replay normally after adopting
 	// a mode, with the original fingerprint/coordinator contract and no new account.
@@ -392,7 +392,8 @@ func TestAccountImportModePostgresProcessCrash(t *testing.T) {
 				before := stagedTableCounts(t, f)
 				ctx, cancel := context.WithTimeout(f.ctx, 30*time.Second)
 				defer cancel()
-				cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAccountImportModePostgresCrashWorker$", "-test.count=1")
+				// Re-exec the current test binary with fixed arguments.
+				cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAccountImportModePostgresCrashWorker$", "-test.count=1") //nolint:gosec
 				cmd.Env = append(os.Environ(), "IMPORT_MODE_CRASH_MODE="+mode, "IMPORT_MODE_CRASH_PHASE="+phase, "IMPORT_MODE_CRASH_KEY="+key)
 				err := cmd.Run()
 				var exit *exec.ExitError
@@ -437,7 +438,14 @@ func TestAccountImportModePostgresDatabaseRestart(t *testing.T) {
 		body := modeBody(t, mode)
 		var doc map[string]any
 		require.NoError(t, json.Unmarshal(body, &doc))
-		doc["data"].(map[string]any)["accounts"].([]any)[0].(map[string]any)["name"] = key
+		data, ok := doc["data"].(map[string]any)
+		require.True(t, ok)
+		accounts, ok := data["accounts"].([]any)
+		require.True(t, ok)
+		require.NotEmpty(t, accounts)
+		account, ok := accounts[0].(map[string]any)
+		require.True(t, ok)
+		account["name"] = key
 		body, err := json.Marshal(doc)
 		require.NoError(t, err)
 		w := receiptCall(r, f.ctx, key, body)

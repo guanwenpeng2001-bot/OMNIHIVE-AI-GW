@@ -68,7 +68,10 @@ func TestStagedImportPostgresAtomicEncryptedStorage(t *testing.T) {
 	f.client.Account.Use(func(next dbent.Mutator) dbent.Mutator {
 		return dbent.MutateFunc(func(ctx context.Context, mutation dbent.Mutation) (dbent.Value, error) {
 			if mutation.Op() == dbent.OpCreate {
-				m := mutation.(*dbent.AccountMutation)
+				m, ok := mutation.(*dbent.AccountMutation)
+				if !ok {
+					return nil, fmt.Errorf("unexpected account mutation type %T", mutation)
+				}
 				status, _ := m.Status()
 				require.Equal(t, "inactive", status, "the initial INSERT is already inactive")
 				credentials, _ := m.Credentials()
@@ -77,7 +80,11 @@ func TestStagedImportPostgresAtomicEncryptedStorage(t *testing.T) {
 			}
 			value, err := next.Mutate(ctx, mutation)
 			if err == nil && mutation.Op() == dbent.OpCreate {
-				createdIDs = append(createdIDs, value.(*dbent.Account).ID)
+				created, ok := value.(*dbent.Account)
+				if !ok {
+					return nil, fmt.Errorf("unexpected account mutation value %T", value)
+				}
+				createdIDs = append(createdIDs, created.ID)
 			}
 			return value, err
 		})
@@ -187,12 +194,13 @@ func TestStagedImportPostgresRollbackAndMissingKey(t *testing.T) {
 				f.ctx = ctx
 			}
 			recorder := serveStagedPostgresImport(t, f, req)
-			if failure == "missing_key" || failure == "ephemeral_key" {
+			switch failure {
+			case "missing_key", "ephemeral_key":
 				require.Equal(t, http.StatusBadRequest, recorder.Code)
 				require.Contains(t, recorder.Body.String(), "encryption_key_required")
-			} else if failure == "cancelled" {
+			case "cancelled":
 				require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-			} else {
+			default:
 				require.Equal(t, http.StatusInternalServerError, recorder.Code)
 			}
 			f.ctx = context.Background()
@@ -208,7 +216,10 @@ func TestStagedImportPostgresKaggleEndpointsAndConfiguration(t *testing.T) {
 	f.client.Account.Use(func(next dbent.Mutator) dbent.Mutator {
 		return dbent.MutateFunc(func(ctx context.Context, mutation dbent.Mutation) (dbent.Value, error) {
 			if mutation.Op() == dbent.OpCreate {
-				m := mutation.(*dbent.AccountMutation)
+				m, ok := mutation.(*dbent.AccountMutation)
+				if !ok {
+					return nil, fmt.Errorf("unexpected account mutation type %T", mutation)
+				}
 				status, _ := m.Status()
 				require.Equal(t, "inactive", status)
 				credentials, _ := m.Credentials()
@@ -216,7 +227,11 @@ func TestStagedImportPostgresKaggleEndpointsAndConfiguration(t *testing.T) {
 			}
 			value, err := next.Mutate(ctx, mutation)
 			if err == nil && mutation.Op() == dbent.OpCreate {
-				ids = append(ids, value.(*dbent.Account).ID)
+				created, ok := value.(*dbent.Account)
+				if !ok {
+					return nil, fmt.Errorf("unexpected account mutation value %T", value)
+				}
+				ids = append(ids, created.ID)
 			}
 			return value, err
 		})

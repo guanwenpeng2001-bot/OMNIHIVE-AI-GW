@@ -95,7 +95,8 @@ func TestAccountExtraSQLPostgresMergeAndRevisions(t *testing.T) {
 			require.Equal(t, map[string]any{"new": true}, extra["nested"], "merge remains shallow")
 			require.Contains(t, extra, "nullable")
 			require.Nil(t, extra["nullable"])
-			state := extra["upstream_model_catalog_state"].(map[string]any)
+			state, ok := extra["upstream_model_catalog_state"].(map[string]any)
+			require.True(t, ok)
 			require.Equal(t, float64(11), state["rules_revision"])
 
 			require.NoError(t, writeAccountExtraFixture(ctx, repo, bulk, id, map[string]any{
@@ -165,7 +166,10 @@ func TestAccountExtraSQLPostgresFingerprintPerRow(t *testing.T) {
 	require.Equal(t, int64(4), count)
 	seeds := make([]string, 3)
 	for i := range seeds {
-		seeds[i] = readAccountExtraFixture(t, db, ids[i])["codex_fingerprint_seed"].(string)
+		extra := readAccountExtraFixture(t, db, ids[i])
+		seed, ok := extra["codex_fingerprint_seed"].(string)
+		require.True(t, ok)
+		seeds[i] = seed
 		require.Regexp(t, codexFingerprintSeedCanonicalPattern, seeds[i])
 		require.NotEqual(t, codexFingerprintNilSeed, seeds[i])
 	}
@@ -309,10 +313,14 @@ func TestAccountExtraSQLPostgresPlanKeepsSubqueryStages(t *testing.T) {
 			}
 		}
 		for _, child := range children {
-			inspect(child.(map[string]any))
+			childPlan, ok := child.(map[string]any)
+			require.True(t, ok)
+			inspect(childPlan)
 		}
 	}
-	inspect(explained[0]["Plan"].(map[string]any))
+	rootPlan, ok := explained[0]["Plan"].(map[string]any)
+	require.True(t, ok)
+	inspect(rootPlan)
 	// PostgreSQL can remove a trivial Subquery Scan and VERBOSE deparses parent
 	// Vars as their source expressions. Inspect the actual projection nodes,
 	// not the size/count of expressions printed again in the parent Output.

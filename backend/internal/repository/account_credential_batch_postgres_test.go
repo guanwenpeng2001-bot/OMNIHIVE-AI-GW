@@ -138,7 +138,7 @@ func TestCredentialBatchPostgresOrderQueriesRevisionAndCAS(t *testing.T) {
 	// rotated rows without opening another connection or publishing plaintext.
 	tx, err := f.client.Tx(f.ctx)
 	require.NoError(t, err)
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	txCtx := dbent.NewTxContext(f.ctx, tx)
 	newer := maps.Clone(fresh.Credentials)
 	newer["access_token"] = "transaction-only-access"

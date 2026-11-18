@@ -52,7 +52,11 @@ func testSchedulerAccountWriteContract(t *testing.T, rdb *redis.Client) {
 			WriteTimeout: options.WriteTimeout, MaxRetries: -1,
 		})
 		t.Cleanup(func() { _ = client.Close() })
-		return NewSchedulerCache(client).(*schedulerCache)
+		cache, ok := NewSchedulerCache(client).(*schedulerCache)
+		if !ok {
+			t.Fatal("unexpected scheduler cache implementation")
+		}
+		return cache
 	}
 
 	t.Run("legacy JSON and independent payload changes", func(t *testing.T) {

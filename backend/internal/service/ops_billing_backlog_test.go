@@ -75,15 +75,16 @@ func TestBillingBacklogFailureDoesNotLogZeroSnapshot(t *testing.T) {
 				t.Cleanup(func() { _ = db.Close() })
 				t.Cleanup(func() { require.NoError(t, mock.ExpectationsWereMet()) })
 				collector = &OpsMetricsCollector{db: db}
-				if scenario == "canceled" {
+				switch scenario {
+				case "canceled":
 					var cancel context.CancelFunc
 					ctx, cancel = context.WithCancel(ctx)
 					cancel()
-				} else if scenario == "scan failure" {
+				case "scan failure":
 					mock.ExpectQuery(`SELECT`).WillReturnRows(sqlmock.NewRows([]string{
 						"a", "b", "c", "d", "e", "f", "g", "h", "i",
 					}).AddRow(0, 0, 0, 0, 0, 0, 0, 1, "invalid count"))
-				} else {
+				default:
 					mock.ExpectQuery(`SELECT`).WillReturnError(errors.New("private database error"))
 				}
 			}
@@ -252,7 +253,7 @@ func TestBillingBacklogPostgres(t *testing.T) {
 		require.Equal(t, int64(2), waiverCount)
 		rows, err := db.QueryContext(ctx, `EXPLAIN (ANALYZE, BUFFERS) `+terminalJobsReviewCountsSQL)
 		require.NoError(t, err)
-		defer rows.Close()
+		defer func() { require.NoError(t, rows.Close()) }()
 		var lines []string
 		for rows.Next() {
 			var line string

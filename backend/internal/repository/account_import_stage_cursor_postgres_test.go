@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"maps"
 	"net/http"
 	"strings"
@@ -40,7 +41,10 @@ func TestStagedImportPostgresNativeCursor(t *testing.T) {
 			f.client.Account.Use(func(next dbent.Mutator) dbent.Mutator {
 				return dbent.MutateFunc(func(ctx context.Context, mutation dbent.Mutation) (dbent.Value, error) {
 					if mutation.Op() == dbent.OpCreate {
-						m := mutation.(*dbent.AccountMutation)
+						m, ok := mutation.(*dbent.AccountMutation)
+						if !ok {
+							return nil, fmt.Errorf("unexpected account mutation type %T", mutation)
+						}
 						status, _ := m.Status()
 						require.Equal(t, "inactive", status)
 						credentials, _ := m.Credentials()
@@ -50,7 +54,11 @@ func TestStagedImportPostgresNativeCursor(t *testing.T) {
 					}
 					value, err := next.Mutate(ctx, mutation)
 					if err == nil && mutation.Op() == dbent.OpCreate {
-						id = value.(*dbent.Account).ID
+						created, ok := value.(*dbent.Account)
+						if !ok {
+							return nil, fmt.Errorf("unexpected account mutation value %T", value)
+						}
+						id = created.ID
 					}
 					return value, err
 				})
@@ -85,11 +93,13 @@ func TestStagedImportPostgresNativeCursor(t *testing.T) {
 			require.NoError(t, f.db.QueryRowContext(f.ctx, "SELECT extra::text FROM audit_logs WHERE action='credential_secret.convert' AND extra->>'account_id'=$1", metadata.AccountID).Scan(&audit))
 			for _, field := range []string{"api_key", "access_token", "refresh_token"} {
 				if secret, exists := req.Data.Accounts[0].Credentials[field]; exists {
+					secretText, ok := secret.(string)
+					require.True(t, ok)
 					require.Equal(t, secret, resolved[field])
 					require.NotContains(t, stored.Credentials, field)
-					require.NotContains(t, ciphertext, secret.(string))
-					require.NotContains(t, audit, secret.(string))
-					require.NotContains(t, recorder.Body.String(), secret.(string))
+					require.NotContains(t, ciphertext, secretText)
+					require.NotContains(t, audit, secretText)
+					require.NotContains(t, recorder.Body.String(), secretText)
 				}
 			}
 			for _, requireRefresh := range []bool{false, true} {
@@ -155,7 +165,11 @@ func TestStagedImportPostgresCursorRelayPreservesEffectiveBaseURLs(t *testing.T)
 		return dbent.MutateFunc(func(ctx context.Context, m dbent.Mutation) (dbent.Value, error) {
 			v, err := next.Mutate(ctx, m)
 			if err == nil && m.Op() == dbent.OpCreate {
-				ids = append(ids, v.(*dbent.Account).ID)
+				created, ok := v.(*dbent.Account)
+				if !ok {
+					return nil, fmt.Errorf("unexpected account mutation value %T", v)
+				}
+				ids = append(ids, created.ID)
 			}
 			return v, err
 		})

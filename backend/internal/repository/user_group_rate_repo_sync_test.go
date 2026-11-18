@@ -142,7 +142,7 @@ func TestSyncGroupOverridesUseCallerTransaction(t *testing.T) {
 		t.Run(map[bool]string{false: "rate", true: "rpm"}[rpm], func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			mock.ExpectBegin()
 			tx, err := db.Begin()
 			require.NoError(t, err)

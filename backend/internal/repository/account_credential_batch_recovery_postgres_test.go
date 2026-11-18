@@ -121,7 +121,7 @@ func TestCredentialBatchRecoveryPostgresCandidateTransaction(t *testing.T) {
 			f.db.SetMaxOpenConns(maxConnections)
 			tx, err := f.client.Tx(f.ctx)
 			require.NoError(t, err)
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			txCtx := dbent.NewTxContext(f.ctx, tx)
 			_, err = tx.Client().Account.UpdateOneID(inactive.ID).SetStatus(service.StatusActive).Save(txCtx)
 			require.NoError(t, err)

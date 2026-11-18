@@ -291,7 +291,9 @@ func (r *schedulerOutboxRepository) WatchModelCatalog(ctx context.Context, inval
 	select {
 	case <-ctx.Done():
 		_ = listener.Close()
-		<-listening
+		if err := <-listening; err != nil {
+			return
+		}
 		return
 	case err := <-listening:
 		if err != nil {

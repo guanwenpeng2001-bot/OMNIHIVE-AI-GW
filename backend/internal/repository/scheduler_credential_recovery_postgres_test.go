@@ -264,7 +264,7 @@ func TestSchedulerRecoveryPostgresCallerTransaction(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			tx, err := f.client.Tx(f.ctx)
 			require.NoError(t, err)
-			defer tx.Rollback()
+			defer func() { _ = tx.Rollback() }()
 			ctx, cancel := context.WithTimeout(dbent.NewTxContext(f.ctx, tx), 4*time.Second)
 			defer cancel()
 			_, err = tx.Client().Account.UpdateOneID(good.ID).SetConcurrency(9).Save(ctx)

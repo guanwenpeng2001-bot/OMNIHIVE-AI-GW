@@ -156,7 +156,7 @@ func TestStagedReceiptPostgresReplayConflictsRetentionAndSecrecy(t *testing.T) {
 			require.NotContains(t, row, hex.EncodeToString(sum[:]), "unkeyed payload digest must only exist inside ciphertext")
 		}
 		require.NoError(t, rows.Err())
-		rows.Close()
+		require.NoError(t, rows.Close())
 	}
 	for _, secret := range []string{"test-stage-access", "test-stage-refresh"} {
 		require.NotContains(t, captured.String(), secret)
@@ -208,7 +208,7 @@ func TestStagedReceiptPostgresAtomicFailureAndCommitUnknown(t *testing.T) {
 			key, body := uuid.NewString(), receiptBody(t)
 			before, receipts := stagedTableCounts(t, f), receiptCount(t, f)
 			base := NewStagedImportReceiptRepository()
-			var repo service.StagedImportReceiptRepository = base
+			repo := service.StagedImportReceiptRepository(base)
 			if mode == "receipt_insert" {
 				repo = receiptFaultRepo{base, func(ctx context.Context, id service.StagedImportIdentity, r service.StagedImportReceipt) error {
 					if err := base.Insert(ctx, id, r); err != nil {
@@ -366,7 +366,7 @@ func TestStagedReceiptPostgresCrashWorker(t *testing.T) {
 	}
 	f := newCredentialSecretFixture(t)
 	base := NewStagedImportReceiptRepository()
-	var repo service.StagedImportReceiptRepository = base
+	repo := service.StagedImportReceiptRepository(base)
 	if mode == "before" {
 		repo = receiptFaultRepo{base, func(ctx context.Context, id service.StagedImportIdentity, r service.StagedImportReceipt) error {
 			if err := base.Insert(ctx, id, r); err != nil {
@@ -405,7 +405,8 @@ func TestStagedReceiptPostgresProcessCrash(t *testing.T) {
 			before, receipts := stagedTableCounts(t, f), receiptCount(t, f)
 			ctx, cancel := context.WithTimeout(f.ctx, 30*time.Second)
 			defer cancel()
-			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestStagedReceiptPostgresCrashWorker$", "-test.count=1")
+			// Re-exec the current test binary with fixed arguments.
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestStagedReceiptPostgresCrashWorker$", "-test.count=1") //nolint:gosec
 			cmd.Env = append(os.Environ(), "STAGED_RECEIPT_CRASH_MODE="+mode, "STAGED_RECEIPT_CRASH_KEY="+key)
 			err := cmd.Run()
 			var exit *exec.ExitError

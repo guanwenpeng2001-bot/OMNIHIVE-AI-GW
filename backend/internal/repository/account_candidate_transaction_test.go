@@ -15,7 +15,7 @@ import (
 func TestAccountRepository_CandidatePageUsesContextTransaction(t *testing.T) {
 	database, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	mock.ExpectBegin()
 	tx, err := client.Tx(context.Background())

@@ -20,7 +20,7 @@ func TestApplyMigrationsFS_NonTransactionalMigration_TerminalReviewIndexRetry(t 
 		t.Run(name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			prepareMigrationsBootstrapExpectations(mock)
 			mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename").WithArgs(upstreamJobsTerminalReviewIndexMigration).
 				WillReturnError(sql.ErrNoRows)

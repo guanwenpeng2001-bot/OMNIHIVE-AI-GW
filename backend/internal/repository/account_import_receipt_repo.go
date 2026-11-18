@@ -42,7 +42,7 @@ func (r *stagedImportReceiptRepository) Lock(ctx context.Context, id service.Sta
 	return err
 }
 
-func (r *stagedImportReceiptRepository) Get(ctx context.Context, id service.StagedImportIdentity) (*service.StagedImportReceipt, error) {
+func (r *stagedImportReceiptRepository) Get(ctx context.Context, id service.StagedImportIdentity) (result *service.StagedImportReceipt, err error) {
 	client, err := accountImportTxClient(ctx)
 	if err != nil {
 		return nil, err
@@ -51,15 +51,23 @@ func (r *stagedImportReceiptRepository) Get(ctx context.Context, id service.Stag
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 	if !rows.Next() {
-		return nil, rows.Err()
-	}
-	var result service.StagedImportReceipt
-	if err := rows.Scan(&result.ActorID, &result.Version, &result.Sealed); err != nil {
+		err = rows.Err()
 		return nil, err
 	}
-	return &result, rows.Err()
+	var receipt service.StagedImportReceipt
+	if err = rows.Scan(&receipt.ActorID, &receipt.Version, &receipt.Sealed); err != nil {
+		return nil, err
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return &receipt, nil
 }
 
 func (r *stagedImportReceiptRepository) LegacyExists(ctx context.Context, id service.StagedImportIdentity) (bool, error) {
@@ -67,7 +75,7 @@ func (r *stagedImportReceiptRepository) LegacyExists(ctx context.Context, id ser
 	return exists, err
 }
 
-func (r *stagedImportReceiptRepository) LegacyFingerprint(ctx context.Context, id service.StagedImportIdentity) (string, bool, error) {
+func (r *stagedImportReceiptRepository) LegacyFingerprint(ctx context.Context, id service.StagedImportIdentity) (fingerprint string, exists bool, err error) {
 	client, err := accountImportTxClient(ctx)
 	if err != nil {
 		return "", false, err
@@ -77,12 +85,20 @@ func (r *stagedImportReceiptRepository) LegacyFingerprint(ctx context.Context, i
 	if err != nil {
 		return "", false, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 	if !rows.Next() {
-		return "", false, rows.Err()
+		err = rows.Err()
+		return "", false, err
 	}
-	var fingerprint string
 	err = rows.Scan(&fingerprint)
+	if err != nil {
+		return "", false, err
+	}
+	err = rows.Err()
 	return fingerprint, true, err
 }
 
@@ -108,7 +124,7 @@ func (r *stagedImportReceiptRepository) Insert(ctx context.Context, id service.S
 	return nil
 }
 
-func (r *stagedImportReceiptRepository) GetMode(ctx context.Context, id service.StagedImportIdentity) (*service.AccountImportKeyMode, error) {
+func (r *stagedImportReceiptRepository) GetMode(ctx context.Context, id service.StagedImportIdentity) (result *service.AccountImportKeyMode, err error) {
 	client, err := accountImportTxClient(ctx)
 	if err != nil {
 		return nil, err
@@ -117,15 +133,23 @@ func (r *stagedImportReceiptRepository) GetMode(ctx context.Context, id service.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); err == nil {
+			err = closeErr
+		}
+	}()
 	if !rows.Next() {
-		return nil, rows.Err()
-	}
-	var mode service.AccountImportKeyMode
-	if err := rows.Scan(&mode.ActorID, &mode.Mode); err != nil {
+		err = rows.Err()
 		return nil, err
 	}
-	return &mode, rows.Err()
+	var mode service.AccountImportKeyMode
+	if err = rows.Scan(&mode.ActorID, &mode.Mode); err != nil {
+		return nil, err
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return &mode, nil
 }
 
 func (r *stagedImportReceiptRepository) InsertMode(ctx context.Context, id service.StagedImportIdentity, mode string) error {

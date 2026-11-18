@@ -56,9 +56,13 @@ func NewImageResultUploader(storage ImageStorage, prefix string, maxDownloadByte
 }
 
 func defaultImageDownloadHTTPClient() *http.Client {
+	transport := &http.Transport{}
+	if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+		transport = defaultTransport.Clone()
+	}
 	return &http.Client{
 		Timeout:   60 * time.Second,
-		Transport: httpclient.NewPublicTransport(http.DefaultTransport.(*http.Transport).Clone()),
+		Transport: httpclient.NewPublicTransport(transport),
 	}
 }
 
