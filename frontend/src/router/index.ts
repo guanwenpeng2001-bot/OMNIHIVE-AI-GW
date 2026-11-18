@@ -781,6 +781,19 @@ const routes: RouteRecordRaw[] = [
   },
 
   // ==================== 404 Not Found ====================
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/__design',
+          name: 'DesignSystemGallery',
+          component: () => import('@/components/ui/__gallery__/DesignGalleryView.vue'),
+          meta: {
+            requiresAuth: false,
+            title: 'Design System Gallery'
+          }
+        }
+      ]
+    : []),
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
@@ -846,7 +859,15 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
+const BACKEND_MODE_ALLOWED_PATHS = [
+  '/login',
+  '/key-usage',
+  '/setup',
+  '/payment/result',
+  '/payment/airwallex',
+  '/legal',
+  ...(import.meta.env.DEV ? ['/__design'] : [])
+]
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
   '/auth/linuxdo/callback',
