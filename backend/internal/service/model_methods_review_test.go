@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )

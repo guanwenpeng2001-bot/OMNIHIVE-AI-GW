@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 )
 
 func normalizeLoginAgreementMode(raw string) string {

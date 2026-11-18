@@ -10,8 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

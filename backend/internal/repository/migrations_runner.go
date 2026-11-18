@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 )
 
 // schemaMigrationsTableDDL 定义迁移记录表的 DDL。

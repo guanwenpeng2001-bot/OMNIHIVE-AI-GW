@@ -3,8 +3,8 @@ package schema
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"

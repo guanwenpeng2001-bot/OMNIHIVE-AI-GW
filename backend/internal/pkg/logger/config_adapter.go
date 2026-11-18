@@ -1,6 +1,6 @@
 package logger
 
-import "github.com/Wei-Shaw/sub2api/internal/config"
+import "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 
 func OptionsFromConfig(cfg config.LogConfig) InitOptions {
 	return InitOptions{

@@ -7,11 +7,11 @@ import (
 	"database/sql"
 	"testing"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/authidentity"
-	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/authidentitychannel"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"

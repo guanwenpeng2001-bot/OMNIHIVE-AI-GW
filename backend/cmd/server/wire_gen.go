@@ -8,16 +8,16 @@ package main
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	"github.com/Wei-Shaw/sub2api/internal/server"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 	"log"
 	"net/http"
@@ -27,7 +27,7 @@ import (
 
 import (
 	_ "embed"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
 	_ "net/http/pprof"
 )
 

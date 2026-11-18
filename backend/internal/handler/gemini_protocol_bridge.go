@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // GeminiProtocolBridge adapts Google ingress to the existing bound action

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
-	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/googleapi"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func (h *OpenAIGatewayHandler) openAISecurityAuditError(c *gin.Context, decision *securityaudit.Decision) {

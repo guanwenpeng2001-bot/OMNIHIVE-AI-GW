@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
 
 // ModelRegistrySnapshot is a single approved fact view. Candidates never grant

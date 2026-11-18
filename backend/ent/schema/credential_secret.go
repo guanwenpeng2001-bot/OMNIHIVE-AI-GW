@@ -3,7 +3,7 @@ package schema
 import (
 	"entgo.io/ent"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
 )
 
 // CredentialSecret contains account credentials, never deployment bootstrap keys.

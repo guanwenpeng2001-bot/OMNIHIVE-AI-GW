@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // boundedSSELineReader preserves ReadString's line endings, final unterminated

@@ -19,11 +19,11 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

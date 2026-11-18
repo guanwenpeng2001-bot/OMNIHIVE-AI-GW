@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/cespare/xxhash/v2"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 )
 
 // shortHash 使用 XXHash64 + Base36 生成短 hash（16 字符）

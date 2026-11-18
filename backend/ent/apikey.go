@@ -10,9 +10,9 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
 )
 
 // APIKey is the model entity for the APIKey schema.

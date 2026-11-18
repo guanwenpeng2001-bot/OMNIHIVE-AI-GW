@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxy"
 )
 
 // UpdateAccountCredentialsIfUnchanged serializes credential replacement with

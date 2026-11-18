@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // Only response content commits the generation budget. Headers, flushes and

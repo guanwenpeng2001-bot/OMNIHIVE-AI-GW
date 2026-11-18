@@ -24,7 +24,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 )
 
 // easyPayPoCProvider returns a provider with a fixed test credential set.

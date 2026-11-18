@@ -17,7 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 )
 
 // EasyPay constants.

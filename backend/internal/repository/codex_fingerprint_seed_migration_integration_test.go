@@ -6,9 +6,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	dbmigrations "github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	dbmigrations "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

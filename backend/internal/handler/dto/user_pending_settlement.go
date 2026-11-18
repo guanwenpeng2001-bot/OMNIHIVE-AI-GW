@@ -3,7 +3,7 @@ package dto
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // UserPendingSettlement contains receipt facts only; an unknown amount is never zero.

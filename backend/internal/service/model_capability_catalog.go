@@ -17,9 +17,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
-	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
+	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
 )
 
 // LiteLLMCapabilityFields retains presence and source semantics. MaxTokens is

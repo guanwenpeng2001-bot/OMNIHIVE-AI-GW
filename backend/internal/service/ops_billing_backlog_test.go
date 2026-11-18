@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

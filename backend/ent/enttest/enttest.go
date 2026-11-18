@@ -5,12 +5,12 @@ package enttest
 import (
 	"context"
 
-	"github.com/Wei-Shaw/sub2api/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	// required by schema hooks.
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
 
 	"entgo.io/ent/dialect/sql/schema"
-	"github.com/Wei-Shaw/sub2api/ent/migrate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/migrate"
 )
 
 type (

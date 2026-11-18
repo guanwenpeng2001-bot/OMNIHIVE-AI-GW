@@ -16,12 +16,12 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	adminhandler "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )

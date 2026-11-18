@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"testing"
 
 	"github.com/stretchr/testify/require"

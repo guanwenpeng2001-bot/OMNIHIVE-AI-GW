@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/userplatformquota"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 

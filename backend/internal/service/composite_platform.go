@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 )
 
 // WithResolvedTargetPlatform stores the concrete provider chosen for a request

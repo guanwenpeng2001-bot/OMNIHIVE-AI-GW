@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/userplatformquota"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 

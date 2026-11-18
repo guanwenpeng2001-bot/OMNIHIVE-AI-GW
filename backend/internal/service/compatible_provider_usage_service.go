@@ -10,7 +10,7 @@ import (
 	"time"
 	_ "time/tzdata" // Consistent IANA validation in minimal containers and Windows.
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/tidwall/gjson"
 	"golang.org/x/time/rate"
 )

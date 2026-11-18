@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"

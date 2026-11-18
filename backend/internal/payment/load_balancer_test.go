@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 )
 
 func TestInstanceSupportsType(t *testing.T) {

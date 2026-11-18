@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 const cloudQuotaSnapshotKeysSQL = "ARRAY['volcengine_5h_used_percent','volcengine_5h_reset_at','volcengine_weekly_used_percent','volcengine_weekly_reset_at','volcengine_monthly_used_percent','volcengine_monthly_reset_at','volcengine_usage_updated_at','volcengine_daily_used_percent','volcengine_daily_reset_at','hunyuan_token_plan','hunyuan_usage_updated_at','byteplus_5h_used_percent','byteplus_5h_reset_at','byteplus_weekly_used_percent','byteplus_weekly_reset_at','byteplus_monthly_used_percent','byteplus_monthly_reset_at','byteplus_usage_updated_at']::text[]"

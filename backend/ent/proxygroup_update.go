@@ -12,11 +12,11 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
-	"github.com/Wei-Shaw/sub2api/ent/proxygroupmember"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxygroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxygroupmember"
 )
 
 // ProxyGroupUpdate is the builder for updating ProxyGroup entities.

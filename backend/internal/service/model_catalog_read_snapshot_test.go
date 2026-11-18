@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/stretchr/testify/require"
 )

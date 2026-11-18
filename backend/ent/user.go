@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
 )
 
 // User is the model entity for the User schema.

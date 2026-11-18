@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"net"
 	"net/http"
 	"net/http/httptest"

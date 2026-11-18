@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"

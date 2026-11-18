@@ -10,8 +10,8 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/dgraph-io/ristretto"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 const apiKeyAuthSnapshotVersion = 29 // Period budget policy must be part of the cached auth projection.

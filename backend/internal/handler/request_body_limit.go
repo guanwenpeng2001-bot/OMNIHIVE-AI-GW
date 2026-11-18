@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/requestmodel"
 )
 
 func extractMaxBytesError(err error) (*http.MaxBytesError, bool) {

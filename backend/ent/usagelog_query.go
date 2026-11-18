@@ -12,13 +12,13 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
-	"github.com/Wei-Shaw/sub2api/ent/usagelog"
-	"github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/usagelog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/usersubscription"
 )
 
 // UsageLogQuery is the builder for querying UsageLog entities.

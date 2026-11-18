@@ -4,7 +4,7 @@ package service
 
 import (
 	"encoding/json"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/capabilitysources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/capabilitysources"
 	"github.com/stretchr/testify/require"
 	"reflect"
 	"slices"

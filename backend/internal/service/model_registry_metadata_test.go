@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testassert"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testassert"
 	"os"
 	"path/filepath"
 	"testing"
 
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 	"github.com/stretchr/testify/require"
 )
 

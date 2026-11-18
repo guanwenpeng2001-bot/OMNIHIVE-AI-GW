@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 )
 
 // GatewayUnknownRouteProtocol keeps SDK paths out of a frontend/management

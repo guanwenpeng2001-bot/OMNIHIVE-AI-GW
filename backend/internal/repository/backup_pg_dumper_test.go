@@ -14,7 +14,7 @@ import (
 	"testing/iotest"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/stretchr/testify/require"
 )

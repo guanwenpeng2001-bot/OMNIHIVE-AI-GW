@@ -3,14 +3,14 @@ package service
 import (
 	"bytes"
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )

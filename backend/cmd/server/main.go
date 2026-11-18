@@ -17,14 +17,14 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/server/routes"
-	"github.com/Wei-Shaw/sub2api/internal/setup"
-	"github.com/Wei-Shaw/sub2api/internal/web"
+	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/setup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/web"
 
 	"github.com/gin-gonic/gin"
 )

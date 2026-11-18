@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/identityadoptiondecision"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"

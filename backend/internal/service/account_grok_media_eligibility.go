@@ -1,6 +1,6 @@
 package service
 
-import infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+import infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 
 // ValidateGrokMediaEligibilityExtra validates the optional per-account media
 // routing override. A nil value removes the override and restores automatic

@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func (r *upstreamJobRepository) ListResources(ctx context.Context, user, key, group int64, family, after string, limit int) ([]*service.UpstreamJob, error) {
