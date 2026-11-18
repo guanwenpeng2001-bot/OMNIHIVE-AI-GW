@@ -3825,16 +3825,17 @@ func blockedModelAllowlistCandidate(group *service.Group, candidates []string) s
 	return ""
 }
 
-func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) {
+func closeOpenAIClientWS(conn *coderws.Conn, status coderws.StatusCode, reason string) error {
 	if conn == nil {
-		return
+		return io.ErrClosedPipe
 	}
 	reason = strings.TrimSpace(reason)
 	if len(reason) > 120 {
 		reason = reason[:120]
 	}
-	_ = conn.Close(status, reason)
+	err := conn.Close(status, reason)
 	_ = conn.CloseNow()
+	return err
 }
 
 func openAIWSNextAttemptMessage(current, retryPayload []byte, retryCurrentTurn bool) ([]byte, bool) {
@@ -3884,7 +3885,12 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 	}
 
 	service.MarkOpsStreamFailure(c, errorType, errorCode, message, intendedStatus)
-	closeOpenAIClientWS(conn, closeStatus, message)
+	r := attemptResponse(c)
+	terminal := r != nil && r.BeginTerminal()
+	err := closeOpenAIClientWS(conn, closeStatus, message)
+	if terminal {
+		r.FinishTerminal(err == nil)
+	}
 }
 
 func writeContentModerationWSError(ctx context.Context, conn *coderws.Conn, decision *service.ContentModerationDecision) {
