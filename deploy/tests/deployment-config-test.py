@@ -87,7 +87,7 @@ def verify_variant(source_path, fixture_dir):
             env_path.write_text("\n".join(f"{key}={value}" for key, value in
                                           OVERRIDES.items()), encoding="utf-8")
         services = render(compose_path, fixture_dir)
-        application = services["sub2api"]
+        application = services["omnihive"]
         actual = application["environment"]
         expected = DEFAULTS | (OVERRIDES if profile == "override" else {})
         expected["SERVER_PORT"] = "8080"

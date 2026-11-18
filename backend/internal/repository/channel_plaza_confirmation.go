@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func readPlazaAccounts(ctx context.Context, tx *sql.Tx, groupID int64) ([]service.Account, string, error) {

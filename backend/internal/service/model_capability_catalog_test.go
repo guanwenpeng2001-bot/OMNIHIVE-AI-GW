@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
-	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
+	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
 	"github.com/stretchr/testify/require"
 )
 

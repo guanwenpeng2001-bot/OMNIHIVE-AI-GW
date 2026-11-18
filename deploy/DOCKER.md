@@ -1,11 +1,13 @@
 # OmniHive Docker Image
 
+For existing installations, see the [deployment identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md).
+
 OmniHive distributes and manages AI API quotas. Production images include the web UI,
 runtime pricing resources and PostgreSQL 18 `pg_dump`/`psql` for backup and restore.
 
 ## Quick start with external PostgreSQL and Redis
 
-Create a protected `sub2api.env` file using the application's actual variable names:
+Create a protected `omnihive.env` file using the application's actual variable names:
 
 ```dotenv
 AUTO_SETUP=true
@@ -14,9 +16,9 @@ SERVER_PORT=8080
 SERVER_MODE=release
 DATABASE_HOST=your-postgres-host
 DATABASE_PORT=5432
-DATABASE_USER=sub2api
+DATABASE_USER=omnihive
 DATABASE_PASSWORD=replace-with-your-database-password
-DATABASE_DBNAME=sub2api
+DATABASE_DBNAME=omnihive
 DATABASE_SSLMODE=prefer
 REDIS_HOST=your-redis-host
 REDIS_PORT=6379
@@ -32,14 +34,14 @@ protects existing encrypted data; an automatically generated startup key is not 
 contract. `localhost` inside the container refers to that container, not the host.
 
 ```bash
-chmod 600 sub2api.env
+chmod 600 omnihive.env
 docker run -d \
-  --name sub2api \
+  --name omnihive \
   --restart unless-stopped \
   --security-opt no-new-privileges:true \
   -p 8080:8080 \
-  --env-file sub2api.env \
-  -v sub2api_data:/app/data \
+  --env-file omnihive.env \
+  -v omnihive_data:/app/data \
   'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest'
 ```
 
@@ -58,7 +60,7 @@ chmod 600 .env
 # Edit .env: set POSTGRES_PASSWORD, JWT_SECRET and TOTP_ENCRYPTION_KEY.
 docker compose config --quiet
 docker compose up -d
-docker compose logs -f sub2api
+docker compose logs -f omnihive
 ```
 
 The default stack uses PostgreSQL 18 and Redis 8 with named volumes. For local-directory
@@ -70,7 +72,7 @@ no project or bucket identifiers until the operator configures them.
 
 The one-click `docker-deploy.sh` script downloads the local-directory configuration
 **as `docker-compose.yml`**. In that generated directory use `docker compose up -d`,
-`docker compose logs -f sub2api` and, for upgrades, `docker compose pull` followed by
+`docker compose logs -f omnihive` and, for upgrades, `docker compose pull` followed by
 `docker compose up -d`. A manual clone retains the original filenames.
 
 The application service reads `.env` via `env_file`; explicit `environment` entries

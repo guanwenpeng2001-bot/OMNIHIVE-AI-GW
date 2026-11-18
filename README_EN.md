@@ -4,6 +4,8 @@
 
 # OmniHive AI Gateway (OMNIHIVE-AI-GW)
 
+For existing installations, see the [deployment identity migration guide](docs/refactor/IDENTITY_MIGRATION.md).
+
 <p align="center"><strong>An intelligent compute hive · Enterprise multimodal AI gateway and governance platform</strong></p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go" alt="Go 1.27" />
@@ -62,7 +64,7 @@ Edit `deploy/.env` to configure database credentials, the administrator account 
 docker build -t 'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest' .
 docker compose --project-directory deploy -f deploy/docker-compose.yml config --quiet
 docker compose --project-directory deploy -f deploy/docker-compose.yml up -d
-docker compose --project-directory deploy -f deploy/docker-compose.yml logs -f sub2api
+docker compose --project-directory deploy -f deploy/docker-compose.yml logs -f omnihive
 ```
 
 Open `http://localhost:8080` to complete initialization. Resolve the literal owner placeholder through your deployment environment and configure the corresponding GHCR namespace. If published images are available, skip the local build and run `pull` with the same Compose configuration first.

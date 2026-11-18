@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/stretchr/testify/require"
 )
 

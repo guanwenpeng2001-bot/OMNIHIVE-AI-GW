@@ -1,5 +1,7 @@
 # Apple container Deployment
 
+For existing installations, see the [deployment identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md).
+
 OmniHive can run as a native three-service stack with Apple's `container` CLI. This workflow runs the published OmniHive, PostgreSQL, and Redis OCI images without Docker Desktop or a Docker-compatible daemon.
 
 ## Support Level
@@ -89,10 +91,10 @@ After a host reboot or `container system stop`, run `./apple-container.sh up` ag
 
 ## Configuration
 
-The script uses `deploy/.env`, the same source file used by Docker Compose. Export `SUB2API_ENV_FILE` to use another file for every command in the current shell:
+The script uses `deploy/.env`, the same source file used by Docker Compose. Export `OMNIHIVE_ENV_FILE` to use another file for every command in the current shell:
 
 ```bash
-export SUB2API_ENV_FILE=/absolute/path/to/sub2api.env
+export OMNIHIVE_ENV_FILE=/absolute/path/to/omnihive.env
 ./apple-container.sh init
 ./apple-container.sh up
 ```
@@ -100,7 +102,7 @@ export SUB2API_ENV_FILE=/absolute/path/to/sub2api.env
 Apple-specific image overrides are available:
 
 ```dotenv
-APPLE_CONTAINER_SUB2API_IMAGE=ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
+APPLE_CONTAINER_OMNIHIVE_IMAGE=ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
 APPLE_CONTAINER_POSTGRES_IMAGE=postgres:18-alpine
 APPLE_CONTAINER_REDIS_IMAGE=redis:8-alpine
 ```
@@ -115,7 +117,7 @@ APPLE_CONTAINER_NETWORK_SUBNET=
 
 Leave the setting empty to keep automatic subnet allocation. When setting it,
 choose a CIDR that does not overlap the host LAN or VPN. The script applies the
-setting only when it creates `sub2api-apple`. If the existing managed network
+setting only when it creates `omnihive-apple`. If the existing managed network
 uses a different subnet, it stops without deleting any resources. To migrate
 intentionally, run `./apple-container.sh destroy --yes` to remove the managed
 containers and network while preserving named volumes, then run
@@ -138,23 +140,23 @@ Apple-specific handling of shared settings:
 
 ## Managed Resources
 
-The script creates only resources carrying the `org.sub2api.stack=apple-container` label:
+The script creates only resources carrying the `org.omnihive.stack=apple-container` label:
 
 | Type | Names |
 |---|---|
-| Containers | `sub2api-apple`, `sub2api-apple-postgres`, `sub2api-apple-redis` |
-| Network | `sub2api-apple` |
-| Volumes | `sub2api-apple-data`, `sub2api-apple-postgres-data`, `sub2api-apple-redis-data` |
+| Containers | `omnihive-apple`, `omnihive-apple-postgres`, `omnihive-apple-redis` |
+| Network | `omnihive-apple` |
+| Volumes | `omnihive-apple-data`, `omnihive-apple-postgres-data`, `omnihive-apple-redis-data` |
 
-The PostgreSQL volume is mounted at `/var/lib/postgresql`, retaining PostgreSQL 18's default child data directory. OmniHive data and its updatable runtime binary use separate child directories in `sub2api-apple-data`; Redis also stores data below its Apple volume mount point. This is required because Apple named volumes do not have Docker's copy-up and mount-point ownership behavior.
+The PostgreSQL volume is mounted at `/var/lib/postgresql`, retaining PostgreSQL 18's default child data directory. OmniHive data and its updatable runtime binary use separate child directories in `omnihive-apple-data`; Redis also stores data below its Apple volume mount point. This is required because Apple named volumes do not have Docker's copy-up and mount-point ownership behavior.
 
 ## Networking
 
 Apple `container` 1.1 does not provide Compose-style network-scoped service aliases. After PostgreSQL and Redis start, the script reads their current private-network IPv4 addresses from `container inspect`, injects those addresses into a newly created application container, and then starts OmniHive. The script does not modify `~/.config/container/config.toml` or the macOS host resolver.
 
-All three services attach only to the private `sub2api-apple` network. Only the application publishes a host port; database and Redis ports remain unpublished.
+All three services attach only to the private `omnihive-apple` network. Only the application publishes a host port; database and Redis ports remain unpublished.
 
-The application container is intentionally recreated by every `up` and `restart` operation because dependency VM addresses can change after they stop. Application data remains in `sub2api-apple-data`.
+The application container is intentionally recreated by every `up` and `restart` operation because dependency VM addresses can change after they stop. Application data remains in `omnihive-apple-data`.
 
 The script checks the published `/health` endpoint from macOS before reporting success. Approve the Local Network prompt on first startup. If the internal probe succeeds but the host-port probe fails with a connection reset, enable Local Network access for `container-runtime-linux`, run `container system stop` followed by `container system start`, and then run `up` again. Runtime upgrades may prompt for permission again.
 
@@ -162,7 +164,7 @@ The script checks the published `/health` endpoint from macOS before reporting s
 
 The Web UI uses the same update flow as the Docker deployment: it downloads a release over GitHub, atomically replaces the active executable, and asks the application to restart. Docker supplies the restart policy in a Compose deployment; `apple-container.sh` supplies an equivalent process supervisor inside the Apple application container.
 
-The active executable lives in `sub2api-apple-data` so a later `up`, `restart`, or `up --recreate` does not discard an update downloaded from the Web UI. The script records the configured base image ID alongside it; when `APPLE_CONTAINER_SUB2API_IMAGE` resolves to a different image ID, the image's `/app/sub2api` becomes the new active executable. This keeps explicit image upgrades authoritative while preserving in-place updates across routine application-container recreation.
+The active executable lives in `omnihive-apple-data` so a later `up`, `restart`, or `up --recreate` does not discard an update downloaded from the Web UI. The script records the configured base image ID alongside it; when `APPLE_CONTAINER_OMNIHIVE_IMAGE` resolves to a different image ID, the image's `/app/omnihive` becomes the new active executable. This keeps explicit image upgrades authoritative while preserving in-place updates across routine application-container recreation.
 
 If GitHub is not reachable directly, set `UPDATE_PROXY_URL` to a proxy address reachable from the Apple container VM. A proxy listening only on the Mac's `127.0.0.1` is not reachable as `127.0.0.1` from inside the VM; use an appropriately restricted host gateway listener instead.
 
@@ -175,13 +177,13 @@ umask 077
 mkdir -p backups
 
 # Logical PostgreSQL backup.
-container exec sub2api-apple sh -c \
+container exec omnihive-apple sh -c \
   'PGPASSWORD="$DATABASE_PASSWORD" pg_dump -h "$DATABASE_HOST" -U "$DATABASE_USER" "$DATABASE_DBNAME"' \
-  > backups/sub2api.sql
+  > backups/omnihive.sql
 
 # Application configuration and local files.
-container exec sub2api-apple sh -c 'tar -C "$DATA_DIR" -czf - .' \
-  > backups/sub2api-data.tar.gz
+container exec omnihive-apple sh -c 'tar -C "$OMNIHIVE_DATA_DIR" -czf - .' \
+  > backups/omnihive-data.tar.gz
 
 ./apple-container.sh pull
 ./apple-container.sh up --recreate
@@ -198,25 +200,25 @@ To restore these backups into an existing stack, first ensure the image versions
 ./apple-container.sh down
 
 # Remove only the app container so a helper can mount its named volume.
-container delete sub2api-apple
-SUB2API_IMAGE='ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest' # Match APPLE_CONTAINER_SUB2API_IMAGE in .env.
-container run --rm --name sub2api-apple-data-restore \
+container delete omnihive-apple
+OMNIHIVE_IMAGE='ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest' # Match APPLE_CONTAINER_OMNIHIVE_IMAGE in .env.
+container run --rm --name omnihive-apple-data-restore \
   --entrypoint /bin/sh \
-  --volume sub2api-apple-data:/restore \
+  --volume omnihive-apple-data:/restore \
   --volume "$PWD/backups:/backup:ro" \
-  "$SUB2API_IMAGE" \
-  -c 'rm -rf /restore/data && mkdir -p /restore/data && tar -xzf /backup/sub2api-data.tar.gz -C /restore/data'
+  "$OMNIHIVE_IMAGE" \
+  -c 'rm -rf /restore/data && mkdir -p /restore/data && tar -xzf /backup/omnihive-data.tar.gz -C /restore/data'
 
 # Restore the logical database while the application is absent.
-container start sub2api-apple-postgres
-until container exec sub2api-apple-postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; do sleep 1; done
-container copy backups/sub2api.sql sub2api-apple-postgres:/tmp/sub2api.sql
-container exec sub2api-apple-postgres sh -c '
+container start omnihive-apple-postgres
+until container exec omnihive-apple-postgres sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'; do sleep 1; done
+container copy backups/omnihive.sql omnihive-apple-postgres:/tmp/omnihive.sql
+container exec omnihive-apple-postgres sh -c '
   export PGPASSWORD="$POSTGRES_PASSWORD"
   dropdb -h 127.0.0.1 -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB"
   createdb -h 127.0.0.1 -U "$POSTGRES_USER" "$POSTGRES_DB"
-  psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/sub2api.sql
-  rm /tmp/sub2api.sql
+  psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/omnihive.sql
+  rm /tmp/omnihive.sql
 '
 
 ./apple-container.sh up

@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"net/http"
 )
 

@@ -35,7 +35,11 @@ last_argument() {
 inspect_resource() {
     local resource_type=$1
     local resource_name=$2
+    local label_key="org.omnihive.stack"
     local label_value="apple-container"
+    if [[ "$resource_name" == sub2api-apple* ]]; then
+        label_key="org.sub2api.stack"
+    fi
     local address="192.168.65.4/24"
     local subnet="192.168.65.0/24"
 
@@ -46,17 +50,17 @@ inspect_resource() {
         if [[ -s "${STATE_DIR}/network-subnets/${resource_name}" ]]; then
             subnet="$(<"${STATE_DIR}/network-subnets/${resource_name}")"
         fi
-        printf '[{"configuration":{"ipv4Subnet":"%s","labels":{"org.sub2api.stack":"%s"}}}]\n' \
-            "${subnet}" "${label_value}"
+        printf '[{"configuration":{"ipv4Subnet":"%s","labels":{"%s":"%s"}}}]\n' \
+            "${subnet}" "${label_key}" "${label_value}"
         return
     fi
     case "${resource_name}" in
-        sub2api-apple-postgres) address="192.168.65.2/24" ;;
-        sub2api-apple-redis) address="192.168.65.3/24" ;;
+        omnihive-apple-postgres|sub2api-apple-postgres) address="192.168.65.2/24" ;;
+        omnihive-apple-redis|sub2api-apple-redis) address="192.168.65.3/24" ;;
     esac
 
-    printf '[{"configuration":{"labels":{"org.sub2api.stack":"%s"}},"status":{"networks":[{"ipv4Address":"%s"}]}}]\n' \
-        "${label_value}" "${address}"
+    printf '[{"configuration":{"labels":{"%s":"%s"}},"status":{"networks":[{"ipv4Address":"%s"}]}}]\n' \
+        "${label_key}" "${label_value}" "${address}"
 }
 
 command=${1-}

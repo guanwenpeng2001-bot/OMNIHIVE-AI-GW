@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // ListGatewayResources returns one page of the caller's owned resource jobs for

@@ -1,6 +1,6 @@
 package service
 
-import "github.com/Wei-Shaw/sub2api/internal/domain"
+import "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 
 // PaygBalanceAllowed gates commercial plans only. Callers must still enforce
 // their existing platform, transport mode, origin and credential checks.

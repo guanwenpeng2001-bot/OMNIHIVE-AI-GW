@@ -3,7 +3,7 @@ package service
 import (
 	"net/http"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 )
 
 // HTTPUpstream 上游 HTTP 请求接口

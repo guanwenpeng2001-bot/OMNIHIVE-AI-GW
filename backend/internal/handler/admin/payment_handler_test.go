@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func TestSanitizeAdminPaymentOrderForResponseAddsCurrency(t *testing.T) {
@@ -62,7 +62,7 @@ func TestAdminSubscriptionPlansForResponseIncludesCompositeGroupInfo(t *testing.
 			ValidityDays: 30,
 			ValidityUnit: "days",
 			Features:     "OpenAI\nClaude\nGemini\nGrok",
-			ProductName:  "Sub2API",
+			ProductName:  "OmniHive",
 			ForSale:      true,
 			SortOrder:    1,
 			CreatedAt:    now,

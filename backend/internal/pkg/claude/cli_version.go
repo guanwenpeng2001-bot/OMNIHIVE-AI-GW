@@ -2,10 +2,11 @@ package claude
 
 import (
 	"log/slog"
-	"os"
 	"strings"
 
 	"golang.org/x/mod/semver"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 // CLIVersionEnv 是 CLICurrentVersion 的可选运维覆盖。
@@ -15,7 +16,7 @@ import (
 // `Claude Code X.Y.Z does not support this model; version A.B.C or newer is required`。
 // 在没有本开关之前，这类模型必须等 sub2api 发一个新版本才能使用，
 // 而改动本身只是一个常量。xai 包的 XAI_GROK_CLI_VERSION 已经是同样的做法。
-const CLIVersionEnv = "SUB2API_CLAUDE_CLI_VERSION"
+const CLIVersionEnv = "OMNIHIVE_CLAUDE_CLI_VERSION"
 
 // resolvedCLIVersion 在包初始化时解析一次。
 //
@@ -23,7 +24,7 @@ const CLIVersionEnv = "SUB2API_CLAUDE_CLI_VERSION"
 // User-Agent 头与请求体 billing attribution 块里的 cc_version 由不同代码路径写入，
 // 若两次读到不同的值（例如进程运行中有人改了环境变量），同一个请求就会自相矛盾，
 // 被上游判为非正版客户端。
-var resolvedCLIVersion = resolveCLIVersion(os.Getenv(CLIVersionEnv))
+var resolvedCLIVersion = resolveCLIVersion(runtimeenv.Get(CLIVersionEnv, "SUB2API_CLAUDE_CLI_VERSION"))
 
 // CLIVersion 返回对外伪装的 Claude Code CLI 版本号（三段 semver）。
 //

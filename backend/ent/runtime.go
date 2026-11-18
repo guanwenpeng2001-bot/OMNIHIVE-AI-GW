@@ -2,4 +2,4 @@
 
 package ent
 
-// The schema-stitching logic is generated in github.com/Wei-Shaw/sub2api/ent/runtime/runtime.go
+// The schema-stitching logic is generated in github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime/runtime.go

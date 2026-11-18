@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func ProvideAccountRepositoryWithSecrets(client *dbent.Client, database *sql.DB, cache service.SchedulerCache, encryptor service.SecretEncryptor, runtime *service.ProxyGroupRuntime) service.AccountRepository {

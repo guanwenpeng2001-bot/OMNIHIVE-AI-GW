@@ -11,7 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/errorpassthroughrule"
 )
 
 // ErrorPassthroughRuleCreate is the builder for creating a ErrorPassthroughRule entity.

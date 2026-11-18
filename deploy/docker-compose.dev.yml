@@ -9,13 +9,13 @@
 # =============================================================================
 
 services:
-  sub2api:
+  omnihive:
     build:
       context: ..
       dockerfile: Dockerfile
       args:
         NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}
-    container_name: sub2api-dev
+    container_name: omnihive-dev
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -48,9 +48,9 @@ services:
       - RUN_MODE=${RUN_MODE:-standard}
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
-      - DATABASE_USER=${POSTGRES_USER:-sub2api}
+      - DATABASE_USER=${POSTGRES_USER:-omnihive}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - DATABASE_DBNAME=${POSTGRES_DB:-sub2api}
+      - DATABASE_DBNAME=${POSTGRES_DB:-omnihive}
       - DATABASE_SSLMODE=disable
       - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-256}
       - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-128}
@@ -64,7 +64,7 @@ services:
       - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-1024}
       - REDIS_MIN_IDLE_CONNS=${REDIS_MIN_IDLE_CONNS:-128}
       - REDIS_ENABLE_TLS=${REDIS_ENABLE_TLS:-false}
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@omnihive.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET:-}
       - SETUP_MIGRATION_TIMEOUT_SECONDS=${SETUP_MIGRATION_TIMEOUT_SECONDS:-0}
@@ -72,15 +72,15 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       # Local mainland-China development proxy. Containers cannot use
       # 127.0.0.1 for the host proxy, so default to Docker Desktop's host name.
-      - HTTP_PROXY=${SUB2API_DEV_HTTP_PROXY:-http://host.docker.internal:7897}
-      - HTTPS_PROXY=${SUB2API_DEV_HTTPS_PROXY:-http://host.docker.internal:7897}
-      - ALL_PROXY=${SUB2API_DEV_ALL_PROXY:-socks5://host.docker.internal:7897}
-      - NO_PROXY=${SUB2API_DEV_NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,sub2api,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,.local}
+      - HTTP_PROXY=${OMNIHIVE_DEV_HTTP_PROXY-${SUB2API_DEV_HTTP_PROXY:-http://host.docker.internal:7897}}
+      - HTTPS_PROXY=${OMNIHIVE_DEV_HTTPS_PROXY-${SUB2API_DEV_HTTPS_PROXY:-http://host.docker.internal:7897}}
+      - ALL_PROXY=${OMNIHIVE_DEV_ALL_PROXY-${SUB2API_DEV_ALL_PROXY:-socks5://host.docker.internal:7897}}
+      - NO_PROXY=${OMNIHIVE_DEV_NO_PROXY-${SUB2API_DEV_NO_PROXY:-127.0.0.1,localhost,::1,postgres,redis,omnihive,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,.local}}
       # Gateway values come from Compose .env or the shell.
       # Fallbacks mirror Sub2API backend defaults so omitted values preserve behavior.
       - GATEWAY_FORCE_CODEX_CLI=${GATEWAY_FORCE_CODEX_CLI:-false}
       - GATEWAY_OPENAI_COMPACT_MODEL=${GATEWAY_OPENAI_COMPACT_MODEL:-gpt-5.4}
-      - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}
+      - OMNIHIVE_IMAGES_MAIN_MODEL=${OMNIHIVE_IMAGES_MAIN_MODEL-${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}
       - GATEWAY_OPENAI_WS_FORCE_HTTP=${GATEWAY_OPENAI_WS_FORCE_HTTP:-false}
       - GATEWAY_OPENAI_HTTP2_ENABLED=${GATEWAY_OPENAI_HTTP2_ENABLED:-true}
@@ -134,7 +134,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
@@ -144,7 +144,7 @@ services:
 
   postgres:
     image: postgres:18-alpine
-    container_name: sub2api-postgres-dev
+    container_name: omnihive-postgres-dev
     restart: unless-stopped
     command: >
       postgres
@@ -155,15 +155,15 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data:Z
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-sub2api}
+      - POSTGRES_USER=${POSTGRES_USER:-omnihive}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - POSTGRES_DB=${POSTGRES_DB:-sub2api}
+      - POSTGRES_DB=${POSTGRES_DB:-omnihive}
       - PGDATA=/var/lib/postgresql/data
       - TZ=${TZ:-Asia/Shanghai}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-omnihive} -d ${POSTGRES_DB:-omnihive}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -171,7 +171,7 @@ services:
 
   redis:
     image: redis:8-alpine
-    container_name: sub2api-redis-dev
+    container_name: omnihive-redis-dev
     restart: unless-stopped
     volumes:
       - ./redis_data:/data:Z
@@ -192,7 +192,7 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - REDISCLI_AUTH=${REDIS_PASSWORD:-}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -201,5 +201,5 @@ services:
       start_period: 5s
 
 networks:
-  sub2api-network:
+  omnihive-network:
     driver: bridge

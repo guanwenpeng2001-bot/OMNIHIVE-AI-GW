@@ -23,7 +23,7 @@ This directory contains files for deploying OmniHive on Linux servers and Apple-
 | `DOCKER.md` | Docker Hub documentation |
 | `install.sh` | One-click binary installation script |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
-| `sub2api.service` | Systemd service unit file |
+| `omnihive.service` | Systemd service unit file |
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
@@ -77,10 +77,10 @@ chmod +x docker-deploy.sh
 docker compose up -d
 
 # View logs
-docker compose logs -f sub2api
+docker compose logs -f omnihive
 
 # If admin password was auto-generated, find it in logs:
-docker compose logs sub2api | grep "admin password"
+docker compose logs omnihive | grep "admin password"
 
 # Access Web UI
 # http://localhost:8080
@@ -113,7 +113,7 @@ mkdir -p data postgres_data redis_data
 docker compose -f docker-compose.local.yml up -d
 
 # View logs (check for auto-generated admin password)
-docker compose -f docker-compose.local.yml logs -f sub2api
+docker compose -f docker-compose.local.yml logs -f omnihive
 
 # Access Web UI
 # http://localhost:8080
@@ -143,7 +143,7 @@ When using Docker Compose with `AUTO_SETUP=true`:
 
 3. If `ADMIN_PASSWORD` is not set, check logs for the generated password:
    ```bash
-   docker compose logs sub2api | grep "admin password"
+   docker compose logs omnihive | grep "admin password"
    ```
 
 ### Startup and Database Recovery
@@ -162,7 +162,7 @@ replacement for application-level retries when Docker restores existing
 containers after a host restart.
 
 For systemd deployments, keep `Restart=always` and `RestartSec` configured in
-`sub2api.service`; the application retry covers transient database startup,
+`omnihive.service`; the application retry covers transient database startup,
 while systemd remains the supervisor for permanent process exits. For
 Kubernetes, use a PostgreSQL readiness probe and retain the OmniHive startup
 retry behavior; configure the application liveness probe separately so a
@@ -212,10 +212,10 @@ docker compose -f docker-compose.local.yml up -d
 docker compose -f docker-compose.local.yml down
 
 # View logs
-docker compose -f docker-compose.local.yml logs -f sub2api
+docker compose -f docker-compose.local.yml logs -f omnihive
 
 # Restart OmniHive only
-docker compose -f docker-compose.local.yml restart sub2api
+docker compose -f docker-compose.local.yml restart omnihive
 
 # Update to latest version
 docker compose -f docker-compose.local.yml pull
@@ -236,10 +236,10 @@ docker compose up -d
 docker compose down
 
 # View logs
-docker compose logs -f sub2api
+docker compose logs -f omnihive
 
 # Restart OmniHive only
-docker compose restart sub2api
+docker compose restart omnihive
 
 # Update to latest version
 docker compose pull
@@ -257,7 +257,7 @@ docker compose down -v
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
 | `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
-| `ADMIN_EMAIL` | No | `admin@sub2api.local` | Admin email |
+| `ADMIN_EMAIL` | No | `admin@omnihive.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
 | `UPDATE_GITHUB_TOKEN` | No | *(empty)* | Token for `api.github.com` release checks only; asset downloads remain anonymous. |
@@ -313,13 +313,13 @@ When using `docker-compose.local.yml`, all data is stored in local directories, 
 cd /path/to/deployment
 docker compose -f docker-compose.local.yml down
 cd ..
-tar czf sub2api-complete.tar.gz deployment/
+tar czf omnihive-complete.tar.gz deployment/
 
 # Transfer to new server
-scp sub2api-complete.tar.gz user@new-server:/path/to/destination/
+scp omnihive-complete.tar.gz user@new-server:/path/to/destination/
 
 # On new server: Extract and start
-tar xzf sub2api-complete.tar.gz
+tar xzf omnihive-complete.tar.gz
 cd deployment/
 docker compose -f docker-compose.local.yml up -d
 ```
@@ -438,13 +438,13 @@ curl -sSL --globoff 'https://raw.githubusercontent.com/guanwenpeng2001-bot/OMNIH
 ### Manual Installation
 
 1. Download the latest release from [GitHub Releases](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/releases)
-2. Extract and copy the binary to `/opt/sub2api/`
-3. Copy `sub2api.service` to `/etc/systemd/system/`
+2. Extract and copy the binary to `/opt/omnihive/`
+3. Copy `omnihive.service` to `/etc/systemd/system/`
 4. Run:
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl enable sub2api
-   sudo systemctl start sub2api
+   sudo systemctl enable omnihive
+   sudo systemctl start omnihive
    ```
 5. Open the Setup Wizard in your browser to complete configuration
 
@@ -465,22 +465,22 @@ sudo ./install.sh uninstall
 
 ```bash
 # Start the service
-sudo systemctl start sub2api
+sudo systemctl start omnihive
 
 # Stop the service
-sudo systemctl stop sub2api
+sudo systemctl stop omnihive
 
 # Restart the service
-sudo systemctl restart sub2api
+sudo systemctl restart omnihive
 
 # Check status
-sudo systemctl status sub2api
+sudo systemctl status omnihive
 
 # View logs
-sudo journalctl -u sub2api -f
+sudo journalctl -u omnihive -f
 
 # Enable auto-start on boot
-sudo systemctl enable sub2api
+sudo systemctl enable omnihive
 ```
 
 ### Configuration
@@ -493,7 +493,7 @@ To change after installation:
 
 1. Edit the systemd service:
    ```bash
-   sudo systemctl edit sub2api
+   sudo systemctl edit omnihive
    ```
 
 2. Add or modify:
@@ -506,7 +506,7 @@ To change after installation:
 3. Reload and restart:
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl restart sub2api
+   sudo systemctl restart omnihive
    ```
 
 #### Gemini OAuth Configuration
@@ -515,7 +515,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 
 1. Edit the service file:
    ```bash
-   sudo nano /etc/systemd/system/sub2api.service
+   sudo nano /etc/systemd/system/omnihive.service
    ```
 
 2. Add your OAuth credentials in the `[Service]` section (after the existing `Environment=` lines):
@@ -532,7 +532,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 3. Reload and restart:
    ```bash
    sudo systemctl daemon-reload
-   sudo systemctl restart sub2api
+   sudo systemctl restart omnihive
    ```
 
 > **Note:** Code Assist OAuth does not require any configuration - it uses the built-in Gemini CLI client.
@@ -540,7 +540,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 
 #### Application Configuration
 
-The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
+The setup wizard writes `/etc/omnihive/config.yaml`. The native service keeps application data in `/opt/omnihive/data`. See [the identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md) before switching an existing installation.
 
 ### Prerequisites
 
@@ -552,12 +552,12 @@ The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
 ### Directory Structure
 
 ```
-/opt/sub2api/
-├── sub2api              # Main binary
-├── sub2api.backup       # Backup (after upgrade)
+/opt/omnihive/
+├── omnihive              # Main binary
+├── omnihive.backup       # Backup (after upgrade)
 └── data/                # Runtime data
 
-/etc/sub2api/
+/etc/omnihive/
 └── config.yaml          # Configuration file
 ```
 
@@ -574,7 +574,7 @@ For **local directory version**:
 docker compose -f docker-compose.local.yml ps
 
 # View detailed logs
-docker compose -f docker-compose.local.yml logs --tail=100 sub2api
+docker compose -f docker-compose.local.yml logs --tail=100 omnihive
 
 # Check database connection
 docker compose -f docker-compose.local.yml exec postgres pg_isready
@@ -596,7 +596,7 @@ For **named volumes version**:
 docker compose ps
 
 # View detailed logs
-docker compose logs --tail=100 sub2api
+docker compose logs --tail=100 omnihive
 
 # Check database connection
 docker compose exec postgres pg_isready
@@ -612,13 +612,13 @@ docker compose restart
 
 ```bash
 # Check service status
-sudo systemctl status sub2api
+sudo systemctl status omnihive
 
 # View recent logs
-sudo journalctl -u sub2api -n 50
+sudo journalctl -u omnihive -n 50
 
 # Check config file
-sudo cat /etc/sub2api/config.yaml
+sudo cat /etc/omnihive/config.yaml
 
 # Check PostgreSQL
 sudo systemctl status postgresql

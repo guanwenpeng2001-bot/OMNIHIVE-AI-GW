@@ -4,7 +4,7 @@
 # Quick Start:
 #   1. Copy .env.example to .env and configure
 #   2. docker-compose up -d
-#   3. Check logs: docker-compose logs -f sub2api
+#   3. Check logs: docker-compose logs -f omnihive
 #   4. Access: http://localhost:8080
 #
 # All configuration is done via environment variables.
@@ -15,9 +15,9 @@ services:
   # ===========================================================================
   # OmniHive Application
   # ===========================================================================
-  sub2api:
+  omnihive:
     image: ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest
-    container_name: sub2api
+    container_name: omnihive
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -29,7 +29,7 @@ services:
       - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
     volumes:
       # Data persistence (config.yaml will be auto-generated here)
-      - sub2api_data:/app/data
+      - omnihive_data:/app/data
       # Optional: Mount custom config.yaml (uncomment and create the file first)
       # Copy config.example.yaml to config.yaml, modify it, then uncomment:
       # - ./config.yaml:/app/data/config.yaml
@@ -64,7 +64,7 @@ services:
       - SERVER_MODE=${SERVER_MODE:-release}
       - DASHBOARD_AGGREGATION_BACKFILL_ENABLED=${DASHBOARD_AGGREGATION_BACKFILL_ENABLED:-false}
       - DASHBOARD_AGGREGATION_BACKFILL_MAX_DAYS=${DASHBOARD_AGGREGATION_BACKFILL_MAX_DAYS:-31}
-      - SUB2API_PPROF=${SUB2API_PPROF:-}
+      - OMNIHIVE_PPROF=${OMNIHIVE_PPROF-${SUB2API_PPROF:-}}
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
@@ -75,9 +75,9 @@ services:
       # =======================================================================
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
-      - DATABASE_USER=${POSTGRES_USER:-sub2api}
+      - DATABASE_USER=${POSTGRES_USER:-omnihive}
       - DATABASE_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - DATABASE_DBNAME=${POSTGRES_DB:-sub2api}
+      - DATABASE_DBNAME=${POSTGRES_DB:-omnihive}
       - DATABASE_SSLMODE=disable
       - DATABASE_MAX_OPEN_CONNS=${DATABASE_MAX_OPEN_CONNS:-256}
       - DATABASE_MAX_IDLE_CONNS=${DATABASE_MAX_IDLE_CONNS:-128}
@@ -99,7 +99,7 @@ services:
       # =======================================================================
       # Admin Account (auto-created on first run)
       # =======================================================================
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@sub2api.local}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@omnihive.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
 
       # =======================================================================
@@ -178,7 +178,7 @@ services:
       # Fallbacks mirror OmniHive backend defaults so omitted values preserve behavior.
       - GATEWAY_FORCE_CODEX_CLI=${GATEWAY_FORCE_CODEX_CLI:-false}
       - GATEWAY_OPENAI_COMPACT_MODEL=${GATEWAY_OPENAI_COMPACT_MODEL:-gpt-5.4}
-      - SUB2API_IMAGES_MAIN_MODEL=${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}
+      - OMNIHIVE_IMAGES_MAIN_MODEL=${OMNIHIVE_IMAGES_MAIN_MODEL-${SUB2API_IMAGES_MAIN_MODEL:-gpt-5.6-luna}}
       - GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT=${GATEWAY_OPENAI_RESPONSE_HEADER_TIMEOUT:-0}
       - GATEWAY_OPENAI_WS_FORCE_HTTP=${GATEWAY_OPENAI_WS_FORCE_HTTP:-false}
       - GATEWAY_OPENAI_HTTP2_ENABLED=${GATEWAY_OPENAI_HTTP2_ENABLED:-true}
@@ -223,7 +223,7 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test:
         [
@@ -248,7 +248,7 @@ services:
   # ===========================================================================
   postgres:
     image: postgres:18-alpine
-    container_name: sub2api-postgres
+    container_name: omnihive-postgres
     restart: unless-stopped
     ulimits:
       nofile:
@@ -270,17 +270,17 @@ services:
       # 若不显式设置 PGDATA，则即使挂载了 postgres_data 到 /var/lib/postgresql/data，数据也不会落盘到该命名卷，
       # docker compose down/up 后会触发 initdb 重新初始化，导致用户/密码等数据丢失。
       - PGDATA=/var/lib/postgresql/data
-      - POSTGRES_USER=${POSTGRES_USER:-sub2api}
+      - POSTGRES_USER=${POSTGRES_USER:-omnihive}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      - POSTGRES_DB=${POSTGRES_DB:-sub2api}
+      - POSTGRES_DB=${POSTGRES_DB:-omnihive}
       - TZ=${TZ:-Asia/Shanghai}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api} && psql -U ${POSTGRES_USER:-sub2api} -d ${POSTGRES_DB:-sub2api} -Atqc 'SELECT 1' >/dev/null",
+          "pg_isready -U ${POSTGRES_USER:-omnihive} -d ${POSTGRES_DB:-omnihive} && psql -U ${POSTGRES_USER:-omnihive} -d ${POSTGRES_DB:-omnihive} -Atqc 'SELECT 1' >/dev/null",
         ]
       interval: 10s
       timeout: 5s
@@ -294,7 +294,7 @@ services:
   # ===========================================================================
   redis:
     image: redis:8-alpine
-    container_name: sub2api-redis
+    container_name: omnihive-redis
     restart: unless-stopped
     ulimits:
       nofile:
@@ -320,7 +320,7 @@ services:
       # REDISCLI_AUTH is used by redis-cli for authentication (safer than -a flag)
       - REDISCLI_AUTH=${REDIS_PASSWORD:-}
     networks:
-      - sub2api-network
+      - omnihive-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -333,8 +333,9 @@ services:
 # Volumes
 # =============================================================================
 volumes:
-  sub2api_data:
-    driver: local
+  omnihive_data:
+    name: ${OMNIHIVE_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_omnihive_data}
+    external: ${OMNIHIVE_DATA_VOLUME_EXTERNAL:-false}
   postgres_data:
     driver: local
   redis_data:
@@ -344,5 +345,5 @@ volumes:
 # Networks
 # =============================================================================
 networks:
-  sub2api-network:
+  omnihive-network:
     driver: bridge

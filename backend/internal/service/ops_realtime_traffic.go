@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // GetRealtimeTrafficSummary returns QPS/TPS current/peak/avg for the provided window.

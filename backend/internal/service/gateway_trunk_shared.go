@@ -9,7 +9,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // resolveChannelMapping 解析渠道级模型映射；未配置渠道服务时原样返回请求模型。

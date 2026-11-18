@@ -3,7 +3,7 @@ package provider
 import (
 	"fmt"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 )
 
 // CreateProvider creates a Provider from a provider key, instance ID and decrypted config.

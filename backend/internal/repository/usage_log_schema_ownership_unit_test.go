@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	dbentschema "github.com/Wei-Shaw/sub2api/ent/schema"
+	dbentschema "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,8 +67,8 @@ func TestFindEntAutoMigrateCallsDetectsViolations(t *testing.T) {
 
 import (
 	"context"
-	migrate "github.com/Wei-Shaw/sub2api/ent/migrate"
-	"github.com/Wei-Shaw/sub2api/ent"
+	migrate "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/migrate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 )
 
 func bootstrap(ctx context.Context, client *ent.Client) {

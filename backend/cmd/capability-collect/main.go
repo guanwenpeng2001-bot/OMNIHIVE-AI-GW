@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/capabilitysources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/capabilitysources"
 )
 
 func run() error {

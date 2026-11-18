@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
 
 func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *modelcapabilities.ReleaseIdentity) (*ModelRegistrySnapshot, error) {

@@ -1,4 +1,4 @@
-module github.com/Wei-Shaw/sub2api
+module github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend
 
 go 1.27.4
 

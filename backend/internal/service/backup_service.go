@@ -20,9 +20,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
 const (
@@ -769,7 +769,7 @@ func (s *BackupService) createCompressedBackupFile(ctx context.Context) (string,
 	if err != nil {
 		return "", 0, fmt.Errorf("pg_dump: %w", err)
 	}
-	archive, err := os.CreateTemp("", "sub2api-backup-*.sql.gz")
+	archive, err := os.CreateTemp("", "omnihive-backup-*.sql.gz")
 	if err != nil {
 		_ = dumpReader.Close()
 		return "", 0, fmt.Errorf("create backup archive: %w", err)
@@ -1070,7 +1070,7 @@ func (s *BackupService) downloadBackupParts(ctx context.Context, objectStore Bac
 		}
 	}
 
-	archive, err := os.CreateTemp("", "sub2api-restore-*.sql.gz")
+	archive, err := os.CreateTemp("", "omnihive-restore-*.sql.gz")
 	if err != nil {
 		return "", fmt.Errorf("create restore archive: %w", err)
 	}

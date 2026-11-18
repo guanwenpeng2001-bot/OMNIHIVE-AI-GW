@@ -4,6 +4,8 @@
 
 # OmniHive AI Gateway (OMNIHIVE-AI-GW)
 
+现有部署升级前请参阅[部署身份迁移说明](docs/refactor/IDENTITY_MIGRATION.md)。
+
 <p align="center"><strong>「智能算力中转蜂巢 · 企业级多模态 AI 统一网关与治理中枢」</strong></p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go" alt="Go 1.27" />
@@ -62,7 +64,7 @@ cp deploy/.env.example deploy/.env
 docker build -t 'ghcr.io/guanwenpeng2001-bot/omnihive-ai-gw:latest' .
 docker compose --project-directory deploy -f deploy/docker-compose.yml config --quiet
 docker compose --project-directory deploy -f deploy/docker-compose.yml up -d
-docker compose --project-directory deploy -f deploy/docker-compose.yml logs -f sub2api
+docker compose --project-directory deploy -f deploy/docker-compose.yml logs -f omnihive
 ```
 
 访问 `http://localhost:8080` 完成初始化。仓库 owner 占位符需由部署环境解析为实际值，镜像地址也需按实际 GHCR 命名空间配置。已有发布镜像时可省略本地构建，先执行相同 Compose 配置的 `pull` 命令。

@@ -1,13 +1,13 @@
 # Simplified release: x86_64 GHCR image and self-update assets.
 version: 2
 
-project_name: omnihive-ai-gw
+project_name: omnihive
 
 builds:
-  - id: sub2api
+  - id: omnihive
     dir: backend
     main: ./cmd/server
-    binary: sub2api
+    binary: omnihive
     flags:
       - -mod=readonly
       - -tags=embed
