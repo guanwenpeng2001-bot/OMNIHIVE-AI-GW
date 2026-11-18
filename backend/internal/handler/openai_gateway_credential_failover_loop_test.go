@@ -311,6 +311,8 @@ func (r *grokCredentialHandlerRefresher) Refresh(ctx context.Context, _ *service
 }
 
 type grokCredentialHandlerUpstream struct {
+	beforeReply   func(context.Context, int64) error
+	firstCapacity bool
 	service.HTTPUpstream
 	mu            sync.Mutex
 	hits          []int64
@@ -331,11 +333,20 @@ func (u *grokCredentialHandlerUpstream) Do(req *http.Request, _ string, accountI
 	u.hits = append(u.hits, accountID)
 	u.requestURLs = append(u.requestURLs, req.URL.String())
 	u.authorization = append(u.authorization, req.Header.Get("Authorization"))
+	capacity := u.firstCapacity && len(u.hits) == 1
 	failAccountID := u.failAccountID
 	rateLimited := u.rateLimitIDs[accountID]
 	failureStatus := u.failureStatus[accountID]
 	cancelRequest := u.cancelRequest
 	u.mu.Unlock()
+	if u.beforeReply != nil {
+		if err := u.beforeReply(req.Context(), accountID); err != nil {
+			return nil, err
+		}
+	}
+	if capacity {
+		return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"Model capacity overloaded"}}`))}, nil
+	}
 	if rateLimited {
 		return &http.Response{
 			StatusCode: http.StatusTooManyRequests,
@@ -862,7 +873,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 			Extra: map[string]any{service.GrokMediaEligibleExtraKey: true},
 		},
 	}
-	if mode == "postmap_cancel" || mode == "first_402" || mode == "first_429" || mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" {
+	if mode == "first_capacity" || mode == "postmap_cancel" || mode == "first_402" || mode == "first_429" || mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" {
 		accounts[0].Credentials["expires_at"] = time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	}
 	if mode == "all_429" || mode == "mixed_429_500" || mode == "mixed_500_429" || mode == "oauth_429_apikey_500" {
@@ -905,6 +916,8 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	}
 	upstream := &grokCredentialHandlerUpstream{}
 	switch mode {
+	case "first_capacity":
+		upstream.firstCapacity = true
 	case "first_402":
 		upstream.failAccountID = 801
 	case "first_429":

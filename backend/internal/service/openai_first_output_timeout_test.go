@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 )
@@ -674,5 +675,59 @@ func TestOpenAINativeFirstOutputFailoverKeepsAttemptHeadersPrivateAfterKeepalive
 	case <-firstWriterDone:
 	case <-time.After(time.Second):
 		t.Fatal("first account writer did not exit after timeout")
+	}
+}
+
+func TestAttemptResponsesSSEFirstOutputEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, upstream string
+		downstream     bool
+		replay         bool
+	}{
+		{name: "silent", replay: true},
+		{name: "private preamble", upstream: "data: " + `{"type":"response.created","response":{"id":"resp"}}` + "\n\n", replay: true},
+		{name: "downstream keepalive", downstream: true},
+		{name: "partial semantic line", upstream: "data: " + `{"type":"response.output_text.delta","delta":"x`},
+		{name: "preamble with output", upstream: "data: " + `{"type":"response.created","response":{"output":[{"text":"visible"}]}}` + "\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := WithAttemptBudget(t.Context(), 4, time.Minute)
+			defer cancel()
+			finish, err := BeginGenerationAttempt(ctx, 9)
+			require.NoError(t, err)
+			finish(200, nil)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", nil)
+			if tc.downstream {
+				_, err = c.Writer.WriteString(":\n\n")
+				require.NoError(t, err)
+			}
+			reader, writer := io.Pipe()
+			body := &firstOutputCloseTrackingBody{ReadCloser: reader, closed: make(chan struct{})}
+			defer writer.Close()
+			if tc.upstream != "" {
+				go func() { _, _ = io.WriteString(writer, tc.upstream) }()
+			}
+			svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{OpenAIFirstOutputTimeoutSeconds: 1}}}
+			_, err = svc.handleStreamingResponse(ctx, &http.Response{StatusCode: 200, Header: make(http.Header), Body: body}, c, &Account{ID: 9, Platform: PlatformOpenAI}, time.Now().Add(-950*time.Millisecond), "model", "model")
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			select {
+			case <-body.closed:
+			default:
+				t.Fatal("timeout returned before closing upstream")
+			}
+			controller := attempt.New(3)
+			d := DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 9})
+			require.Equal(t, attempt.Unknown, d.Acceptance)
+			require.Equal(t, tc.replay, d.AbandonedUncertain)
+			if tc.replay {
+				require.Equal(t, attempt.Switch, d.Action)
+				require.Equal(t, attempt.FirstOutputTimeoutAbandoned, d.Reason)
+			} else {
+				require.Equal(t, attempt.Stop, d.Action)
+				require.Equal(t, "acceptance_unknown", d.Reason)
+			}
+		})
 	}
 }

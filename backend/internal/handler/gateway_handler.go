@@ -515,11 +515,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
-						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
-						return
-					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+					streamStarted = streamStarted || streamTransportCommitted(c)
 					switch action {
 					case FailoverContinue:
 						continue
@@ -1095,11 +1092,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
-						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
-						return
-					}
-					action := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
+					action := fs.handleHTTPFailure(c, h.gatewayService, account, writerSizeBeforeForward, failoverErr)
+					streamStarted = streamStarted || streamTransportCommitted(c)
 					switch action {
 					case FailoverContinue:
 						// 本次尝试已确定性失败，立即释放该账号的会话注册
@@ -1700,24 +1694,13 @@ func (h *GatewayHandler) handleStreamingAwareError(c *gin.Context, status int, e
 }
 
 func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, status int, errType, code, message string, streamStarted bool) {
-	if streamStarted {
+	if streamStarted || streamTransportCommitted(c) {
 		// 响应状态码已固化为 200（ping/部分数据已 flush），错误只能就地以 SSE 帧回传。
 		// 标记本次流内错误，供 ops_error_logger 补记——否则该中间件按 status>=400 采集，
 		// 这类挂在 200 流上的失败（如并发限流回退）不会进错误看板。
 		service.MarkOpsStreamError(c, errType, message, status)
 
-		// /v1/responses 的严格 SDK（Codex CLI）要求终止事件必须属于
-		// response.completed/failed/incomplete/cancelled 集合。
-		// Anthropic-backed Responses 路径同样会因为通用 error 帧被拒。
-		if inboundIsResponses(c) {
-			if writeResponsesFailedSSE(c, errType, code, message) {
-				return
-			}
-		}
-		if code == "" {
-			code = errType
-		}
-		gatewayerror.WriteStream(c, status, code, message)
+		writeGatewayStreamTerminal(c, status, errType, code, message)
 		return
 	}
 
@@ -1738,7 +1721,7 @@ func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarte
 		failoverClientGone(c)
 		return false
 	}
-	if service.IsResponseCommitted(c) {
+	if service.IsResponseCommitted(c) || alreadyTerminal(c) {
 		return false
 	}
 	if c.Writer.Written() {
@@ -1826,10 +1809,14 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
+	if streamTransportCommitted(c) {
+		writeGatewayStreamTerminal(c, status, errType, code, message)
+		return
+	}
 	if code == "" {
 		code = errType
 	}
-	gatewayerror.Write(c, status, code, message)
+	emitGatewayTerminal(c, func() { gatewayerror.Write(c, status, code, message) })
 }
 
 // CountTokens handles token counting endpoint

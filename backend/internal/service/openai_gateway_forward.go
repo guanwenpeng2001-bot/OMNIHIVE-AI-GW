@@ -1185,6 +1185,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				_ = resp.Body.Close()
 			}
 			headerGuard.close()
+			interruptGeneration(ctx, account.ID, resp == nil && errors.Is(err, context.Canceled) && c.Writer.Size() <= 0)
 			return nil, s.newOpenAIFirstOutputTimeoutError(
 				ctx, c, account, opsUpstreamProxyID(account), opsUpstreamProxyName(account),
 				startTime, originalModel, reasoningEffortValue,

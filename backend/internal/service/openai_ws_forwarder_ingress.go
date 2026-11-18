@@ -489,11 +489,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	writeClientMessage := func(message []byte) error {
-		CommitAttemptResponse(ctx)
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		message = restoreCodexToolNamesFromContext(c, message)
-		return clientConn.Write(writeCtx, coderws.MessageText, message)
+		return writeAttemptWS(ctx, message, func() error { return clientConn.Write(writeCtx, coderws.MessageText, message) })
 	}
 
 	clientReader := openAIWSIngressClientReader(c, clientConn)
@@ -1116,6 +1115,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 						return nil, fmt.Errorf("normalize websocket rejected field retry: %w", retryErr)
 					}
 					if changed && rejectedFieldRetryState.Allow(retryBody) {
+						rejectAttemptWS(ctx, account.ID, statusCode)
 						logOpenAIWSModeInfo(
 							"ingress_ws_rejected_field_retry account_id=%d turn=%d conn_id=%s reason=%s",
 							account.ID,
@@ -1188,6 +1188,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				// previous_response_not_found 在 ingress 模式支持单次恢复重试：
 				// 不把该 error 直接下发客户端，而是由上层去掉 previous_response_id 后重放当前 turn。
 				if recoverablePrevNotFound {
+					rejectAttemptWS(ctx, account.ID, http.StatusBadRequest)
 					lease.MarkBroken()
 					errMsg := strings.TrimSpace(errMsgRaw)
 					if errMsg == "" {
@@ -1200,6 +1201,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					)
 				}
 				if !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
+					rejectAttemptWS(ctx, account.ID, http.StatusTooManyRequests)
 					lease.MarkBroken()
 					return nil, s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw)
 				}
@@ -1868,6 +1870,16 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 
 		result, relayErr := sendAndRelay(turn, sessionLease, currentPayload, currentPayloadBytes, currentOriginalModel, currentImageBillingModel, currentImageSizeTier, currentImageInputSize, currentRequestedReasoningEffort)
+		var transportErr *openAIWSIngressTurnError
+		if pendingWSTurn(ctx) && errors.As(relayErr, &transportErr) &&
+			(transportErr.stage == "read_upstream" || transportErr.stage == "write_upstream") {
+			sessionLease.MarkBroken()
+			interruptGeneration(ctx, account.ID, false)
+			if hooks != nil && hooks.AfterTurn != nil {
+				hooks.AfterTurn(turn, result, relayErr)
+			}
+			return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Cause: relayErr}
+		}
 		if result != nil && result.ClientDisconnect {
 			if hooks != nil && hooks.AfterTurn != nil {
 				hooks.AfterTurn(turn, result, relayErr)

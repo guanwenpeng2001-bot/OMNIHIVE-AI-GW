@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -310,11 +311,12 @@ const (
 )
 
 type openAIWSPassthroughFirstOutputDeadline struct {
-	timeout         time.Duration
-	startedAt       time.Time
-	requestModel    string
-	reasoningEffort string
-	phase           openAIWSPassthroughDeadlinePhase
+	configuredFirstOutput bool
+	timeout               time.Duration
+	startedAt             time.Time
+	requestModel          string
+	reasoningEffort       string
+	phase                 openAIWSPassthroughDeadlinePhase
 }
 
 type openAIWSPassthroughFirstOutputTimeoutError struct {
@@ -492,7 +494,15 @@ func (c *openAIWSPassthroughFirstOutputFrameConn) ReadFrame(ctx context.Context)
 				return coderws.MessageText, nil, ctx.Err()
 			}
 			cancelRead()
-			<-readResultCh
+			result := <-readResultCh
+			// A completed or partial read racing the timer is upstream evidence.
+			if result.err == nil {
+				c.observeUpstreamActivity(result.msgType, result.payload)
+				return result.msgType, result.payload, nil
+			}
+			if len(result.payload) != 0 || !errors.Is(result.err, context.Canceled) {
+				return result.msgType, result.payload, result.err
+			}
 			if state.deadline.phase == openAIWSPassthroughDeadlinePhaseActiveRead {
 				return coderws.MessageText, nil, &openAIWSPassthroughActiveTurnTimeoutError{}
 			}
@@ -702,8 +712,7 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
-	CommitAttemptResponse(c.controlCtx)
-	return c.conn.Write(ctx, msgType, payload)
+	return writeAttemptWS(c.controlCtx, payload, func() error { return c.conn.Write(ctx, msgType, payload) })
 }
 
 func (c *openAIWSClientFrameConn) Close() error {
@@ -992,6 +1001,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				reasoningEffort = *current
 			}
 			timeout := s.openAIFirstOutputTimeout(reasoningEffort)
+			configuredFirstOutput := timeout > 0
 			if timeout <= 0 {
 				timeout = s.openAIWSPassthroughIdleTimeout()
 			}
@@ -1004,10 +1014,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				model = requestModel
 			}
 			return openAIWSPassthroughFirstOutputDeadline{
-				timeout:         timeout,
-				startedAt:       time.Now(),
-				requestModel:    model,
-				reasoningEffort: reasoningEffort,
+				configuredFirstOutput: configuredFirstOutput,
+				timeout:               timeout,
+				startedAt:             time.Now(),
+				requestModel:          model,
+				reasoningEffort:       reasoningEffort,
 			}
 		},
 	}
@@ -1207,6 +1218,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
 	if firstWriteErr != nil {
+		if pendingWSTurn(ctx) {
+			interruptGeneration(ctx, account.ID, false)
+			return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Cause: firstWriteErr}
+		}
 		return wrapOpenAIWSIngressTurnError(
 			"write_upstream",
 			fmt.Errorf("write first upstream websocket request: %w", firstWriteErr),
@@ -1215,6 +1230,44 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	upstreamFirstMessageSent = true
 
+	// The relay observes a terminal before it writes that frame. For a replacement,
+	// defer its first completion until at least one frame actually reaches the client.
+	var onFirstDelivery func()
+	if IsAbandonedAttemptReplacement(ctx, account.ID) && hooks != nil && hooks.AfterTurn != nil {
+		original := hooks.AfterTurn
+		replacementHooks := *hooks
+		delivered := false
+		var pending *OpenAIForwardResult
+		replacementHooks.AfterTurn = func(turn int, result *OpenAIForwardResult, err error) {
+			if pending != nil && err != nil {
+				// A terminal observation preceded a failed client write on the first turn.
+				pending = nil
+				original(1, nil, err)
+				return
+			}
+			if turn == 1 && !delivered && result != nil {
+				if err == nil {
+					pending = result
+					return
+				}
+				result = nil
+			}
+			original(turn, result, err)
+		}
+		hooks = &replacementHooks
+		onFirstDelivery = func() {
+			delivered = true
+			if pending != nil {
+				original(1, pending, nil)
+				pending = nil
+			}
+		}
+		defer func() {
+			if pending != nil {
+				original(1, nil, io.ErrClosedPipe)
+			}
+		}()
+	}
 	readNextClientFrame := func(readCtx context.Context, conn openaiwsv2.FrameConn) (coderws.MessageType, []byte, error) {
 		for {
 			msgType, payload, readErr := conn.ReadFrame(readCtx)
@@ -1319,6 +1372,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			AfterClientWrite: func(msgType coderws.MessageType, payload []byte, writeErr error) {
+				if onFirstDelivery != nil && writeErr == nil {
+					onFirstDelivery()
+					onFirstDelivery = nil
+				}
 				if msgType == coderws.MessageText && writeErr == nil {
 					eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
 					markOpenAIWSClientVisibleFailure(c, eventType, payload)
@@ -1329,6 +1386,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			},
 			BeforeRelayCancel: func(exit openaiwsv2.RelayExit) {
 				if context.Cause(ctx) != nil {
+					return
+				}
+				// The handler owns the native close and records the decision after Relay has joined the upstream.
+				if exit.Stage == "read_upstream" && !exit.Graceful && pendingWSTurn(ctx) {
 					return
 				}
 				status, reason, ok := openAIWSPassthroughRelayClientClose(exit, int(completedTurns.Load()))
@@ -1379,6 +1440,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 						errors.New("later passthrough turn was rate limited before output"),
 					)
 				}
+				rejectAttemptWS(ctx, account.ID, http.StatusTooManyRequests)
 				return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, payload, errMsgRaw)
 			},
 			OnTrace: func(event openaiwsv2.RelayTraceEvent) {
@@ -1402,7 +1464,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	// has already opened its turn bookkeeping at that point, but no upstream
 	// attempt exists to observe or bill when this check rejects the frame.
 	modelRejectedBeforeSend := relayExit != nil && errors.Is(relayExit.Err, ErrAccountModelUnsupported) && checkedUpstream.sentResponseCreates.Load() == completedTurns.Load()
-	if interrupted := relayResult.InterruptedTurn; interrupted != nil && !modelRejectedBeforeSend && hooks != nil && hooks.AfterTurn != nil {
+	// Relay canceled and closed the upstream before joining its reader.
+	interruptedSend := relayExit != nil && relayExit.Stage == "read_upstream" && !relayExit.Graceful && pendingWSTurn(ctx)
+	var timeoutErr *openAIWSPassthroughFirstOutputTimeoutError
+	undelivered := interruptedSend && completedTurns.Load() == 0 && !relayExit.WroteDownstream &&
+		relayResult.UpstreamToClientFrames == 0 && relayResult.DroppedDownstreamFrames == 0
+	silentTimeout := undelivered && errors.As(relayExit.Err, &timeoutErr) && timeoutErr.deadline.configuredFirstOutput
+	if interruptedSend {
+		interruptGeneration(ctx, account.ID, silentTimeout)
+	}
+	if interrupted := relayResult.InterruptedTurn; interrupted != nil && !undelivered && !modelRejectedBeforeSend && hooks != nil && hooks.AfterTurn != nil {
 		turnNo := int(completedTurns.Load()) + 1
 		turnRequestModel, turnUpstreamModel := usageMeta.turnModels(interrupted.RequestModel)
 		turnErr := context.Cause(ctx)
@@ -1556,6 +1627,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			activeTurnTimeoutErr,
 		)
 	}
+	if interruptedSend {
+		var failover *UpstreamFailoverError
+		if !errors.As(relayErr, &failover) {
+			relayErr = &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Cause: relayErr}
+		}
+	}
 	if relayExit.Stage == "idle_timeout" {
 		relayErr = NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
@@ -1568,7 +1645,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		relayErr,
 		relayExit.WroteDownstream,
 	)
-	if relayResult.InterruptedTurn == nil && hooks != nil && hooks.AfterTurn != nil {
+	if (relayResult.InterruptedTurn == nil || undelivered) && hooks != nil && hooks.AfterTurn != nil {
 		if hooks.TurnStarted != nil {
 			hooks.TurnStarted(turnCount+1, time.Now().Add(-result.Duration))
 		}

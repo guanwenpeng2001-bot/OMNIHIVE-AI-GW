@@ -2,12 +2,14 @@ package handler
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -147,4 +149,98 @@ func TestAttemptBudgetSelection503CannotResetRoot(t *testing.T) {
 	state.LastFailoverErr = &service.UpstreamFailoverError{StatusCode: http.StatusServiceUnavailable}
 	require.Equal(t, FailoverExhausted, state.HandleSelectionExhausted(ctx))
 	require.Len(t, service.AttemptBudgetFromContext(ctx).Snapshot(), 1)
+}
+
+type failedAttemptWriter struct {
+	gin.ResponseWriter
+	writes int
+}
+
+func (w *failedAttemptWriter) Write([]byte) (int, error) { w.writes++; return 0, io.ErrClosedPipe }
+
+func TestAttemptLifecycleNativeTerminals(t *testing.T) {
+	for _, tc := range []struct{ path, event string }{
+		{"/v1/responses", "response.completed"},
+		{"/v1/messages", "message_stop"},
+	} {
+		t.Run(tc.event, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest("POST", tc.path, nil)
+			defer installAttemptBudget(c)()
+			c.Header("Content-Type", "text/event-stream")
+			r := attemptResponse(c)
+			for _, s := range []string{": keep", "alive\r", "\n\r\n"} {
+				_, err := c.Writer.WriteString(s)
+				require.NoError(t, err)
+			}
+			require.Equal(t, lifecycle.HeartbeatOnly, r.State())
+			_, err := c.Writer.WriteString("data: {\"text\":\"ok\"}\n\n")
+			require.NoError(t, err)
+			require.Equal(t, lifecycle.SemanticOutput, r.State())
+			for _, s := range []string{"event: " + tc.event + "\r", "\ndata: {}\r", "\n\r", "\n"} {
+				_, err = c.Writer.WriteString(s)
+				require.NoError(t, err)
+			}
+			require.Equal(t, lifecycle.Terminal, r.State())
+			wire := rec.Body.String()
+			(&GatewayHandler{}).handleStreamingAwareError(c, 502, "api_error", "late failure", false)
+			require.Equal(t, wire, rec.Body.String())
+		})
+	}
+}
+
+func TestAttemptLifecycleFailedTerminalOnce(t *testing.T) {
+	for _, path := range []string{"/v1/responses", "/v1/messages"} {
+		t.Run(path, func(t *testing.T) {
+			c, _ := newHelperTestContext(http.MethodPost, path)
+			failing := &failedAttemptWriter{ResponseWriter: c.Writer}
+			c.Writer = failing
+			defer installAttemptBudget(c)()
+			c.Header("Content-Type", "text/event-stream")
+			c.Writer.Flush()
+			h := &GatewayHandler{}
+			h.handleStreamingAwareError(c, 502, "api_error", "interrupted", false)
+			h.handleStreamingAwareError(c, 502, "api_error", "late failure", false)
+			require.Equal(t, 1, failing.writes)
+			require.Equal(t, lifecycle.TerminalFailed, attemptResponse(c).State())
+			require.ErrorIs(t, service.CheckAttemptBudget(c.Request.Context()), service.ErrResponseCommitted)
+		})
+	}
+}
+
+func BenchmarkAttemptSSEWrite(b *testing.B) {
+	for _, tracked := range []bool{false, true} {
+		name := "native"
+		if tracked {
+			name = "lifecycle"
+		}
+		b.Run(name, func(b *testing.B) {
+			rec := httptest.NewRecorder()
+			rec.Body = nil
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+			if tracked {
+				defer installAttemptBudget(c)()
+			}
+			c.Header("Content-Type", "text/event-stream")
+			chunk := []byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n")
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = c.Writer.Write(chunk)
+			}
+		})
+	}
+}
+
+func TestAttemptLifecycleNativeJSONOnce(t *testing.T) {
+	c, rec := newHelperTestContext(http.MethodPost, "/v1/messages")
+	defer installAttemptBudget(c)()
+	h := &GatewayHandler{}
+	h.errorResponse(c, 403, "permission_error", "forbidden")
+	first := rec.Body.String()
+	require.Contains(t, first, "forbidden")
+	h.errorResponse(c, 502, "api_error", "late failure")
+	require.Equal(t, first, rec.Body.String())
+	require.Equal(t, lifecycle.Terminal, attemptResponse(c).State())
 }
