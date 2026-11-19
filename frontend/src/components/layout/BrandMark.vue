@@ -9,6 +9,7 @@ export interface BrandMarkProps {
   size?: 'sm' | 'md' | 'lg'
   showWordmark?: boolean
   tierLabel?: string
+  tierClass?: string
 }
 
 const props = withDefaults(defineProps<BrandMarkProps>(), {
@@ -16,7 +17,8 @@ const props = withDefaults(defineProps<BrandMarkProps>(), {
   siteLogo: undefined,
   size: 'md',
   showWordmark: true,
-  tierLabel: ''
+  tierLabel: '',
+  tierClass: ''
 })
 
 const displayName = computed(() => resolveBrandSiteName(props.siteName))
@@ -90,7 +92,10 @@ const wordmarkClasses = computed(() => {
       </span>
       <span
         v-if="tierLabel"
-        class="rounded-oh-xs border border-oh-default bg-oh-subtle px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-oh-muted"
+        :class="[
+          'shrink-0 whitespace-nowrap rounded-oh-xs border border-oh-default bg-oh-subtle px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-oh-muted',
+          tierClass
+        ]"
       >
         {{ tierLabel }}
       </span>
