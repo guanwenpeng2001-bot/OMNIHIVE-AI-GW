@@ -1,6 +1,77 @@
-# BE-30 identity compatibility inventory
+# BE-30 compatibility retirement register
 
 The B0 identity migration targets two stable releases, roughly 90 days after the first independent stable release. Confirm the cutover date and supported deployment inventory before starting that window. Keep each compatibility path until its owner reconciles client and deployment versions, verifies backup and restore where applicable, and rehearses the rollback. Source counts below describe in-repository entry points. Deployed caller counts are unknown until measured.
+
+## Decision at the integration baseline
+
+At `958fdedb1`, 87 catalog entries cover nine domains. The repository supplies no complete deployed-version census, supported caller count, or published, elapsed exit window for any entry. All 87 deployed-version lists and remaining caller counts start as **unknown**. This change retires zero APIs, storage paths or identities. Release smoke observations and a checkout SHA cannot establish fleet coverage. The [catalog](../../../backend/internal/legacy/retirement/catalog.tsv) lists the old surface, replacement, owner and exit gate for every observation ID. Related aliases sharing an owner and gate have one ID; its caller census must cover every alias.
+
+| Initial disposition | Entries | Evidence |
+| --- | ---: | --- |
+| Hold, documented v1 read projections | 3 | `public-model-plaza`, `usage-detail`, `plugin-list` still have first-party API clients. No verified production census or elapsed publication window. |
+| Hold, owner migration required | 74 | Wrappers, old schemas, credentials, plugins and runtime identities require the specific gate recorded against the ID. |
+| Preserve | 9 | Native inference, user and plugin administration, historic key/request/receipt/payment identities, verifiers and relay compatibility. |
+| Previously unregistered by BE-22 | 1 | Earlier MCP, onboarding, in-memory preferences/audit and rankings route family. Record old deployments and client fallbacks without claiming a BE-30 removal. |
+
+The v1 model plaza has optional authenticated pricing and visibility. Migrate both public and scoped readers to BE-05. The v1 usage detail has a numeric usage ID. BE-14 can read that historical identity as `legacy-usage-{id}` under the authorized project. The BE-20 v2 extension inventory has a different list shape; preserve v1 package management operations and confirm all required list fields before closing the old projection. The legacy Playground forwards a user action using an operator credential. Its change of authentication and funding requires a separate BE-13 cutover. [Runtime route inventory](../../../docs/refactor/backend/RUNTIME_MODES.md) · [BE-05 catalog](../BE-05/INTEGRATION.md) · [BE-14 historical lookup](../BE-14/INTEGRATION.md) · [BE-20 inventory](../../plugins/INTEGRATION.md) · [Identity source review](../../../docs/refactor/IDENTITY_ALLOWLIST.md)
+
+## Read a deployment
+
+Build in `backend` with `go build -o /tmp/omnihive-retire ./cmd/omnihive-retire`. Supply approved read-only application credentials through `OMNIHIVE_REFACTOR_DSN` and optional independent journal credentials through `OMNIHIVE_RESTORE_JOURNAL_DSN`. The report covers the connected instance and the fleet census registered there. Each invocation takes fresh read-only repeatable-read snapshots. The BE-23 application and independent restore snapshots and the BE-30 application snapshot may have different cutoffs. Quiesce changes before comparing release evidence. [BE-23 measurements](../BE-23/INTEGRATION.md)
+
+```sh
+umask 077
+/tmp/omnihive-retire scan > scan.json
+/tmp/omnihive-retire report --format=markdown > retirement.md
+/tmp/omnihive-retire plan --format=json > plan.json
+```
+
+`scan` and `report --format=json` return the same ordered contracts, BE-23 status, and storage counts. `plan` orders the domain reviews and lists IDs by disposition. `--dry-run` is the default and the only accepted execution mode. Exit codes are 0 for a completed report, 2 for usage or missing configuration and 1 for read/output failure. A completed report can contain blocked entries. Use the JSON for evidence exchange. Reports from unchanged data remain identical until an observation becomes current or expires.
+
+Storage probes count installations lacking a v2 manifest (including unknown manifests), verified plugin migration rows, live accounts without a clean workspace-matched connection, credential versions missing a matching owner/reference snapshot, pending/review receipts, and receipts without a journal link. Pre-journal historical receipts may legitimately lack a link. BE-23 adds counts for active recovery, retained resources and quarantines. An absent or inaccessible source, an incompatible older probe schema or active row filtering yields an unknown count. Storage rows, requests, source hits, idle leases and an empty database cannot measure distinct supported callers.
+
+## Register deployment evidence
+
+Migration [319](../../../backend/migrations/319_retirement_observations.sql) adds a table for reviewed attestations and leaves existing data readable. Running the CLI before 319 yields `register_available=false`; the catalog and available storage counts still report. The operator records one row per catalog ID and census cutoff using an inventory writer, separate from the read-only CLI. A review scope must include **all supported deployments** for that ID, including offline clients, old binaries, restore media, plugins, external SDKs and mixed-version workers as applicable. Use an opaque evidence UUID referring to a restricted artifact that identifies the covered instances and collection method. Keep raw payloads, DSNs, tickets, fingerprints and credential material out of the register.
+
+For example, supply a real catalog ID, cutoff, observation UUID and release label as `psql` variables for an initial partial observation. Other fields remain unknown until verified.
+
+```sql
+INSERT INTO public.retirement_observations
+    (contract_id, observed_at, evidence_id, deployed_versions)
+VALUES (:'contract_id', :'observed_at'::timestamptz, :'evidence_id'::uuid,
+        ARRAY[:'release_version']);
+```
+
+For a complete census use a new cutoff and record the following fields in the same insert. The latest `observed_at` for each ID controls the report. A later partial or expired observation supersedes the earlier zero. The composite primary key detects a duplicate cutoff; after a retry confirm the stored row matches the submitted evidence. A corrected observation gets a new cutoff.
+
+| Evidence | Fields and meaning |
+| --- | --- |
+| Measured deployment | `deployed_versions` includes every supported release observed in scope. `remaining_callers` counts distinct supported callers still depending on the old contract during the complete window. An unmeasured count stays NULL. `complete_census` attests full coverage. |
+| Time and publication | `coverage_from`, `observed_at` and `valid_until` bound the measurement and its validity. `notice_id` identifies the published announcement. `window_start` and `window_end` are its actual release-window instants. The owner must verify the announced stable releases and any longer retention, TTL or rollback requirements. |
+| Reconciliation and rollback | `minimum_binary` and `minimum_schema` record the rehearsed floor. `reconciliation_id` identifies the per-domain reconciliation including caller migration and reader/lease/receipt drain. `recovery_drill_id` identifies the verified backup, representative restore and rollback using the retained release and physical resources. |
+
+Only the three catalog entries marked `projection` can enter `review`. This requires a complete, current, zero-caller census, coverage spanning the full published window and its end, the recorded floor and both drill/reconciliation references. `review` requests owner verification of the referenced artifacts, specific exit gate and BE-24 release evidence. Removal requires a separate approved change. A future, stale, unknown or partial census produces `remaining_supported_callers=null`; the raw observed count remains available in `observed_callers`. Re-register or invalidate evidence when deployed versions change.
+
+## Review sequence and rollback
+
+| Order | Domain | Verify before narrowing support; rollback action |
+| ---: | --- | --- |
+| 1 | Control projections | Compare methods, shapes, scopes and IDs with the replacement for all supported consoles. Restore routing to the previous serving binary above the recorded floor. |
+| 2 | Identity | Resolve default-project and ownership quarantine. Restore previous readers with the same key digest, original RP and expanded schema. |
+| 3 | Credentials | Rehearse decrypt/verify with the original persistent key, inventory native refreshers and in-flight credential leases. Drain v2 admissions and restore verified version-bound reads. |
+| 4 | Catalog | Compare public/scoped visibility, price and action evidence. Republish the previous compatible snapshot with its original provenance. |
+| 5 | Execution | Reconcile tuple behavior, active streams, task generations, policy epochs and outstanding IDs. Fence the writer before resuming a compatible gateway or worker. |
+| 6 | Finance | Reconcile postings, holds, balances, historical invoices and pending callbacks/receipts per scope and currency. Recover using original effect IDs under a single writer. |
+| 7 | Plugins | Verify stockpiled signed artifacts, mappings, grants and bindings on every host. Restore the original verified package and trust policy with the recorded mapping. |
+| 8 | Operations | Verify audit custody, outboxes, telemetry purge and the independent restore journal. Preserve recorded generations and resolve outstanding operations before restarting workers. |
+| 9 | Runtime identities | Inventory every deployed alias, retained client and physical binding. Roll back using the same volume, keys and negotiated/derived protocol identities. |
+
+Coordinate dependent cutovers with the owner. Each P2 schema waits for its producer and each data contract waits for a recoverable backup, representative restore and a zero census of dependent readers, leases and receipts. Keep the additive schema during binary rollback. Preserve financial history, fingerprints, attribution and immutable migrations. [BE-23 recovery procedure](../../../docs/migrations/backend-v2/README.md) · [BE-24 release gates](../../../docs/runbooks/backend-v2/GA_CHECKLIST.md)
+
+## Isolated verification
+
+Run `oh-remote run . -- bash contracts/migrations/BE-30/smoke.sh` from the worktree, or set `BE30_INTEGRATION_TEST_DSN` to a disposable loopback PostgreSQL `job_test` URI. The fixture creates a uniquely named database and uses a read-only connection for the CLI. It checks pre-319 coverage, double application, deterministic scan/report/plan, a new census superseding an old zero, protected survivors, historical invoice/receipt lookup and storage fallbacks. The schema and domain gates are reviewed separately from production release evidence.
 
 ## Protocol retirement candidates
 

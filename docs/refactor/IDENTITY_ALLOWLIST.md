@@ -290,6 +290,9 @@ for the line expression. Add an entry only for attribution or a persisted or
 negotiated compatibility value.
 
 ```
+^backend/internal/modules/runtime/mode\.go$	"compatible-mode", "sub2api", "files"	BE-22 gateway-mode dispatch for the retained /sub2api/billing relay alias
+^backend/internal/legacy/retirement/catalog\.tsv$	sub2api	BE-30 read-only inventory of persisted or negotiated legacy identities
+^backend/internal/legacy/retirement/probes\.go$	public\.sub2api_plugin_installations	BE-30 read-only count of installed legacy plugin artifacts
 ^backend/internal/pkg/cursor/nal\.go$	Wei-Shaw/sub2api	upstream protocol provenance
 ^backend/internal/payment/provider/easypay_notify_security_test\.go$	Wei-Shaw/sub2api	test provenance
 ^backend/\.golangci\.yml$	Wei-Shaw/sub2api	legacy module path attribution
