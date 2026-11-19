@@ -438,12 +438,14 @@ ensure_frontend_dist() {
   fi
   require_command pnpm
   echo "+ frontend assets are required by the embed build"
-  (cd "${ROOT}/frontend" && pnpm run build)
+  (cd "${ROOT}/frontend" && NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" pnpm run build)
 }
 
 stage_frontend() {
   cd "${ROOT}/frontend"
   require_command pnpm
+  # The production bundle needs more heap than Node's 2 GB default on 7 GB hosts.
+  export NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}"
   if [[ ! -x node_modules/.bin/vitest ]]; then
     echo "+ pnpm install --frozen-lockfile"
     pnpm install --frozen-lockfile
