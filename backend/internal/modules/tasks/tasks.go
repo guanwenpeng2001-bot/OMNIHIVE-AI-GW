@@ -14,6 +14,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks/media"
 )
 
 var (
@@ -73,6 +74,7 @@ type Detail struct {
 	owner, key     int64
 	replayable     bool
 	sourceID       string
+	providerJob    *string
 }
 type Item struct {
 	ID         string   `json:"id"`
@@ -83,9 +85,11 @@ type Item struct {
 	Artifacts  []string `json:"artifact_ids"`
 }
 type Input struct {
-	Prompt string `json:"prompt"`
-	Size   string `json:"size,omitempty"`
-	Count  int    `json:"count,omitempty"`
+	Prompt   string `json:"prompt"`
+	Size     string `json:"size,omitempty"`
+	Count    int    `json:"count,omitempty"`
+	Format   string `json:"format,omitempty"`
+	Duration int    `json:"duration_seconds,omitempty"`
 }
 type Create struct {
 	Kind         string `json:"kind"`
@@ -128,17 +132,19 @@ type Runner interface {
 	Prepare(context.Context, Scope, Work) (Prepared, error)
 }
 type Work struct {
-	ID, Request, Model, IP, Action string
-	Lease                          Lease
-	Key                            int64
-	Input                          Input
+	ID, Request, Model, IP, Action, Kind string
+	Lease                                Lease
+	Key                                  int64
+	Input                                Input
 }
 type Prepared struct {
+	Media   *media.Proof
 	Version string
 	Run     func(context.Context) Outcome
 	Close   func()
 }
 type Outcome struct {
+	DurationMillis    int64
 	State, Acceptance string
 	Progress          *int
 	Artifacts         []Output
@@ -150,7 +156,11 @@ type Output struct {
 type BatchCanceler interface {
 	CancelBatch(context.Context, int64, int64, string) error
 }
+type VideoCanceler interface {
+	CancelVideo(context.Context, int64, int64, string) error
+}
 type Store struct {
+	Video   VideoCanceler
 	DB      *sql.DB
 	Runner  Runner
 	Cipher  Cipher
@@ -160,7 +170,7 @@ type Store struct {
 }
 
 func New(db *sql.DB, r Runner, c Cipher, o ObjectReader, b BatchCanceler) *Store {
-	return &Store{db, r, c, o, b, make(chan struct{}, 8)}
+	return &Store{DB: db, Runner: r, Cipher: c, Objects: o, Batch: b, slots: make(chan struct{}, 8)}
 }
 func Base(s Scope) string {
 	return fmt.Sprintf("/api/v2/workspaces/%d/projects/%d", s.WorkspaceID, s.ProjectID)

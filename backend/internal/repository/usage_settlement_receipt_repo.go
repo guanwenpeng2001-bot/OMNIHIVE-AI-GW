@@ -65,11 +65,9 @@ func scanUsageSettlement(row interface{ Scan(...any) error }) (*service.UsageSet
 	return &receipt, nil
 }
 
-func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
-	receipt, err := service.PrepareUsageSettlementReceipt(input)
-	if err != nil {
-		return nil, err
-	}
+// insertUsageSettlementReceipt serializes the same frozen evidence for ordinary
+// writes and jobs that already own their financial transaction.
+func insertUsageSettlementReceipt(ctx context.Context, executor sqlExecutor, receipt *service.UsageSettlementReceipt) (sql.Result, error) {
 	usage := receipt.Usage
 	// Keep one authoritative copy of frozen pricing in the receipt columns.
 	usage.PricingState, usage.PricingSnapshot = "", ""
@@ -82,13 +80,21 @@ func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *s
 		return nil, err
 	}
 	// This commit precedes settlement. ON CONFLICT never overwrites frozen input.
-	_, err = r.db.ExecContext(ctx, `INSERT INTO usage_settlement_receipts
+	result, err := executor.ExecContext(ctx, `INSERT INTO usage_settlement_receipts
 (request_id,api_key_id,user_id,account_id,request_fingerprint,usage_json,billing_command,pricing_state,pricing_snapshot,resolution_state,completion_state,state)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 ON CONFLICT (request_id,api_key_id) DO NOTHING`, receipt.Key.RequestID, receipt.Key.APIKeyID, receipt.Key.UserID,
 		receipt.Command.AccountID, receipt.Command.RequestFingerprint, string(usageJSON), string(commandJSON), receipt.Usage.PricingState,
 		receipt.Usage.PricingSnapshot, receipt.ResolutionState, receipt.CompletionState, receipt.State)
+	return result, err
+}
+
+func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	receipt, err := service.PrepareUsageSettlementReceipt(input)
 	if err != nil {
+		return nil, err
+	}
+	if _, err = insertUsageSettlementReceipt(ctx, r.db, receipt); err != nil {
 		return nil, err
 	}
 	stored, err := r.Get(ctx, receipt.Key)

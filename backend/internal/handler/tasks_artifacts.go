@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"context"
-
 	"io"
 	"net/http"
 	"net/url"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
-
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
@@ -22,11 +20,12 @@ type ImageTaskArtifacts struct {
 	Objects  service.BackupObjectStore
 	Batches  *service.BatchImageDownloadService
 	Commands *service.BatchImagePublicService
+	video    taskVideoResults
 	delivery *service.ControlledEgress
 }
 
 func NewImageTaskArtifacts(o service.BackupObjectStore, b *service.BatchImageDownloadService, c *service.BatchImagePublicService) *ImageTaskArtifacts {
-	return &ImageTaskArtifacts{o, b, c, service.NewArtifactEgress()}
+	return &ImageTaskArtifacts{Objects: o, Batches: b, Commands: c, delivery: service.NewArtifactEgress()}
 }
 func (r *ImageTaskArtifacts) CancelBatch(ctx context.Context, user, key int64, id string) error {
 	if r.Commands == nil {
@@ -37,6 +36,8 @@ func (r *ImageTaskArtifacts) CancelBatch(ctx context.Context, user, key int64, i
 }
 func (r *ImageTaskArtifacts) Open(ctx context.Context, v tasks.ArtifactContent) (io.ReadCloser, error) {
 	switch v.Source {
+	case "media_video":
+		return r.video.Open(ctx, v)
 	case "gateway":
 		if r.Objects == nil || !strings.HasPrefix(v.Locator, "task-artifacts/"+v.SourceID+"/") {
 			return nil, tasks.Unavailable

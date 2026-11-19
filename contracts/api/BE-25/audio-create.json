@@ -1,0 +1,1 @@
+{"kind":"audio","model_id":"m_fixture_qwen_tts","api_key_id":"41","input":{"prompt":"Read this line.","format":"wav"},"funding_acknowledged":true}

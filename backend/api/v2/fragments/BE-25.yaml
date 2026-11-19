@@ -1,0 +1,46 @@
+components:
+  schemas:
+    TaskCenterKind:
+      type: string
+      enum: [image, audio, video]
+    TaskCenterCreate:
+      oneOf:
+        - {$ref: '#/components/schemas/ImageTaskCreate'}
+        - {$ref: '#/components/schemas/AudioTaskCreate'}
+        - {$ref: '#/components/schemas/VideoTaskCreate'}
+    AudioTaskCreate:
+      type: object
+      description: Synchronous Qwen speech with the Cherry voice. The native tariff uses provider-reported characters. Output is a private PCM WAV up to 120 seconds and 32 MiB. Cancellation is unavailable after dispatch.
+      additionalProperties: false
+      required: [kind, model_id, api_key_id, input, funding_acknowledged]
+      properties:
+        kind: {const: audio}
+        model_id: {type: string, minLength: 1, maxLength: 255}
+        api_key_id: {type: string, pattern: '^[1-9][0-9]*$'}
+        funding_acknowledged: {const: true}
+        input:
+          type: object
+          additionalProperties: false
+          required: [prompt, format]
+          properties:
+            prompt: {type: string, minLength: 1, maxLength: 600}
+            format: {const: wav}
+    VideoTaskCreate:
+      type: object
+      description: Wan 2.6 text-to-video with one five-second 720p MP4 up to 256 MiB. The native tariff uses reported duration and the admitted resolution. A verified queued job can request cancellation. Polling confirms its terminal state.
+      additionalProperties: false
+      required: [kind, model_id, api_key_id, input, funding_acknowledged]
+      properties:
+        kind: {const: video}
+        model_id: {type: string, minLength: 1, maxLength: 255}
+        api_key_id: {type: string, pattern: '^[1-9][0-9]*$'}
+        funding_acknowledged: {const: true}
+        input:
+          type: object
+          additionalProperties: false
+          required: [prompt, format, size, duration_seconds]
+          properties:
+            prompt: {type: string, minLength: 1, maxLength: 8000}
+            format: {const: mp4}
+            size: {const: 1280x720}
+            duration_seconds: {const: 5}

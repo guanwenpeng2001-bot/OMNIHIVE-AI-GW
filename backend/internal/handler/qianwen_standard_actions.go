@@ -104,7 +104,12 @@ func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianw
 		defer release()
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(c, adm.body)
-	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(c.Request.Context(), adm.key.GroupID, "", sessionHash, adm.model, nil, service.OpenAIUpstreamTransportHTTPSSE, capability, false, false, true, service.PlatformQianwen)
+	excluded, err := h.gatewayService.MediaTaskExclusions(c.Request.Context(), adm.key.GroupID)
+	if err != nil {
+		h.errorResponse(c, 503, "api_error", "Media task endpoint selection unavailable")
+		return nil, nil, false
+	}
+	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(c.Request.Context(), adm.key.GroupID, "", sessionHash, adm.model, excluded, service.OpenAIUpstreamTransportHTTPSSE, capability, false, false, true, service.PlatformQianwen)
 	if err != nil || selection == nil || selection.Account == nil {
 		message := "No Qianwen account available for this model"
 		if err != nil {
@@ -123,6 +128,10 @@ func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianw
 	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, adm.key, adm.model, protocol, h.maxAccountSwitches)()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	if err := service.ValidateMediaTaskAccount(c.Request.Context(), account, adm.model); err != nil {
+		h.errorResponse(c, 422, "unsupported_operation_error", "Selected endpoint is unavailable for this media task")
+		return nil, nil, false
+	}
 	result, err := forward(account)
 	if writeGatewayTPMError(c, err) {
 		return nil, nil, false

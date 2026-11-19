@@ -273,11 +273,17 @@ func (h *Handler) content(r request) (any, error) {
 		return nil, err
 	}
 	mime := v.ContentType
-	if !slices.Contains([]string{"image/png", "image/jpeg", "image/gif", "image/webp"}, mime) {
+	if !slices.Contains([]string{"image/png", "image/jpeg", "image/gif", "image/webp", "audio/wav", "video/mp4"}, mime) {
 		mime = "application/octet-stream"
 	}
 	r.Header("X-Content-Type-Options", "nosniff")
-	r.Header("Content-Disposition", `attachment; filename="image"`)
+	filename := "image"
+	if mime == "audio/wav" {
+		filename = "audio.wav"
+	} else if mime == "video/mp4" {
+		filename = "video.mp4"
+	}
+	r.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	r.Header("Content-Type", mime)
 	if v.Size != nil {
 		r.Header("Content-Length", strconv.FormatInt(*v.Size, 10))

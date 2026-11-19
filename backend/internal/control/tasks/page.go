@@ -55,7 +55,7 @@ func (h *Handler) page(r request, items bool) (domain.Page, token, error) {
 			}
 		case "kind", "state", "model_id":
 			for _, s := range vs {
-				if s == "" || len(s) > 255 || (k == "kind" && s != "image") || (k == "state" && !slices.Contains([]string{"queued", "running", "failed", "canceled", "unknown", "succeeded"}, s)) {
+				if s == "" || len(s) > 255 || (k == "kind" && !slices.Contains([]string{"image", "audio", "video"}, s)) || (k == "state" && !slices.Contains([]string{"queued", "running", "failed", "canceled", "unknown", "succeeded"}, s)) {
 					return p, v, fault.Invalid("/" + k)
 				}
 			}
