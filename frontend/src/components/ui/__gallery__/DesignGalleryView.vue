@@ -467,7 +467,7 @@ onMounted(() => {
               <Button size="md" variant="secondary">Size MD</Button>
               <Button size="lg" variant="primary">Size LG Action</Button>
               <Tooltip content="Inspect raw JSON payload (⌘I)">
-                <IconButton aria-label="Inspect raw JSON payload" variant="secondary">
+                <IconButton aria-label="Inspect raw JSON payload" ariaLabel="Inspect raw JSON payload" variant="secondary">
                   <span class="font-mono text-xs">{}</span>
                 </IconButton>
               </Tooltip>
