@@ -31,6 +31,12 @@ type queryer interface {
 
 type scanner interface{ Scan(...any) error }
 
+func databaseTime(ctx context.Context, q queryer) (time.Time, error) {
+	var now time.Time
+	err := q.QueryRowContext(ctx, `SELECT statement_timestamp()`).Scan(&now)
+	return now.UTC(), err
+}
+
 func (s *Store) beginMutation(ctx context.Context) (*sql.Tx, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -220,7 +226,10 @@ func (s *Store) Target(ctx context.Context, actor int64, rawID string) (TargetDe
 	if err != nil {
 		return TargetDetail{}, err
 	}
-	now := time.Now()
+	now, err := databaseTime(ctx, tx)
+	if err != nil {
+		return TargetDetail{}, err
+	}
 	latest, err := latestObservation(ctx, tx, id, t.Matrix, now, false)
 	if err != nil {
 		return TargetDetail{}, err
@@ -229,7 +238,7 @@ func (s *Store) Target(ctx context.Context, actor int64, rawID string) (TargetDe
 	if err != nil {
 		return TargetDetail{}, err
 	}
-	release, err := currentPublication(ctx, tx, t.cellID(), now)
+	release, err := currentPublication(ctx, tx, t.cellID())
 	if err != nil {
 		return TargetDetail{}, err
 	}
@@ -263,13 +272,14 @@ func latestObservation(ctx context.Context, q queryer, id uuid.UUID, m Matrix, n
 	return obs, err
 }
 
-func loadOperation(ctx context.Context, q queryer, id uuid.UUID, now time.Time) (identity.Operation, error) {
+func loadOperation(ctx context.Context, q queryer, id uuid.UUID) (identity.Operation, error) {
 	var op identity.Operation
+	var now time.Time
 	var target uuid.UUID
 	var m Matrix
-	err := q.QueryRowContext(ctx, `SELECT j.state, j.actor_id, t.id, t.entry_id, t.adapter_version, t.action, t.account_mode, t.protocol
+	err := q.QueryRowContext(ctx, `SELECT j.state, j.actor_id, t.id, t.entry_id, t.adapter_version, t.action, t.account_mode, t.protocol, statement_timestamp()
 		FROM catalog_verification_jobs j JOIN catalog_verification_targets t ON t.id=j.target_id
-		WHERE j.id=$1`, id).Scan(&op.State, &op.OwnerID, &target, &m.EntryID, &m.AdapterVersion, &m.Action, &m.AccountMode, &m.Protocol)
+		WHERE j.id=$1`, id).Scan(&op.State, &op.OwnerID, &target, &m.EntryID, &m.AdapterVersion, &m.Action, &m.AccountMode, &m.Protocol, &now)
 	if errors.Is(err, sql.ErrNoRows) {
 		return identity.Operation{}, fault.NotFound
 	}
@@ -301,7 +311,7 @@ func (s *Store) ReadOperation(ctx context.Context, workspace, actor int64, rawID
 		}
 		return identity.Operation{}, err
 	}
-	return loadOperation(ctx, s.db, id, time.Now())
+	return loadOperation(ctx, s.db, id)
 }
 
 var _ identity.OperationReader = (*Store)(nil)

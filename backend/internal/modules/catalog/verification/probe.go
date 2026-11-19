@@ -112,11 +112,11 @@ func importConnectionEvidence(ctx context.Context, tx *sql.Tx, id uuid.UUID, t T
 		return nil
 	}
 	var payload []byte
-	var expiry time.Time
-	err := tx.QueryRowContext(ctx, `SELECT snapshot, expires_at FROM connection_verifications
+	var expiry, now time.Time
+	err := tx.QueryRowContext(ctx, `SELECT snapshot, expires_at, statement_timestamp() FROM connection_verifications
 		WHERE id=$1 AND workspace_id=$2 AND account_id=$3 AND eligible AND credential_version=$4
 			AND proxy_revision=$5 AND expires_at>statement_timestamp()`,
-		s.verifiedID.String, domain.DefaultWorkspaceID, t.ConnectionID, s.credentialVersion, s.proxyRevision).Scan(&payload, &expiry)
+		s.verifiedID.String, domain.DefaultWorkspaceID, t.ConnectionID, s.credentialVersion, s.proxyRevision).Scan(&payload, &expiry, &now)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -124,7 +124,7 @@ func importConnectionEvidence(ctx context.Context, tx *sql.Tx, id uuid.UUID, t T
 		return err
 	}
 	var previous connections.Verification
-	if json.Unmarshal(payload, &previous) != nil || previous.VerifiedAt.IsZero() || previous.VerifiedAt.After(time.Now()) ||
+	if json.Unmarshal(payload, &previous) != nil || previous.VerifiedAt.IsZero() || previous.VerifiedAt.After(now) ||
 		!previous.VerifiedAt.Before(expiry) || !slices.Contains(previous.Models, t.Model) ||
 		!slices.ContainsFunc(previous.Checks, func(c connections.Check) bool { return c.Name == "discover_models" && c.State == "passed" }) {
 		return nil

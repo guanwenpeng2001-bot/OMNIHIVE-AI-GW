@@ -149,8 +149,8 @@ func TestVerificationLifecycleHTTPPostgres(t *testing.T) {
 	}
 	Register(v2, New(store), session)
 	identityhttp.Register(v2, identityhttp.New(access, identity.Operations{Readers: []identity.OperationReader{store}}, cfg), session)
-	reader := catalog.NewReader(catalogSource(func(ctx context.Context, _ catalog.Perspective, _ catalog.Window, at time.Time) (catalog.Input, error) {
-		compat, err := verification.ReadPublished(ctx, db, []string{entry}, at)
+	reader := catalog.NewReader(catalogSource(func(ctx context.Context, _ catalog.Perspective, _ catalog.Window, _ time.Time) (catalog.Input, error) {
+		compat, err := verification.ReadPublished(ctx, db, []string{entry})
 		return catalog.Input{
 			Models:        []catalog.Candidate{{Provider: "openai", Model: model}},
 			Compatibility: compat,
@@ -275,7 +275,7 @@ func TestVerificationLifecycleHTTPPostgres(t *testing.T) {
 	require.Equal(t, "failed", rejected.State)
 	require.Equal(t, "CREDENTIAL_REJECTED", rejected.Reason)
 	upstreamState.Store(2)
-	inconclusive := run("public upstream")
+	inconclusive := run("public-upstream")
 	require.Equal(t, "unknown", inconclusive.State)
 	require.Equal(t, "unknown", inconclusive.Freshness)
 	require.Nil(t, inconclusive.VerifiedAt)
@@ -286,9 +286,9 @@ func TestVerificationLifecycleHTTPPostgres(t *testing.T) {
 	require.Equal(t, good.ID, public().Compatibility[0].Evidence.ID)
 	publish("cannot-republish", `"2"`, verification.Publish{Maturity: "stable", EvidenceID: good.ID}, 409)
 
-	staleView, err := verification.ReadPublished(ctx, db, []string{entry}, good.ExpiresAt)
-	require.NoError(t, err)
-	require.Equal(t, "stale", staleView[entry][0].Evidence.Freshness)
+	exec(`UPDATE catalog_verification_evidence SET expires_at=observed_at+interval '1 millisecond' WHERE id=$1`,
+		strings.TrimPrefix(good.ID, "ve_"))
+	require.Equal(t, "stale", public().Compatibility[0].Evidence.Freshness)
 
 	sunset := time.Now().UTC().Add(time.Hour)
 	deprecation := publish("retire", `"2"`, verification.Publish{Maturity: "deprecated", Reason: "superseded", SunsetAt: &sunset}, 201)
