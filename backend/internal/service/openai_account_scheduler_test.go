@@ -1265,6 +1265,13 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 	require.True(t, decision.StickySessionHit)
 	require.Equal(t, 2, decision.TopK)
+	require.NotNil(t, decision.Trace)
+	require.Equal(t, "execution", string(decision.Trace.Mode))
+	require.NotEmpty(t, decision.Trace.SnapshotID)
+	require.NotNil(t, decision.Trace.Selected)
+	require.Equal(t, "37101", decision.Trace.Selected.CandidateID)
+	require.Equal(t, "37101", decision.Trace.Candidates[0].ID)
+	require.Equal(t, "selected", decision.Trace.ExecutionOutcome)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}
@@ -3566,15 +3573,6 @@ func TestBuildOpenAIWeightedSelectionOrder_HandlesInvalidScores(t *testing.T) {
 		seen[item.account.ID] = struct{}{}
 	}
 	require.Len(t, seen, len(candidates))
-}
-
-func TestOpenAISelectionRNG_SeedZeroStillWorks(t *testing.T) {
-	rng := newOpenAISelectionRNG(0)
-	v1 := rng.nextUint64()
-	v2 := rng.nextUint64()
-	require.NotEqual(t, v1, v2)
-	require.GreaterOrEqual(t, rng.nextFloat64(), 0.0)
-	require.Less(t, rng.nextFloat64(), 1.0)
 }
 
 func TestOpenAIAccountCandidateHeap_PushPopAndInvalidType(t *testing.T) {

@@ -1,19 +1,18 @@
 package service
 
-// 本文件由 gateway_service.go 纯移动拆分而来：账号选择与负载感知调度、窗口费用
-// 与 RPM 预取、候选排序/过滤、混合平台调度与选择失败诊断。仅做代码搬迁，
-// 无任何行为变更。
-
 import (
 	"context"
 	"fmt"
 	"log/slog"
 	mathrand "math/rand"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/planner"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
@@ -108,7 +107,12 @@ func (s *GatewayService) selectAccountForModelWithSelectionContext(ctx context.C
 // SelectAccountWithLoadAwareness selects account with load-awareness and wait plan.
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // gatewayUserID: 系统用户 ID，用于二维亲和调度
-func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, gatewayUserID int64) (*AccountSelectionResult, error) {
+func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, gatewayUserID int64) (selection *AccountSelectionResult, err error) {
+	evidence := newOpenAIRoutingEvidence(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, SessionHash: sessionHash, RequestedModel: requestedModel,
+	}, time.Now())
+	layer := "legacy_affinity_or_routing"
+	defer func() { evidence.finish(ctx, selection, layer) }()
 	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
@@ -241,6 +245,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 		}
 	}
+	evidence.features.ModelID = requestedModel
 	preferOAuth := platform == PlatformGemini
 	if s.debugModelRoutingEnabled() && requestedModel != "" && modelRoutingAppliesToTargetPlatform(platform) {
 		logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] load-aware enabled: group_id=%v model=%s session=%s platform=%s", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), platform)
@@ -675,45 +680,37 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		"reason", "sticky_not_used_falling_back_to_load_balance",
 		"total_accounts", len(accounts),
 	)
+	layer = "legacy_load_balance"
 	candidates := make([]*Account, 0, len(accounts))
 	channelRestrictedCount := 0
 	for i := range accounts {
 		acc := &accounts[i]
-		if isExcluded(acc.ID) {
-			continue
-		}
-		// Scheduler snapshots can be temporarily stale (bucket rebuild is throttled);
-		// re-check schedulability here so recently rate-limited/overloaded accounts
-		// are not selected again before the bucket is rebuilt.
-		if !s.isAccountSchedulableForSelection(acc) {
-			continue
-		}
-		if !s.isGatewayAccountProfitEligible(ctx, acc) {
-			continue
-		}
-		if !s.isAccountAllowedForPlatform(acc, platform, useMixed) {
-			continue
-		}
-		if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel) {
-			continue
-		}
-		if isChannelRestricted(acc) {
+		var reason string
+		switch {
+		case isExcluded(acc.ID):
+			reason = "EXCLUDED"
+		case !s.isAccountSchedulableForSelection(acc):
+			reason = "NOT_SCHEDULABLE"
+		case !s.isGatewayAccountProfitEligible(ctx, acc):
+			reason = "PROFIT_INELIGIBLE"
+		case !s.isAccountAllowedForPlatform(acc, platform, useMixed):
+			reason = "PLATFORM_MISMATCH"
+		case requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel):
+			reason = "MODEL_DENIED"
+		case isChannelRestricted(acc):
 			channelRestrictedCount++
-			continue
+			reason = "CHANNEL_PRICE_RESTRICTED"
+		case !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel):
+			reason = "MODEL_NOT_SCHEDULABLE"
+		case !s.isAccountSchedulableForQuota(acc):
+			reason = "QUOTA_EXHAUSTED"
+		case !s.isAccountSchedulableForWindowCost(ctx, acc, false):
+			reason = "WINDOW_COST_EXCEEDED"
+		case !s.isAccountSchedulableForRPM(ctx, acc, false):
+			reason = "RPM_EXCEEDED"
 		}
-		if !s.isAccountSchedulableForModelSelection(ctx, acc, requestedModel) {
-			continue
-		}
-		// 配额检查
-		if !s.isAccountSchedulableForQuota(acc) {
-			continue
-		}
-		// 窗口费用检查（非粘性会话路径）
-		if !s.isAccountSchedulableForWindowCost(ctx, acc, false) {
-			continue
-		}
-		// RPM 检查（非粘性会话路径）
-		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
+		if reason != "" {
+			evidence.rejected[acc.ID] = reason
 			continue
 		}
 		candidates = append(candidates, acc)
@@ -753,62 +750,54 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			return result, nil
 		}
 	} else {
-		var available []accountWithLoad
+		in := evidence.snapshot
+		in.AsOf = time.Now().UTC()
+		in.Candidates = make([]snapshot.Candidate, 0, len(accounts))
+		byID := make(map[string]*Account, len(candidates))
 		for _, acc := range candidates {
-			loadInfo := loadMap[acc.ID]
-			if loadInfo == nil {
-				loadInfo = &AccountLoadInfo{AccountID: acc.ID}
+			id := strconv.FormatInt(acc.ID, 10)
+			byID[id] = acc
+			candidate := snapshot.Candidate{
+				ID: id, ModelID: requestedModel, Priority: acc.Priority, LastUsedAt: acc.LastUsedAt,
+				PreferOAuth: preferOAuth && acc.Type == AccountTypeOAuth,
 			}
-			if loadInfo.LoadRate < 100 {
-				available = append(available, accountWithLoad{
-					account:  acc,
-					loadInfo: loadInfo,
-				})
-			}
-		}
-
-		// 分层过滤选择：优先级 →（可选）最早重置 → 负载率 → LRU
-		for len(available) > 0 {
-			// 1. 取优先级最小的集合
-			candidates := filterByMinPriority(available)
-			// 2. （可选）use-it-or-lose-it：优先选用会话窗口最早重置的账号
 			if cfg.PreferSoonestReset {
-				candidates = filterBySoonestReset(candidates)
+				candidate.ResetAt = acc.SessionWindowEnd
 			}
-			// 3. 取负载率最低的集合
-			candidates = filterByMinLoadRate(candidates)
-			// 4. LRU 选择最久未用的账号
-			selected := selectByLRU(candidates, preferOAuth)
-			if selected == nil {
-				break
-			}
-
-			result, err := s.tryAcquireAccountSlot(ctx, selected.account.ID, selected.account.Concurrency)
-			if err == nil && result.Acquired {
-				// 会话数量限制检查
-				if !s.checkAndRegisterSession(ctx, selected.account, sessionHash) {
-					result.ReleaseFunc() // 释放槽位，继续尝试下一个账号
-				} else {
-					if sessionHash != "" && s.cache != nil {
-						_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, selected.account.ID)
-					}
-					return s.newSelectionResult(ctx, selected.account, true, result.ReleaseFunc, nil)
+			if load := loadMap[acc.ID]; load != nil {
+				candidate.LoadRate = load.LoadRate
+				if load.LoadRate >= 100 {
+					candidate.Rejection = "CAPACITY_FULL"
 				}
 			}
-
-			// 移除已尝试的账号，重新进行分层过滤
-			selectedID := selected.account.ID
-			newAvailable := make([]accountWithLoad, 0, len(available)-1)
-			for _, acc := range available {
-				if acc.account.ID != selectedID {
-					newAvailable = append(newAvailable, acc)
-				}
+			in.Candidates = append(in.Candidates, candidate)
+		}
+		for id, reason := range evidence.rejected {
+			in.Candidates = append(in.Candidates, snapshot.Candidate{ID: strconv.FormatInt(id, 10), Rejection: reason})
+		}
+		evidence.decision = planner.Plan(evidence.features, planner.EffectivePolicy{LegacyLRU: true}, in)
+		for _, candidate := range evidence.decision.Candidates {
+			if candidate.Rank == nil {
+				continue
 			}
-			available = newAvailable
+			account := byID[candidate.ID]
+			result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+			if err != nil || !result.Acquired {
+				continue
+			}
+			if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+				result.ReleaseFunc()
+				continue
+			}
+			if sessionHash != "" && s.cache != nil {
+				_ = s.bindGatewayStickySessionDuringSelection(ctx, groupID, sessionHash, account.ID)
+			}
+			return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 		}
 	}
 
 	// ============ Layer 3: 兜底排队 ============
+	layer = "legacy_wait"
 	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
