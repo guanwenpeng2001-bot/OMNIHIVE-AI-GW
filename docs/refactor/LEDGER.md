@@ -22,7 +22,7 @@ Status legend: todo / doing / review / merged / blocked
 | BE-14 | Request list, detail and route explanation | gpt-6.2-sol | codex/be-14-requests | doing | from 2bff07381 |
 | BE-15 | Fenced task and artifact center | gpt-6.2-astra | codex/be-15-tasks | doing | from 2bff07381 |
 | BE-20 | Plugin v2 SDK and host capability enforcement | gpt-6.2-astra | codex/be-20-plugins | doing | from 2bff07381 |
-| BE-23 | Migration inventory and cutover tooling (prep) | gpt-6.2-sol | codex/be-23-migration | doing | prep-only slice |
+| BE-23 | Migration inventory and cutover tooling (prep) | gpt-6.2-sol | codex/be-23-migration | merged | afd408412; inventory/status CLI + migration 312; eligible_for_switch=false until BE-10/11/12/15/22 land |
 | RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | merged | b33cecb5a; 1×P1 (BE-05 pricing) fixed, FE-WP1 P1s in flight |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
