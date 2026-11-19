@@ -96,6 +96,7 @@ type Endpoint struct {
 }
 
 type Offer struct {
+	GroupID          int64
 	Access, Eligible bool
 	Facts            []ModelFacts
 	Endpoints        []Endpoint
@@ -188,6 +189,7 @@ type Benchmark struct {
 }
 
 type Detail struct {
+	EligibleGroups   []int64      `json:"-"`
 	Model            Summary      `json:"model"`
 	Aliases          []string     `json:"aliases"`
 	Facts            []ModelFacts `json:"model_facts"`

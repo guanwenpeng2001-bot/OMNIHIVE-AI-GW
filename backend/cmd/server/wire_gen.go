@@ -34,10 +34,10 @@ import (
 	audit2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
-	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
@@ -378,39 +378,39 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	openAIQuotaAutoResetService := provideOpenAIQuotaAutoResetService(supervisor, accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
 	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	postgresStore := postgres.New(db)
-	connectionsStore := connections.New(db, postgresStore, aesEncryptor, accountTestService, cfg)
-	be09Runtime, err := be09.New(db, cfg, backupService, postgresStore, totpService, userService)
+	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
+	reader := catalog.NewReader(source, postgresStore)
+	store2 := postgres2.NewWithCatalog(db, reader)
+	connectionsStore := connections.New(db, store2, aesEncryptor, accountTestService, cfg)
+	be09Runtime, err := be09.New(db, cfg, backupService, store2, totpService, userService)
 	if err != nil {
 		return nil, err
 	}
-	requestsHandler := requestsHandlerProvider(db, postgresStore, cfg)
-	billingHandler := billingHandlerProvider(db, postgresStore, totpService, cfg)
-	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, postgresStore, cfg)
-	auditStore := auditStoreProvider(db, postgresStore)
-	paymentsHandler := paymentEvidenceHandlerProvider(store, postgresStore, totpService)
+	requestsHandler := requestsHandlerProvider(db, store2, cfg)
+	billingHandler := billingHandlerProvider(db, store2, totpService, cfg)
+	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, store2, cfg)
+	auditStore := auditStoreProvider(db, store2)
+	paymentsHandler := paymentEvidenceHandlerProvider(store, store2, totpService)
 	operations := provideIdentityOperations(connectionsStore, be09Runtime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler)
-	identityHandler := identity.New(postgresStore, operations, cfg)
+	identityHandler := identity.New(store2, operations, cfg)
 	connectionsHandler := connections2.New(connectionsStore)
-	store2 := postgres2.New(db)
-	source := legacy.NewSource(store2, modelPlazaService, settingService, apiKeyService, opsService)
-	reader := catalog.NewReader(source, store2)
-	modelsHandler := models.New(reader, postgresStore, cfg)
+	modelsHandler := models.New(reader, store2, cfg)
 	restoreHandler := restore.New(be09Runtime)
 	policyStore := policies.NewStore(db, cfg)
-	policiesHandler := policies.New(policyStore, postgresStore)
-	playgroundHandler := playgroundHandlerProvider(db, postgresStore, postgresStore, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, cfg)
-	statusHandler := statusHandlerProvider(db, postgresStore, cfg, opsService)
+	policiesHandler := policies.New(policyStore, store2)
+	playgroundHandler := playgroundHandlerProvider(db, store2, store2, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, cfg)
+	statusHandler := statusHandlerProvider(db, store2, cfg, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
 	auditHandler := auditHandlerProvider(auditStore, observer, cfg)
-	tasksHandler := handler.ProvideImageTaskCenter(db, cfg, postgresStore, postgresStore, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
+	tasksHandler := handler.ProvideImageTaskCenter(db, cfg, store2, store2, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService, auditLogService)
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, tasksHandler, postgresStore, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(cfg, engine)
 	opsMetricsCollector := provideOpsMetricsCollector(supervisor, opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, cfg)
 	opsAggregationService := provideOpsAggregationService(supervisor, opsRepository, settingRepository, db, redisClient, cfg)
@@ -466,7 +466,7 @@ type Application struct {
 	Cleanup         func()
 }
 
-func requestsHandlerProvider(db *sql.DB, store *postgres.Store, cfg *config.Config) *requests.Handler {
+func requestsHandlerProvider(db *sql.DB, store *postgres2.Store, cfg *config.Config) *requests.Handler {
 	return handler.ProvideRequestsHandler(db, store, cfg)
 }
 
@@ -494,7 +494,7 @@ func playgroundHandlerProvider(
 	}, cfg.TrustForwardedIPForAPIKeyACL())
 }
 
-func auditStoreProvider(db *sql.DB, access *postgres.Store) *audit2.Store {
+func auditStoreProvider(db *sql.DB, access *postgres2.Store) *audit2.Store {
 	return audit2.New(db, access)
 }
 
@@ -512,11 +512,11 @@ func byokHandlerProvider(store *byok.Store) *byok2.Handler {
 	return byok2.New(store)
 }
 
-func statusHandlerProvider(db *sql.DB, store *postgres.Store, cfg *config.Config, ops *service.OpsService) *status.Handler {
+func statusHandlerProvider(db *sql.DB, store *postgres2.Store, cfg *config.Config, ops *service.OpsService) *status.Handler {
 	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
 
-func billingHandlerProvider(db *sql.DB, store *postgres.Store, totp *service.TotpService, cfg *config.Config) *billing.Handler {
+func billingHandlerProvider(db *sql.DB, store *postgres2.Store, totp *service.TotpService, cfg *config.Config) *billing.Handler {
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 

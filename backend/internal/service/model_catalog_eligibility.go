@@ -679,6 +679,14 @@ func computeAccountBindingEndpoint(account *Account, model string, options Accou
 		return false
 	}
 	endpointDeclarationChanged := false
+	if endpoint == "embeddings" && member.EvidenceKind == ModelEvidenceConfiguredSelection {
+		// Older configuration-only projections included every installed adapter.
+		// Recompute this family from model evidence before using a saved projection.
+		metadata, _ := account.GetUpstreamModelMetadata(member.ID)
+		if !catalogEndpointsContain(accountCatalogModelEndpoints(account, member.ID, metadata), endpoint) {
+			return false
+		}
+	}
 	if concreteMappedModel(account, member.ID) {
 		// Saved manual selections may name private or newly released media
 		// models. Optional task facts cannot remove installed action adapters.

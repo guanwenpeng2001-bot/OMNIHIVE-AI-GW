@@ -279,7 +279,10 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 	}
 	_ = rows.Close()
 	if keyID != 0 {
-		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist FROM api_keys api_key LEFT JOIN groups resource_group ON resource_group.id=api_key.group_id WHERE api_key.id=$1 AND api_key.workspace_id=$2 AND api_key.deleted_at IS NULL`, keyID, domain.ResourceWorkspaceID(ctx))
+		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist, CASE WHEN project.api_key_id IS NOT NULL THEN coalesce(resource_group.platform,'') ELSE '' END
+ FROM api_keys api_key LEFT JOIN groups resource_group ON resource_group.id=api_key.group_id AND resource_group.workspace_id=api_key.workspace_id
+ LEFT JOIN project_key_policies project ON project.api_key_id=api_key.id AND project.workspace_id=api_key.workspace_id
+ WHERE api_key.id=$1 AND api_key.workspace_id=$2 AND api_key.deleted_at IS NULL`, keyID, domain.ResourceWorkspaceID(ctx))
 		if readErr != nil {
 			return snapshot, readErr
 		}
@@ -292,7 +295,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 			return snapshot, service.ErrModelAccessNotFound
 		}
 		var encoded []byte
-		readErr = groupRows.Scan(&encoded)
+		readErr = groupRows.Scan(&encoded, &snapshot.ProjectKeyPlatform)
 		_ = groupRows.Close()
 		if readErr != nil {
 			return snapshot, readErr

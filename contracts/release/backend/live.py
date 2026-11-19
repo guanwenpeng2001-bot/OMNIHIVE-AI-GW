@@ -81,6 +81,7 @@ def error_code(body):
 
 
 class Upstream(BaseHTTPRequestHandler):
+    discovery_key = None
     calls = collections.Counter()
     elapsed = {}
     def log_message(self, *_):
@@ -96,6 +97,9 @@ class Upstream(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/v1/models":
+            if not self.discovery_key or self.headers.get("Authorization") != "Bearer "+self.discovery_key:
+                self.send_error(401)
+                return
             self.emit({"object": "list", "data": [{"id": MODEL, "object": "model"}]})
         else:
             self.send_error(404)
@@ -211,18 +215,45 @@ def provision(email,password):
     need("PUT","/api/v1/admin/settings",200,token,dict(model_plaza_enabled=True,model_plaza_require_auth=False))
     gid = need("POST","/api/v1/admin/groups",200,token,dict(name="BE24",platform="openai",rate_multiplier=1))["id"]
     native = need("POST","/api/v1/keys",200,token,dict(name="BE24 native",group_id=gid))
-    need("POST","/api/v1/admin/accounts",200,token,dict(name="BE24",platform="openai",type="apikey",
-               credentials=dict(api_key=secrets.token_urlsafe(16),base_url="https://127.0.0.1:18443",api_protocol="chat_completions", model_mapping={MODEL:MODEL}),
-               concurrency=4,group_ids=[gid]))
+    # Paid Playground requires a verified connection in the same project and group.
+    workspace=prefix.rsplit("/projects/",1)[0]
+    def operation(method,path,status,body,version=None):
+        headers={"Idempotency-Key":secrets.token_hex(12)}
+        if version is not None:
+            headers["If-Match"]=f'"{version}"'
+        return need(method,path,status,token,body,headers)
+    pool=operation("POST",workspace+"/pools",201,dict(name="BE24",max_concurrency=4))
+    con=operation("POST",workspace+"/connections",201,dict(provider="openai",schema_version="1",auth_type="api_key",name="BE24",endpoint="https://127.0.0.1:18443"))
+    path=workspace+"/connections/"+con["id"]
+    Upstream.discovery_key=secrets.token_urlsafe(24)
+    cred=operation("PUT",path+"/credential",200,dict(operation="set",type="api_key",secret=Upstream.discovery_key),con["version"])
+    ver=cred["version"]
+    op=operation("POST",path+"/verify",202,dict(credential_version=cred["credential"]["version"],checks=["network","authorization","discover_models"]),ver)
+    deadline=time.monotonic()+10
+    while True:
+        checked=need("GET",op["status_url"],200,token)
+        if checked["state"]=="succeeded" and MODEL in checked["result"].get("models",[]):
+            break
+        if checked["state"] in ("succeeded","failed","cancelled") or time.monotonic()>=deadline:
+            raise Prerequisite("Local upstream verification ended in state "+checked["state"])
+        time.sleep(.1)
+    preview=operation("POST",path+"/preview",200,dict(pool_ids=[pool["id"]],model_ids=[MODEL],limits=dict(concurrency=4)),ver)
+    operation("POST",path+"/activate",200,dict(preview_id=preview["preview_id"],verification_id=checked["result"]["verification_id"],expected_credential_version=cred["credential"]["version"]),ver)
+    need("PUT","/api/v1/admin/accounts/"+con["id"],200,token,dict(group_ids=[gid],extra={"openai_responses_supported":False}))
     channel=need("POST","/api/v1/admin/channels",200,token,dict(name="BE24",group_ids=[gid],
         model_pricing=[dict(platform="openai",models=[MODEL],billing_mode="per_request",per_request_price=.00225)]))
     endpoint="/api/v1/admin/channels/"+str(channel["id"])
     for _ in range(50):
         candidates=need("GET",endpoint+"?plaza_group_id="+str(gid),200,token)
         if {"name":MODEL,"platform":"openai"} in candidates.get("candidates",[]):
-            break
+            status,_=call("PUT",endpoint+"?plaza_confirmation=true",token,dict(group_id=gid,revision=candidates["revision"],models=[dict(platform="openai",name=MODEL)]))
+            if status==200:
+                break
+            if status!=409:
+                raise Prerequisite("Model publication failed with HTTP "+str(status))
         time.sleep(.1)
-    need("PUT",endpoint+"?plaza_confirmation=true",200,token,dict(group_id=gid,revision=candidates["revision"],models=[dict(platform="openai",name=MODEL)]))
+    else:
+        raise Prerequisite("Model publication did not converge")
     return token,native,prefix
 
 
@@ -239,12 +270,24 @@ def journey(token,prefix):
         path=path.replace("r-fixture",request_id or sentinel)
         raw=json.dumps(step.get("body")).replace("k-fixture",str(key_id or 0)).replace("m-fixture",model_id)
         headers=step.get("headers",{})
-        status,reply=call(step["method"],path,token,json.loads(raw),headers)
+        response_headers={}
+        before=sum(Upstream.calls.values())
+        status,reply=call(step["method"],path,token,json.loads(raw),headers,response_headers=response_headers)
         data=reply.get("data") or {}
         if sid=="J02":
             key_id=data.get("id")
         if sid=="J03":
             request_id=data.get("request_id")
+        if sid in ("J04","J05") and request_id:
+            deadline=time.monotonic()+5
+            while status==200 and time.monotonic()<deadline:
+                if sid=="J04" and data.get("billing",{}).get("receipt_state")=="settled":
+                    break
+                if sid=="J05" and any(item.get("request_id")==request_id for item in data.get("items",[])):
+                    break
+                time.sleep(.1)
+                status,reply=call(step["method"],path,token)
+                data=reply.get("data") or {}
         if sid=="J04" and request_id:
             rid=str(UUID(request_id))
             price=sql(f"SELECT price_version FROM gateway_executions WHERE request_id='{rid}'") or None
@@ -281,6 +324,22 @@ def journey(token,prefix):
         case={"id":sid,"expected_status":step["status"],"http":status,"fields":fields,"status":"pass" if ok else "fail"}
         if status >= 400:
             case["error_code"] = error_code(reply)
+        if sid=="J03":
+            header_id=next((v for k,v in response_headers.items() if k.lower()=="x-request-id"),None)
+            posts=sum(Upstream.calls.values())-before
+            case.update(request_id=request_id,header_request_id=header_id,upstream_posts=posts)
+            if not request_id or header_id!=request_id or posts!=1:
+                case["status"]="fail"
+        if sid in ("J04","J05","J06") and request_id:
+            if sid=="J04":
+                actual=data.get("id")
+            elif sid=="J05":
+                actual=next((x.get("request_id") for x in data.get("items",[]) if x.get("request_id")==request_id),None)
+            else:
+                actual=data.get("request_id")
+            case.update(request_id=actual,j03_request_id=request_id,same_request=actual==request_id)
+            if actual!=request_id:
+                case["status"]="fail"
         if sid == "J03" and key_id:
             case["j02_key_has_group"] = sql(f"SELECT group_id IS NOT NULL FROM api_keys WHERE id={int(key_id)}") == "t"
         if sid in ("J04","J05","J06") and not request_id:
@@ -354,9 +413,10 @@ def grouped_playground(token, native, prefix):
     begin=sum(Upstream.calls.values())
     status,reply=call("POST",prefix+"/playground/runs",token,body,{"Idempotency-Key":"be24-grouped-run","Accept":"application/json"})
     data=reply.get("data") or {}
-    rows.append(dict(id="grouped_project_key_run",http=status,error_code=error_code(reply),
-                     upstream_posts=sum(Upstream.calls.values())-begin,request_id=data.get("request_id"),
-                     status="pass" if status==200 and data.get("outcome")=="succeeded" and data.get("request_id") else "fail"))
+    posts=sum(Upstream.calls.values())-begin
+    rows.append(dict(id="grouped_project_key_run",http=status,error_code=error_code(reply),outcome=data.get("outcome"),
+                     upstream_posts=posts,request_id=data.get("request_id"),
+                     status="pass" if status==200 and data.get("outcome")=="succeeded" and data.get("request_id") and posts==1 else "fail"))
     return rows
 
 

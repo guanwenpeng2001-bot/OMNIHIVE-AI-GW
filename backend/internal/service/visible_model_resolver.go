@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 // VisibleModelSet is the finite, authorized public projection. Bindings are
@@ -48,8 +50,12 @@ func visibleModelPolicyAllows(ctx context.Context, model string) bool {
 	if !snapshot.KeyGroup.Allows(model) {
 		return false
 	}
+	var catalogID string
+	if snapshot.ProjectKeyPlatform != "" {
+		catalogID = catalog.StableID(snapshot.ProjectKeyPlatform, model)
+	}
 	for _, excluded := range snapshot.KeyExclude {
-		if excluded == model {
+		if excluded == model || (catalogID != "" && excluded == catalogID) {
 			return false
 		}
 	}
@@ -60,7 +66,12 @@ func visibleModelPolicyAllows(ctx context.Context, model string) bool {
 	if strings.TrimSpace(model) == "" {
 		return false
 	}
-	return (GroupModelAllowlist{Enabled: true, Models: policy}).Allows(model)
+	if (GroupModelAllowlist{Enabled: true, Models: policy}).Allows(model) {
+		return true
+	}
+	// Project keys may persist the scoped catalog ID in this rule, including
+	// keys issued before default group selection was available.
+	return catalogID != "" && slices.Contains(policy, catalogID)
 }
 
 var ErrVisibleModelRevisionChanged = errors.New("visible model catalog changed during resolution")

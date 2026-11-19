@@ -207,7 +207,11 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			}
 			secret := k.Prefix + base64.RawURLEncoding.EncodeToString(random[:])
 			digest := sha256.Sum256([]byte(secret))
-			if err := tx.QueryRowContext(ctx, `INSERT INTO api_keys(workspace_id,user_id,name,status,expires_at) VALUES($1,$2,$3,'active',$4) RETURNING id`, w, actor, k.Name, in.ExpiresAt).Scan(&k.ID); err != nil {
+			group, err := s.defaultKeyGroup(ctx, a, in.ModelAccess)
+			if err != nil {
+				return k, err
+			}
+			if err := tx.QueryRowContext(ctx, `INSERT INTO api_keys(workspace_id,user_id,name,status,expires_at,group_id) VALUES($1,$2,$3,'active',$4,$5) RETURNING id`, w, actor, k.Name, in.ExpiresAt, group).Scan(&k.ID); err != nil {
 				return k, err
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO project_key_policies(api_key_id,workspace_id,project_id,actions,model_mode,models,member_bound,issued_membership)

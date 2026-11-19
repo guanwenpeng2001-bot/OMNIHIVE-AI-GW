@@ -152,6 +152,9 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 		d.Model.AccessState, d.Model.RouteState = "denied", "unknown"
 		var scopedFacts []ModelFacts
 		for _, offer := range m.Offers {
+			if offer.Access && offer.Eligible && offer.GroupID > 0 && !slices.Contains(d.EligibleGroups, offer.GroupID) {
+				d.EligibleGroups = append(d.EligibleGroups, offer.GroupID)
+			}
 			if offer.Access {
 				d.Model.AccessState = "allowed"
 			}

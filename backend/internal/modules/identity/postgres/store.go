@@ -7,13 +7,21 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/lib/pq"
 )
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db      *sql.DB
+	catalog catalog.CatalogReader
+}
 
-func New(db *sql.DB) *Store { return &Store{db} }
+func New(db *sql.DB) *Store { return &Store{db: db} }
+
+func NewWithCatalog(db *sql.DB, reader catalog.CatalogReader) *Store {
+	return &Store{db: db, catalog: reader}
+}
 
 type queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -97,11 +105,11 @@ func (s *Store) ProjectCredential(ctx context.Context, digest string) (*identity
 	a := &p.Scope
 	err = tx.QueryRowContext(ctx, `SELECT k.id,k.user_id,k.workspace_id,x.project_id,x.actions,x.model_mode,x.models,
  ARRAY(SELECT ug.group_id FROM user_allowed_groups ug WHERE ug.user_id=k.user_id),
- coalesce(k.group_id,0),(SELECT r.rpm_override FROM user_group_rate_multipliers r WHERE r.user_id=k.user_id AND r.group_id=k.group_id)
+ coalesce(k.group_id,0),coalesce((SELECT platform FROM groups WHERE id=k.group_id AND workspace_id=k.workspace_id AND deleted_at IS NULL),''),(SELECT r.rpm_override FROM user_group_rate_multipliers r WHERE r.user_id=k.user_id AND r.group_id=k.group_id)
  FROM api_key_credentials c JOIN project_key_policies x ON x.api_key_id=c.api_key_id AND x.workspace_id=c.workspace_id
  JOIN api_keys k ON k.id=x.api_key_id AND k.workspace_id=x.workspace_id AND k.deleted_at IS NULL
  WHERE (NOT x.member_bound OR x.issued_membership IS NOT NULL) AND c.credential_digest=$1 AND c.status='project' AND c.revoked_at IS NULL AND (c.valid_until IS NULL OR c.valid_until>now())`, digest).
-		Scan(&a.KeyID, &a.KeyOwnerID, &a.WorkspaceID, &a.ProjectID, pq.Array(&p.Actions), &p.Mode, pq.Array(&p.Models), pq.Array(&p.AllowedGroups), &p.GroupID, &p.GroupRPMOverride)
+		Scan(&a.KeyID, &a.KeyOwnerID, &a.WorkspaceID, &a.ProjectID, pq.Array(&p.Actions), &p.Mode, pq.Array(&p.Models), pq.Array(&p.AllowedGroups), &p.GroupID, &p.Platform, &p.GroupRPMOverride)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

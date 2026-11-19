@@ -11,6 +11,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -501,4 +502,23 @@ func TestVisibleModelsPanelCatalogScope(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestProjectKeyCatalogModelPolicy(t *testing.T) {
+	const model = "fixture/text"
+	snapshot := ModelAccessSnapshot{ProjectKeyPlatform: PlatformOpenAI, Key: []string{catalog.StableID(PlatformOpenAI, model)}}
+	allows := func() bool {
+		return visibleModelPolicyAllows(withModelAccessSnapshot(context.Background(), snapshot), model)
+	}
+	require.True(t, allows())
+	snapshot.ProjectKeyPlatform = PlatformAnthropic
+	require.False(t, allows())
+	snapshot.ProjectKeyPlatform = ""
+	require.False(t, allows())
+	snapshot.ProjectKeyPlatform = PlatformOpenAI
+	snapshot.KeyExclude = []string{model}
+	require.False(t, allows())
+	snapshot.KeyExclude = nil
+	snapshot.KeyGroup = GroupModelAllowlist{Enabled: true, Models: []string{"another-model"}}
+	require.False(t, allows())
 }
