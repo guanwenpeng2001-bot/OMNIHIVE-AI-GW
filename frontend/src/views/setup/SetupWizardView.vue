@@ -113,25 +113,25 @@ watch(
 const stepperItems = computed<UiStepItem[]>(() => [
   {
     id: 'database',
-    label: t('setup.database.title'),
+    title: t('setup.database.title'),
     description: 'PostgreSQL',
     disabled: installSuccess.value
   },
   {
     id: 'redis',
-    label: t('setup.redis.title'),
+    title: t('setup.redis.title'),
     description: 'Redis',
     disabled: installSuccess.value || !dbConnected.value
   },
   {
     id: 'admin',
-    label: t('setup.admin.title'),
+    title: t('setup.admin.title'),
     description: 'Root Admin',
     disabled: installSuccess.value || !dbConnected.value || !redisConnected.value
   },
   {
     id: 'complete',
-    label: t('setup.ready.title'),
+    title: t('setup.ready.title'),
     description: 'Apply & Boot',
     disabled: installSuccess.value
   }
@@ -179,7 +179,7 @@ function captureError(error: unknown, fallback: string): void {
   const normalized = normalizeApiError(error)
   errorMessage.value = extractApiErrorMessage(error as Record<string, unknown>, fallback)
   errorCode.value = normalized.code || normalized.status || undefined
-  errorRequestId.value = normalized.requestId || undefined
+  errorRequestId.value = (normalized.metadata.request_id as string | undefined) || undefined
 }
 
 function handleBootstrapTokenUpdate(value: string): void {
@@ -289,7 +289,7 @@ async function waitForServiceRestart(): Promise<void> {
       <div class="space-y-2 border-b border-oh-default pb-5">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <BrandMark size="md" tier-label="SETUP" />
-          <Badge variant="accent" dot mono>INSTANCE BOOTSTRAP</Badge>
+          <Badge tone="accent" variant="solid" dot mono>INSTANCE BOOTSTRAP</Badge>
         </div>
         <h1 class="pt-1 text-2xl font-semibold tracking-tight text-oh-primary">
           {{ t('setup.title') }}
@@ -330,7 +330,7 @@ async function waitForServiceRestart(): Promise<void> {
               <h2 class="text-base font-semibold text-oh-primary">
                 {{ t('setup.database.title') }}
               </h2>
-              <Badge v-if="dbConnected" variant="success" dot mono>CONNECTED</Badge>
+              <Badge v-if="dbConnected" tone="success" variant="subtle" dot mono>CONNECTED</Badge>
             </div>
             <p class="mt-1 text-xs text-oh-secondary">
               {{ t('setup.database.description') }}
@@ -419,7 +419,7 @@ async function waitForServiceRestart(): Promise<void> {
               <h2 class="text-base font-semibold text-oh-primary">
                 {{ t('setup.redis.title') }}
               </h2>
-              <Badge v-if="redisConnected" variant="success" dot mono>CONNECTED</Badge>
+              <Badge v-if="redisConnected" tone="success" variant="subtle" dot mono>CONNECTED</Badge>
             </div>
             <p class="mt-1 text-xs text-oh-secondary">
               {{ t('setup.redis.description') }}

@@ -4,8 +4,8 @@
       <!-- Title -->
       <div class="space-y-1">
         <div class="flex items-center justify-between gap-2">
-          <Badge variant="neutral" mono>CONSOLE AUTH</Badge>
-          <Badge v-if="!publicSettingsLoaded" variant="neutral" dot mono>SYNCING</Badge>
+          <Badge tone="neutral" mono>CONSOLE AUTH</Badge>
+          <Badge v-if="!publicSettingsLoaded" tone="neutral" dot mono>SYNCING</Badge>
         </div>
         <h1 class="auth-title">
           {{ t('auth.welcomeBack') }}

@@ -254,7 +254,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import { uniqueNavigationItems } from '@/router/navigationItems'
-import { getRegisteredShellNavItems, type NavSectionId } from '@/router/navigationRegistry'
+import { getRegisteredNavigationItems, type NavSectionId } from '@/router/navigationRegistry'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
@@ -360,7 +360,7 @@ const customMenuItemsForAdmin = computed(() =>
 )
 
 function extensionItemsFor(domain: NavDomain, section: NavSectionId): NavItem[] {
-  return getRegisteredShellNavItems()
+  return getRegisteredNavigationItems()
     .filter((ext) => ext.tier === domain && ext.section === section)
     .sort((a, b) => (a.order ?? 100) - (b.order ?? 100))
     .map(

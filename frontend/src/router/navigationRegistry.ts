@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import type { IconName } from '@/components/icons/Icon.vue'
+import type Icon from '@/components/icons/Icon.vue'
+type IconName = InstanceType<typeof Icon>['$props']['name']
 import type { RouteFeatureFlag, RoutePolicyContext, ShellTier } from './routePolicy'
 import { evaluateRoutePolicy, shouldDisplayNavigationEntry } from './routePolicy'
 
@@ -10,6 +11,10 @@ export type NavSectionId =
   | 'policies'
   | 'requests'
   | 'billing'
+  | 'ops'
+  | 'activity'
+  | 'connections'
+  | 'settlement'
   | 'settings'
   | 'public'
 

@@ -2,7 +2,7 @@
   <AuthLayout>
     <div class="space-y-4">
       <div v-if="isProcessing" role="status" class="space-y-3">
-        <Badge variant="accent" dot mono>EXCHANGING SESSION</Badge>
+        <Badge tone="accent" dot mono>EXCHANGING SESSION</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
@@ -17,7 +17,7 @@
 
       <div v-else-if="needsRegistrationCompletion">
         <div class="mb-2">
-          <Badge variant="accent" mono>{{ providerName.toUpperCase() }}</Badge>
+          <Badge tone="accent" mono>{{ providerName.toUpperCase() }}</Badge>
         </div>
         <h1 class="auth-title">
           {{ t('auth.oidc.callbackTitle', { providerName }) }}
@@ -95,7 +95,7 @@
       </div>
 
       <div v-else-if="invalidCallback" class="space-y-3">
-        <Badge variant="danger" dot mono>INVALID CALLBACK</Badge>
+        <Badge tone="danger" dot mono>INVALID CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.invalidCallbackTitle') }}
         </h1>
@@ -111,7 +111,7 @@
       </div>
 
       <div v-else class="space-y-3">
-        <Badge variant="neutral" mono>OAUTH CALLBACK</Badge>
+        <Badge tone="neutral" mono>OAUTH CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
