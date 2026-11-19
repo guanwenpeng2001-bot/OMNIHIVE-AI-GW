@@ -1,6 +1,15 @@
 # OmniHive quality gate
 
-Current baseline: `codex/refactor` at `b80fe3170`, recorded on 2026-11-19.
+Current baseline: `codex/refactor` at `edac3ce6c`, recorded on 2026-11-20.
+
+Latest rerun evidence:
+
+- `frontend`: PASS on Codespace (445s), including 468 Vitest files / 5,357 tests
+  / 1 skipped and the production build.
+- `golangci-lint` v2.15.0: PASS, 0 issues.
+- `contracts`, `generated-drift`, `independence`: PASS locally.
+- BE-24 `verify.sh --full 60`: PASS J01–J06 and every executable short-run
+  check; see `contracts/release/backend/reports/20261119T182146Z-edac3ce6c/`.
 
 ## Run it
 

@@ -171,3 +171,26 @@ Remaining GA-only items (environment dependent, not code):
 - two-hour paired load run;
 - full protocol success-message matrix on real providers;
 - live cutover sign-off and independent release assets.
+
+## Final integration and live QA at edac3ce6c (2026-11-20)
+
+- Public model directory uses `/model-plaza`; `/models` remains the
+  OpenAI-compatible gateway route. Header and public shell share a 1560px
+  wide-screen grid and expose an accessible compact menu below `xl`.
+- Strict `/api/v2/*` reads no longer receive the browser's implicit `timezone`
+  query parameter. Public catalog/status, scopes, tasks and Playground now load
+  without 422 responses.
+- Project-scoped request/billing/task pages auto-select the first loaded
+  workspace/project; users no longer see a false “select a project” empty state.
+- Console navigation exposes Playground, requests, tasks, costs, pools, routing,
+  reconciliation and project audit alongside legacy-compatible entries.
+- The first-run tour auto-starts only on the dashboard and exposes an enabled
+  skip/close action; other routes no longer receive a blocking tour.
+- Identity cleanup removed the legacy default site subtitle; the live login page
+  now renders `Unified AI Inference Gateway`.
+- Restored user MCP, onboarding, audit, routing-policy and public ranking routes
+  that the runtime-mode split had removed; removed seeded fake authorization,
+  audit and ranking records.
+- BE-24 isolated short run at `edac3ce6c`: J01–J06 PASS; all executable
+  OpenAPI/HTTP/protocol/finance/access/migration/restore checks PASS. Report:
+  `contracts/release/backend/reports/20261119T182146Z-edac3ce6c/summary.md`.
