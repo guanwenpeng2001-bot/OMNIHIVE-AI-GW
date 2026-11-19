@@ -112,7 +112,21 @@ func TestRuntimeRoutesByRole(t *testing.T) {
 		{"POST", project + "/tasks/id/cancel", process.Control},
 		{"GET", "/api/v2/public/status", process.Control},
 		{"GET", "/api/v1/subscriptions", process.Control},
-		{"GET", "/api/v1/user/mcp/grants", ""},
+		{"GET", "/api/v1/user/mcp/grants", process.Control},
+		{"POST", "/api/v1/user/mcp/grants", process.Control},
+		{"DELETE", "/api/v1/user/mcp/grants/123", process.Control},
+		{"POST", "/api/v1/user/mcp/authorize", process.Control},
+		{"PATCH", "/api/v1/user/mcp/grants", ""},
+		{"DELETE", "/api/v1/user/mcp/grants/123/nested", ""},
+		{"GET", "/api/v1/user/mcp/unknown", ""},
+		{"GET", "/api/v1/user/onboarding", process.Control},
+		{"PUT", "/api/v1/user/onboarding", process.Control},
+		{"GET", "/api/v1/user/audit-logs", process.Control},
+		{"GET", "/api/v1/user/routing-policies", process.Control},
+		{"PUT", "/api/v1/user/routing-policies", process.Control},
+		{"GET", "/api/v1/public/rankings", process.Control},
+		{"POST", "/api/v1/public/rankings", ""},
+		{"GET", "/api/v1/model-plaza/rankings", process.Control},
 	} {
 		for _, mode := range []process.Mode{process.All, process.Gateway, process.Control, process.Worker} {
 			handler := roleHandler(mode, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))

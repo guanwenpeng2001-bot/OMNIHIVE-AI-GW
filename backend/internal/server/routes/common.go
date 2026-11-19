@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 )
 
 // RegisterCommonRoutes 注册通用路由（健康检查、状态等）
@@ -30,4 +31,11 @@ func RegisterCommonRoutes(r *gin.Engine) {
 			},
 		})
 	})
+}
+
+func mcpGrantHandler(h *handler.Handlers) *handler.MCPGrantHandler {
+	if h.MCP == nil {
+		h.MCP = handler.NewMCPGrantHandler()
+	}
+	return h.MCP
 }

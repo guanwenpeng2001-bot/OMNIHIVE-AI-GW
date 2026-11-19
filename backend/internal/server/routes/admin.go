@@ -37,11 +37,7 @@ func RegisterAdminRoutes(
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
 
-		pulseHandler := h.MCP
-		if pulseHandler == nil {
-			pulseHandler = handler.NewMCPGrantHandler()
-		}
-		h.MCP = pulseHandler
+		pulseHandler := mcpGrantHandler(h)
 		stateFile := os.Getenv("OMNIHIVE_EXTENSION_STATE_FILE")
 		if stateFile == "" {
 			stateFile = os.Getenv("EXTENSION_STATE_FILE")

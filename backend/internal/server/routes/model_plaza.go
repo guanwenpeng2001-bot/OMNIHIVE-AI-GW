@@ -20,17 +20,12 @@ func RegisterModelPlazaRoutes(
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
-	mcpHandler := h.MCP
-	if mcpHandler == nil {
-		mcpHandler = handler.NewMCPGrantHandler()
-		if h != nil {
-			h.MCP = mcpHandler
-		}
-	}
+	mcpHandler := mcpGrantHandler(h)
 	public := v1.Group("/public")
 	public.Use(panelRateLimiter.PublicIP())
 	public.Use(gin.HandlerFunc(optionalJWT))
 	public.Use(middleware.BackendModeUserGuard(settingService))
+	public.GET("/rankings", mcpHandler.GetModelRankings)
 	public.POST("/playground/chat", mcpHandler.PlaygroundChat)
 	plaza := v1.Group("/model-plaza")
 	plaza.Use(middleware.DefaultWorkspaceScope())
@@ -39,5 +34,6 @@ func RegisterModelPlazaRoutes(
 	plaza.Use(middleware.BackendModeUserGuard(settingService))
 	{
 		plaza.GET("", h.ModelPlaza.Get)
+		plaza.GET("/rankings", mcpHandler.GetModelRankings)
 	}
 }

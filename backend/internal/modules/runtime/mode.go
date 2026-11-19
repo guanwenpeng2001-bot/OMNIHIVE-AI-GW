@@ -37,8 +37,17 @@ func Role(method, path string) Mode {
 	switch path {
 	case "/health", "/ready":
 		return All
-	case "/api/v1/public/rankings", "/api/v1/model-plaza/rankings", "/api/v1/user/audit-logs", "/api/v1/user/routing-policies", "/api/v1/user/onboarding":
-		return ""
+	case "/api/v1/public/rankings", "/api/v1/model-plaza/rankings", "/api/v1/user/audit-logs":
+		return controlMethod(method == http.MethodGet)
+	case "/api/v1/user/routing-policies", "/api/v1/user/onboarding":
+		return controlMethod(method == http.MethodGet || method == http.MethodPut)
+	case "/api/v1/user/mcp/authorize":
+		return controlMethod(method == http.MethodPost)
+	case "/api/v1/user/mcp/grants":
+		return controlMethod(method == http.MethodGet || method == http.MethodPost)
+	}
+	if id, ok := strings.CutPrefix(path, "/api/v1/user/mcp/grants/"); ok {
+		return controlMethod(id != "" && !strings.Contains(id, "/") && method == http.MethodDelete)
 	}
 	if strings.HasPrefix(path, "/api/v1/user/mcp/") {
 		return ""
@@ -71,4 +80,11 @@ func Role(method, path string) Mode {
 		return Gateway
 	}
 	return Control
+}
+
+func controlMethod(allowed bool) Mode {
+	if allowed {
+		return Control
+	}
+	return ""
 }

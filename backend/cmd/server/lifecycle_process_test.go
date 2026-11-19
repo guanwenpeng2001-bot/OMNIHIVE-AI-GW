@@ -242,8 +242,12 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 		require.Contains(t, control.request(t, 200, "GET", "/api/v1/subscriptions", token, ""), groupName)
 		require.Contains(t, control.request(t, 200, "GET", "/api/v2/admin/extensions", token, ""), groupName)
 		require.Contains(t, gateway.request(t, 200, "GET", "/v1/images/batches", secret, ""), batchID)
-		for _, path := range []string{"/api/v1/public/rankings", "/api/v1/user/mcp/grants", "/api/v1/user/audit-logs"} {
-			control.request(t, 404, "GET", path, token, "")
+		for _, path := range []string{"/api/v1/user/onboarding", "/api/v1/user/mcp/grants", "/api/v1/user/audit-logs", "/api/v1/user/routing-policies"} {
+			control.request(t, 401, "GET", path, "", "")
+			control.request(t, 200, "GET", path, token, "")
+		}
+		for _, path := range []string{"/api/v1/public/rankings", "/api/v1/model-plaza/rankings"} {
+			control.request(t, 503, "GET", path, "", "")
 		}
 	}
 	retained(all, all)

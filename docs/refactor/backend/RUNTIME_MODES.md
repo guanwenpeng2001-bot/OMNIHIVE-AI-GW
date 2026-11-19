@@ -29,7 +29,7 @@
 | BE-15 项目任务与 BE-13 Playground | gateway 直接处理 `P/playground/**`、`POST P/requests/{id}/replay`、`POST P/tasks`、`POST P/tasks/{id}/retry`。其余任务读、撤销和下载走 control | 项目会话、key、付费确认和幂等键均由原模块检查。BE-13/15 HTTP 集成测试覆盖会话范围、执行和结果。 |
 | 备份、更新、审计与运营，`/admin/backup`、`/admin/audit-logs`、`/admin/ops` | control。原管理 API、BE-09 外部恢复日志、BE-18 状态、BE-21 作用域审计 | 备份/恢复测试使用独立演练库与日志库。已有 v1 恢复操作 ID 持续可查。更新沿用原服务与版本检查。 |
 | 插件，`/admin/plugins`、`/api/v1/admin/plugins`、`/api/v2/admin/extensions` | control 管理、gateway 使用安装及绑定。BE-20 权威清单来自 PostgreSQL。启用签名包前，各宿主需要同一制品与本地信任策略 | 分进程测试从真实安装行读取清单。`plugin_handler_test.go` 与插件合约覆盖管理和宿主。原生 v1 包、UI bridge 与制品摘要保留到迁移窗口结束。 |
-| 原 MCP 授权、用户 onboarding、内存审计/路由偏好、两条旧 rankings | 生产注册已下线，旧 API 返回 404。项目访问权来自 BE-01，审计来自 `P/audit/events`，路由来自 BE-10，模型来自 BE-05 目录 | 不以默认数据补齐。旧 UI 深链 `/settings/mcp`、`/oauth/mcp/authorize` 的前端迁移由控制台负责人跟进。原 `/admin/pulse` 继续使用 Ops/Usage 数据。 |
+| MCP 授权元数据、用户 onboarding、审计与路由偏好、两条 rankings | control。用户 API 需要登录。授权元数据、操作记录和偏好按用户保存在进程内，重启后清空。项目权限、项目审计与路由执行仍由 BE-01、BE-21 和 BE-10 提供。 | 两条公开 rankings 入口使用可选 JWT 和面板访问控制，缺少公开聚合数据源时返回 503。路由与权限见 `TestUserConsoleRoutes`、`TestRuntimeRoutesByRole`。 |
 | 旧 `POST /api/v1/public/playground/chat` | control。过渡期保留原代理，运行需要显式配置运营方上游和凭据。新的项目调用走 gateway | BE-13/控制台切换默认入口，通知旧调用方，统计旧路径流量。BE-30 确认回滚窗口和剩余调用方后，移除注册并撤销运营方凭据。 |
 
 v1 注册清单以 `internal/server/routes/{common,auth,user,admin,workspaces,model_access,model_plaza,payment,gateway}.go` 和 `handler.RegisterPageRoutes` 为准。其余 v2 路由由 `internal/server/router.go` 调用模块的 `Register`，沿用模块的验证、授权和开关。上述路径均相对 `backend/`。
