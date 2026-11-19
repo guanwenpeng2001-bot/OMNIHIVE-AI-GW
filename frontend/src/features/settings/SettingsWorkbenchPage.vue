@@ -126,7 +126,7 @@ function handleResetSection(): void {
 async function handleSaveSection(): Promise<void> {
   fieldErrors.value = validateSettingsSection(activeSection.value, draft.value)
   if (Object.keys(fieldErrors.value).length > 0) {
-    pushUiToast({ tone: 'warning', title: 'Validation failed', message: 'Fix highlighted fields before saving.' })
+    pushUiToast({ tone: 'warning', title: 'Validation failed', description: 'Fix highlighted fields before saving.' })
     return
   }
 
@@ -153,7 +153,7 @@ async function handleSaveSection(): Promise<void> {
     draft.value = resetSectionDraft(activeSection.value, nextBaseline, draft.value)
     lastSyncedAt.value = new Date().toLocaleTimeString()
     confirmedMessage.value = `${activeMeta.value.label} saved.`
-    pushUiToast({ tone: 'success', title: 'Settings saved', message: activeMeta.value.label })
+    pushUiToast({ tone: 'success', title: 'Settings saved', description: activeMeta.value.label })
   } catch (error) {
     const err = classifyAsyncError(error, 'Failed to save settings')
     if (err.state === 'conflict') {
@@ -161,7 +161,7 @@ async function handleSaveSection(): Promise<void> {
     } else if (err.state === 'unknown') {
       mutationUnknown.value = { message: err.message, requestId: err.requestId }
     } else {
-      pushUiToast({ tone: 'danger', title: 'Save failed', message: err.message })
+      pushUiToast({ tone: 'danger', title: 'Save failed', description: err.message })
     }
   } finally {
     saving.value = false
@@ -178,10 +178,10 @@ async function handleTestSmtp(): Promise<void> {
       smtp_password: String(draft.value.smtp_password ?? ''),
       smtp_use_tls: Boolean(draft.value.smtp_use_tls)
     })
-    pushUiToast({ tone: 'success', title: 'SMTP connection OK', message: res.message })
+    pushUiToast({ tone: 'success', title: 'SMTP connection OK', description: res.message })
   } catch (error) {
     const err = classifyAsyncError(error, 'SMTP test failed')
-    pushUiToast({ tone: 'danger', title: 'SMTP test failed', message: err.message })
+    pushUiToast({ tone: 'danger', title: 'SMTP test failed', description: err.message })
   } finally {
     testingSmtp.value = false
   }

@@ -1,4 +1,4 @@
-import type { SystemSettings, UpdateSettingsRequest } from '@/api/admin/settings'
+import type { UpdateSettingsRequest } from '@/api/admin/settings'
 
 export type SettingsSectionId =
   | 'general'
@@ -14,8 +14,8 @@ export interface SettingsSectionMeta {
   id: SettingsSectionId
   label: string
   description: string
-  fields: Array<keyof SystemSettings>
-  secretFields?: Array<keyof SystemSettings>
+  fields: string[]
+  secretFields?: string[]
 }
 
 export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
@@ -98,7 +98,7 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   }
 ]
 
-export type SettingsDraft = Partial<SystemSettings> & Record<string, unknown>
+export type SettingsDraft = Record<string, unknown>
 
 export function isFieldEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true

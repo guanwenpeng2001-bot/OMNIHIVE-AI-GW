@@ -265,10 +265,10 @@ async function handleCreateProject(): Promise<void> {
     newProjectName.value = ''
     showCreateProjectModal.value = false
     confirmedMessage.value = `Project "${created.name}" created (v${created.version}).`
-    pushUiToast({ tone: 'success', title: 'Project created', message: created.name })
+    pushUiToast({ tone: 'success', title: 'Project created', description: created.name })
   } catch (error) {
     const err = classifyAsyncError(error, 'Failed to create project')
-    pushUiToast({ tone: err.state === 'unknown' ? 'warning' : 'danger', title: 'Create failed', message: err.message })
+    pushUiToast({ tone: err.state === 'unknown' ? 'warning' : 'danger', title: 'Create failed', description: err.message })
   } finally {
     projectActionBusy.value = false
   }
@@ -285,29 +285,30 @@ async function handleSaveProject(): Promise<void> {
   projectActionBusy.value = true
   conflictState.value = null
   confirmedMessage.value = null
+  const current = editingProject.value
   try {
     const updated = await membersV2API.updateProject(
       selectedWorkspaceId.value,
-      editingProject.value.id,
+      current.id,
       editProjectName.value,
-      editingProject.value.version
+      current.version
     )
     projects.value = projects.value.map((p) => (p.id === updated.id ? updated : p))
     editingProject.value = null
     confirmedMessage.value = `Project "${updated.name}" saved at CAS version ${updated.version}.`
-    pushUiToast({ tone: 'success', title: 'Project updated', message: `Version ${updated.version}` })
+    pushUiToast({ tone: 'success', title: 'Project updated', description: `Version ${updated.version}` })
   } catch (error) {
     const resolved = resolveCasMutationError(
       error,
       'project',
-      editingProject.value.id,
-      editingProject.value.version
+      current.id,
+      current.version
     )
     if (resolved.kind === 'conflict') {
       conflictState.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Update failed', message: resolved.message })
+      pushUiToast({ tone: 'danger', title: 'Update failed', description: resolved.message })
     }
   } finally {
     projectActionBusy.value = false
@@ -322,14 +323,14 @@ async function handleDeleteProject(project: IdentityProject): Promise<void> {
     await membersV2API.deleteProject(selectedWorkspaceId.value, project.id, project.version)
     projects.value = projects.value.filter((p) => p.id !== project.id)
     confirmedMessage.value = `Project "${project.name}" deleted.`
-    pushUiToast({ tone: 'success', title: 'Project deleted', message: project.name })
+    pushUiToast({ tone: 'success', title: 'Project deleted', description: project.name })
   } catch (error) {
     const resolved = resolveCasMutationError(error, 'project', project.id, project.version)
     if (resolved.kind === 'conflict') {
       conflictState.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Delete failed', message: resolved.message })
+      pushUiToast({ tone: 'danger', title: 'Delete failed', description: resolved.message })
     }
   } finally {
     projectActionBusy.value = false
@@ -381,14 +382,14 @@ async function handleSaveGrants(): Promise<void> {
     grantVersionInput.value = res.version
     grantModalMember.value = null
     confirmedMessage.value = `Grants updated for member #${memberId} (version ${res.version}).`
-    pushUiToast({ tone: 'success', title: 'Grants updated', message: `Version ${res.version}` })
+    pushUiToast({ tone: 'success', title: 'Grants updated', description: `Version ${res.version}` })
   } catch (error) {
     const resolved = resolveCasMutationError(error, 'grants', memberId, grantVersionInput.value)
     if (resolved.kind === 'conflict') {
       conflictState.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Grant update failed', message: resolved.message })
+      pushUiToast({ tone: 'danger', title: 'Grant update failed', description: resolved.message })
     }
   } finally {
     grantBusy.value = false
@@ -405,10 +406,10 @@ async function handleAddMember(): Promise<void> {
     newMemberUserId.value = ''
     await loadWorkspaceDetails(selectedWorkspaceId.value)
     confirmedMessage.value = `Member #${userId} added as ${newMemberRole.value}.`
-    pushUiToast({ tone: 'success', title: 'Member updated', message: `User #${userId}` })
+    pushUiToast({ tone: 'success', title: 'Member updated', description: `User #${userId}` })
   } catch (error) {
     const err = classifyAsyncError(error, 'Failed to update member')
-    pushUiToast({ tone: 'danger', title: 'Member update failed', message: err.message })
+    pushUiToast({ tone: 'danger', title: 'Member update failed', description: err.message })
   } finally {
     memberMutationBusy.value = false
   }
@@ -422,10 +423,10 @@ async function handleRemoveMember(userId: number): Promise<void> {
     await workspacesAPI.removeMember(wsId, userId)
     members.value = members.value.filter((m) => m.user_id !== userId)
     confirmedMessage.value = `Member #${userId} removed from workspace.`
-    pushUiToast({ tone: 'success', title: 'Member removed', message: `User #${userId}` })
+    pushUiToast({ tone: 'success', title: 'Member removed', description: `User #${userId}` })
   } catch (error) {
     const err = classifyAsyncError(error, 'Failed to remove member')
-    pushUiToast({ tone: 'danger', title: 'Remove failed', message: err.message })
+    pushUiToast({ tone: 'danger', title: 'Remove failed', description: err.message })
   } finally {
     memberMutationBusy.value = false
   }
