@@ -556,7 +556,7 @@ const curlSnippet = computed(() => {
               <button
                 v-if="availableKeys.length === 0"
                 type="button"
-                class="font-mono text-[11px] text-[var(--oh-accent-ink,var(--brand-text,#d97706))] underline"
+                class="oh-focus-ring rounded font-mono text-[11px] text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
                 @click="navigateTo('/keys')"
               >
                 {{ isZh ? '去创建密钥' : '+ Create Key' }}
@@ -708,7 +708,7 @@ const curlSnippet = computed(() => {
             data-testid="side-b-config"
             class="space-y-2 border-t border-[var(--oh-border,var(--border))] pt-3.5"
           >
-            <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+            <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
               Side B Config (Independent)
             </span>
 
@@ -1084,7 +1084,7 @@ const curlSnippet = computed(() => {
             >
               <a
                 :href="inspectedSession.detailUrl"
-                class="font-mono text-xs text-[var(--oh-accent-ink,var(--brand-text,#d97706))] underline"
+                class="oh-focus-ring rounded font-mono text-xs text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
               >
                 {{ isZh ? '查看关联请求与账单凭证 →' : 'Open Linked Request & Receipt →' }}
               </a>
@@ -1143,3 +1143,14 @@ const curlSnippet = computed(() => {
     />
   </AppLayout>
 </template>
+
+<style scoped>
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+}
+</style>

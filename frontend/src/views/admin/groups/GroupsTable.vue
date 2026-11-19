@@ -24,14 +24,14 @@
             v-model="filters.platform"
             :options="platformFilterOptions"
             :placeholder="t('admin.groups.allPlatforms')"
-            class="w-44"
+            class="w-full sm:w-44"
             @change="loadGroups"
           />
           <Select
             v-model="filters.status"
             :options="statusOptions"
             :placeholder="t('admin.groups.allStatus')"
-            class="w-40"
+            class="w-full sm:w-40"
             @change="loadGroups"
           />
           <Select
@@ -39,7 +39,7 @@
             v-model="filters.is_exclusive"
             :options="exclusiveOptions"
             :placeholder="t('admin.groups.allGroups')"
-            class="w-44"
+            class="w-full sm:w-44"
             @change="loadGroups"
           />
         </div>
@@ -79,7 +79,7 @@
                 v-for="col in toggleableColumns"
                 :key="col.key"
                 @click="toggleColumn(col.key)"
-                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
+                class="oh-focus-ring flex w-full items-center justify-between px-4 py-2 text-left text-sm text-[var(--foreground)] hover:bg-[var(--surface-2)]"
               >
                 <span>{{ col.label }}</span>
                 <Icon
@@ -347,7 +347,7 @@
           <div class="group-table-actions grid grid-cols-2 gap-1">
             <button
               @click="emit('edit', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
             >
               <Icon name="edit" size="sm" />
               <span class="text-xs">{{ t("common.edit") }}</span>
@@ -362,7 +362,7 @@
               "
               :disabled="duplicatingGroupIds.has(row.id)"
               @click="emit('duplicate', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Icon name="copy" size="sm" />
               <span class="text-xs">
@@ -377,7 +377,7 @@
               v-if="!authStore.isSimpleMode && row.platform === 'composite'"
               data-testid="group-composite-routes"
               @click="emit('compositeRoutes', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="swap" size="sm" />
               <span class="text-xs">{{
@@ -388,7 +388,7 @@
               v-if="!authStore.isSimpleMode"
               data-testid="group-rate-multipliers"
               @click="emit('rateMultipliers', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="dollar" size="sm" />
               <span class="text-xs">{{
@@ -399,14 +399,14 @@
               v-if="!authStore.isSimpleMode"
               data-testid="group-rpm-overrides"
               @click="emit('rpmOverrides', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
             >
               <Icon name="bolt" size="sm" />
               <span class="text-xs">{{ t("admin.groups.rpmOverrides") }}</span>
             </button>
             <button
               @click="emit('delete', row)"
-              class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
+              class="oh-focus-ring flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[color-mix(in_srgb,var(--bad)_8%,var(--card))] hover:text-[var(--bad-text)]"
             >
               <Icon name="trash" size="sm" />
               <span class="text-xs">{{ t("common.delete") }}</span>

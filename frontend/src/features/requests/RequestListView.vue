@@ -106,7 +106,7 @@ function rowOf(row: Record<string, unknown>) {
         </p>
         <template v-if="can('requests.read')">
           <Card padding="md">
-            <form class="grid grid-cols-2 items-end gap-3 md:grid-cols-3 2xl:grid-cols-7" @submit.prevent="filters()">
+            <form class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 md:grid-cols-3 2xl:grid-cols-7" @submit.prevent="filters()">
               <DateRangeFields v-model:from="draft.from" v-model:to="draft.to" v-model:timezone="draft.timezone" />
               <Select v-model="draft.outcome" :label="t('wp6.requests.outcome')" :options="outcomeOptions" />
               <Input v-model="draft.model_id" :label="t('wp6.filters.model')" :placeholder="t('wp6.filters.anyModel')" :maxlength="255" mono />
@@ -121,7 +121,7 @@ function rowOf(row: Record<string, unknown>) {
                   <option v-for="key in keys.data.value?.items ?? []" :key="key.id" :value="key.id">{{ key.name }}</option>
                 </datalist>
               </label>
-              <div class="col-span-2 flex flex-wrap items-center gap-2 md:col-span-3 2xl:col-span-1">
+              <div class="col-span-full flex flex-wrap items-center gap-2 sm:col-span-2 md:col-span-3 2xl:col-span-1">
                 <Button type="submit" variant="primary" :disabled="Boolean(filterIssue)">{{ t('wp6.filters.apply') }}</Button>
                 <Button v-if="active" type="button" variant="ghost" @click="filters(true)">{{ t('wp6.filters.clear') }}</Button>
               </div>

@@ -57,9 +57,9 @@ function onProjectChange(event: Event): void {
 <template>
   <div
     data-testid="console-scope-bar"
-    class="flex flex-wrap items-center justify-between gap-2.5 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-3 py-2"
+    class="flex min-w-0 flex-wrap items-center justify-between gap-2.5 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-3 py-2"
   >
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
         SCOPE
       </span>
@@ -71,7 +71,7 @@ function onProjectChange(event: Event): void {
           data-testid="scope-workspace-select"
           :value="workspaceId"
           :disabled="loading"
-          class="h-7 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--oh-accent,#f59e0b)]"
+          class="h-7 max-w-full min-w-0 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--oh-accent,#f59e0b)]"
           @change="onWorkspaceChange"
         >
           <option v-for="ws in workspaces" :key="ws.workspace_id" :value="ws.workspace_id">
@@ -87,7 +87,7 @@ function onProjectChange(event: Event): void {
           data-testid="scope-project-select"
           :value="projectId"
           :disabled="loading || projects.length === 0"
-          class="h-7 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--oh-accent,#f59e0b)]"
+          class="h-7 max-w-full min-w-0 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--oh-accent,#f59e0b)]"
           @change="onProjectChange"
         >
           <option v-if="projects.length === 0" value="">
@@ -115,7 +115,7 @@ function onProjectChange(event: Event): void {
         type="button"
         :aria-current="activeSurface === item.id ? 'page' : undefined"
         :class="[
-          'rounded-[var(--oh-r-sm,6px)] px-2.5 py-1 font-mono text-xs transition-colors',
+          'oh-focus-ring rounded-[var(--oh-r-sm,6px)] px-2.5 py-1 font-mono text-xs transition-colors',
           activeSurface === item.id
             ? 'border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] font-semibold text-[var(--oh-ink,var(--foreground))]'
             : 'border border-transparent text-[var(--oh-ink-secondary,var(--muted-foreground))] hover:border-[var(--oh-border,var(--border))] hover:text-[var(--oh-ink,var(--foreground))]'

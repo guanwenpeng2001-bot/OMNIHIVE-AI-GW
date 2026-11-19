@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div data-testid="workspaces-view" class="space-y-5">
+    <div data-testid="workspaces-view" class="min-w-0 space-y-5">
       <header class="card p-5 sm:p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>

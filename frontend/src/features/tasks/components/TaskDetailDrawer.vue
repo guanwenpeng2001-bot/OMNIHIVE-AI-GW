@@ -288,7 +288,7 @@ function handleClose(): void {
             </div>
             <div class="flex items-center justify-between gap-2">
               <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Actual Charge</dt>
-              <dd class="font-mono font-semibold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+              <dd class="font-mono font-semibold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
                 {{ formatChargeObject(detail.actual_charge) }}
               </dd>
             </div>
@@ -311,7 +311,7 @@ function handleClose(): void {
               <dd>
                 <button
                   type="button"
-                  class="font-mono text-xs tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))] underline"
+                  class="oh-focus-ring rounded font-mono text-xs tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
                   @click="emit('select-task', detail.parent_task_id!)"
                 >
                   {{ detail.parent_task_id }}

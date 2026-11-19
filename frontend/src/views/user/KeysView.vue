@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="oh-keys-workbench space-y-4">
+    <div class="oh-keys-workbench min-w-0 space-y-4">
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2.5">
@@ -78,7 +78,7 @@
                 <code class="min-w-0 truncate font-mono text-[11px] tabular-nums text-[var(--foreground)]" :title="endpoint.url">{{ endpoint.url }}</code>
                 <button
                   type="button"
-                  class="shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-300 dark:hover:text-amber-100"
+                  class="oh-focus-ring shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-300 dark:hover:text-amber-100"
                   :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
                   @click="copyEndpoint(endpoint.url)"
                 >
@@ -280,11 +280,11 @@
           </template>
 
           <template #cell-group="{ row }">
-            <div class="group/dropdown relative">
+            <div class="group/dropdown relative min-w-0 max-w-full">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)]"
+                class="oh-focus-ring -my-1 flex max-w-full min-w-0 cursor-pointer flex-wrap items-center gap-1.5 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)] sm:-mx-2 sm:gap-2"
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
@@ -325,7 +325,7 @@
               :class="[
                 'inline-flex min-w-8 items-center justify-center rounded-md px-2 py-0.5 font-mono text-xs font-semibold tabular-nums stat-num',
                 (value ?? 0) > 0
-                  ? 'border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] text-[var(--oh-accent-ink,var(--brand-text,#d97706))]'
+                  ? 'border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] text-[var(--oh-accent-text,var(--brand-text,#d97706))]'
                   : 'bg-[var(--surface-2)] text-[var(--muted-foreground)]  '
               ]"
             >
@@ -462,7 +462,7 @@
                 </div>
               </div>
             </div>
-            <span v-else class="pill pill-ghost font-mono text-xs text-[var(--muted-foreground)]">-</span>
+            <span v-else class="pill pill-ghost font-mono text-xs text-[var(--muted-foreground)]">—</span>
 
             <!-- Effective RPM: which dimension owns each limit, the limit value and
                  the real reset of the current minute window. Deliberately separate
@@ -569,14 +569,14 @@
             <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ formatDateTime(value) }}
             </span>
-            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">—</span>
           </template>
 
           <template #cell-last_used_ip="{ value }">
             <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ value }}
             </span>
-            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">—</span>
           </template>
 
           <template #cell-created_at="{ value }">
@@ -2821,7 +2821,7 @@ onUnmounted(() => {
   background: var(--muted-foreground, #6f6f78);
 }
 
-summary:focus-visible, .oh-endpoint-item button:focus-visible {
+summary:focus-visible, .oh-keys-workbench button:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 3px;
 }

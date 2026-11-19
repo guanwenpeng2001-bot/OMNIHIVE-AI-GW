@@ -1,5 +1,6 @@
 <template>
-    <div class="space-y-5">
+  <component :is="shellComponent">
+    <div class="min-w-0 space-y-5">
       <!-- Hive Aura Backup Workbench Status Bar -->
       <div
         class="card flex flex-wrap items-center justify-between gap-3 p-4"
@@ -285,7 +286,7 @@
                 </td>
                 <td class="px-3 py-3 font-mono tabular-nums text-xs">{{ record.file_name }}</td>
                 <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ formatSize(record.size_bytes) }}</td>
-                <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ record.parts?.length || (record.status === 'running' ? '-' : 1) }}</td>
+                <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ record.parts?.length || (record.status === 'running' ? '—' : 1) }}</td>
                 <td class="px-3 py-3 font-mono text-xs tabular-nums">
                   {{ record.expires_at ? formatDate(record.expires_at) : t('admin.backup.neverExpire') }}
                 </td>
@@ -462,10 +463,11 @@
       </transition>
     </teleport>
     <TotpStepUpDialog :controller="backupStepUp" />
+  </component>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -483,6 +485,11 @@ import RestoreWorkflow from '@/features/operations/RestoreWorkflow.vue'
 const { t } = useI18n()
 const appStore = useAppStore()
 const backupStepUp = useStepUp()
+const instance = getCurrentInstance()
+const AsyncAppLayout = defineAsyncComponent(() => import('@/components/layout/AppLayout.vue'))
+const shellComponent = computed(() =>
+  instance?.appContext.config.globalProperties.$route ? AsyncAppLayout : 'div'
+)
 
 // 敏感操作被 2FA 门控拦截时的统一提示。
 function reportStepUpBlocked(error: unknown): boolean {
@@ -626,15 +633,15 @@ async function loadS3Config() {
   try {
     const cfg = await adminAPI.backup.getS3Config()
     s3Form.value = {
-      endpoint: cfg.endpoint || '',
-      region: cfg.region || 'auto',
-      bucket: cfg.bucket || '',
-      access_key_id: cfg.access_key_id || '',
+      endpoint: cfg?.endpoint || '',
+      region: cfg?.region || 'auto',
+      bucket: cfg?.bucket || '',
+      access_key_id: cfg?.access_key_id || '',
       secret_access_key: '',
-      prefix: cfg.prefix || 'backups/',
-      force_path_style: cfg.force_path_style,
+      prefix: cfg?.prefix || 'backups/',
+      force_path_style: Boolean(cfg?.force_path_style),
     }
-    s3SecretConfigured.value = Boolean(cfg.access_key_id)
+    s3SecretConfigured.value = Boolean(cfg?.access_key_id)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -659,14 +666,16 @@ async function saveS3Config() {
 
 async function loadImageStorageConfig() {
   try {
-    const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
+    const res = await adminAPI.backup.getImageStorageConfig()
+    const config = res?.config
     imageStorageForm.value = {
+      ...imageStorageForm.value,
       ...config,
-      prefix: config.prefix || 'images/',
-      region: config.region || 'auto',
+      prefix: config?.prefix || 'images/',
+      region: config?.region || 'auto',
       secret_access_key: '',
     }
-    imageStorageSecretConfigured.value = secret_configured
+    imageStorageSecretConfigured.value = Boolean(res?.secret_configured)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -855,16 +864,16 @@ function statusDotClass(status: string): string {
 }
 
 function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return '-'
+  if (!bytes || bytes <= 0) return '—'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function formatDate(value?: string): string {
-  if (!value) return '-'
+  if (!value) return '—'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString()
 }
 
@@ -894,5 +903,13 @@ onBeforeUnmount(() => {
 .modal-enter-from,
 .modal-leave-to {
   opacity: 0;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+label.chip:focus-within {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
 }
 </style>

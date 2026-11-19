@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
-import { Button, Card, Input } from '@/components/ui'
+import { Button, Card, CopyButton, Input } from '@/components/ui'
 import { isStepUpCancelled, useStepUp } from '@/composables/useStepUp'
 import { useAuthStore } from '@/stores/auth'
 import { classifyAsyncError, type AsyncViewState } from '@/features/shared/asyncState'
@@ -261,6 +261,12 @@ const reasons: Record<string, string> = {
   STEP_UP_REQUIRED: '需要再次验证 TOTP。',
   ARCHIVE_DIGEST_MISMATCH: '归档摘要不匹配。',
 }
+
+function formatRestoreTime(value?: string | null): string {
+  if (!value) return '—'
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '—'
+}
 </script>
 
 <template>
@@ -270,7 +276,7 @@ const reasons: Record<string, string> = {
       <p class="break-all text-sm text-oh-secondary">所选备份 {{ backupId }}</p>
       <form class="grid gap-3 sm:grid-cols-2" @submit.prevent="createPreview">
         <label class="grid gap-1 text-sm">恢复目标
-          <select v-model="target" class="input" :disabled="busy || active || unresolved" @change="changeTarget">
+          <select v-model="target" class="input oh-focus-ring" :disabled="busy || active || unresolved" @change="changeTarget">
             <option value="isolated">隔离环境</option><option value="production">生产环境</option>
           </select>
         </label>
@@ -284,10 +290,13 @@ const reasons: Record<string, string> = {
     <p v-else class="text-sm text-oh-secondary">从备份列表中选择已完成的备份以生成预览。</p>
 
     <div v-if="preview" class="space-y-2 border-t border-oh-subtle pt-3 text-sm">
-      <p>{{ preview.verified ? '预览已验证' : '预览校验失败' }} · 有效至 {{ new Date(preview.expires_at).toLocaleString() }}</p>
-      <p class="break-all font-mono">{{ preview.impact.source_digest }}</p>
-      <p>数据库 {{ preview.impact.databases }}</p>
-      <p v-for="[key, label] in counts" :key="key">{{ label }} {{ preview.impact[key] }}</p>
+      <p>{{ preview.verified ? '预览已验证' : '预览校验失败' }} · 有效至 {{ formatRestoreTime(preview.expires_at) }}</p>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <p class="break-all font-mono text-xs">{{ preview.impact.source_digest || '—' }}</p>
+        <CopyButton v-if="preview.impact.source_digest" :value="preview.impact.source_digest" size="xs" />
+      </div>
+      <p>数据库 {{ preview.impact.databases ?? '—' }}</p>
+      <p v-for="[key, label] in counts" :key="key">{{ label }} {{ preview.impact[key] ?? '—' }}</p>
       <div v-if="confirming" class="flex flex-wrap items-center gap-2">
         <span>{{ target === 'production' ? '生产恢复会替换目标数据。' : '确认在隔离环境执行恢复。' }}</span>
         <Button :variant="target === 'production' ? 'danger' : 'primary'" @click="execute">确认执行</Button>
@@ -299,7 +308,10 @@ const reasons: Record<string, string> = {
     <Button v-if="unresolved" :loading="busy" @click="execute">使用原请求确认结果</Button>
     <OperationState :state="state" :message="message" />
     <div v-if="operation" class="space-y-2 border-t border-oh-subtle pt-3 text-sm">
-      <p class="break-all">操作 {{ operation.id }} · {{ operation.target }} · {{ operation.state }} / {{ operation.stage }}</p>
+      <div class="flex flex-wrap items-center gap-1.5">
+        <p class="break-all">操作 {{ operation.id }} · {{ operation.target }} · {{ operation.state || '—' }} / {{ operation.stage || '—' }}</p>
+        <CopyButton v-if="operation.id" :value="operation.id" size="xs" />
+      </div>
       <div v-if="operation.report">
         <h4 class="font-semibold">恢复报告</h4>
         <p v-if="operation.report.source_digest" class="break-all font-mono">{{ operation.report.source_digest }}</p>

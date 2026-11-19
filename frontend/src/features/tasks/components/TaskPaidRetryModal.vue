@@ -90,7 +90,7 @@ function handleClose(): void {
           <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{ isZh ? '原任务预估参考' : 'Reference Task Estimate' }}
           </span>
-          <span class="font-mono font-bold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+          <span class="font-mono font-bold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
             {{ formatChargeObject(task.estimate) }}
           </span>
         </div>

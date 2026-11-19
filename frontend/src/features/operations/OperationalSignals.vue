@@ -40,6 +40,11 @@ function panelState(read: typeof live | typeof queue | typeof traffic, hasData =
 
 const platforms = computed(() => queue.data.value?.enabled ? Object.values(queue.data.value.platform ?? {}) : [])
 const summary = computed(() => traffic.data.value?.enabled ? traffic.data.value.summary : null)
+function formatSignalTime(value?: string | null): string {
+  if (!value) return '—'
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '—'
+}
 const reads = [live, readiness, queue, traffic]
 const refreshing = computed(() => reads.some(read => read.loading.value))
 function refresh() {
@@ -90,9 +95,9 @@ onScopeDispose(() => clearInterval(timer))
         <OperationState :state="panelState(traffic, !!summary)"
           :message="traffic.error.value?.reason === 'OPS_DISABLED' || traffic.data.value?.enabled === false ? '实时监控已关闭。' : undefined" />
         <dl v-if="summary" class="grid grid-cols-[1fr_auto] gap-x-2 gap-y-1 text-sm">
-          <dt>当前 QPS</dt><dd>{{ summary.qps.current }}</dd>
-          <dt>当前 TPS</dt><dd>{{ summary.tps.current }}</dd>
-          <dt>统计结束时间</dt><dd>{{ new Date(summary.end_time).toLocaleString() }}</dd>
+          <dt>当前 QPS</dt><dd class="font-mono tabular-nums">{{ summary.qps?.current ?? '—' }}</dd>
+          <dt>当前 TPS</dt><dd class="font-mono tabular-nums">{{ summary.tps?.current ?? '—' }}</dd>
+          <dt>统计结束时间</dt><dd class="font-mono text-xs tabular-nums">{{ formatSignalTime(summary.end_time) }}</dd>
         </dl>
       </Card>
     </div>
