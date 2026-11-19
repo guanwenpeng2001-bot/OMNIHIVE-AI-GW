@@ -1,6 +1,6 @@
 # BE-18 public status and incident publication
 
-Apply 307 through the existing migration runner after BE-06 and BE-14. Apply the 307a concurrent source indexes in the same release. The first publisher tick builds recent data. Historical backfill then works backward in UTC day slices. Uncovered windows remain unknown with `ROLLUP_PENDING` while backfill advances. Existing retained observations determine what can be reconstructed for each date.
+Apply 307 through the existing migration runner after BE-06 and BE-14. On large databases, pre-create the five source indexes listed at the end of 307 with `CREATE INDEX CONCURRENTLY` before rollout to shorten the migration's write-lock window. The first publisher tick builds recent data. Historical backfill then works backward in UTC day slices. Uncovered windows remain unknown with `ROLLUP_PENDING` while backfill advances. Existing retained observations determine what can be reconstructed for each date.
 
 ## Runtime wiring
 
