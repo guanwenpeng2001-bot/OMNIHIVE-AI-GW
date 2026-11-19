@@ -32,7 +32,7 @@ CREATE TEMP TABLE gateway_executions (
 )`); err != nil {
 		t.Fatal(err)
 	}
-	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "contracts", "migrations", "BE-08", "297_routing_decisions.sql"))
+	migration, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "migrations", "297_routing_decisions.sql"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -175,7 +175,8 @@ install_postgres16() {
   local prefix="${ROOT}/.quality-gate/tools/postgres16"
   local cache="${ROOT}/.quality-gate/tools/downloads"
   mkdir -p "$cache"
-  if [[ ! -x "${prefix}/root/usr/lib/postgresql/16/bin/postgres" ]]; then
+  if [[ ! -x "${prefix}/root/usr/lib/postgresql/16/bin/postgres" ||
+        ! -e "${prefix}/root/usr/lib/x86_64-linux-gnu/libicuuc.so.74" ]]; then
     log "installing portable PostgreSQL 16 into ${prefix}"
     local base="http://archive.ubuntu.com/ubuntu/pool"
     local urls=(
@@ -332,6 +333,20 @@ stop_services() {
   if [[ -n "$REDIS_TEMP" && -d "$REDIS_TEMP" ]]; then rm -rf "$REDIS_TEMP"; fi
 }
 
+reset_test_databases() {
+  [[ $PG_EXTERNAL -eq 1 || -z "$PG_BIN" ]] && return 0
+  local database
+  for database in job_test stats_test; do
+    "${PG_BIN}/psql" -h 127.0.0.1 -p "$PG_PORT" -U postgres -v ON_ERROR_STOP=1 \
+      -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${database}' AND pid<>pg_backend_pid()" \
+      -c "DROP DATABASE IF EXISTS ${database} WITH (FORCE)" \
+      -c "CREATE DATABASE ${database}" >/dev/null
+  done
+  if [[ -n "$REDIS_CLI" ]]; then
+    "$REDIS_CLI" -h 127.0.0.1 -p "$REDIS_PORT" FLUSHALL >/dev/null 2>&1 || true
+  fi
+}
+
 finish() {
   local code=$?
   trap - EXIT INT TERM
@@ -347,7 +362,7 @@ run_stage() {
   shift
   start="$(date +%s)"
   log "${name}: starting"
-  if ( "$@" ) >"${LOG_DIR}/${name}.log" 2>&1; then
+  if "$@" >"${LOG_DIR}/${name}.log" 2>&1; then
     status=PASS
   else
     status=FAIL
@@ -380,20 +395,41 @@ stage_backend() {
 
   ensure_services
   echo "+ go test -p 1 -tags=integration -count=1 ./..."
-  SUB2API_TEST_EXTERNAL_SERVICES=1 \
-  UPSTREAM_JOB_TEST_DSN="$PG_DSN" \
-  NEW_PLATFORMS_TEST_POSTGRES_DSN="$PG_DSN" \
-  USAGE_STATS_TEST_DSN="$STATS_DSN" \
-  CATALOG_SCOPE_TEST_DSN="$PG_DSN" \
-  AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR" \
-  ACCOUNTING_TEST_REDIS_ADDR="$REDIS_ADDR" \
-  CURSOR_TEST_REDIS_ADDR="$REDIS_ADDR" \
-  QUOTA_TEST_REDIS_ADDR="$REDIS_ADDR" \
-  SECURITY_REDIS_TEST_ADDR="$REDIS_ADDR" \
-  PROMPT_AUDIT_TEST_REDIS_ADDR="$REDIS_ADDR" \
-  SCHEDULER_RESOURCES_REDIS_ADDR="$REDIS_ADDR" \
-  TEST_REDIS_URL="redis://${REDIS_ADDR}/0" \
-  go test -p 1 -tags=integration -count=1 ./...
+  export SUB2API_TEST_EXTERNAL_SERVICES=1
+  export UPSTREAM_JOB_TEST_DSN="$PG_DSN"
+  export NEW_PLATFORMS_TEST_POSTGRES_DSN="$PG_DSN"
+  export USAGE_STATS_TEST_DSN="$STATS_DSN"
+  export CATALOG_SCOPE_TEST_DSN="$PG_DSN"
+  export AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR"
+  export ACCOUNTING_TEST_REDIS_ADDR="$REDIS_ADDR"
+  export CURSOR_TEST_REDIS_ADDR="$REDIS_ADDR"
+  export QUOTA_TEST_REDIS_ADDR="$REDIS_ADDR"
+  export SECURITY_REDIS_TEST_ADDR="$REDIS_ADDR"
+  export PROMPT_AUDIT_TEST_REDIS_ADDR="$REDIS_ADDR"
+  export SCHEDULER_RESOURCES_REDIS_ADDR="$REDIS_ADDR"
+  export TEST_REDIS_URL="redis://${REDIS_ADDR}/0"
+
+  if [[ $PG_EXTERNAL -eq 1 ]]; then
+    go test -p 1 -tags=integration -count=1 ./...
+    return
+  fi
+
+  local status=0 pkg
+  local -a packages=() filtered=()
+  mapfile -t packages < <(go list -tags=integration ./...)
+  for pkg in "${packages[@]}"; do
+    case "$pkg" in
+      */internal/control/status|*/internal/repository) ;;
+      *) filtered+=("$pkg") ;;
+    esac
+  done
+  go test -p 1 -tags=integration -count=1 "${filtered[@]}" || status=1
+  for pkg in ./internal/control/status ./internal/repository; do
+    echo "+ reset disposable databases before ${pkg}"
+    reset_test_databases
+    go test -p 1 -tags=integration -count=1 "$pkg" || status=1
+  done
+  return "$status"
 }
 
 ensure_frontend_dist() {
@@ -650,6 +686,14 @@ EOF
   export SMOKE_API_KEY="$smoke_api_key"
   export SMOKE_MODEL="${SMOKE_MODEL:-gpt-4o-mini}"
   export SMOKE_EXPECT_STATUS="${SMOKE_EXPECT_STATUS:-503}"
+  export UPSTREAM_JOB_TEST_DSN="$PG_DSN"
+  export AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR"
+  export BE07_POSTGRES_DSN="$PG_DSN"
+  export BE07_REDIS_ADDR="$REDIS_ADDR"
+  export BE23_INTEGRATION_TEST_DSN="${PG_DSN/&TimeZone=UTC/}"
+  if [[ $PG_EXTERNAL -eq 0 ]]; then
+    reset_test_databases
+  fi
   local catalog_ready=0
   if curl -fsS "${SMOKE_BASE_URL}/api/v2/public/models?limit=1" |
     python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)["data"]["items"] else 1)' 2>/dev/null; then

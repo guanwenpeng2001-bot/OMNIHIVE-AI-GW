@@ -1,6 +1,6 @@
 # OmniHive quality gate
 
-Baseline: `codex/refactor` at `2637e9e59`, recorded on 2026-11-19.
+Current baseline: `codex/refactor` at `b80fe3170`, recorded on 2026-11-19.
 
 ## Run it
 
@@ -35,7 +35,7 @@ symlink. The gate does not reinstall it when Vitest is already present.
 | Stage | Coverage |
 | --- | --- |
 | `frontend` | `check:i18n`, `typecheck`, `lint:check`, `test:run`, production `build` |
-| `backend` | `go build ./...`, `go build -tags=embed ./cmd/server`, `go vet ./...`, `go test ./...`, `go test -tags=unit ./...`, then `go test -p 1 -tags=integration ./...` against disposable PostgreSQL 16 + Redis 7 |
+| `backend` | `go build ./...`, `go build -tags=embed ./cmd/server`, `go vet ./...`, `go test ./...`, `go test -tags=unit ./...`, then `go test -p 1 -tags=integration ./...` against disposable PostgreSQL 16 + Redis 7. The disposable databases are reset before the state-sensitive `internal/control/status` and `internal/repository` packages. |
 | `contracts` | JSON validity for `contracts/protocol` and `contracts/api`; lifecycle, auth, journal and money fixture consuming tests |
 | `generated-drift` | `go generate ./cmd/server` (Wire), `go run ./api/v2/compose`, pinned `openapi-typescript@7.10.1` for `v2.d.ts`; fails on any diff |
 | `independence` | grep for case-insensitive `sub2api` in product source, deploy and CI; every line must match `docs/refactor/IDENTITY_ALLOWLIST.md` |
@@ -46,7 +46,55 @@ generated plugin descriptors, dependency locks and the allowlist itself. Tests,
 historical migration text and documented compatibility evidence remain in the
 repository but cannot introduce a new runtime identity.
 
-## Baseline at 2637e9e59
+## Baseline at b80fe3170
+
+Environment: WSL2 Ubuntu 26.04, 12 cores, Go 1.27.4, Node 24.19.0, pnpm 12.21.0.
+The machine was shared with other refactor agents.
+
+| Stage | Result | Time | Notes |
+| --- | --- | ---: | --- |
+| `frontend` | PASS | 164s | i18n, typecheck, lint, full Vitest, production build |
+| `backend` | FAIL (flaky) | 945s | build, embed build, vet, untagged + unit tests, integration. Only `TestGeminiStreamsRejectOversizedUpstreamLines` failed; standalone backend run passed in 927s and the test passed 5 reruns (see below). |
+| `contracts` | PASS | 7s | protocol/API JSON plus consuming tests |
+| `generated-drift` | PASS | 13s | Wire, composed OpenAPI and `v2.d.ts` reproduced byte-for-byte |
+| `independence` | PASS | <1s | 287 existing identifier lines covered; no new non-allowlisted occurrence |
+| `smoke` | PASS | 26s | BE-01/04/06/07/15/23 pass; BE-05 and BE-09 skip for missing fixtures |
+
+The all-in-one gate run took 1155.84s (19m16s). Integration alone is the
+dominant part of the backend stage. A separate backend-only run passed all
+packages in 927s.
+
+### Failures found at b80fe3170
+
+All except the final Gemini SSE test were deterministic test-harness or
+isolation defects; no product-code change was made.
+
+| Failure | Minimal reproduction | Classification / owner | Disposition |
+| --- | --- | --- | --- |
+| Repository suites saw unreviewed FK dependents (`byok_*`, `routing_*`, `billing_export_rows`, `payment_*`, `billing_movement_links`) | `go test -tags=integration -count=1 ./internal/repository` with a disposable job_test | Deterministic fixture gap; repository integration harness / BE-13, BE-14, BE-16, BE-19, BE-21 | Test-only cleanup order and trigger handling updated; 3/3 passes |
+| `TestCoreModelFlowPostgres` failed deleting `usage_settlement_receipts` | `go test -tags=integration -count=1 -run '^TestCoreModelFlowPostgres$' ./internal/integrationtests` | Deterministic cleanup gap; integration fixture / BE-15, BE-16 | Deletes `billing_movement_links` and settlement outbox first; 3/3 passes |
+| Auth identity migration tests hit `billing_funding_accounts_user_id_currency_key` | `go test -tags=integration -count=1 ./internal/repository -run '^TestAuthIdentityLegacy'` | Deterministic stale fixture IDs; repository auth harness / migration 300 | Removed `RESTART IDENTITY`; 3/3 passes |
+| `TestPostgresRoutingDecisions` opened a nonexistent `contracts/migrations/BE-08/297_routing_decisions.sql` | `go test -tags=integration -count=1 -run '^TestPostgresRoutingDecisions$' ./internal/gateway/routing/trace` | Deterministic path bug; routing trace / BE-08 | Reads `backend/migrations/297_routing_decisions.sql`; 3/3 passes |
+| `TestStatusPostgres` expected 4 published observations but saw 7 | Full `-tags=integration ./...`; passes alone | Cross-package state contamination; status integration / BE-18 | Gate resets `job_test`/`stats_test` before the status package; 3 fresh-process runs pass |
+| Repository suites failed only in the full package order | Full `-tags=integration ./...`; passes alone | Cross-package state contamination; repository integration harness | Gate resets databases before `internal/repository`; 3/3 passes |
+| BE-07/BE-15/BE-23 smoke scripts lacked their DSN aliases; BE-23 rejected `TimeZone=UTC` in its exact DSN assertion | Run each `contracts/migrations/*/smoke.sh` from the gate | Gate environment, not product | Gate exports `BE07_*`, `BE23_*`, `UPSTREAM_JOB_TEST_DSN` and passes BE-23 its exact DSN |
+| Portable PostgreSQL install could retain a binary without `libicu74` | `scripts/quality-gate.sh smoke` after a partial tool cache | Gate harness | Install verifies `libicuuc.so.74` before reusing the cached tree |
+| Disposable services survived some stage runs | Observe `postgres`/`redis-server` after a stage | Gate harness | Stage functions now run in the parent shell so the exit trap can stop them |
+| `TestGeminiStreamsRejectOversizedUpstreamLines` failed in one integration-tagged service run | `go test -tags=integration -count=1 ./internal/service` | Flaky/order-sensitive; owner `internal/service` Gemini SSE compatibility (test predates the refactor in `513619a27`) | No product change. Two full-package reruns passed (199s, 205s) and the targeted test passed 3/3 |
+
+Smoke fixture gaps are not failures:
+
+- `BE-05/smoke.sh`: skipped — a fresh database has no visible account/channel/group model catalog fixture.
+- `BE-09/smoke.sh`: skipped — requires a completed fixture backup ID.
+
+Flake classification: after the fixes, repository (3 runs), routing trace (3 runs)
+and core-flow (3 runs) pass with `-count=3`; status passes 3 separate
+fresh-database processes. `TestGeminiStreamsRejectOversizedUpstreamLines` is the
+only remaining flaky result: it failed once in the all-in-one service run and
+passed two full-package reruns plus three targeted reruns. It is not treated as
+a harness failure or fixed here because it belongs to `internal/service`.
+
+## Previous baseline at 2637e9e59
 
 Environment: WSL2 Ubuntu 26.04, 12 cores, Go 1.27.4, Node 24.19.0, pnpm 12.21.0.
 The machine was shared with other refactor agents, so wall-clock times include

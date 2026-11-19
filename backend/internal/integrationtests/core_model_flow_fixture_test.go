@@ -201,6 +201,10 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 	t.Cleanup(func() {
 		_, err := db.ExecContext(context.Background(), `DELETE FROM usage_billing_dedup WHERE api_key_id=$1`, f.keyID)
 		require.NoError(t, err)
+		_, err = db.ExecContext(context.Background(), `DELETE FROM billing_movement_links WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id IN ($1,$2))`, f.userID, f.otherUserID)
+		require.NoError(t, err)
+		_, err = db.ExecContext(context.Background(), `DELETE FROM billing_settlement_outbox WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id IN ($1,$2))`, f.userID, f.otherUserID)
+		require.NoError(t, err)
 		for _, statement := range []string{
 			`DELETE FROM usage_settlement_receipts WHERE user_id IN ($1,$2)`,
 			`DELETE FROM usage_logs WHERE user_id IN ($1,$2)`,
