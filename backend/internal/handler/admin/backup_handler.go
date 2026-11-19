@@ -198,7 +198,11 @@ func (h *BackupHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	record, err := h.backupService.StartRestore(c.Request.Context(), backupID)
+	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+		response.Forbidden(c, "Restore requires a verified admin session.")
+		return
+	}
+	record, err := h.backupService.StartAuthorizedRestore(c.Request.Context(), sub.UserID, backupID, c.GetHeader("Idempotency-Key"), middleware.StepUpSessionKey(c, sub.UserID))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

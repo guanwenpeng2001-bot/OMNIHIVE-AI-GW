@@ -118,22 +118,23 @@ type BackupScheduleConfig struct {
 
 // BackupRecord 备份记录
 type BackupRecord struct {
-	ID            string       `json:"id"`
-	Status        string       `json:"status"`      // pending, running, completed, failed
-	BackupType    string       `json:"backup_type"` // postgres
-	FileName      string       `json:"file_name"`
-	S3Key         string       `json:"s3_key"`
-	Parts         []BackupPart `json:"parts,omitempty"`
-	SizeBytes     int64        `json:"size_bytes"`
-	TriggeredBy   string       `json:"triggered_by"` // manual, scheduled
-	ErrorMsg      string       `json:"error_message,omitempty"`
-	StartedAt     string       `json:"started_at"`
-	FinishedAt    string       `json:"finished_at,omitempty"`
-	ExpiresAt     string       `json:"expires_at,omitempty"`     // 过期时间
-	Progress      string       `json:"progress,omitempty"`       // "dumping", "uploading", ""
-	RestoreStatus string       `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
-	RestoreError  string       `json:"restore_error,omitempty"`
-	RestoredAt    string       `json:"restored_at,omitempty"`
+	ID                 string       `json:"id"`
+	Status             string       `json:"status"`      // pending, running, completed, failed
+	BackupType         string       `json:"backup_type"` // postgres
+	FileName           string       `json:"file_name"`
+	S3Key              string       `json:"s3_key"`
+	Parts              []BackupPart `json:"parts,omitempty"`
+	SizeBytes          int64        `json:"size_bytes"`
+	TriggeredBy        string       `json:"triggered_by"` // manual, scheduled
+	ErrorMsg           string       `json:"error_message,omitempty"`
+	StartedAt          string       `json:"started_at"`
+	FinishedAt         string       `json:"finished_at,omitempty"`
+	ExpiresAt          string       `json:"expires_at,omitempty"`     // 过期时间
+	Progress           string       `json:"progress,omitempty"`       // "dumping", "uploading", ""
+	RestoreStatus      string       `json:"restore_status,omitempty"` // "", "running", "completed", "failed"
+	RestoreOperationID string       `json:"restore_operation_id,omitempty"`
+	RestoreError       string       `json:"restore_error,omitempty"`
+	RestoredAt         string       `json:"restored_at,omitempty"`
 }
 
 // BackupDownloadPart 描述一个可下载的备份分卷。
@@ -151,9 +152,10 @@ type BackupDownloadResponse struct {
 
 // BackupService 数据库备份恢复服务
 type BackupService struct {
-	settingRepo SettingRepository
-	dbCfg       *config.DatabaseConfig
-	encryptor   SecretEncryptor
+	restoreControl atomic.Value
+	settingRepo    SettingRepository
+	dbCfg          *config.DatabaseConfig
+	encryptor      SecretEncryptor
 	// encryptionKeyConfigured mirrors cfg.Totp.EncryptionKeyConfigured: false
 	// means the secret encryption key was auto-generated and does not survive a
 	// restart. Durable-secret writers must refuse to persist new secrets in that
@@ -273,8 +275,8 @@ func (s *BackupService) recoverStaleRecords() {
 			logger.LegacyPrintf("service.backup", "[Backup] recovered stale running record: %s", records[i].ID)
 		}
 		if records[i].RestoreStatus == "running" {
-			records[i].RestoreStatus = "failed"
-			records[i].RestoreError = "interrupted by server restart"
+			records[i].RestoreStatus = "review_required"
+			records[i].RestoreError = "restore outcome requires review after server restart"
 			s.saveRecoveredRecord(&records[i])
 			logger.LegacyPrintf("service.backup", "[Backup] recovered stale restoring record: %s", records[i].ID)
 		}
@@ -868,6 +870,9 @@ func (s *BackupService) buildBackupPartKey(root string, index int) string {
 
 // RestoreBackup 从 S3 下载备份并流式恢复到数据库
 func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) error {
+	if s.boundRestoreControl() != nil {
+		return infraerrors.Forbidden("RESTORE_AUTHORIZATION_REQUIRED", "Use the authorized restore operation.")
+	}
 	s.opMu.Lock()
 	if s.restoring {
 		s.opMu.Unlock()
@@ -931,6 +936,9 @@ func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) erro
 
 // StartRestore 异步恢复备份，立即返回
 func (s *BackupService) StartRestore(ctx context.Context, backupID string) (*BackupRecord, error) {
+	if s.boundRestoreControl() != nil {
+		return nil, infraerrors.Forbidden("RESTORE_AUTHORIZATION_REQUIRED", "Use the authorized restore operation.")
+	}
 	if s.shuttingDown.Load() {
 		return nil, infraerrors.ServiceUnavailable("SERVER_SHUTTING_DOWN", "server is shutting down")
 	}
@@ -1142,6 +1150,9 @@ func (s *BackupService) ListBackups(ctx context.Context) ([]BackupRecord, error)
 	sort.Slice(records, func(i, j int) bool {
 		return backupStartedAfter(records[i], records[j])
 	})
+	if control := s.boundRestoreControl(); control != nil {
+		return control.Project(ctx, records, "")
+	}
 	return records, nil
 }
 
@@ -1149,6 +1160,12 @@ func (s *BackupService) GetBackupRecord(ctx context.Context, backupID string) (*
 	records, err := s.loadRecords(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if control := s.boundRestoreControl(); control != nil {
+		records, err = control.Project(ctx, records, backupID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for i := range records {
 		if records[i].ID == backupID {
@@ -1176,6 +1193,16 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 			remaining = append(remaining, records[i])
 		}
 	}
+	control := s.boundRestoreControl()
+	if found == nil && control != nil {
+		historical, err := control.Project(ctx, nil, backupID)
+		if err != nil {
+			return err
+		}
+		if len(historical) > 0 {
+			found = &historical[0]
+		}
+	}
 	if found == nil {
 		return ErrBackupNotFound
 	}
@@ -1189,6 +1216,11 @@ func (s *BackupService) DeleteBackup(ctx context.Context, backupID string) error
 		return err
 	}
 
+	if control != nil {
+		if err := control.Forget(ctx, backupID); err != nil {
+			return err
+		}
+	}
 	return s.saveRecordsLocked(ctx, remaining)
 }
 
@@ -1488,4 +1520,110 @@ func deleteBackupObjectKeys(ctx context.Context, objectStore BackupObjectStore, 
 		}
 	}
 	return errors.Join(errs...)
+}
+
+type RestoreControl interface {
+	StartAuthorized(context.Context, int64, string, string, string) (*BackupRecord, error)
+	Forget(context.Context, string) error
+	Project(context.Context, []BackupRecord, string) ([]BackupRecord, error)
+}
+
+func (s *BackupService) SetRestoreControl(control RestoreControl) { s.restoreControl.Store(control) }
+
+func (s *BackupService) boundRestoreControl() RestoreControl {
+	control, _ := s.restoreControl.Load().(RestoreControl)
+	return control
+}
+
+func (s *BackupService) StartAuthorizedRestore(ctx context.Context, actor int64, backupID, key, session string) (*BackupRecord, error) {
+	control := s.boundRestoreControl()
+	if control == nil {
+		return nil, infraerrors.ServiceUnavailable("RESTORE_UNAVAILABLE", "Restore control is unavailable.")
+	}
+	return control.StartAuthorized(ctx, actor, backupID, key, session)
+}
+
+func (s *BackupService) restoreArchiveStore(ctx context.Context) (BackupObjectStore, string, error) {
+	cfg, err := s.loadS3Config(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	store, err := s.getOrCreateStore(ctx, cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	if cfg == nil {
+		return nil, "", ErrBackupS3NotConfigured
+	}
+	return store, cfg.Prefix, nil
+}
+
+func (s *BackupService) OpenRestoreArchive(ctx context.Context, record *BackupRecord) (io.ReadCloser, error) {
+	if record.Status != "completed" {
+		return nil, infraerrors.BadRequest("BACKUP_NOT_COMPLETED", "Backup is incomplete.")
+	}
+	store, _, err := s.restoreArchiveStore(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(record.Parts) == 0 {
+		return store.Download(ctx, record.S3Key)
+	}
+	path, err := s.downloadBackupParts(ctx, store, record.Parts)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(path)
+	return os.Open(path)
+}
+
+func (s *BackupService) SnapshotArchive(ctx context.Context, key string, dump io.ReadCloser) (string, string, error) {
+	store, prefix, err := s.restoreArchiveStore(ctx)
+	if err != nil {
+		return "", "", errors.Join(err, dump.Close())
+	}
+	file, err := os.CreateTemp("", "omnihive-pre-restore-*.gz")
+	if err != nil {
+		return "", "", errors.Join(err, dump.Close())
+	}
+	defer os.Remove(file.Name())
+	hash := sha256.New()
+	gz := gzip.NewWriter(io.MultiWriter(file, hash))
+	_, err = io.Copy(gz, dump)
+	if err = errors.Join(err, dump.Close(), gz.Close(), file.Close()); err != nil {
+		return "", "", err
+	}
+	parts, err := splitBackupFile(file.Name(), defaultBackupPartSizeBytes)
+	if err != nil {
+		return "", "", err
+	}
+	for _, part := range parts {
+		defer os.Remove(part.Path)
+	}
+	root := strings.Trim(strings.TrimRight(prefix, "/")+"/pre-restore/"+key, "/")
+	manifest := make([]BackupPart, 0, len(parts))
+	for _, part := range parts {
+		k := s.buildBackupPartKey(root, part.Index)
+		size, err := store.UploadFile(ctx, k, part.Path, "application/octet-stream")
+		if err != nil {
+			return "", "", err
+		}
+		if size != part.SizeBytes {
+			return "", "", errors.New("incomplete snapshot upload")
+		}
+		manifest = append(manifest, BackupPart{Index: part.Index, SizeBytes: size, S3Key: k, SHA256: part.SHA256})
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		return "", "", err
+	}
+	manifestKey := root + "/manifest.json"
+	size, err := store.Upload(ctx, manifestKey, strings.NewReader(string(data)), "application/json")
+	if err != nil {
+		return "", "", err
+	}
+	if size != int64(len(data)) {
+		return "", "", errors.New("incomplete snapshot manifest")
+	}
+	return manifestKey, "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }
