@@ -40,7 +40,7 @@ All control and worker instances use the same DSNs and backup store. The service
 
 Migration 298 is additive. The application migration runner records the file and retains the existing backup settings and records. At initialization the runtime applies the same embedded file in a transaction on the dedicated journal with `SET LOCAL omnihive.restore_journal='on'`. The application database uses the normal migration session. The `restore_journal` schema contains target bindings, legacy backup links, previews, operations, legacy v1 requests and append-only transition events. It has no foreign key into the target DB.
 
-Drain older restore initiators before enabling the new write path. An old process can still execute its own unfenced goroutine. On startup old running restores are marked `review_required` and their backup links are imported idempotently into the journal. Historical success values remain legacy metadata. New operations record independent evidence. Both single-object and ordered multipart archives go through digest verification.
+Drain older restore initiators before enabling the new write path. An old process can still execute its own unfenced goroutine. On startup old running restores are marked `review_required` and their backup links are imported idempotently into the journal. Historical success values remain legacy metadata. A dump taken by the asynchronous backup creator can contain its own running row. Startup consults the journal before cleaning stale objects and recovers the completed archive metadata for that row. New operations record independent evidence. Both single-object and ordered multipart archives go through digest verification.
 
 ## Execution and review
 

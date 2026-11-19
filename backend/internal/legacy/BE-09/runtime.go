@@ -162,6 +162,25 @@ func (r *Runtime) Snapshot(ctx context.Context, key string, dump io.ReadCloser) 
 	return restore.Snapshot{Key: locator, Digest: digest}, err
 }
 
+func (r *Runtime) CompletedArchive(ctx context.Context, id string) (*service.BackupRecord, error) {
+	if r.Journal == nil {
+		return nil, nil
+	}
+	var data []byte
+	err := r.Journal.QueryRowContext(ctx, `SELECT record FROM restore_journal.backups WHERE id=$1 AND record->>'status'='completed'`, id).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var b service.BackupRecord
+	if err = json.Unmarshal(data, &b); err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (r *Runtime) Forget(ctx context.Context, id string) error {
 	if r.Journal == nil {
 		return nil
@@ -198,13 +217,17 @@ func (r *Runtime) Project(ctx context.Context, records []service.BackupRecord, f
 			return nil, err
 		}
 		n, exists := index[id]
-		if !exists {
+		if !exists || records[n].Status != "completed" {
 			var b service.BackupRecord
 			if err = json.Unmarshal(data, &b); err != nil {
 				return nil, err
 			}
-			n = len(records)
-			records = append(records, b)
+			if exists {
+				records[n] = b
+			} else {
+				n = len(records)
+				records = append(records, b)
+			}
 		}
 		projectStatus(&records[n], op, state, reason.String, stamp)
 	}

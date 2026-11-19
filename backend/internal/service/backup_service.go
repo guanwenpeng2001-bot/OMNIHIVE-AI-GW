@@ -232,8 +232,10 @@ func (s *BackupService) Start() {
 	s.cronSched = cron.New()
 	s.cronSched.Start()
 
-	// 清理重启后孤立的 running 记录
-	s.recoverStaleRecords()
+	// A restored dump can contain its own running backup row. Bind the external journal before cleaning objects.
+	if os.Getenv("OMNIHIVE_RESTORE_JOURNAL_DSN") == "" || s.boundRestoreControl() != nil {
+		s.recoverStaleRecords()
+	}
 
 	// 加载已有的定时配置
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -262,6 +264,22 @@ func (s *BackupService) recoverStaleRecords() {
 	for i := range records {
 		if records[i].Status == "running" {
 			staleRecord := records[i]
+			if c := s.boundRestoreControl(); c != nil {
+				completed, err := c.CompletedArchive(loadCtx, staleRecord.ID)
+				if err != nil {
+					logger.LegacyPrintf("service.backup", "[Backup] journal unavailable during backup recovery")
+					continue
+				}
+				if completed != nil {
+					completed.RestoreStatus, completed.RestoredAt, completed.RestoreError = staleRecord.RestoreStatus, staleRecord.RestoredAt, staleRecord.RestoreError
+					if completed.RestoreStatus == "running" {
+						completed.RestoreStatus = "review_required"
+						completed.RestoreError = "restore outcome requires review after server restart"
+					}
+					s.saveRecoveredRecord(completed)
+					continue
+				}
+			}
 			records[i].Status = "failed"
 			records[i].ErrorMsg = "interrupted by server restart"
 			records[i].Progress = ""
@@ -1525,11 +1543,17 @@ func deleteBackupObjectKeys(ctx context.Context, objectStore BackupObjectStore, 
 
 type RestoreControl interface {
 	StartAuthorized(context.Context, int64, string, string, string) (*BackupRecord, error)
+	CompletedArchive(context.Context, string) (*BackupRecord, error)
 	Forget(context.Context, string) error
 	Project(context.Context, []BackupRecord, string) ([]BackupRecord, error)
 }
 
-func (s *BackupService) SetRestoreControl(control RestoreControl) { s.restoreControl.Store(control) }
+func (s *BackupService) SetRestoreControl(control RestoreControl) {
+	s.restoreControl.Store(control)
+	if s.cronSched != nil && os.Getenv("OMNIHIVE_RESTORE_JOURNAL_DSN") != "" {
+		s.recoverStaleRecords()
+	}
+}
 
 func (s *BackupService) boundRestoreControl() RestoreControl {
 	control, _ := s.restoreControl.Load().(RestoreControl)
@@ -1571,8 +1595,17 @@ func (s *BackupService) OpenRestoreArchive(ctx context.Context, record *BackupRe
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(path)
-	return os.Open(path)
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, errors.Join(err, cleanupBackupFiles(path))
+	}
+	return temporaryArchive{file}, nil
+}
+
+type temporaryArchive struct{ *os.File }
+
+func (a temporaryArchive) Close() error {
+	return errors.Join(a.File.Close(), cleanupBackupFiles(a.Name()))
 }
 
 func (s *BackupService) SnapshotArchive(ctx context.Context, key string, dump io.ReadCloser) (string, string, error) {
