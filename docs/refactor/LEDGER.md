@@ -18,6 +18,11 @@ Status legend: todo / doing / review / merged / blocked
 | BE-24A | Release verification scaffold (OpenAPI freeze + J01–J06 fixtures + runbooks) | cloud (C5) | codex/cloud-c5-be24a | merged | 8bb24d441 → merged; verify.sh exit 0 at tip (OpenAPI pass, 6 journeys pass; HTTP/MATRIX/FINANCE/ACCESS/MIGRATION/LOAD pending) |
 | BE-11 | Exact settlement, wallet and evidence assembly | cloud C3 | codex/cloud-c3-be11 | merged | 3076832be merged; service settlement tests pass; mixed-version acceptance pending |
 | BE-12 | Gateway protocol and provider split | cloud C4 | codex/cloud-c4-be12 | merged | 6aae24a8f (first slice); golden matrix/remaining providers pending |
+| BE-10 | Versioned policy editor, simulation, publish and rollback | gpt-6.2-astra | codex/be-10-policy | doing | from 2bff07381 |
+| BE-14 | Request list, detail and route explanation | gpt-6.2-sol | codex/be-14-requests | doing | from 2bff07381 |
+| BE-15 | Fenced task and artifact center | gpt-6.2-astra | codex/be-15-tasks | doing | from 2bff07381 |
+| BE-20 | Plugin v2 SDK and host capability enforcement | gpt-6.2-astra | codex/be-20-plugins | doing | from 2bff07381 |
+| BE-23 | Migration inventory and cutover tooling (prep) | gpt-6.2-sol | codex/be-23-migration | doing | prep-only slice |
 | RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | merged | b33cecb5a; 1×P1 (BE-05 pricing) fixed, FE-WP1 P1s in flight |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
