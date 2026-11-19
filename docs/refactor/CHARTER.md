@@ -55,7 +55,7 @@ trustworthy, consistent, precise. "It clicks" is NOT done; every page must pass 
 | Architecture / hard backend (billing, routing, gateway split) | `codex/gpt-6.2-astra` (xhigh) |
 | Backend implementation | `codex/gpt-6.2-sol` (max / high) |
 | Design system / complex pages | `agy-cli/gemini-4-carbon` |
-| Frontend fallback order (user directive) | `agy-cli/gemini-4-carbon` → `agy-cli/gemini-4-neon` → `agy-cli/gemini-4-argon` → `agy-cli/gemini-4-hydrogen` |
+| Frontend model capability | Carbon (flagship, deep reasoning) > Neon >= Argon > Hydrogen (daily lightweight). Use Carbon for design system, complex pages and visual review; Neon/Argon for regular implementation; Hydrogen for small edits/bulk work. Never use a GPT model for frontend work. |
 | Frontend implementation | `agy-cli/gemini-4-hydrogen` (NEVER use a GPT model for frontend work) |
 | Frontend small edits / i18n | `agy-cli/gemini-3.8-flash` |
 | Code review | `workbuddy/deepseek-v4-pro` |

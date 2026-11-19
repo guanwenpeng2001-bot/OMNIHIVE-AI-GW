@@ -99,6 +99,30 @@ onMounted(() => {
             {{ isZh ? 'QUOTA · 额度查询' : 'QUOTA' }}
           </router-link>
 
+          <router-link
+            to="/pricing"
+            :class="[
+              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              route.path.startsWith('/pricing')
+                ? 'bg-oh-selected text-oh-accent-text'
+                : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
+            ]"
+          >
+            {{ isZh ? 'PRICING · 价格' : 'PRICING' }}
+          </router-link>
+
+          <router-link
+            to="/status"
+            :class="[
+              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              route.path.startsWith('/status')
+                ? 'bg-oh-selected text-oh-accent-text'
+                : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
+            ]"
+          >
+            {{ isZh ? 'STATUS · 状态' : 'STATUS' }}
+          </router-link>
+
           <a
             v-if="docUrl"
             :href="docUrl"
