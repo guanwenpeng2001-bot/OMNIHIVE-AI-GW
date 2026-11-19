@@ -10,7 +10,7 @@ Status legend: todo / doing / review / merged / blocked
 | BE-01 | Identity, projects and access | gpt-6.2-astra | codex/be-01-identity | merged | 43daedeb8; integrated 66510a70b (smoke pass) |
 | INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | idle | BE-01, BE-04 integrated |
 | BE-04 | Connections, credentials and pools | gpt-6.2-astra | codex/be-04-connections | merged | b58c783e7 → fd601fcb6; integrated c7c7d0961 (smoke pass) |
-| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | doing | based on integrated BE-04 tip |
+| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | merged | c6270bee6 merged (module + tests pass); composition/wire/openapi integration in progress on same branch |
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
 | BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 (resumed after interruption) |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | doing | based on 1e5012626 |
