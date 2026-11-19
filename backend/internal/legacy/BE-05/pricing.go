@@ -127,22 +127,18 @@ func priceFor(model service.PlazaModel, group service.PlazaGroup, userRates map[
 }
 
 func legacyRate(value float64, unit money.Unit, per string, multiplier money.Amount) (money.Rate, error) {
-	r, err := money.NewRate("USD", decimalText(value), unit, "1")
+	base, err := money.NewRate("USD", decimalText(value), unit, per)
 	if err != nil {
 		return money.Rate{}, err
 	}
-	q, err := money.NewQuantity(unit, per)
+	exact, err := base.Amount().Exact("USD")
 	if err != nil {
 		return money.Rate{}, err
 	}
-	total, err := r.Cost(q)
+	scaled, err := exact.Multiply(multiplier)
 	if err != nil {
 		return money.Rate{}, err
 	}
-	total, err = total.Multiply(multiplier)
-	if err != nil {
-		return money.Rate{}, err
-	}
-	amount := strings.TrimRight(strings.TrimRight(total.Diagnostic(), "0"), ".")
+	amount := strings.TrimRight(strings.TrimRight(scaled.Diagnostic(), "0"), ".")
 	return money.NewRate("USD", amount, unit, per)
 }
