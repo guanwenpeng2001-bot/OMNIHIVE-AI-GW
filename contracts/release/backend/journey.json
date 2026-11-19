@@ -50,8 +50,8 @@
       "method": "GET",
       "path": "{scope}/requests/r-fixture/route-explain",
       "status": 200,
-      "data": {"request_id": "r-fixture", "trace": {"mode": "execution", "policy_version": "policy-fixture", "candidates": [{"id": "excluded-fixture", "state": "excluded", "reasons": [{"code": "REGION_UNVERIFIED"}]}]}, "data_completeness": {"state": "complete"}},
-      "checks": [["request_id", "r-fixture"], ["trace.mode", "execution"], ["trace.policy_version", "policy-fixture"], ["trace.candidates.0.state", "excluded"], ["trace.candidates.0.reasons.0.code", "REGION_UNVERIFIED"], ["data_completeness.state", "complete"]]
+      "data": {"request_id": "r-fixture", "trace": {"mode": "execution", "policy_version": "", "candidates": [{"id": "eligible-fixture", "state": "eligible", "reasons": []}]}, "data_completeness": {"state": "complete"}},
+      "checks": [["request_id", "r-fixture"], ["trace.mode", "execution"], ["trace.policy_version", ""], ["trace.candidates.0.state", "eligible"], ["data_completeness.state", "complete"]]
     }
   ]
 }

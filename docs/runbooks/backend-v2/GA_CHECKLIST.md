@@ -1,6 +1,17 @@
 # BE-24 GA 清单
 
-**决定为 HOLD。内部和 1% 灰度都暂缓。** 候选 `b80fe3170de114beab2cfa19c74ec264d171ffcb` 的项目 Key 无法完成付费 Playground 主流程。另一项真实 HTTP 检查发现，文本模型收到 embeddings 请求时，候选向本地上游发送了一次。发布负责人需取得缺陷复测、成对两小时结果及最终运行时和迁移签核后再考虑开放内部流量。
+## 最新复验：`edac3ce6c`
+
+2026-11-19 在隔离 loopback 网络和 PID 命名空间中完成短跑：**J01–J06 全部通过**，执行请求、详情、费用、结算和 route-explain 使用同一请求号；`OPENAPI`、`GROUPED_PLAYGROUND`、`SURFACES_HTTP`、`PROTOCOL_HTTP`、`PUBLIC_NATIVE`、`CALLBACK_HTTP`、`ACCESS`、`LOAD`（60 秒）、`MATRIX`、`REGISTRY`、`STATUS_MODULE`、`FINANCE`、`FINANCE_MODULES`、`SIGNED_CALLBACK`、`ACCESS_MODULES`、`CONTROL_MODULES`、`MIGRATION`、`RESTORE`、`CUTOVER_FIXTURE` 均通过。
+
+仍为 **HOLD**，但阻断项已缩小为发布环境门禁：`TYPESCRIPT`（离线工具缓存未提供 `openapi-typescript@7.10.1`）、`SDK_HTTP`（离线 Node SDK fixture 未提供）、`PAIRED_2H`、`CUTOVER`、`WIRE_PARITY`。代码级短跑和全部可执行的财务/权限/迁移/恢复检查无失败项。
+
+- 最新报告：[`contracts/release/backend/reports/20261119T182146Z-edac3ce6c/summary.md`](../../../contracts/release/backend/reports/20261119T182146Z-edac3ce6c/summary.md)
+- 逐项结果：[`results.json`](../../../contracts/release/backend/reports/20261119T182146Z-edac3ce6c/results.json)
+
+## 历史轮次：`b80fe3170`
+
+**该轮决定为 HOLD。内部和 1% 灰度都暂缓。** 候选 `b80fe3170de114beab2cfa19c74ec264d171ffcb` 的项目 Key 无法完成付费 Playground 主流程。另一项真实 HTTP 检查发现，文本模型收到 embeddings 请求时，候选向本地上游发送了一次。发布负责人需取得缺陷复测、成对两小时结果及最终运行时和迁移签核后再考虑开放内部流量。
 
 本轮于 2026-11-19 在隔离的 Linux 网络和 PID 命名空间运行。两个候选网关连接临时 PostgreSQL 16.15 和 Redis 7.0.15，另一套 PG16 接受 BE-09 恢复。上游为本地 TLS fixture。未使用生产数据或供应商凭据。发布验证由 BE-24（astra）执行，发行复核待签。[本轮总表](../../../contracts/release/backend/reports/20261119T075243Z-b80fe3170/summary.md) · [分项断言、完整工具链和时间](../../../contracts/release/backend/reports/20261119T075243Z-b80fe3170/results.json)
 
