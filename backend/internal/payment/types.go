@@ -204,6 +204,8 @@ type RefundQueryRequest struct {
 type RefundResponse struct {
 	RefundID string
 	Status   string // "success", "pending", "failed"
+	Minor    int64
+	Currency string
 }
 
 // InstanceSelection holds the selected provider instance and its decrypted config.

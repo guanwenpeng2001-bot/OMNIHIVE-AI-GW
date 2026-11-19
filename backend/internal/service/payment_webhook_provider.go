@@ -32,6 +32,9 @@ func (s *PaymentService) GetWebhookProvider(ctx context.Context, providerKey, ou
 func (s *PaymentService) GetWebhookProviders(ctx context.Context, providerKey, outTradeNo string) ([]payment.Provider, error) {
 	if outTradeNo != "" {
 		order, err := s.entClient.PaymentOrder.Query().Where(paymentorder.OutTradeNo(outTradeNo)).Only(ctx)
+		if id, legacy := parseLegacyPaymentOrderID(outTradeNo, err); legacy {
+			order, err = s.entClient.PaymentOrder.Get(ctx, id)
+		}
 		if err != nil && !dbent.IsNotFound(err) {
 			return nil, fmt.Errorf("lookup webhook order: %w", err)
 		}
@@ -83,6 +86,39 @@ func (s *PaymentService) GetWebhookProviders(ctx context.Context, providerKey, o
 		return nil, err
 	}
 	return []payment.Provider{prov}, nil
+}
+
+// GetStripeReversalWebhookProviders uses the unverified intent only to find
+// signing candidates. A known intent can still use its original disabled instance.
+func (s *PaymentService) GetStripeReversalWebhookProviders(ctx context.Context, intent string) ([]payment.Provider, error) {
+	orders, err := s.entClient.PaymentOrder.Query().Where(
+		paymentorder.PaymentTradeNoEQ(intent),
+		paymentorder.Or(paymentorder.ProviderKeyEQ(payment.TypeStripe), paymentorder.PaymentTypeEQ(payment.TypeStripe)),
+	).All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("lookup Stripe reversal intent: %w", err)
+	}
+	var candidates []payment.Provider
+	seen := make(map[int64]bool)
+	for _, order := range orders {
+		instance, err := s.getOrderProviderInstance(ctx, order)
+		if err != nil {
+			return nil, err
+		}
+		if instance == nil || instance.ProviderKey != payment.TypeStripe || seen[instance.ID] {
+			continue
+		}
+		candidate, err := s.createProviderFromInstance(ctx, instance)
+		if err != nil {
+			return nil, err
+		}
+		seen[instance.ID] = true
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return s.getEnabledWebhookProvidersByKey(ctx, payment.TypeStripe)
+	}
+	return candidates, nil
 }
 
 func (s *PaymentService) getPinnedOrderProvider(ctx context.Context, o *dbent.PaymentOrder) (payment.Provider, error) {

@@ -113,6 +113,7 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
+	"GET /api/v2/workspaces/:workspace_id/projects/:project_id/billing/adjustments/:id/payment-evidence": "billing.payment_evidence.read",
 	"GET /api/v2/admin/extensions":                       "admin.extensions.list",
 	"GET /api/v1/admin/accounts/data":                    "admin.accounts.export",
 	"GET /api/v1/workspaces/:workspace_id/accounts/data": "workspace.accounts.export",
@@ -127,8 +128,9 @@ var auditSensitiveReads = map[string]string{
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
 var auditActionOverrides = map[string]string{
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":           "tasks.create",
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry": "tasks.retry",
+	"PUT /api/v2/workspaces/:workspace_id/projects/:project_id/billing/adjustments/:id/payment-evidence/:event_id": "billing.payment_evidence.link",
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":                                             "tasks.create",
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry":                                   "tasks.retry",
 
 	"POST /api/v1/admin/proxy-groups":                         "admin.proxy_groups.create",
 	"PUT /api/v1/admin/proxy-groups/:id":                      "admin.proxy_groups.update",
@@ -173,14 +175,15 @@ var playgroundAuditActions = map[string]string{
 // auditBodyOmittedRoutes contains routes with secrets or private content that
 // cannot be safely redacted by JSON field name.
 var auditBodyOmittedRoutes = map[string]struct{}{
-	"POST " + playgroundAuditPrefix + "/playground/runs":                                     {},
-	"POST " + playgroundAuditPrefix + "/requests/:id/replay":                                 {},
-	"POST " + playgroundAuditPrefix + "/playground/runs/:id/cancel":                          {},
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":                       {},
-	"POST /api/v2/workspaces/:workspace_id/byok":                                             {},
-	"POST /api/v2/workspaces/:workspace_id/byok/:id/rotate":                                  {},
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials":            {},
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials/:id/rotate": {},
+	"PUT /api/v2/workspaces/:workspace_id/projects/:project_id/billing/adjustments/:id/payment-evidence/:event_id": {},
+	"POST " + playgroundAuditPrefix + "/playground/runs":                                                           {},
+	"POST " + playgroundAuditPrefix + "/requests/:id/replay":                                                       {},
+	"POST " + playgroundAuditPrefix + "/playground/runs/:id/cancel":                                                {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":                                             {},
+	"POST /api/v2/workspaces/:workspace_id/byok":                                                                   {},
+	"POST /api/v2/workspaces/:workspace_id/byok/:id/rotate":                                                        {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials":                                  {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials/:id/rotate":                       {},
 
 	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry": {},
 

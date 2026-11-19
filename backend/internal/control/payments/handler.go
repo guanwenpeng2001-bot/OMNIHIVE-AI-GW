@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -32,6 +33,33 @@ func Register(v2 *gin.RouterGroup, h Handler, session ...gin.HandlerFunc) {
 	g.GET("", h.serve)
 	g.PUT("/:event_id", h.serve)
 }
+
+func (h Handler) ReadOperation(ctx context.Context, workspace, actor int64, id string) (identity.Operation, error) {
+	command, err := uuid.Parse(id)
+	if err != nil {
+		return identity.Operation{}, fault.NotFound
+	}
+	project, err := h.Store.OperationProject(ctx, workspace, actor, command)
+	if errors.Is(err, sql.ErrNoRows) {
+		return identity.Operation{}, fault.NotFound
+	}
+	if err != nil {
+		return identity.Operation{}, err
+	}
+	access, err := h.Access.Evaluate(ctx, actor, workspace, project, "billing.read")
+	if err != nil {
+		return identity.Operation{}, err
+	}
+	if err := access.Require("billing.read"); err != nil {
+		return identity.Operation{}, err
+	}
+	id = command.String()
+	return identity.Operation{
+		ID: id, State: "succeeded", ProjectID: project, OwnerID: actor,
+		StatusURL: fmt.Sprintf("/api/v2/workspaces/%d/operations/%s", workspace, id),
+	}, nil
+}
+
 func (h Handler) serve(c *gin.Context) {
 	ctx := c.Request.Context()
 	actor, ok := middleware.GetAuthSubjectFromContext(c)

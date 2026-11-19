@@ -17,10 +17,14 @@ type stripeRefundBackend struct {
 }
 
 func (b *stripeRefundBackend) Call(_ string, _ string, _ string, params stripe.ParamsContainer, v stripe.LastResponseSetter) error {
-	b.params = append(b.params, params.(*stripe.RefundCreateParams))
+	request := params.(*stripe.RefundCreateParams)
+	b.params = append(b.params, request)
 	refund := v.(*stripe.Refund)
 	refund.ID = "re_123"
 	refund.Status = stripe.RefundStatusSucceeded
+	refund.Amount = *request.Amount
+	refund.Currency = stripe.CurrencyCNY
+	refund.PaymentIntent = &stripe.PaymentIntent{ID: *request.PaymentIntent}
 	return nil
 }
 
@@ -48,12 +52,13 @@ func TestStripeRefundUsesStableAmountSpecificIdempotencyKey(t *testing.T) {
 	}
 
 	refund := func(amount string) {
-		_, err := provider.Refund(context.Background(), payment.RefundRequest{
+		result, err := provider.Refund(context.Background(), payment.RefundRequest{
 			TradeNo: "pi_123",
 			OrderID: "sub2_order_456",
 			Amount:  amount,
 		})
 		require.NoError(t, err)
+		require.Equal(t, "CNY", result.Currency)
 	}
 
 	refund("12.34")
@@ -63,6 +68,7 @@ func TestStripeRefundUsesStableAmountSpecificIdempotencyKey(t *testing.T) {
 	require.Len(t, backend.params, 3)
 	require.Equal(t, int64(1234), *backend.params[0].Amount)
 	require.Equal(t, "re-sub2_order_456-1234", *backend.params[0].IdempotencyKey)
+	require.Equal(t, "sub2_order_456", backend.params[0].Metadata["omnihive_refund_order"])
 	require.Equal(t, backend.params[0].IdempotencyKey, backend.params[1].IdempotencyKey)
 	require.Equal(t, int64(1235), *backend.params[2].Amount)
 	require.Equal(t, "re-sub2_order_456-1235", *backend.params[2].IdempotencyKey)

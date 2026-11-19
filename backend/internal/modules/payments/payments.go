@@ -127,6 +127,17 @@ func (s Store) HandleVerified(ctx context.Context, provider string, n *payment.P
 		if !o.captured || (o.state != payment.OrderStatusRefunded && o.state != payment.OrderStatusPartiallyRefunded) {
 			return ErrPending
 		}
+		var knownRefund bool
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM payment_audit_logs WHERE order_id=$1::bigint::text
+ AND action='REFUND_SUCCESS' AND CASE WHEN detail IS JSON OBJECT THEN
+ detail::jsonb->>'refundID'=$2 AND detail::jsonb->>'providerMinor'=$3::bigint::text
+ AND detail::jsonb->>'providerCurrency'=$4 ELSE false END)`, o.id, n.EffectID, n.Minor, n.Currency).Scan(&knownRefund)
+		if err != nil {
+			return err
+		}
+		if !knownRefund {
+			return ErrPending
+		}
 		var same bool
 		err = tx.QueryRowContext(ctx, `SELECT $2::bigint=CASE WHEN t.currency IN ('ISK','UGX')
  THEN round(t.provider_minor*p.refund_amount/nullif(t.source_amount,0)/100,0)*100

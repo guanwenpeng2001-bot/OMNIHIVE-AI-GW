@@ -106,3 +106,16 @@ func (s Store) Evidence(ctx context.Context, sc EvidenceScope, adj uuid.UUID) ([
 	}
 	return out, nil
 }
+
+// OperationProject resolves completed source commands through a reviewed link.
+// A personal command must identify one project in the requested workspace.
+func (s Store) OperationProject(ctx context.Context, workspace, payer int64, id uuid.UUID) (int64, error) {
+	var projectID int64
+	err := s.DB.QueryRowContext(ctx, `SELECT min(a.project_id)
+ FROM payment_entitlement_events e
+ JOIN payment_adjustment_links l ON l.entitlement_event_id=e.id
+ JOIN billing_adjustment_effects a ON a.id=l.adjustment_command_id
+ WHERE a.workspace_id=$1 AND e.payer_id=$2 AND e.command_id=$3
+ HAVING count(DISTINCT a.project_id)=1`, workspace, payer, id).Scan(&projectID)
+	return projectID, err
+}

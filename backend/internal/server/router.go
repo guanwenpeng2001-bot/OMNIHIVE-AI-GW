@@ -14,6 +14,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
@@ -45,6 +46,7 @@ func SetupRouter(
 	policiesHandler *policieshttp.Handler,
 	playgroundHandler *playgroundhttp.Handler,
 	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
 	statusHandler *statushttp.Handler,
 	byokHandler *byokhttp.Handler,
 	auditHandler *audithttp.Handler,
@@ -131,7 +133,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, auditHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -148,6 +150,7 @@ func registerRoutes(
 	policiesHandler *policieshttp.Handler,
 	playgroundHandler *playgroundhttp.Handler,
 	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
 	statusHandler *statushttp.Handler,
 	byokHandler *byokhttp.Handler,
 	auditHandler *audithttp.Handler,
@@ -202,6 +205,8 @@ func registerRoutes(
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
 	billinghttp.Register(v2, billingHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	paymentshttp.Register(v2, paymentEvidenceHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	audithttp.Register(v2, auditHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	byokhttp.Register(v2, byokHandler,

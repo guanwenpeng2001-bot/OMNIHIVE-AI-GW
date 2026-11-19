@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
@@ -36,6 +38,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -82,6 +85,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		policieshttp.ProviderSet,
 		playgroundHandlerProvider,
 		billingHandlerProvider,
+		paymentStoreProvider,
+		paymentEvidenceHandlerProvider,
 		statusHandlerProvider,
 		byokStoreProvider,
 		byokHandlerProvider,
@@ -166,8 +171,25 @@ func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *ser
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit}}
+func paymentStoreProvider(db *sql.DB, fulfillment *service.PaymentService, billing *service.BillingCacheService, keys *service.APIKeyService, subscriptions *service.SubscriptionService) *payments.Store {
+	return &payments.Store{DB: db, Fulfillment: fulfillment, Refresh: func(ctx context.Context, payerID, groupID int64) error {
+		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		balanceErr := billing.InvalidateUserBalance(cacheCtx, payerID)
+		keys.InvalidateAuthCacheByUserID(cacheCtx, payerID)
+		if groupID > 0 {
+			return errors.Join(balanceErr, subscriptions.RefreshPaymentSubscription(payerID, groupID))
+		}
+		return balanceErr
+	}}
+}
+
+func paymentEvidenceHandlerProvider(store *payments.Store, access identity.AccessEvaluator, totp *service.TotpService) paymentshttp.Handler {
+	return paymentshttp.Handler{Store: *store, Access: access, Step: totp}
+}
+
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store, paymentEvidence paymentshttp.Handler) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit, paymentEvidence}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

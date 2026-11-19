@@ -109,9 +109,9 @@ func TestPaymentLookupFailuresRemainRetryable(test *testing.T) {
 	client := newOrderNotFoundTestClient(test)
 	service := &PaymentService{entClient: client}
 	ctx := context.Background()
-	require.ErrorIs(test, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil), ErrOrderNotFound)
+	require.ErrorIs(test, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, "", nil), ErrOrderNotFound)
 	require.NoError(test, client.Close())
-	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil)
+	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, "", nil)
 	require.Error(test, err)
 	require.NotErrorIs(test, err, ErrOrderNotFound)
 	err = service.alreadyProcessed(ctx, &dbent.PaymentOrder{ID: 42})

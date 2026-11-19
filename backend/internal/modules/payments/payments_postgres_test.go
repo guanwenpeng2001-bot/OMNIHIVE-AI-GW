@@ -107,6 +107,17 @@ func TestPaymentWritersPostgres(t *testing.T) {
 		return oid, payment.PaymentNotification{Status: "success", TradeNo: trade, OrderID: out, EventID: uuid.NewString(), EffectID: trade, InstanceID: "7", Currency: cur, Minor: minor}
 	}
 	oid, paid := order("KWD", "12.345", "balance")
+	exact, err := s.ExactWebhook(ctx, payment.TypeStripe, &paid)
+	require.NoError(t, err)
+	require.True(t, exact)
+	foreign := paid
+	foreign.OrderID = uuid.NewString()
+	_, err = s.ExactWebhook(ctx, payment.TypeStripe, &foreign)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	wrongInstance := paid
+	wrongInstance.InstanceID = "8"
+	_, err = s.ExactWebhook(ctx, payment.TypeStripe, &wrongInstance)
+	require.ErrorIs(t, err, payments.ErrMismatch)
 	// Decode a signed notification through the production adapter before every
 	// nominal delivery, including the refund and dispute retries.
 	apply := func(want payment.PaymentNotification) error {
@@ -239,6 +250,10 @@ func TestPaymentWritersPostgres(t *testing.T) {
 	confirmed.EventID = uuid.NewString()
 	confirmed.EffectID = uuid.NewString()
 	beforeConfirm := balance(uid)
+	require.ErrorIs(t, apply(confirmed), payments.ErrPending)
+	exec(`INSERT INTO payment_audit_logs(order_id,action,detail) VALUES($1,'REFUND_SUCCESS',
+ jsonb_build_object('refundID',$2::text,'providerMinor',$3::bigint,'providerCurrency',$4::text)::text)`,
+		fmt.Sprint(oid3), confirmed.EffectID, confirmed.Minor, confirmed.Currency)
 	require.NoError(t, apply(confirmed))
 	require.NoError(t, apply(confirmed))
 	require.Equal(t, beforeConfirm, balance(uid))
@@ -296,7 +311,8 @@ func TestPaymentWritersPostgres(t *testing.T) {
 	exec("INSERT INTO billing_adjustment_effects(id,workspace_id,project_id,request_id,receipt_id,original_event_id,event_id,currency,reason,note) VALUES($1,$2,$3,'fixture',$4,$5,$6,'USD','billing_correction','fixture')", adj, w, p, receipt, orig, delta)
 	g := gate{actor: uid, sid: "verified"}
 	router := gin.New()
-	control.Register(router.Group("/api/v2"), control.Handler{Store: s, Access: postgres.New(db), Step: &g}, func(c *gin.Context) {
+	evidenceHandler := control.Handler{Store: s, Access: postgres.New(db), Step: &g}
+	control.Register(router.Group("/api/v2"), evidenceHandler, func(c *gin.Context) {
 		u, _ := strconv.ParseInt(c.GetHeader("actor"), 10, 64)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: u})
 		c.Set(middleware.ContextKeySessionID, c.GetHeader("session"))
@@ -324,6 +340,12 @@ func TestPaymentWritersPostgres(t *testing.T) {
 	require.Equal(t, 200, resp.Code)
 	require.Contains(t, resp.Body.String(), cmd.String())
 	require.Contains(t, resp.Body.String(), adj.String())
+	op, err := evidenceHandler.ReadOperation(ctx, w, uid, cmd.String())
+	require.NoError(t, err)
+	require.Equal(t, "succeeded", op.State)
+	require.Equal(t, p, op.ProjectID)
+	_, err = evidenceHandler.ReadOperation(ctx, w, viewer, cmd.String())
+	require.Error(t, err)
 	require.ErrorIs(t, s.LinkAdjustment(ctx, payments.EvidenceScope{Workspace: w, Project: p + 1, Actor: uid}, adj, source, true), sql.ErrNoRows)
 	require.ErrorIs(t, s.LinkAdjustment(ctx, payments.EvidenceScope{Workspace: w, Project: p, Actor: viewer}, adj, source, false), sql.ErrNoRows)
 }

@@ -264,43 +264,43 @@ func (s *Stripe) Refund(ctx context.Context, req payment.RefundRequest) (*paymen
 		refundStatus = payment.ProviderStatusSuccess
 	}
 
-	return &payment.RefundResponse{
-		RefundID: r.ID,
-		Status:   refundStatus,
-	}, nil
+	proof, err := s.refundResponse(r, req.TradeNo, amountInMinorUnit, refundStatus)
+	if err != nil {
+		// Stripe accepted the request. Preserve its ID for reconciliation
+		// without treating incomplete response evidence as a final failure.
+		return &payment.RefundResponse{RefundID: r.ID, Status: payment.ProviderStatusPending}, err
+	}
+	return proof, nil
 }
 
-// QueryRefund retrieves a Stripe refund by refund ID when available, otherwise
-// falls back to the latest refund for the PaymentIntent.
+// QueryRefund retrieves the exact refund accepted by the original admin request.
 func (s *Stripe) QueryRefund(ctx context.Context, req payment.RefundQueryRequest) (*payment.RefundResponse, error) {
 	s.ensureInit()
-
-	var r *stripe.Refund
-	var err error
-	if refundID := strings.TrimSpace(req.RefundID); refundID != "" {
-		r, err = s.sc.V1Refunds.Retrieve(ctx, refundID, nil)
-		if err != nil {
-			return nil, fmt.Errorf("stripe query refund: %w", err)
-		}
-	} else {
-		tradeNo := strings.TrimSpace(req.TradeNo)
-		if tradeNo == "" {
-			return nil, fmt.Errorf("stripe query refund: missing payment intent id")
-		}
-		params := &stripe.RefundListParams{PaymentIntent: stripe.String(tradeNo)}
-		params.Limit = stripe.Int64(1)
-		list := s.sc.V1Refunds.List(ctx, params)
-		if list.Err() != nil {
-			return nil, fmt.Errorf("stripe query refund: %w", list.Err())
-		}
-		refunds := list.Data()
-		if len(refunds) == 0 {
-			return nil, fmt.Errorf("stripe query refund: no refund found")
-		}
-		r = refunds[0]
+	id := strings.TrimSpace(req.RefundID)
+	if id == "" {
+		return nil, fmt.Errorf("stripe refund ID is missing; reconcile against the provider statement")
 	}
+	minor, err := payment.AmountToMinorUnit(req.Amount, s.currency())
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.sc.V1Refunds.Retrieve(ctx, id, nil)
+	if err != nil {
+		return nil, fmt.Errorf("stripe query refund: %w", err)
+	}
+	if r.ID != id {
+		return nil, fmt.Errorf("stripe query refund ID mismatch")
+	}
+	return s.refundResponse(r, req.TradeNo, minor, stripeRefundProviderStatus(r.Status))
+}
 
-	return &payment.RefundResponse{RefundID: r.ID, Status: stripeRefundProviderStatus(r.Status)}, nil
+func (s *Stripe) refundResponse(r *stripe.Refund, intent string, minor int64, status string) (*payment.RefundResponse, error) {
+	currency, err := payment.NormalizePaymentCurrency(string(r.Currency))
+	if err != nil || r.Currency == "" || currency != s.currency() ||
+		r.ID == "" || r.PaymentIntent == nil || r.PaymentIntent.ID != intent || r.Amount != minor {
+		return nil, fmt.Errorf("stripe refund evidence mismatch")
+	}
+	return &payment.RefundResponse{RefundID: r.ID, Status: status, Minor: minor, Currency: currency}, nil
 }
 
 func stripeRefundProviderStatus(status stripe.RefundStatus) string {

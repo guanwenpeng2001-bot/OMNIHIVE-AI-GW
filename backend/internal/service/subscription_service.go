@@ -190,6 +190,12 @@ func (s *SubscriptionService) invalidateSubscriptionCaches(userID, groupID int64
 	return nil
 }
 
+// RefreshPaymentSubscription invalidates both local and shared subscription
+// caches after an external payment reversal commits.
+func (s *SubscriptionService) RefreshPaymentSubscription(userID, groupID int64) error {
+	return s.invalidateSubscriptionCaches(userID, groupID)
+}
+
 // AssignSubscriptionInput 分配订阅输入
 type AssignSubscriptionInput struct {
 	UserID       int64

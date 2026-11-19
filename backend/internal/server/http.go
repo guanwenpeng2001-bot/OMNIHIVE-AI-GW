@@ -16,6 +16,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
@@ -52,6 +53,7 @@ func ProvideRouter(
 	policiesHandler *policieshttp.Handler,
 	playgroundHandler *playgroundhttp.Handler,
 	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
 	statusHandler *statushttp.Handler,
 	byokHandler *byokhttp.Handler,
 	auditHandler *audithttp.Handler,
@@ -115,7 +117,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, auditHandler, imageTaskCenter, gatewayScopes, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, db)
+	return SetupRouter(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, imageTaskCenter, gatewayScopes, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, db)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

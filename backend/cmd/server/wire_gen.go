@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -18,6 +19,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	payments2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
@@ -35,6 +37,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -355,7 +358,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	}
 	passkeyHandler := handler.NewPasskeyHandler(passkeyService, authService, settingService)
 	handlerPaymentHandler := handler.NewPaymentHandler(paymentService, paymentConfigService)
-	paymentWebhookHandler := handler.NewPaymentWebhookHandler(paymentService, registry)
+	store := paymentStoreProvider(db, paymentService, billingCacheService, apiKeyService, subscriptionService)
+	paymentWebhookHandler := handler.NewPaymentWebhookHandler(paymentService, store)
 	availableChannelHandler := handler.NewAvailableChannelHandler(channelService, apiKeyService, settingService)
 	modelPlazaService := service.NewModelPlazaService(channelRepository, groupRepository, pricingService, billingService, modelPricingResolver)
 	modelPlazaHandler := handler.NewModelPlazaHandler(modelPlazaService, apiKeyService, settingService)
@@ -375,39 +379,40 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	idempotencyCleanupService := service.ProvideIdempotencyCleanupService(idempotencyRepository, configConfig)
 	openAIQuotaAutoResetService := service.ProvideOpenAIQuotaAutoResetService(accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
 	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
-	store := postgres.New(db)
-	connectionsStore := connections.New(db, store, aesEncryptor, accountTestService, configConfig)
-	runtime, err := be09.New(db, configConfig, backupService, store, totpService, userService)
+	postgresStore := postgres.New(db)
+	connectionsStore := connections.New(db, postgresStore, aesEncryptor, accountTestService, configConfig)
+	runtime, err := be09.New(db, configConfig, backupService, postgresStore, totpService, userService)
 	if err != nil {
 		return nil, err
 	}
-	requestsHandler := requestsHandlerProvider(db, store, configConfig)
-	billingHandler := billingHandlerProvider(db, store, totpService, configConfig)
-	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, store, configConfig)
-	auditStore := auditStoreProvider(db, store)
-	operations := provideIdentityOperations(connectionsStore, runtime, requestsHandler, billingHandler, byokStore, auditStore)
-	identityHandler := identity.New(store, operations, configConfig)
+	requestsHandler := requestsHandlerProvider(db, postgresStore, configConfig)
+	billingHandler := billingHandlerProvider(db, postgresStore, totpService, configConfig)
+	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, postgresStore, configConfig)
+	auditStore := auditStoreProvider(db, postgresStore)
+	paymentsHandler := paymentEvidenceHandlerProvider(store, postgresStore, totpService)
+	operations := provideIdentityOperations(connectionsStore, runtime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler)
+	identityHandler := identity.New(postgresStore, operations, configConfig)
 	connectionsHandler := connections2.New(connectionsStore)
-	postgresStore := postgres2.New(db)
-	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
-	reader := catalog.NewReader(source, postgresStore)
-	modelsHandler := models.New(reader, store, configConfig)
+	store2 := postgres2.New(db)
+	source := legacy.NewSource(store2, modelPlazaService, settingService, apiKeyService, opsService)
+	reader := catalog.NewReader(source, store2)
+	modelsHandler := models.New(reader, postgresStore, configConfig)
 	restoreHandler := restore.New(runtime)
 	policyStore := policies.NewStore(db, configConfig)
-	policiesHandler := policies.New(policyStore, store)
-	playgroundHandler := playgroundHandlerProvider(db, store, store, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, configConfig)
-	statusHandler := statusHandlerProvider(db, store, configConfig, opsService)
+	policiesHandler := policies.New(policyStore, postgresStore)
+	playgroundHandler := playgroundHandlerProvider(db, postgresStore, postgresStore, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, configConfig)
+	statusHandler := statusHandlerProvider(db, postgresStore, configConfig, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
 	auditHandler := auditHandlerProvider(auditStore, observer, configConfig)
-	tasksHandler := handler.ProvideImageTaskCenter(db, configConfig, store, store, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
+	tasksHandler := handler.ProvideImageTaskCenter(db, configConfig, postgresStore, postgresStore, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService, auditLogService)
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, auditHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, tasksHandler, postgresStore, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -509,8 +514,25 @@ func billingHandlerProvider(db *sql.DB, store *postgres.Store, totp *service.Tot
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *be09.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store, audit3 *audit.Store) identity2.Operations {
-	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3, audit3}}
+func paymentStoreProvider(db *sql.DB, fulfillment *service.PaymentService, billing2 *service.BillingCacheService, keys *service.APIKeyService, subscriptions *service.SubscriptionService) *payments.Store {
+	return &payments.Store{DB: db, Fulfillment: fulfillment, Refresh: func(ctx context.Context, payerID, groupID int64) error {
+		cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		balanceErr := billing2.InvalidateUserBalance(cacheCtx, payerID)
+		keys.InvalidateAuthCacheByUserID(cacheCtx, payerID)
+		if groupID > 0 {
+			return errors.Join(balanceErr, subscriptions.RefreshPaymentSubscription(payerID, groupID))
+		}
+		return balanceErr
+	}}
+}
+
+func paymentEvidenceHandlerProvider(store *payments.Store, access identity2.AccessEvaluator, totp *service.TotpService) payments2.Handler {
+	return payments2.Handler{Store: *store, Access: access, Step: totp}
+}
+
+func provideIdentityOperations(store *connections.Store, restores *be09.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store, audit3 *audit.Store, paymentEvidence payments2.Handler) identity2.Operations {
+	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3, audit3, paymentEvidence}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
