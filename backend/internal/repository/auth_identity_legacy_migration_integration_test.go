@@ -953,7 +953,7 @@ TRUNCATE TABLE
 	user_avatars,
 	user_external_identities,
 	users
-RESTART IDENTITY CASCADE;
+CASCADE;
 `)
 	require.NoError(t, err)
 }

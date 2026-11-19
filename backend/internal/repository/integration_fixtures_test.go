@@ -55,13 +55,25 @@ func cleanupRepositoryRows(t *testing.T) {
 		"upstream_jobs", "billing_usage_entries", "usage_logs",
 		"usage_dashboard_hourly_users", "usage_dashboard_daily_users",
 		"usage_dashboard_hourly", "usage_dashboard_daily", "scheduler_outbox",
-		"user_affiliate_ledger", "payment_orders", "usage_cleanup_tasks",
+		"user_affiliate_ledger", "usage_cleanup_tasks",
+		"billing_movement_links", "billing_settlement_outbox", "billing_export_rows",
+		"billing_adjustment_effects", "billing_case_resolutions", "billing_commands",
+		"payment_wallet_links", "payment_reversals", "payment_adjustment_links",
+		"payment_wallet_command_ids", "payment_order_history", "payment_provider_events",
+		"payment_trade_claims", "payment_entitlement_events", "payment_order_terms",
+		"payment_historical_trades", "payment_orders", "billing_wallet_events",
+		"billing_funding_accounts",
+		"byok_attempt_funding", "byok_operations", "byok_secret_versions",
+		"byok_credentials", "byok_pilot_providers",
+		"routing_candidate_snapshots", "routing_account_preference_owners",
+		"routing_legacy_intents",
 		"connection_pool_members", "connection_verifications", "connection_events",
 		"connection_operations", "connection_previews", "connection_pools",
 		"provider_connections", "connection_credential_versions", "connection_migration_quarantine",
 		"credential_secrets", "api_key_credentials",
 		"api_key_budget_periods", "api_key_budget_reservations", "api_key_budget_adjustments",
 		"project_key_policies", "user_subscriptions", "user_allowed_groups", "api_keys",
+		"redeem_codes",
 		"identity_adoption_decisions", "auth_identity_channels", "auth_identities",
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
 		"passkey_credentials", "passkey_user_handles", "user_affiliates",
@@ -69,6 +81,10 @@ func cleanupRepositoryRows(t *testing.T) {
 		"user_platform_quotas", "user_provider_default_grants", "project_grants",
 		"workspace_members", "users",
 		"scheduled_test_results", "scheduled_test_plans", "account_groups",
+	}
+	for _, table := range tables {
+		_, err := tx.ExecContext(ctx, "ALTER TABLE "+pq.QuoteIdentifier(table)+" DISABLE TRIGGER USER")
+		require.NoError(t, err, "disable fixture triggers for table %s", table)
 	}
 	// Bound the reviewed FK closure, including references that keep their rows
 	// through SET NULL. A new dependent table requires an ownership review.
@@ -90,6 +106,10 @@ func cleanupRepositoryRows(t *testing.T) {
 	for _, table := range tables {
 		_, err := tx.ExecContext(ctx, "DELETE FROM "+pq.QuoteIdentifier(table))
 		require.NoError(t, err, "clear fixture table %s", table)
+	}
+	for _, table := range tables {
+		_, err := tx.ExecContext(ctx, "ALTER TABLE "+pq.QuoteIdentifier(table)+" ENABLE TRIGGER USER")
+		require.NoError(t, err, "re-enable fixture triggers for table %s", table)
 	}
 	// ON DELETE SET NULL references in announcements, moderation/audit records,
 	// redeem codes, plugin installations and channel monitors retain their records.
