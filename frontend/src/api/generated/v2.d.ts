@@ -321,6 +321,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/byok": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List scoped pilot credentials
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokWorkspaceList"];
+        put?: never;
+        /**
+         * Enroll an ordinary provider API key
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokWorkspaceCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace allowed scopes and funding consent
+         * @description Requires credentials.byok.manage.
+         */
+        put: operations["byokWorkspacePolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the current credential
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokWorkspaceRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify and switch to a new credential version
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokWorkspaceRotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify credential authorization and models
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokWorkspaceVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/connections": {
         parameters: {
             query?: never;
@@ -797,6 +915,153 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List scoped pilot credentials
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectList"];
+        put?: never;
+        /**
+         * Enroll an ordinary provider API key
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokProjectCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Estimate tenant exposure and platform service fee
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectEstimate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace allowed scopes and funding consent
+         * @description Requires credentials.byok.manage.
+         */
+        put: operations["byokProjectPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke the current credential
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokProjectRevoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify and switch to a new credential version
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokProjectRotate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify credential authorization and models
+         * @description Requires credentials.byok.manage.
+         */
+        post: operations["byokProjectVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/keys": {
         parameters: {
             query?: never;
@@ -870,6 +1135,86 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["compareProjectModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit a separately funded native model call */
+        post: operations["playgroundSubmit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PlaygroundRunID"];
+            };
+            cookie?: never;
+        };
+        get: operations["playgroundRunDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PlaygroundRunID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["playgroundRunCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/by-idempotency-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Recover the submitting actor's original run */
+        get: operations["playgroundRunByIdempotencyKey"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -985,6 +1330,27 @@ export interface paths {
         get: operations["requestExportDownload"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/replay": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authorize and fund a new call using the original model and protocol */
+        post: operations["playgroundReplayRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1335,6 +1701,91 @@ export interface components {
             };
             reservation_ref: string;
         };
+        ByokCreate: {
+            provider: string;
+            /** @constant */
+            auth_type: "api_key";
+            secret: string;
+            allowed_project_ids: components["schemas"]["IdentityID"][];
+            allowed_member_ids: components["schemas"]["IdentityID"][];
+            allowed_key_ids: components["schemas"]["IdentityID"][];
+            allowed_model_ids: string[];
+            /**
+             * @description Lower values are preferred.
+             * @default 0
+             */
+            priority: number;
+            /** @default false */
+            allow_platform_fallback: boolean;
+            /** @default false */
+            include_external_in_budget: boolean;
+        };
+        ByokCredential: {
+            id: components["schemas"]["IdentityID"];
+            owner_workspace_id: components["schemas"]["IdentityID"];
+            provider: string;
+            version: components["schemas"]["IdentityID"];
+            credential_version: components["schemas"]["IdentityID"];
+            /** @enum {string} */
+            state: "unverified" | "verified" | "expired" | "revoked";
+            fingerprint: string;
+            verified_until: string | null;
+            scope: {
+                project_ids: components["schemas"]["IdentityID"][];
+                member_ids: components["schemas"]["IdentityID"][];
+                key_ids: components["schemas"]["IdentityID"][];
+                model_ids: string[];
+            };
+            /**
+             * @description Lower values are preferred.
+             * @default 0
+             */
+            priority: number;
+            /** @default false */
+            allow_platform_fallback: boolean;
+            /** @default false */
+            include_external_in_budget: boolean;
+        };
+        ByokEstimate: {
+            /** @constant */
+            funding_source: "byok";
+            /** @enum {string} */
+            external_state: "unknown" | "estimated";
+            byok_external_estimate: components["schemas"]["CatalogMoney"] | null;
+            platform_service_fee: components["schemas"]["CatalogMoney"];
+            platform_estimate: null;
+            price_version: string | null;
+            include_external_in_budget: boolean;
+        };
+        ByokPage: {
+            items: components["schemas"]["ByokCredential"][];
+            next_cursor: string | null;
+        };
+        ByokPolicy: {
+            allowed_project_ids: components["schemas"]["IdentityID"][];
+            allowed_member_ids: components["schemas"]["IdentityID"][];
+            allowed_key_ids: components["schemas"]["IdentityID"][];
+            allowed_model_ids: string[];
+            /**
+             * @description Lower values are preferred.
+             * @default 0
+             */
+            priority: number;
+            /** @default false */
+            allow_platform_fallback: boolean;
+            /** @default false */
+            include_external_in_budget: boolean;
+        };
+        ByokRevoke: {
+            /** @enum {string} */
+            mode: "force" | "drain";
+        };
+        ByokRotate: {
+            replacement: {
+                secret: string;
+            };
+        };
+        ByokVerify: Record<string, never>;
         CatalogBenchmark: {
             benchmark_id: string;
             unit: string;
@@ -2263,6 +2714,118 @@ export interface components {
             evidence_state: "fresh" | "stale" | "unknown";
             effective_scope?: components["schemas"]["CatalogScope"];
         };
+        PlaygroundEvent: {
+            seq: number;
+            /** Format: uuid */
+            run_id: string;
+            /** Format: uuid */
+            request_id: string;
+            protocol?: components["schemas"]["PlaygroundProtocol"];
+            /** @enum {unknown} */
+            kind?: "text" | "reasoning" | "tool_arguments";
+            index?: number;
+            text?: string;
+            tool_call_id?: string;
+            name?: string;
+            fragment?: string;
+            quantities?: {
+                /** @enum {unknown} */
+                unit: "input_token" | "output_token";
+                quantity: string;
+            }[];
+            /** @constant */
+            evidence?: "provider_reported";
+            /** @description Allowlisted native payload including the Chat stream terminator */
+            frame?: unknown;
+            code?: string;
+            field?: string;
+            severity?: string;
+            price_version?: string;
+            payer_user_id?: components["schemas"]["IdentityID"];
+            /** @enum {unknown} */
+            outcome?: "succeeded" | "failed" | "canceled" | "unknown";
+            reason?: string;
+            /** @enum {unknown} */
+            retry?: "never" | "query_status";
+            status_url?: string;
+            detail_url?: string;
+            settlement_state?: string;
+        };
+        PlaygroundOptions: {
+            /** @default true */
+            stream: boolean;
+            /**
+             * @description Requires playground.raw and streaming mode
+             * @default false
+             */
+            include_raw_events: boolean;
+            /**
+             * @description Consent to a bounded ephemeral text preview under requests.content.read
+             * @default false
+             */
+            retain_text_preview: boolean;
+        };
+        /** @enum {string} */
+        PlaygroundProtocol: "openai_chat" | "openai_responses" | "anthropic_messages" | "gemini_generate";
+        PlaygroundReplay: {
+            api_key_id: components["schemas"]["IdentityID"];
+            payer_user_id?: components["schemas"]["IdentityID"];
+            input: {
+                [key: string]: unknown;
+            };
+            options?: components["schemas"]["PlaygroundOptions"];
+            /** @constant */
+            funding_acknowledged: true;
+        };
+        PlaygroundResult: {
+            /** Format: uuid */
+            run_id: string;
+            /** Format: uuid */
+            request_id: string;
+            protocol: components["schemas"]["PlaygroundProtocol"];
+            /** @enum {unknown} */
+            outcome: "succeeded" | "failed" | "canceled" | "unknown";
+            output: {
+                [key: string]: unknown;
+            } | null;
+            reason?: string;
+            /** @enum {unknown} */
+            retry?: "never" | "query_status";
+            settlement_state: string;
+            status_url: string;
+            detail_url: string;
+        };
+        PlaygroundSubmit: {
+            api_key_id: components["schemas"]["IdentityID"];
+            payer_user_id?: components["schemas"]["IdentityID"];
+            model_id: string;
+            protocol: components["schemas"]["PlaygroundProtocol"];
+            /** @constant */
+            action: "text.chat";
+            /** @description Native Chat or Messages messages, Responses input, or Gemini contents. Maximum body size 256 KiB. */
+            input: {
+                [key: string]: unknown;
+            };
+            options?: components["schemas"]["PlaygroundOptions"];
+            /** @constant */
+            funding_acknowledged: true;
+        };
+        PlaygroundSummary: {
+            /** Format: uuid */
+            run_id: string;
+            /** Format: uuid */
+            request_id: string;
+            protocol: components["schemas"]["PlaygroundProtocol"];
+            /** @enum {unknown} */
+            state: "running" | "cancel_requested" | "succeeded" | "failed" | "canceled" | "unknown";
+            last_seq: number;
+            content_retained: boolean;
+            text_preview?: string;
+            status_url: string;
+            detail_url: string;
+            payer_user_id: components["schemas"]["IdentityID"];
+            settlement_state: string;
+        };
         RequestsAttempt: {
             id: string;
             number: number;
@@ -2789,6 +3352,121 @@ export interface components {
         };
     };
     responses: {
+        /** @description Changed */
+        ByokChanged: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokCredential"];
+                };
+            };
+        };
+        /** @description Created */
+        ByokCreated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokCredential"];
+                };
+            };
+        };
+        /** @description Invalid command, inaccessible scope, stale revision, or unavailable funding evidence. */
+        ByokError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Estimate */
+        ByokEstimate: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokEstimate"];
+                };
+            };
+        };
+        /** @description Operation */
+        ByokOperation: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "accepted";
+                    data: components["schemas"]["IdentityOperation"];
+                };
+            };
+        };
+        /** @description Page */
+        ByokPage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokPage"];
+                };
+            };
+        };
+        /** @description New POST stream, synchronous native result, or JSON summary for a matching idempotent submission */
+        PlaygroundExecution: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "text/event-stream": string;
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["PlaygroundSummary"] | components["schemas"]["PlaygroundResult"];
+                };
+            };
+        };
+        /** @description Current submission and linked settlement status */
+        PlaygroundStatus: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @enum {unknown} */
+                    message: "success" | "accepted";
+                    data: components["schemas"]["PlaygroundSummary"];
+                };
+            };
+        };
         /** @description Management error including invalid filters, expired cursor or artifact, denied action, and inaccessible request */
         RequestsError: {
             headers: {
@@ -2870,6 +3548,7 @@ export interface components {
         ImageArtifactID: string;
         ImageTaskID: string;
         ImageTaskTicketHeader: string;
+        PlaygroundRunID: string;
         RequestsID: string;
         StatusIfModifiedSince: string;
         StatusIfNoneMatch: string;
@@ -3563,6 +4242,136 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    byokWorkspaceList: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokPage"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokCreate"];
+            };
+        };
+        responses: {
+            201: components["responses"]["ByokCreated"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspacePolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokPolicy"];
+            };
+        };
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceRevoke: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokRevoke"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceRotate: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokRotate"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceVerify: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokVerify"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
         };
     };
     connectionList: {
@@ -4849,6 +5658,165 @@ export interface operations {
             };
         };
     };
+    byokProjectList: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokPage"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokCreate"];
+            };
+        };
+        responses: {
+            201: components["responses"]["ByokCreated"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectEstimate: {
+        parameters: {
+            query: {
+                member_id: components["schemas"]["IdentityID"];
+                key_id: components["schemas"]["IdentityID"];
+                model_id: string;
+                input_token_bound: string;
+                output_token_bound: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokEstimate"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokPolicy"];
+            };
+        };
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectRevoke: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokRevoke"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectRotate: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokRotate"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectVerify: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokVerify"];
+            };
+        };
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
     identityKeys: {
         parameters: {
             query?: {
@@ -5069,6 +6037,84 @@ export interface operations {
             };
         };
     };
+    playgroundSubmit: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaygroundSubmit"];
+            };
+        };
+        responses: {
+            200: components["responses"]["PlaygroundExecution"];
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    playgroundRunDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PlaygroundRunID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PlaygroundStatus"];
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    playgroundRunCancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PlaygroundRunID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            202: components["responses"]["PlaygroundStatus"];
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    playgroundRunByIdempotencyKey: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PlaygroundStatus"];
+            default: components["responses"]["RequestsError"];
+        };
+    };
     quoteProjectModel: {
         parameters: {
             query?: never;
@@ -5251,6 +6297,29 @@ export interface operations {
                     "application/json": components["schemas"]["RequestsExportDocument"];
                 };
             };
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    playgroundReplayRequest: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaygroundReplay"];
+            };
+        };
+        responses: {
+            200: components["responses"]["PlaygroundExecution"];
             default: components["responses"]["RequestsError"];
         };
     };

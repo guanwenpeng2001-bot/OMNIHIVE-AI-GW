@@ -159,7 +159,12 @@ var auditActionOverrides = map[string]string{
 // auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
 // 这类 body 的凭证内嵌在普通字符串值里，键级脱敏无法覆盖，整体不入库。
 var auditBodyOmittedRoutes = map[string]struct{}{
-	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":           {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":                       {},
+	"POST /api/v2/workspaces/:workspace_id/byok":                                             {},
+	"POST /api/v2/workspaces/:workspace_id/byok/:id/rotate":                                  {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials":            {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/byok/credentials/:id/rotate": {},
+
 	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry": {},
 
 	// Omit every import body, including invalid and legacy requests. The route

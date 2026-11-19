@@ -14,6 +14,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
+	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
@@ -25,8 +26,10 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -72,6 +75,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		policieshttp.ProviderSet,
 		billingHandlerProvider,
 		statusHandlerProvider,
+		byokStoreProvider,
+		byokHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -99,6 +104,14 @@ func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *con
 	return handler.ProvideRequestsHandler(db, store, cfg)
 }
 
+func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identitymod.AccessEvaluator, cfg *config.Config) *byokdomain.Store {
+	return byokdomain.New(db, enc, probe, access, []byte(cfg.JWT.Secret))
+}
+
+func byokHandlerProvider(store *byokdomain.Store) *byokhttp.Handler {
+	return byokhttp.New(store)
+}
+
 func statusHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config, ops *service.OpsService) *statushttp.Handler {
 	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
@@ -107,8 +120,8 @@ func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *ser
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing}}
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
+	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
@@ -49,6 +50,7 @@ func ProvideRouter(
 	policiesHandler *policieshttp.Handler,
 	billingHandler *billinghttp.Handler,
 	statusHandler *statushttp.Handler,
+	byokHandler *byokhttp.Handler,
 	imageTaskCenter *taskhttp.Handler,
 	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
@@ -109,7 +111,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, statusHandler, imageTaskCenter, gatewayScopes, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, db)
+	return SetupRouter(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, statusHandler, byokHandler, imageTaskCenter, gatewayScopes, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, db)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

@@ -625,6 +625,141 @@ paths:
           content:
             application/json:
               schema: {$ref: '#/components/schemas/IdentityError'}
+  /api/v2/workspaces/{workspace_id}/byok:
+    get:
+      operationId: byokWorkspaceList
+      summary: List scoped pilot credentials
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokPage'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+    post:
+      operationId: byokWorkspaceCreate
+      summary: Enroll an ordinary provider API key
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokCreate'
+      responses:
+        '201':
+          $ref: '#/components/responses/ByokCreated'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/policy:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: byokWorkspacePolicy
+      summary: Replace allowed scopes and funding consent
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokPolicy'
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokWorkspaceRevoke
+      summary: Revoke the current credential
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokRevoke'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/rotate:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokWorkspaceRotate
+      summary: Verify and switch to a new credential version
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokRotate'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/verify:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokWorkspaceVerify
+      summary: Verify credential authorization and models
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokVerify'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
   /api/v2/workspaces/{workspace_id}/connections:
     get:
       operationId: connectionList
@@ -1697,6 +1832,194 @@ paths:
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
       - {$ref: '#/components/parameters/IdentityProjectID'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials:
+    get:
+      operationId: byokProjectList
+      summary: List scoped pilot credentials
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokPage'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+    post:
+      operationId: byokProjectCreate
+      summary: Enroll an ordinary provider API key
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokCreate'
+      responses:
+        '201':
+          $ref: '#/components/responses/ByokCreated'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/estimate:
+    get:
+      operationId: byokProjectEstimate
+      summary: Estimate tenant exposure and platform service fee
+      description: Requires credentials.byok.manage.
+      parameters:
+        - name: member_id
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdentityID'
+        - name: key_id
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdentityID'
+        - name: model_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: input_token_bound
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+        - name: output_token_bound
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokEstimate'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/policy:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: byokProjectPolicy
+      summary: Replace allowed scopes and funding consent
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokPolicy'
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/revoke:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokProjectRevoke
+      summary: Revoke the current credential
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokRevoke'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/rotate:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokProjectRotate
+      summary: Verify and switch to a new credential version
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokRotate'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/verify:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    post:
+      operationId: byokProjectVerify
+      summary: Verify credential authorization and models
+      description: Requires credentials.byok.manage.
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokVerify'
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/keys:
     get:
       operationId: identityKeys
@@ -1935,6 +2258,62 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CatalogCompareInput'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+    post:
+      operationId: playgroundSubmit
+      summary: Submit a separately funded native model call
+      x-required-grant: playground.run
+      parameters:
+        - {$ref: '#/components/parameters/IdentityIdempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/PlaygroundSubmit'}}
+      responses:
+        '200': {$ref: '#/components/responses/PlaygroundExecution'}
+        default: {$ref: '#/components/responses/RequestsError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/{id}:
+    get:
+      operationId: playgroundRunDetail
+      x-required-grant: playground.read
+      responses:
+        '200': {$ref: '#/components/responses/PlaygroundStatus'}
+        default: {$ref: '#/components/responses/RequestsError'}
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/PlaygroundRunID'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/{id}/cancel:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/PlaygroundRunID'}
+    post:
+      operationId: playgroundRunCancel
+      x-required-grant: playground.cancel
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {type: object, additionalProperties: false}}
+      responses:
+        '202': {$ref: '#/components/responses/PlaygroundStatus'}
+        default: {$ref: '#/components/responses/RequestsError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/playground/runs/by-idempotency-key:
+    get:
+      operationId: playgroundRunByIdempotencyKey
+      summary: Recover the submitting actor's original run
+      x-required-grant: playground.read
+      parameters:
+        - {$ref: '#/components/parameters/IdentityIdempotency'}
+      responses:
+        '200': {$ref: '#/components/responses/PlaygroundStatus'}
+        default: {$ref: '#/components/responses/RequestsError'}
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/quotes:
     parameters:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -2087,6 +2466,24 @@ paths:
       - $ref: '#/components/parameters/IdentityProjectID'
       - $ref: '#/components/parameters/RequestsID'
       - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/replay:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/RequestsID'}
+    post:
+      operationId: playgroundReplayRequest
+      summary: Authorize and fund a new call using the original model and protocol
+      x-required-grant: requests.replay
+      parameters:
+        - {$ref: '#/components/parameters/IdentityIdempotency'}
+      requestBody:
+        required: true
+        content:
+          application/json: {schema: {$ref: '#/components/schemas/PlaygroundReplay'}}
+      responses:
+        '200': {$ref: '#/components/responses/PlaygroundExecution'}
+        default: {$ref: '#/components/responses/RequestsError'}
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/route-explain:
     get:
       operationId: requestRouteExplanation
@@ -3098,6 +3495,11 @@ components:
       required: true
       schema:
         type: string
+    PlaygroundRunID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
     RequestsID:
       name: id
       in: path
@@ -3117,6 +3519,130 @@ components:
       required: true
       schema: {type: string, format: uuid}
   responses:
+    ByokChanged:
+      description: Changed
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokCredential'
+    ByokCreated:
+      description: Created
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokCredential'
+    ByokError:
+      description: Invalid command, inaccessible scope, stale revision, or unavailable funding evidence.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IdentityError'
+    ByokEstimate:
+      description: Estimate
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokEstimate'
+    ByokOperation:
+      description: Operation
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: accepted
+              data:
+                $ref: '#/components/schemas/IdentityOperation'
+    ByokPage:
+      description: Page
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokPage'
+    PlaygroundExecution:
+      description: New POST stream, synchronous native result, or JSON summary for a matching idempotent submission
+      content:
+        text/event-stream:
+          schema: {type: string, description: 'SSE id matches seq. Event names are started, delta, usage, raw_event, diagnostic, finished and failed.'}
+          x-event-data-schema: {$ref: '#/components/schemas/PlaygroundEvent'}
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {const: success}
+              data:
+                oneOf:
+                  - {$ref: '#/components/schemas/PlaygroundSummary'}
+                  - {$ref: '#/components/schemas/PlaygroundResult'}
+    PlaygroundStatus:
+      description: Current submission and linked settlement status
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {enum: [success, accepted]}
+              data: {$ref: '#/components/schemas/PlaygroundSummary'}
     RequestsError:
       description: Management error including invalid filters, expired cursor or artifact, denied action, and inaccessible request
       content:
@@ -3171,6 +3697,295 @@ components:
             price: {type: string}
             pricing_at: {type: string, format: date-time}
         reservation_ref: {type: string, minLength: 1}
+    ByokCreate:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - auth_type
+        - secret
+        - allowed_project_ids
+        - allowed_member_ids
+        - allowed_key_ids
+        - allowed_model_ids
+      properties:
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 128
+        auth_type:
+          const: api_key
+        secret:
+          type: string
+          minLength: 1
+          maxLength: 262144
+          writeOnly: true
+        allowed_project_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_member_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_key_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_model_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 0
+          description: Lower values are preferred.
+        allow_platform_fallback:
+          type: boolean
+          default: false
+        include_external_in_budget:
+          type: boolean
+          default: false
+    ByokCredential:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - owner_workspace_id
+        - provider
+        - version
+        - credential_version
+        - state
+        - fingerprint
+        - verified_until
+        - scope
+        - priority
+        - allow_platform_fallback
+        - include_external_in_budget
+      properties:
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        owner_workspace_id:
+          $ref: '#/components/schemas/IdentityID'
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 128
+        version:
+          $ref: '#/components/schemas/IdentityID'
+        credential_version:
+          $ref: '#/components/schemas/IdentityID'
+        state:
+          type: string
+          enum:
+            - unverified
+            - verified
+            - expired
+            - revoked
+        fingerprint:
+          type: string
+        verified_until:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        scope:
+          type: object
+          additionalProperties: false
+          required:
+            - project_ids
+            - member_ids
+            - key_ids
+            - model_ids
+          properties:
+            project_ids:
+              type: array
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/IdentityID'
+            member_ids:
+              type: array
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/IdentityID'
+            key_ids:
+              type: array
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              items:
+                $ref: '#/components/schemas/IdentityID'
+            model_ids:
+              type: array
+              minItems: 1
+              maxItems: 100
+              uniqueItems: true
+              items:
+                type: string
+                minLength: 1
+                maxLength: 128
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 0
+          description: Lower values are preferred.
+        allow_platform_fallback:
+          type: boolean
+          default: false
+        include_external_in_budget:
+          type: boolean
+          default: false
+    ByokEstimate:
+      type: object
+      additionalProperties: false
+      required:
+        - funding_source
+        - external_state
+        - byok_external_estimate
+        - platform_service_fee
+        - platform_estimate
+        - price_version
+        - include_external_in_budget
+      properties:
+        funding_source:
+          const: byok
+        external_state:
+          type: string
+          enum:
+            - unknown
+            - estimated
+        byok_external_estimate:
+          oneOf:
+            - $ref: '#/components/schemas/CatalogMoney'
+            - type: 'null'
+        platform_service_fee:
+          $ref: '#/components/schemas/CatalogMoney'
+        platform_estimate:
+          type: 'null'
+        price_version:
+          oneOf:
+            - type: string
+            - type: 'null'
+        include_external_in_budget:
+          type: boolean
+    ByokPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ByokCredential'
+        next_cursor:
+          oneOf:
+            - type: string
+            - type: 'null'
+    ByokPolicy:
+      type: object
+      additionalProperties: false
+      required:
+        - allowed_project_ids
+        - allowed_member_ids
+        - allowed_key_ids
+        - allowed_model_ids
+      properties:
+        allowed_project_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_member_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_key_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_model_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 0
+          description: Lower values are preferred.
+        allow_platform_fallback:
+          type: boolean
+          default: false
+        include_external_in_budget:
+          type: boolean
+          default: false
+    ByokRevoke:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum:
+            - force
+            - drain
+    ByokRotate:
+      type: object
+      additionalProperties: false
+      required:
+        - replacement
+      properties:
+        replacement:
+          type: object
+          additionalProperties: false
+          required:
+            - secret
+          properties:
+            secret:
+              type: string
+              minLength: 1
+              maxLength: 262144
+              writeOnly: true
+    ByokVerify:
+      type: object
+      additionalProperties: false
     CatalogBenchmark:
       type: object
       required:
@@ -5945,6 +6760,103 @@ components:
             - unknown
         effective_scope:
           $ref: '#/components/schemas/CatalogScope'
+    PlaygroundEvent:
+      type: object
+      required: [seq, run_id, request_id]
+      properties:
+        seq: {type: integer, minimum: 1}
+        run_id: {type: string, format: uuid}
+        request_id: {type: string, format: uuid}
+        protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+        kind: {enum: [text, reasoning, tool_arguments]}
+        index: {type: integer}
+        text: {type: string}
+        tool_call_id: {type: string}
+        name: {type: string}
+        fragment: {type: string}
+        quantities:
+          type: array
+          items:
+            type: object
+            required: [unit, quantity]
+            properties:
+              unit: {enum: [input_token, output_token]}
+              quantity: {type: string, pattern: '^[0-9]+$'}
+        evidence: {const: provider_reported}
+        frame: {description: Allowlisted native payload including the Chat stream terminator}
+        code: {type: string}
+        field: {type: string}
+        severity: {type: string}
+        price_version: {type: string}
+        payer_user_id: {$ref: '#/components/schemas/IdentityID'}
+        outcome: {enum: [succeeded, failed, canceled, unknown]}
+        reason: {type: string}
+        retry: {enum: [never, query_status]}
+        status_url: {type: string}
+        detail_url: {type: string}
+        settlement_state: {type: string}
+    PlaygroundOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        stream: {type: boolean, default: true}
+        include_raw_events: {type: boolean, default: false, description: Requires playground.raw and streaming mode}
+        retain_text_preview: {type: boolean, default: false, description: Consent to a bounded ephemeral text preview under requests.content.read}
+    PlaygroundProtocol:
+      type: string
+      enum: [openai_chat, openai_responses, anthropic_messages, gemini_generate]
+    PlaygroundReplay:
+      type: object
+      additionalProperties: false
+      required: [api_key_id, input, funding_acknowledged]
+      properties:
+        api_key_id: {$ref: '#/components/schemas/IdentityID'}
+        payer_user_id: {$ref: '#/components/schemas/IdentityID'}
+        input: {type: object, additionalProperties: true}
+        options: {$ref: '#/components/schemas/PlaygroundOptions'}
+        funding_acknowledged: {const: true}
+    PlaygroundResult:
+      type: object
+      required: [run_id, request_id, protocol, outcome, output, settlement_state, status_url, detail_url]
+      properties:
+        run_id: {type: string, format: uuid}
+        request_id: {type: string, format: uuid}
+        protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+        outcome: {enum: [succeeded, failed, canceled, unknown]}
+        output: {type: [object, 'null'], additionalProperties: true}
+        reason: {type: string}
+        retry: {enum: [never, query_status]}
+        settlement_state: {type: string}
+        status_url: {type: string}
+        detail_url: {type: string}
+    PlaygroundSubmit:
+      type: object
+      additionalProperties: false
+      required: [api_key_id, model_id, protocol, action, input, funding_acknowledged]
+      properties:
+        api_key_id: {$ref: '#/components/schemas/IdentityID'}
+        payer_user_id: {$ref: '#/components/schemas/IdentityID'}
+        model_id: {type: string, maxLength: 255}
+        protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+        action: {const: text.chat}
+        input: {type: object, additionalProperties: true, description: 'Native Chat or Messages messages, Responses input, or Gemini contents. Maximum body size 256 KiB.'}
+        options: {$ref: '#/components/schemas/PlaygroundOptions'}
+        funding_acknowledged: {const: true}
+    PlaygroundSummary:
+      type: object
+      required: [run_id, request_id, protocol, state, last_seq, content_retained, status_url, detail_url, payer_user_id, settlement_state]
+      properties:
+        run_id: {type: string, format: uuid}
+        request_id: {type: string, format: uuid}
+        protocol: {$ref: '#/components/schemas/PlaygroundProtocol'}
+        state: {enum: [running, cancel_requested, succeeded, failed, canceled, unknown]}
+        last_seq: {type: integer, minimum: 0}
+        content_retained: {type: boolean}
+        text_preview: {type: string}
+        status_url: {type: string}
+        detail_url: {type: string}
+        payer_user_id: {$ref: '#/components/schemas/IdentityID'}
+        settlement_state: {type: string}
     RequestsAttempt:
       type: object
       required: [id, number, candidate_id, connection_id, connection_name, started_at, duration_ms, upstream_ttft_ms, acceptance, outcome, status, reason, semantic_output, abandoned_uncertain, receipt_state, conversion]
