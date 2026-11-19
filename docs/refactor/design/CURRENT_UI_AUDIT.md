@@ -100,7 +100,7 @@ All routes currently defined in `frontend/src/router/index.ts` must preserve wor
 `router/index.ts` dynamically clones 8 resource routes under `/workspaces/:workspace_id/...` (`accounts`, `groups`, `proxies`, `proxy-groups`, `channels/pricing`, `channels/monitor`, `keys`, `monitor`), clearing `requiresAdmin` and checking `workspacesAPI.list()` membership (`role === 'admin'` except `/keys`). Under the new IA, workspace context moves into the persistent top `ScopeSwitcher`, while these 8 deep links remain valid and synchronize the active workspace scope.
 
 **Net-new routes required by `PLAN_v1.0.md` §10.2–10.8:**
-- Public: `/models` (canonical for `/model-plaza`), `/models/:slug` (Model Detail), `/models/compare` (Compare & Heatmap), `/pricing` (Plans & Rate Calculator), `/docs` (Public/Console API Docs), `/status` (Public Service Health).
+- Public: `/model-plaza` (canonical), `/model-plaza/:id` (Model Detail), `/model-plaza/compare` (Compare & Heatmap), `/pricing` (Plans & Rate Calculator), `/docs` (Public/Console API Docs), `/status` (Public Service Health). `/models` and `/models/*` are reserved by the OpenAI-compatible gateway and must not be used for panel pages.
 - User Console: `/playground` (Interactive API Debugger), `/requests/:id` (Request Waterfall & Cost Evidence), `/tasks` (Unified Async Task Center), `/billing` (Effective Quota & Ledger).
 - Admin Console: `/admin/connections/new` & `/admin/connections/:id/edit` (5-step Upstream Wizard replacing the 7,036-line modal), `/admin/routing` (Routing Policy & Simulator), `/admin/requests/:id` (Admin Attempt Diagnostics).
 - Dev-only: `/__design` (Design System v1 Component & State Gallery, registered only when `import.meta.env.DEV || import.meta.env.MODE === 'test'`).

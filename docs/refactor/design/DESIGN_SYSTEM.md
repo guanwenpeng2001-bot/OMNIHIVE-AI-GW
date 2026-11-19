@@ -267,7 +267,7 @@ Top Bar (`56px`): `BrandMark (OmniHive)` · `MODELS` (`/models`) · `PRICING` (`
   - **Section 4 — Three Governance Pillars (OpenCode 3-column hairline grid):** Protocol Wire-Compatibility, Verifiable Cost & Quota Attribution, Credential & Egress Isolation.
 - **Mobile (`360px`):** Stacks Hero copy above scrollable SDK block; Catalog Preview switches to Fireworks-style 2-line model summary cards.
 
-### 9.2 Model Plaza (`/models`, alias `/model-plaza`)
+### 9.2 Model Plaza (`/model-plaza`)
 - **Synthesis:** OpenRouter left facet rail + Vercel governance/variant columns + Fireworks compact list mode.
 - **Above-the-Fold Header:** Compact single row (`PageHeader` without tall marketing banner): Title `Models` + live count badge in mono, search input (`Filter by model, slug, or provider…` + `/` shortcut), quick toggle pills (`Pinned`, `My Accessible Only` when signed in, `ZDR`), sort `Select` (`Featured`, `Newest`, `Input Price ↑`, `Context ↓`, `Throughput ↓`), `Compare (0/3)` button, and `SegmentedControl` (`Table | List`).
 - **Modality Tabs (`Tabs` underline):** `All` · `Text` · `Image` · `Audio` · `Video` · `Embeddings` · `Rerank` with mono counts.
