@@ -1,0 +1,30 @@
+{
+  "compatibility": [
+    {
+      "action": "text.chat",
+      "protocol": "openai_chat",
+      "account_mode": "api_key",
+      "adapter_version": "ad_openai_chat_responses_v1",
+      "maturity": "deprecated",
+      "publication_version": "3",
+      "published_at": "2026-11-21T10:00:00Z",
+      "evidence": {
+        "evidence_id": "ve_236642dd-0f12-49bc-8fb2-9f34c3d5bb7c",
+        "source": "endpoint_probe",
+        "state": "success",
+        "freshness": "stale",
+        "sample_count": "1",
+        "window_start": "2026-11-19T10:00:00Z",
+        "observed_at": "2026-11-19T10:00:01Z",
+        "verified_at": "2026-11-19T10:00:01Z",
+        "expires_at": "2026-11-20T10:00:01Z",
+        "fixture_id": "openai_chat_responses_v1"
+      },
+      "deprecation": {
+        "reason": "superseded",
+        "announced_at": "2026-11-21T10:00:00Z",
+        "sunset_at": "2026-12-21T10:00:00Z"
+      }
+    }
+  ]
+}

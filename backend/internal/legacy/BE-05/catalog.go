@@ -100,6 +100,14 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 			}
 		}
 	}
+	visibleEntries := make([]string, 0, len(out.Models))
+	for _, model := range out.Models {
+		visibleEntries = append(visibleEntries, catalog.StableID(model.Provider, model.Model))
+	}
+	out.Compatibility, err = s.store.Compatibility(ctx, visibleEntries, now)
+	if err != nil {
+		return catalog.Input{}, err
+	}
 	if !p.Public() && len(metricIDs) > 0 {
 		out.Metrics, err = s.store.Metrics(ctx, p, window, metricIDs, s.ops.IsMonitoringEnabled(ctx))
 		if err != nil && ctx.Err() != nil {

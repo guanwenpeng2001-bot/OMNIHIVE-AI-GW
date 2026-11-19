@@ -909,6 +909,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CatalogBenchmark'
+        compatibility:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogModelCompatibility'
         documentation_url:
           anyOf:
           - type: string
