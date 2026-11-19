@@ -45,6 +45,173 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdentityError'
       summary: Consume a workspace and browser-bound authorization draft
+  /api/v2/admin/catalog/verification-targets:
+    post:
+      operationId: catalogCreateVerificationTarget
+      summary: Register a reviewed platform connection and matrix tuple
+      description: Requires catalog.verify. An interval of zero selects manual verification. A target starts as a candidate.
+      parameters:
+        - $ref: '#/components/parameters/CatalogVerificationIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CatalogVerificationTargetInput'}
+      responses:
+        '201': {$ref: '#/components/responses/CatalogVerificationTarget'}
+        default: {$ref: '#/components/responses/CatalogVerificationError'}
+  /api/v2/admin/catalog/verification-targets/{id}:
+    get:
+      operationId: catalogVerificationTarget
+      summary: Read a target, recent observations, and current publication
+      description: Requires catalog.verify. The latest attempt and last success can refer to different observations.
+      responses:
+        '200':
+          description: Verification target detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data:
+                    allOf:
+                      - $ref: '#/components/schemas/CatalogVerificationTarget'
+                      - type: object
+                        required: [latest_attempt, last_success, publication]
+                        properties:
+                          latest_attempt:
+                            anyOf:
+                              - $ref: '#/components/schemas/CatalogVerificationObservation'
+                              - type: 'null'
+                          last_success:
+                            anyOf:
+                              - $ref: '#/components/schemas/CatalogVerificationObservation'
+                              - type: 'null'
+                          publication:
+                            anyOf:
+                              - $ref: '#/components/schemas/CatalogCompatibilityPublication'
+                              - type: 'null'
+        default: {$ref: '#/components/responses/CatalogVerificationError'}
+    parameters:
+      - $ref: '#/components/parameters/CatalogVerificationTargetID'
+  /api/v2/admin/catalog/verification-targets/{id}/publications:
+    parameters:
+      - $ref: '#/components/parameters/CatalogVerificationTargetID'
+    post:
+      operationId: catalogPublishCompatibility
+      summary: Publish a compatibility lifecycle update or roll back to a previous revision
+      description: Requires catalog.publish. Use the current publication_version or zero in If-Match.
+      parameters:
+        - $ref: '#/components/parameters/CatalogVerificationIdempotency'
+        - $ref: '#/components/parameters/CatalogVerificationIfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  additionalProperties: false
+                  required: [maturity]
+                  properties:
+                    maturity: {const: experimental}
+                    evidence_id: {type: string}
+                - type: object
+                  additionalProperties: false
+                  required: [maturity, evidence_id]
+                  properties:
+                    maturity: {const: stable}
+                    evidence_id: {type: string}
+                - type: object
+                  additionalProperties: false
+                  required: [maturity, deprecation_reason, sunset_at]
+                  properties:
+                    maturity: {const: deprecated}
+                    deprecation_reason: {$ref: '#/components/schemas/CatalogDeprecationReason'}
+                    sunset_at: {type: string, format: date-time}
+                - type: object
+                  additionalProperties: false
+                  required: [maturity]
+                  properties:
+                    maturity: {const: closed}
+                - type: object
+                  additionalProperties: false
+                  required: [rollback_version]
+                  properties:
+                    rollback_version: {type: string, pattern: '^(0|[1-9][0-9]*)$'}
+      responses:
+        '201':
+          description: Published compatibility version
+          headers:
+            ETag: {schema: {type: string}}
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data: {$ref: '#/components/schemas/CatalogCompatibilityPublication'}
+        default: {$ref: '#/components/responses/CatalogVerificationError'}
+  /api/v2/admin/catalog/verification-targets/{id}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/CatalogVerificationTargetID'
+    put:
+      operationId: catalogSetVerificationSchedule
+      summary: Set the recurring verification interval
+      description: Requires catalog.verify. Use the target schedule_version in If-Match. Recurring jobs run under the approving actor.
+      parameters:
+        - $ref: '#/components/parameters/CatalogVerificationIfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [interval_seconds]
+              properties:
+                interval_seconds: {$ref: '#/components/schemas/CatalogVerificationInterval'}
+      responses:
+        '200': {$ref: '#/components/responses/CatalogVerificationTarget'}
+        default: {$ref: '#/components/responses/CatalogVerificationError'}
+  /api/v2/admin/catalog/verifications:
+    post:
+      operationId: catalogQueueVerification
+      summary: Queue a platform catalog verification
+      description: Requires catalog.verify. Omit protocol when the other matrix dimensions select exactly one reviewed target.
+      parameters:
+        - $ref: '#/components/parameters/CatalogVerificationIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CatalogVerificationMatrixInput'}
+      responses:
+        '202':
+          description: Verification accepted. Poll the workspace operation in status_url.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: accepted}
+                  data: {$ref: '#/components/schemas/CatalogVerificationOperation'}
+        '429':
+          description: Verification capacity reached.
+          headers:
+            Retry-After:
+              schema: {type: integer, minimum: 1}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityError'}
+        default: {$ref: '#/components/responses/CatalogVerificationError'}
   /api/v2/admin/extensions:
     get:
       operationId: listAdminExtensions
@@ -3460,6 +3627,21 @@ components:
       schema:
         type: string
         pattern: ^m_[0-9a-f]{32}$
+    CatalogVerificationIdempotency:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: {type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$'}
+    CatalogVerificationIfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema: {type: string, pattern: '^"(0|[1-9][0-9]*)"$'}
+    CatalogVerificationTargetID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, pattern: '^vt_[a-f0-9-]{36}$'}
     ConnectionID:
       name: id
       in: path
@@ -3786,6 +3968,24 @@ components:
                 const: success
               data:
                 $ref: '#/components/schemas/ByokPage'
+    CatalogVerificationError:
+      description: Management error
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/IdentityError'}
+    CatalogVerificationTarget:
+      description: Verification target
+      headers:
+        ETag: {schema: {type: string}}
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {const: success}
+              data: {$ref: '#/components/schemas/CatalogVerificationTarget'}
     PlaygroundExecution:
       description: New POST stream, synchronous native result, or JSON summary for a matching idempotent submission
       content:
@@ -4228,6 +4428,10 @@ components:
         - adapter_version
         - limitations
       properties:
+        verified_extension_actions:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ExtensionActionLabel'}
         source:
           type: string
         maturity:
@@ -4362,6 +4566,25 @@ components:
             $ref: '#/components/schemas/CatalogBenchmark'
         quote:
           $ref: '#/components/schemas/CatalogEstimate'
+    CatalogCompatibilityPublication:
+      allOf:
+        - $ref: '#/components/schemas/CatalogModelCompatibility'
+        - type: object
+          required: [target_id, entry_id, rollback_version]
+          properties:
+            target_id: {type: string}
+            entry_id: {type: string}
+            rollback_version: {type: [string, 'null']}
+    CatalogDeprecationNotice:
+      type: object
+      required: [reason, announced_at, sunset_at]
+      properties:
+        reason: {$ref: '#/components/schemas/CatalogDeprecationReason'}
+        announced_at: {type: string, format: date-time}
+        sunset_at: {type: string, format: date-time}
+    CatalogDeprecationReason:
+      type: string
+      enum: [provider_retirement, adapter_retirement, superseded]
     CatalogEndpoint:
       type: object
       required:
@@ -4544,6 +4767,25 @@ components:
             - available
             - unavailable
             - withheld
+    CatalogModelCompatibility:
+      type: object
+      required: [action, protocol, account_mode, adapter_version, maturity, publication_version, published_at, evidence, deprecation]
+      properties:
+        action: {type: string}
+        protocol: {type: string}
+        account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
+        adapter_version: {type: string}
+        maturity: {type: string, enum: [candidate, experimental, stable, deprecated, closed]}
+        publication_version: {type: string}
+        published_at: {type: string, format: date-time}
+        evidence:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogVerificationEvidence'
+            - type: 'null'
+        deprecation:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogDeprecationNotice'
+            - type: 'null'
     CatalogModelFacts:
       type: object
       required:
@@ -4761,6 +5003,95 @@ components:
         multiplier:
           type: string
           pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+    CatalogVerificationAccountMode:
+      type: string
+      enum: [api_key, oauth, setup-token, service_account, bedrock, payg, coding]
+    CatalogVerificationEvidence:
+      type: object
+      required: [evidence_id, source, state, freshness, sample_count, window_start, observed_at, verified_at, expires_at, fixture_id]
+      properties:
+        evidence_id: {type: string}
+        source: {type: string, enum: [endpoint_probe, connection_verification]}
+        state: {type: string, enum: [success, failed, unknown]}
+        freshness: {type: string, enum: [fresh, stale, unknown]}
+        sample_count: {type: string, enum: ['0', '1']}
+        window_start: {type: string, format: date-time}
+        observed_at: {type: string, format: date-time}
+        verified_at: {type: [string, 'null'], format: date-time}
+        expires_at: {type: string, format: date-time}
+        fixture_id: {type: [string, 'null']}
+    CatalogVerificationInterval:
+      type: integer
+      anyOf:
+        - const: 0
+        - minimum: 300
+          maximum: 604800
+    CatalogVerificationMatrix:
+      allOf:
+        - $ref: '#/components/schemas/CatalogVerificationMatrixInput'
+        - required: [protocol]
+    CatalogVerificationMatrixInput:
+      type: object
+      additionalProperties: false
+      required: [entry_id, adapter_version, action, account_mode]
+      properties:
+        entry_id: {type: string, pattern: '^m_[a-f0-9]{32}$'}
+        adapter_version: {type: string, pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$'}
+        action: {type: string}
+        account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
+        protocol: {type: string}
+    CatalogVerificationObservation:
+      allOf:
+        - $ref: '#/components/schemas/CatalogVerificationEvidence'
+        - type: object
+          required: [matrix, reason]
+          properties:
+            matrix: {$ref: '#/components/schemas/CatalogVerificationMatrix'}
+            reason: {type: string}
+    CatalogVerificationOperation:
+      type: object
+      required: [operation_id, state, status_url, resource_id, result, error]
+      properties:
+        operation_id: {type: string}
+        state: {type: string, enum: [queued, running, succeeded, failed, unknown]}
+        status_url: {type: string}
+        resource_id: {type: string}
+        result:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogVerificationObservation'
+            - type: 'null'
+        error: {type: 'null'}
+    CatalogVerificationTarget:
+      type: object
+      required: [id, entry_id, provider, model, connection_id, owner_id, adapter_version, action, account_mode, protocol, interval_seconds, schedule_version, next_due_at, created_at]
+      properties:
+        id: {type: string}
+        entry_id: {type: string}
+        provider: {type: string}
+        model: {type: string}
+        connection_id: {type: string}
+        owner_id: {type: string}
+        adapter_version: {type: string}
+        action: {type: string}
+        account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
+        protocol: {type: string}
+        interval_seconds: {$ref: '#/components/schemas/CatalogVerificationInterval'}
+        schedule_version: {type: string}
+        next_due_at: {type: [string, 'null'], format: date-time}
+        created_at: {type: string, format: date-time}
+    CatalogVerificationTargetInput:
+      type: object
+      additionalProperties: false
+      required: [provider, model, connection_id, adapter_version, action, account_mode, protocol]
+      properties:
+        provider: {type: string, minLength: 1, maxLength: 64}
+        model: {type: string, minLength: 1, maxLength: 256}
+        connection_id: {type: string, pattern: '^[1-9][0-9]*$'}
+        adapter_version: {type: string, pattern: '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$'}
+        action: {type: string}
+        account_mode: {$ref: '#/components/schemas/CatalogVerificationAccountMode'}
+        protocol: {type: string}
+        interval_seconds: {$ref: '#/components/schemas/CatalogVerificationInterval'}
     ConnectionActivate:
       type: object
       required:
@@ -6077,6 +6408,10 @@ components:
     ExecutionIdentityNumber:
       type: string
       pattern: '^[1-9][0-9]*$'
+    ExtensionActionLabel:
+      type: string
+      description: Versioned action on a verified host adapter.
+      enum: [provider.responses.v1, task.image.generate.v1]
     ExtensionInventoryCapability:
       type: object
       required: [id, platform, account_type]
@@ -6086,7 +6421,7 @@ components:
         account_type: {type: string}
     ExtensionInventoryItem:
       type: object
-      required: [id, sdk_version, capabilities, state]
+      required: [id, sdk_version, capabilities, authorized_actions, state]
       properties:
         id: {type: string}
         sdk_version: {type: integer}
@@ -6094,6 +6429,10 @@ components:
         capabilities:
           type: [array, 'null']
           items: {$ref: '#/components/schemas/ExtensionInventoryCapability'}
+        authorized_actions:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ExtensionActionLabel'}
         state: {type: string}
         digest: {type: string}
     IdentityAccess:
@@ -6849,6 +7188,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CatalogBenchmark'
+        compatibility:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogModelCompatibility'
         documentation_url:
           anyOf:
             - type: string

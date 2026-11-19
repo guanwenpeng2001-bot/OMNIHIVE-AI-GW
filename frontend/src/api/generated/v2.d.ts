@@ -24,6 +24,112 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/admin/catalog/verification-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register a reviewed platform connection and matrix tuple
+         * @description Requires catalog.verify. An interval of zero selects manual verification. A target starts as a candidate.
+         */
+        post: operations["catalogCreateVerificationTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/verification-targets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a target, recent observations, and current publication
+         * @description Requires catalog.verify. The latest attempt and last success can refer to different observations.
+         */
+        get: operations["catalogVerificationTarget"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/verification-targets/{id}/publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish a compatibility lifecycle update or roll back to a previous revision
+         * @description Requires catalog.publish. Use the current publication_version or zero in If-Match.
+         */
+        post: operations["catalogPublishCompatibility"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/verification-targets/{id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the recurring verification interval
+         * @description Requires catalog.verify. Use the target schedule_version in If-Match. Recurring jobs run under the approving actor.
+         */
+        put: operations["catalogSetVerificationSchedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/catalog/verifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Queue a platform catalog verification
+         * @description Requires catalog.verify. Omit protocol when the other matrix dimensions select exactly one reviewed target.
+         */
+        post: operations["catalogQueueVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/admin/extensions": {
         parameters: {
             query?: never;
@@ -1957,6 +2063,7 @@ export interface components {
             verified_at: string;
         };
         CatalogCapability: {
+            verified_extension_actions?: components["schemas"]["ExtensionActionLabel"][];
             source: string;
             /** @enum {string} */
             maturity: "unknown" | "stable" | "experimental" | "deprecated";
@@ -2002,6 +2109,20 @@ export interface components {
             benchmarks: components["schemas"]["CatalogBenchmark"][];
             quote: components["schemas"]["CatalogEstimate"];
         };
+        CatalogCompatibilityPublication: components["schemas"]["CatalogModelCompatibility"] & {
+            target_id: string;
+            entry_id: string;
+            rollback_version: string | null;
+        };
+        CatalogDeprecationNotice: {
+            reason: components["schemas"]["CatalogDeprecationReason"];
+            /** Format: date-time */
+            announced_at: string;
+            /** Format: date-time */
+            sunset_at: string;
+        };
+        /** @enum {string} */
+        CatalogDeprecationReason: "provider_retirement" | "adapter_retirement" | "superseded";
         CatalogEndpoint: {
             id: string;
             provider: string;
@@ -2049,6 +2170,19 @@ export interface components {
             output_tokens_per_second: number | null;
             /** @enum {string} */
             state: "insufficient_samples" | "partial" | "available" | "unavailable" | "withheld";
+        };
+        CatalogModelCompatibility: {
+            action: string;
+            protocol: string;
+            account_mode: components["schemas"]["CatalogVerificationAccountMode"];
+            adapter_version: string;
+            /** @enum {string} */
+            maturity: "candidate" | "experimental" | "stable" | "deprecated" | "closed";
+            publication_version: string;
+            /** Format: date-time */
+            published_at: string;
+            evidence: components["schemas"]["CatalogVerificationEvidence"] | null;
+            deprecation: components["schemas"]["CatalogDeprecationNotice"] | null;
         };
         CatalogModelFacts: {
             source: string;
@@ -2111,6 +2245,78 @@ export interface components {
             end_time: string;
             weekdays_only: boolean;
             multiplier: string;
+        };
+        /** @enum {string} */
+        CatalogVerificationAccountMode: "api_key" | "oauth" | "setup-token" | "service_account" | "bedrock" | "payg" | "coding";
+        CatalogVerificationEvidence: {
+            evidence_id: string;
+            /** @enum {string} */
+            source: "endpoint_probe" | "connection_verification";
+            /** @enum {string} */
+            state: "success" | "failed" | "unknown";
+            /** @enum {string} */
+            freshness: "fresh" | "stale" | "unknown";
+            /** @enum {string} */
+            sample_count: "0" | "1";
+            /** Format: date-time */
+            window_start: string;
+            /** Format: date-time */
+            observed_at: string;
+            /** Format: date-time */
+            verified_at: string | null;
+            /** Format: date-time */
+            expires_at: string;
+            fixture_id: string | null;
+        };
+        CatalogVerificationInterval: number | 0 | unknown;
+        CatalogVerificationMatrix: components["schemas"]["CatalogVerificationMatrixInput"] & unknown;
+        CatalogVerificationMatrixInput: {
+            entry_id: string;
+            adapter_version: string;
+            action: string;
+            account_mode: components["schemas"]["CatalogVerificationAccountMode"];
+            protocol?: string;
+        };
+        CatalogVerificationObservation: components["schemas"]["CatalogVerificationEvidence"] & {
+            matrix: components["schemas"]["CatalogVerificationMatrix"];
+            reason: string;
+        };
+        CatalogVerificationOperation: {
+            operation_id: string;
+            /** @enum {string} */
+            state: "queued" | "running" | "succeeded" | "failed" | "unknown";
+            status_url: string;
+            resource_id: string;
+            result: components["schemas"]["CatalogVerificationObservation"] | null;
+            error: null;
+        };
+        CatalogVerificationTarget: {
+            id: string;
+            entry_id: string;
+            provider: string;
+            model: string;
+            connection_id: string;
+            owner_id: string;
+            adapter_version: string;
+            action: string;
+            account_mode: components["schemas"]["CatalogVerificationAccountMode"];
+            protocol: string;
+            interval_seconds: components["schemas"]["CatalogVerificationInterval"];
+            schedule_version: string;
+            /** Format: date-time */
+            next_due_at: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CatalogVerificationTargetInput: {
+            provider: string;
+            model: string;
+            connection_id: string;
+            adapter_version: string;
+            action: string;
+            account_mode: components["schemas"]["CatalogVerificationAccountMode"];
+            protocol: string;
+            interval_seconds?: components["schemas"]["CatalogVerificationInterval"];
         };
         ConnectionActivate: {
             /** Format: uuid */
@@ -2600,6 +2806,11 @@ export interface components {
             authorization_version: components["schemas"]["ExecutionIdentityNumber"];
         };
         ExecutionIdentityNumber: string;
+        /**
+         * @description Versioned action on a verified host adapter.
+         * @enum {string}
+         */
+        ExtensionActionLabel: "provider.responses.v1" | "task.image.generate.v1";
         ExtensionInventoryCapability: {
             id: string;
             platform: string;
@@ -2610,6 +2821,7 @@ export interface components {
             sdk_version: number;
             publisher_id?: string;
             capabilities: components["schemas"]["ExtensionInventoryCapability"][] | null;
+            authorized_actions: components["schemas"]["ExtensionActionLabel"][];
             state: string;
             digest?: string;
         };
@@ -2843,6 +3055,7 @@ export interface components {
             time_bands: components["schemas"]["CatalogTimeBand"][];
             metrics: components["schemas"]["CatalogMetrics"];
             benchmarks: components["schemas"]["CatalogBenchmark"][];
+            compatibility?: components["schemas"]["CatalogModelCompatibility"][];
             documentation_url: string | null;
             redactions: string[];
         };
@@ -3660,6 +3873,31 @@ export interface components {
                 };
             };
         };
+        /** @description Management error */
+        CatalogVerificationError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Verification target */
+        CatalogVerificationTarget: {
+            headers: {
+                ETag?: string;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["CatalogVerificationTarget"];
+                };
+            };
+        };
         /** @description New POST stream, synchronous native result, or JSON summary for a matching idempotent submission */
         PlaygroundExecution: {
             headers: {
@@ -3761,6 +3999,9 @@ export interface components {
     };
     parameters: {
         CatalogModelID: string;
+        CatalogVerificationIdempotency: string;
+        CatalogVerificationIfMatch: string;
+        CatalogVerificationTargetID: string;
         ConnectionID: components["schemas"]["IdentityID"];
         CostQueryApiKeyId: string;
         CostQueryAt: string;
@@ -3861,6 +4102,180 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    catalogCreateVerificationTarget: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["CatalogVerificationIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogVerificationTargetInput"];
+            };
+        };
+        responses: {
+            201: components["responses"]["CatalogVerificationTarget"];
+            default: components["responses"]["CatalogVerificationError"];
+        };
+    };
+    catalogVerificationTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Verification target detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogVerificationTarget"] & {
+                            latest_attempt: components["schemas"]["CatalogVerificationObservation"] | null;
+                            last_success: components["schemas"]["CatalogVerificationObservation"] | null;
+                            publication: components["schemas"]["CatalogCompatibilityPublication"] | null;
+                        };
+                    };
+                };
+            };
+            default: components["responses"]["CatalogVerificationError"];
+        };
+    };
+    catalogPublishCompatibility: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["CatalogVerificationIdempotency"];
+                "If-Match": components["parameters"]["CatalogVerificationIfMatch"];
+            };
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @constant */
+                    maturity: "experimental";
+                    evidence_id?: string;
+                } | {
+                    /** @constant */
+                    maturity: "stable";
+                    evidence_id: string;
+                } | {
+                    /** @constant */
+                    maturity: "deprecated";
+                    deprecation_reason: components["schemas"]["CatalogDeprecationReason"];
+                    /** Format: date-time */
+                    sunset_at: string;
+                } | {
+                    /** @constant */
+                    maturity: "closed";
+                } | {
+                    rollback_version: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Published compatibility version */
+            201: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogCompatibilityPublication"];
+                    };
+                };
+            };
+            default: components["responses"]["CatalogVerificationError"];
+        };
+    };
+    catalogSetVerificationSchedule: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["CatalogVerificationIfMatch"];
+            };
+            path: {
+                id: components["parameters"]["CatalogVerificationTargetID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    interval_seconds: components["schemas"]["CatalogVerificationInterval"];
+                };
+            };
+        };
+        responses: {
+            200: components["responses"]["CatalogVerificationTarget"];
+            default: components["responses"]["CatalogVerificationError"];
+        };
+    };
+    catalogQueueVerification: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["CatalogVerificationIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogVerificationMatrixInput"];
+            };
+        };
+        responses: {
+            /** @description Verification accepted. Poll the workspace operation in status_url. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["CatalogVerificationOperation"];
+                    };
+                };
+            };
+            /** @description Verification capacity reached. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+            default: components["responses"]["CatalogVerificationError"];
         };
     };
     listAdminExtensions: {
