@@ -1,26 +1,24 @@
 <template>
   <AppLayout>
-    <section class="group-overview mb-3" aria-label="分组与路由单元概览">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 class="text-sm font-semibold">分组与路由单元</h1>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">配置计费、模型能力与路由；使用行内编辑、复制快速调整。</p>
-        </div>
-        <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs">
-          <span>筛选结果总分组 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : groupsListController.pagination.total }}</b></span>
-          <span>本页启用 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : groupOverview.active }} / {{ groups.length }}</b></span>
-          <span v-if="!authStore.isSimpleMode">本页按量 / 订阅 <b class="font-mono tabular-nums">{{ groupsListController.loading.value ? '—' : `${groupOverview.standard} / ${groupOverview.subscription}` }}</b></span>
-        </div>
+    <div class="mb-4 space-y-3">
+      <PageHeader v-if="section !== 'routing'" :title="t(section === 'mapping' ? 'routing.pool.mapping' : 'routing.pool.title')" :description="t(section === 'mapping' ? 'routing.pool.mappingHint' : 'routing.pool.description')" />
+      <Tabs v-model="section" :items="sections" :aria-label="t('routing.pool.title')" />
+    </div>
+    <RoutingPolicyWorkbench v-if="routingVisited" v-show="section === 'routing'" :workspace-id="workspaceId" />
+    <section v-if="section === 'mapping'" class="space-y-3" :aria-label="t('routing.pool.mapping')">
+      <div class="flex flex-wrap items-center justify-between gap-3 rounded-oh-lg border border-oh-default bg-oh-surface p-4">
+        <p class="text-sm text-oh-secondary">{{ t('routing.pool.pricingHint') }}</p>
+        <a :href="pricingPath" class="oh-focus-ring rounded-oh-md border border-oh-accent bg-oh-accent-subtle px-3 py-2 text-sm font-medium text-oh-accent-text">{{ t('routing.pool.pricing') }}</a>
       </div>
-      <div v-if="!authStore.isSimpleMode" class="mt-3 flex items-center gap-3 text-xs">
-        <div class="group-ratio" role="img" :aria-label="`本页按量 ${groupOverview.standardPercent}%，订阅 ${groupOverview.subscriptionPercent}%`">
-          <span :style="{ width: `${groupOverview.standardPercent}%` }"></span>
-        </div>
-        <span class="font-mono tabular-nums text-gray-500 dark:text-gray-400">{{ groups.length ? `按量 ${groupOverview.standardPercent}% · 订阅 ${groupOverview.subscriptionPercent}%` : '暂无分组' }}</span>
-      </div>
+      <ModelAccessGroupsPanel />
     </section>
-    <ModelAccessGroupsPanel />
+    <PoolOverview
+      v-if="section === 'pools'" :total="groupsListController.loaded.value ? groupsListController.pagination.total : null"
+      :active="groupOverview.active" :visible="groups.length" :standard="groupOverview.standard"
+      :subscription="groupOverview.subscription" :show-billing="!authStore.isSimpleMode" class="mb-3"
+    />
     <GroupsTable
+      v-show="section === 'pools'"
       class="group-workbench-table"
       :controller="groupsListController"
       :duplicating-group-ids="duplicatingGroupIds"
@@ -1462,178 +1460,19 @@
           </p>
         </div>
 
-        <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="createForm.platform === 'anthropic'" id="create-group-routing" class="group-config-section border-t pt-4" tabindex="-1">
-          <div class="mb-1.5 flex items-center gap-1">
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t("admin.groups.modelRouting.title") }}
-            </label>
-            <!-- Help Tooltip -->
-            <div class="group relative inline-flex">
-              <Icon
-                name="questionCircle"
-                size="sm"
-                :stroke-width="2"
-                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
-              />
-              <div
-                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-80 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
-              >
-                <div
-                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
-                >
-                  <p class="text-xs leading-relaxed text-gray-300">
-                    {{ t("admin.groups.modelRouting.tooltip") }}
-                  </p>
-                  <div
-                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- 启用开关 -->
-          <div class="flex items-center gap-3 mb-3">
-            <Toggle v-model="createForm.model_routing_enabled" />
-            <span class="text-sm text-gray-500 dark:text-gray-400">
-              {{
-                createForm.model_routing_enabled
-                  ? t("admin.groups.modelRouting.enabled")
-                  : t("admin.groups.modelRouting.disabled")
-              }}
-            </span>
-          </div>
-          <p
-            v-if="!createForm.model_routing_enabled"
-            class="text-xs text-gray-500 dark:text-gray-400 mb-3"
-          >
-            {{ t("admin.groups.modelRouting.disabledHint") }}
-          </p>
-          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ t("admin.groups.modelRouting.noRulesHint") }}
-          </p>
-          <!-- 路由规则列表（仅在启用时显示） -->
-          <div v-if="createForm.model_routing_enabled" class="space-y-3">
-            <div
-              v-for="rule in createModelRoutingRules"
-              :key="getCreateRuleRenderKey(rule)"
-              class="rounded-lg border p-3 border-[var(--border)]"
-            >
-              <div class="flex items-start gap-3">
-                <div class="flex-1 space-y-2">
-                  <div>
-                    <label class="input-label text-xs">{{
-                      t("admin.groups.modelRouting.modelPattern")
-                    }}</label>
-                    <input
-                      v-model="rule.pattern"
-                      type="text"
-                      class="input text-sm"
-                      :placeholder="
-                        t('admin.groups.modelRouting.modelPatternPlaceholder')
-                      "
-                    />
-                  </div>
-                  <div>
-                    <label class="input-label text-xs">{{
-                      t("admin.groups.modelRouting.accounts")
-                    }}</label>
-                    <!-- 已选账号标签 -->
-                    <div
-                      v-if="rule.accounts.length > 0"
-                      class="flex flex-wrap gap-1.5 mb-2"
-                    >
-                      <span
-                        v-for="account in rule.accounts"
-                        :key="account.id"
-                        class="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-                      >
-                        {{ account.name }}
-                        <button
-                          type="button"
-                          @click="removeSelectedAccount(rule, account.id)"
-                          class="ml-0.5 text-primary-500 hover:text-primary-700 dark:hover:text-primary-200"
-                        >
-                          <Icon name="x" size="xs" />
-                        </button>
-                      </span>
-                    </div>
-                    <!-- 账号搜索输入框 -->
-                    <div class="relative account-search-container">
-                      <input
-                        v-model="
-                          accountSearchKeyword[getCreateRuleSearchKey(rule)]
-                        "
-                        type="text"
-                        class="input text-sm"
-                        :placeholder="
-                          t(
-                            'admin.groups.modelRouting.searchAccountPlaceholder',
-                          )
-                        "
-                        @input="searchAccountsByRule(rule)"
-                        @focus="onAccountSearchFocus(rule)"
-                      />
-                      <!-- 搜索结果下拉框 -->
-                      <div
-                        v-if="
-                          showAccountDropdown[getCreateRuleSearchKey(rule)] &&
-                          accountSearchResults[getCreateRuleSearchKey(rule)]
-                            ?.length > 0
-                        "
-                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
-                      >
-                        <button
-                          v-for="account in accountSearchResults[
-                            getCreateRuleSearchKey(rule)
-                          ]"
-                          :key="account.id"
-                          type="button"
-                          @click="selectAccount(rule, account)"
-                          class="w-full px-3 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
-                          :class="{
-                            'opacity-50': rule.accounts.some(
-                              (a) => a.id === account.id,
-                            ),
-                          }"
-                          :disabled="
-                            rule.accounts.some((a) => a.id === account.id)
-                          "
-                        >
-                          <span>{{ account.name }}</span>
-                          <span class="ml-2 text-xs text-gray-400"
-                            >#{{ account.id }}</span
-                          >
-                        </button>
-                      </div>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-1">
-                      {{ t("admin.groups.modelRouting.accountsHint") }}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  @click="removeCreateRoutingRule(rule)"
-                  class="mt-5 p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                  :title="t('admin.groups.modelRouting.removeRule')"
-                >
-                  <Icon name="trash" size="sm" />
-                </button>
-              </div>
-            </div>
-          </div>
-          <!-- 添加规则按钮（仅在启用时显示） -->
-          <button
-            v-if="createForm.model_routing_enabled"
-            type="button"
-            @click="addCreateRoutingRule"
-            class="mt-3 flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-          >
-            <Icon name="plus" size="sm" />
-            {{ t("admin.groups.modelRouting.addRule") }}
-          </button>
-        </div>
+        <LegacyModelRoutingEditor
+          v-if="createForm.platform === 'anthropic'"
+          v-show="showGroupSection('scheduling')"
+          id="create-group-routing" class="group-config-section border-t pt-4" data-group-section="scheduling" tabindex="-1"
+          v-model="createForm.model_routing_enabled"
+          :rules="createModelRoutingRules" :render-key="getCreateRuleRenderKey" :search-key="getCreateRuleSearchKey"
+          :keywords="accountSearchKeyword" :results="accountSearchResults" :show-results="showAccountDropdown"
+          @add="addCreateRoutingRule" @remove="removeCreateRoutingRule"
+          @search="(rule, keyword) => { accountSearchKeyword[getCreateRuleSearchKey(rule)] = keyword; searchAccountsByRule(rule); }"
+          @focus-search="rule => onAccountSearchFocus(rule)"
+          @select-account="(rule, account) => selectAccount(rule, account)"
+          @remove-account="(rule, id) => removeSelectedAccount(rule, id)"
+        />
         </template>
       </form>
 
@@ -3120,178 +2959,19 @@
           </p>
         </div>
 
-        <!-- 模型路由配置（仅 anthropic 平台） -->
-        <div v-show="showGroupSection('scheduling')" data-group-section="scheduling" v-if="editForm.platform === 'anthropic'" id="edit-group-routing" class="group-config-section border-t pt-4" tabindex="-1">
-          <div class="mb-1.5 flex items-center gap-1">
-            <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t("admin.groups.modelRouting.title") }}
-            </label>
-            <!-- Help Tooltip -->
-            <div class="group relative inline-flex">
-              <Icon
-                name="questionCircle"
-                size="sm"
-                :stroke-width="2"
-                class="cursor-help text-gray-400 transition-colors hover:text-primary-500 dark:text-gray-500 dark:hover:text-primary-400"
-              />
-              <div
-                class="pointer-events-none absolute bottom-full left-0 z-50 mb-2 w-80 opacity-0 transition-all duration-200 group-hover:pointer-events-auto group-hover:opacity-100"
-              >
-                <div
-                  class="rounded-lg bg-gray-900 p-3 text-white shadow-lg dark:bg-gray-800"
-                >
-                  <p class="text-xs leading-relaxed text-gray-300">
-                    {{ t("admin.groups.modelRouting.tooltip") }}
-                  </p>
-                  <div
-                    class="absolute -bottom-1.5 left-3 h-3 w-3 rotate-45 bg-gray-900 dark:bg-gray-800"
-                  ></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- 启用开关 -->
-          <div class="flex items-center gap-3 mb-3">
-            <Toggle v-model="editForm.model_routing_enabled" />
-            <span class="text-sm text-gray-500 dark:text-gray-400">
-              {{
-                editForm.model_routing_enabled
-                  ? t("admin.groups.modelRouting.enabled")
-                  : t("admin.groups.modelRouting.disabled")
-              }}
-            </span>
-          </div>
-          <p
-            v-if="!editForm.model_routing_enabled"
-            class="text-xs text-gray-500 dark:text-gray-400 mb-3"
-          >
-            {{ t("admin.groups.modelRouting.disabledHint") }}
-          </p>
-          <p v-else class="text-xs text-gray-500 dark:text-gray-400 mb-3">
-            {{ t("admin.groups.modelRouting.noRulesHint") }}
-          </p>
-          <!-- 路由规则列表（仅在启用时显示） -->
-          <div v-if="editForm.model_routing_enabled" class="space-y-3">
-            <div
-              v-for="rule in editModelRoutingRules"
-              :key="getEditRuleRenderKey(rule)"
-              class="rounded-lg border p-3 border-[var(--border)]"
-            >
-              <div class="flex items-start gap-3">
-                <div class="flex-1 space-y-2">
-                  <div>
-                    <label class="input-label text-xs">{{
-                      t("admin.groups.modelRouting.modelPattern")
-                    }}</label>
-                    <input
-                      v-model="rule.pattern"
-                      type="text"
-                      class="input text-sm"
-                      :placeholder="
-                        t('admin.groups.modelRouting.modelPatternPlaceholder')
-                      "
-                    />
-                  </div>
-                  <div>
-                    <label class="input-label text-xs">{{
-                      t("admin.groups.modelRouting.accounts")
-                    }}</label>
-                    <!-- 已选账号标签 -->
-                    <div
-                      v-if="rule.accounts.length > 0"
-                      class="flex flex-wrap gap-1.5 mb-2"
-                    >
-                      <span
-                        v-for="account in rule.accounts"
-                        :key="account.id"
-                        class="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2.5 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
-                      >
-                        {{ account.name }}
-                        <button
-                          type="button"
-                          @click="removeSelectedAccount(rule, account.id, true)"
-                          class="ml-0.5 text-primary-500 hover:text-primary-700 dark:hover:text-primary-200"
-                        >
-                          <Icon name="x" size="xs" />
-                        </button>
-                      </span>
-                    </div>
-                    <!-- 账号搜索输入框 -->
-                    <div class="relative account-search-container">
-                      <input
-                        v-model="
-                          accountSearchKeyword[getEditRuleSearchKey(rule)]
-                        "
-                        type="text"
-                        class="input text-sm"
-                        :placeholder="
-                          t(
-                            'admin.groups.modelRouting.searchAccountPlaceholder',
-                          )
-                        "
-                        @input="searchAccountsByRule(rule, true)"
-                        @focus="onAccountSearchFocus(rule, true)"
-                      />
-                      <!-- 搜索结果下拉框 -->
-                      <div
-                        v-if="
-                          showAccountDropdown[getEditRuleSearchKey(rule)] &&
-                          accountSearchResults[getEditRuleSearchKey(rule)]
-                            ?.length > 0
-                        "
-                        class="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-lg border shadow-lg border-[var(--border)] bg-[var(--card)]"
-                      >
-                        <button
-                          v-for="account in accountSearchResults[
-                            getEditRuleSearchKey(rule)
-                          ]"
-                          :key="account.id"
-                          type="button"
-                          @click="selectAccount(rule, account, true)"
-                          class="w-full px-3 py-2 text-left text-sm hover:bg-[var(--surface-2)]"
-                          :class="{
-                            'opacity-50': rule.accounts.some(
-                              (a) => a.id === account.id,
-                            ),
-                          }"
-                          :disabled="
-                            rule.accounts.some((a) => a.id === account.id)
-                          "
-                        >
-                          <span>{{ account.name }}</span>
-                          <span class="ml-2 text-xs text-gray-400"
-                            >#{{ account.id }}</span
-                          >
-                        </button>
-                      </div>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-1">
-                      {{ t("admin.groups.modelRouting.accountsHint") }}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  @click="removeEditRoutingRule(rule)"
-                  class="mt-5 p-1.5 text-gray-400 hover:text-red-500 transition-colors"
-                  :title="t('admin.groups.modelRouting.removeRule')"
-                >
-                  <Icon name="trash" size="sm" />
-                </button>
-              </div>
-            </div>
-          </div>
-          <!-- 添加规则按钮（仅在启用时显示） -->
-          <button
-            v-if="editForm.model_routing_enabled"
-            type="button"
-            @click="addEditRoutingRule"
-            class="mt-3 flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
-          >
-            <Icon name="plus" size="sm" />
-            {{ t("admin.groups.modelRouting.addRule") }}
-          </button>
-        </div>
+        <LegacyModelRoutingEditor
+          v-if="editForm.platform === 'anthropic'"
+          v-show="showGroupSection('scheduling')"
+          id="edit-group-routing" class="group-config-section border-t pt-4" data-group-section="scheduling" tabindex="-1"
+          v-model="editForm.model_routing_enabled"
+          :rules="editModelRoutingRules" :render-key="getEditRuleRenderKey" :search-key="getEditRuleSearchKey"
+          :keywords="accountSearchKeyword" :results="accountSearchResults" :show-results="showAccountDropdown"
+          @add="addEditRoutingRule" @remove="removeEditRoutingRule"
+          @search="(rule, keyword) => { accountSearchKeyword[getEditRuleSearchKey(rule)] = keyword; searchAccountsByRule(rule, true); }"
+          @focus-search="rule => onAccountSearchFocus(rule, true)"
+          @select-account="(rule, account) => selectAccount(rule, account, true)"
+          @remove-account="(rule, id) => removeSelectedAccount(rule, id, true)"
+        />
         </template>
       </form>
 
@@ -3387,7 +3067,7 @@
 <script setup lang="ts">
 import TpmLimitField from '@/components/common/TpmLimitField.vue';
 import ModelAccessGroupsPanel from '@/components/model-access/ModelAccessGroupsPanel.vue'
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch, inject, defineAsyncComponent } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useAuthStore } from "@/stores/auth";
@@ -3406,6 +3086,11 @@ import {
   PRODUCT_PLATFORM_OPTIONS,
 } from "@/constants/platforms";
 import AppLayout from "@/components/layout/AppLayout.vue";
+import { routeLocationKey } from "vue-router";
+import { workspaceIDFromPath } from "@/api/workspaceScope";
+import { PageHeader, Tabs } from "@/components/ui";
+import LegacyModelRoutingEditor from "@/features/pools/LegacyModelRoutingEditor.vue";
+import PoolOverview from "@/features/pools/PoolOverview.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import BaseDialog from "@/components/common/BaseDialog.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
@@ -3486,6 +3171,16 @@ import { useCompositeRoutes } from "./groups/useCompositeRoutes";
 import GroupsTable from "./groups/GroupsTable.vue";
 import GroupSortDialog from "./groups/GroupSortDialog.vue";
 import CompositeRoutesDialog from "./groups/CompositeRoutesDialog.vue";
+const RoutingPolicyWorkbench = defineAsyncComponent(() => import("@/features/routing/RoutingPolicyWorkbench.vue"));
+const props = defineProps<{ initialSection?: 'pools' | 'mapping' | 'routing' }>();
+const route = inject(routeLocationKey, undefined);
+const workspaceId = computed(() => workspaceIDFromPath(route?.path ?? ""));
+const pricingPath = computed(() => workspaceId.value ? `/workspaces/${workspaceId.value}/channels/pricing` : "/admin/channels/pricing");
+const section = ref<string>(props.initialSection ?? "pools");
+const routingVisited = ref(section.value === "routing");
+watch(section, value => { if (value === "routing") routingVisited.value = true; });
+watch(() => props.initialSection, value => { section.value = value ?? "pools"; });
+
 const groupsListController = useGroupsList([...PRODUCT_GROUP_PLATFORM_OPTIONS]);
 const {
   showColumnDropdown,
@@ -3498,24 +3193,21 @@ const groupOverview = computed(() => {
   const total = groups.value.length;
   const subscription = groups.value.filter(group => group.subscription_type === "subscription").length;
   const standard = total - subscription;
-  const standardPercent = total ? Math.round(standard / total * 100) : 0;
   return {
     active: groups.value.filter(group => group.status === "active").length,
     standard,
     subscription,
-    standardPercent,
-    subscriptionPercent: total ? 100 - standardPercent : 0,
   };
 });
 type GroupConfigSection = "all" | "basic" | "billing" | "scheduling" | "models";
 const groupConfigSection = ref<GroupConfigSection>("all");
 const groupConfigSections = computed(() => [
-  { value: "all" as const, label: "全部展开" },
-  { value: "basic" as const, label: "基础与平台" },
+  { value: "all" as const, label: t("routing.pool.all") },
+  { value: "basic" as const, label: t("routing.pool.basic") },
   ...(!authStore.isSimpleMode ? [
-    { value: "billing" as const, label: "倍率与计费" },
-    { value: "scheduling" as const, label: "调度与容灾" },
-    { value: "models" as const, label: "模型与安全" },
+    { value: "billing" as const, label: t("routing.pool.billingSection") },
+    { value: "scheduling" as const, label: t("routing.pool.scheduling") },
+    { value: "models" as const, label: t("routing.pool.models") },
   ] : []),
 ]);
 function navigateGroupConfig(section: GroupConfigSection) {
@@ -3544,6 +3236,11 @@ const supportsLivePlatform = (platform: string): boolean =>
 const addGroupPricing = (entries: GroupPricingEntry[]) => entries.push(emptyGroupPricing());
 
 const { t } = useI18n();
+const sections = computed(() => [
+  { value: "pools", label: t("routing.pool.title") },
+  { value: "mapping", label: t("routing.pool.mapping") },
+  { value: "routing", label: t("routing.title") },
+]);
 const appStore = useAppStore();
 const authStore = useAuthStore();
 const onboardingStore = useOnboardingStore();
@@ -5300,28 +4997,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.group-overview {
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--brand, #f59e0b);
-  border-radius: var(--radius, 10px);
-  background: var(--card);
-}
-
-.group-ratio {
-  width: 120px;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--info, #6366f1);
-}
-
-.group-ratio > span {
-  display: block;
-  height: 100%;
-  background: var(--brand, #f59e0b);
-}
-
 .group-workbench-table :deep(.table-scroll-container) {
   box-shadow: none;
   border-color: var(--border);
