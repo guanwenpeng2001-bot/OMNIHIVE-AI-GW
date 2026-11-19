@@ -40,9 +40,9 @@ Status legend: todo / doing / review / merged / blocked
 | QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | merged | 9bd91379a; all stages PASS at 2637e9e59; 3 fixture/env failures fixed; BE-05/09 smoke skipped (need fixtures) |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |
-| FE-WP2 | Public site, model plaza, detail/compare heatmap, pricing, status, docs | gemini | — | todo | after WP1 + BE-05 |
-| FE-WP3 | Overview, keys, playground, task center, workspaces | gemini | — | todo | after WP1 (+BE-13/15) |
+| FE-WP2 | Public site, model plaza, detail/compare, pricing, status | coordinator | codex/refactor | merged | 5f48a1e3f (home/models/detail/compare/pricing/status on BE-05/BE-18 APIs) |
+| FE-WP3 | Overview, keys, playground, task center, workspaces | gemini | codex/fe-wp3-console | merged | 47fc2bf23 + routes a9ef01149 |
 | FE-WP4 | 5-step connection wizard, egress | gemini-4-hydrogen | codex/fe-wp4-connections | merged | 954146d71; router routes applied; typecheck + 97 tests pass |
 | FE-WP5 | Pools, mapping, routing workbench and simulator | gemini | codex/fe-wp5-routing | merged | 01ff24314 + routes dff37714c; branch 5321 tests pass |
-| FE-WP6 | Request waterfall, cost & quota, billing | gemini | — | todo | after WP1 + BE-14/16 |
-| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini-4-hydrogen | codex/fe-wp7-ops | doing | parallel with WP1; routes applied after WP1 merge |
+| FE-WP6 | Request waterfall, cost & quota, billing | coordinator | codex/fe-wp6-billing | merged | d4548a936 + routes e0b26ae56 |
+| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini | codex/fe-wp7-ops | merged | 9b26594fc WIP + typing fixes db9cbb37d; audit/backup/ops pages still partial |
