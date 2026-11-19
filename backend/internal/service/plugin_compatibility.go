@@ -26,7 +26,11 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		TransportAPI:        manifest.Requires.TransportAPI,
 		UIBridge:            manifest.Requires.UIBridge,
 	}
-	if manifest.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
+	protocol := pluginv1.ProtocolVersion
+	if manifest.SchemaVersion == 2 {
+		protocol = 2
+	}
+	if manifest.Requires.PluginProtocol != protocol ||
 		manifest.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
 		manifest.Requires.UIBridge != pluginv1.UIBridgeVersion {
 		result.Status = "incompatible"
