@@ -34,6 +34,15 @@ func NewPluginHandler(manager *service.PluginManager) *PluginHandler {
 	return &PluginHandler{manager: manager}
 }
 
+func (h *PluginHandler) ListExtensions(c *gin.Context) {
+	items, err := h.manager.ExtensionInventory(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
 func (h *PluginHandler) List(c *gin.Context) {
 	plugins, err := h.manager.List(c.Request.Context())
 	if err != nil {
@@ -61,12 +70,13 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes+(1<<20))
 	file, header, err := c.Request.FormFile("plugin")
 	if err != nil {
-		response.BadRequest(c, "请选择有效的 .s2plugin 文件")
+		response.BadRequest(c, "请选择有效的插件包")
 		return
 	}
 	defer func() { _ = file.Close() }()
-	if !strings.HasSuffix(strings.ToLower(header.Filename), ".s2plugin") {
-		response.BadRequest(c, "插件包扩展名必须是 .s2plugin")
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".s2plugin" && ext != ".ohplugin" {
+		response.BadRequest(c, "插件包扩展名必须是 .ohplugin 或 .s2plugin")
 		return
 	}
 	var installedBy *int64

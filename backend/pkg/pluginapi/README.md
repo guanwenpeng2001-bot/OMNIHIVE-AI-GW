@@ -1,5 +1,7 @@
 # OmniHive 本地插件协议
 
+新插件使用 [v2 SDK 与签名包手册](../../../contracts/plugins/README.md)。以下内容说明兼容窗口内的 v1 包和原生传输协议。
+
 本目录是插件开发者可以依赖的公开契约。`v1/plugin.proto` 和 `v1/runtime.go` 定义进程协议，`v1/manifest.schema.json` 定义包清单，`docs/` 记录开发和发布规范。Provider 私有实现不应放入本目录。
 
 ## 开发文档

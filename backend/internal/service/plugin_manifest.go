@@ -12,6 +12,7 @@ import (
 	"time"
 
 	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
+	pluginv2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2"
 )
 
 const (
@@ -31,6 +32,9 @@ var ErrPluginStateChanged = errors.New("插件状态已在其他实例中变化�
 
 // PluginManifest 是 .s2plugin 包中可在执行二进制前检查的声明。
 type PluginManifest struct {
+	ProductID     string                   `json:"product_id,omitempty"`
+	PublisherID   string                   `json:"publisher_id,omitempty"`
+	Origin        *pluginv2.Origin         `json:"origin,omitempty"`
 	SchemaVersion int                      `json:"schema_version"`
 	ID            string                   `json:"id"`
 	Name          string                   `json:"name"`
@@ -140,6 +144,7 @@ type PluginBinding struct {
 }
 
 type PluginRepository interface {
+	ExtensionInventory(context.Context) ([]ExtensionInventoryItem, error)
 	List(ctx context.Context) ([]*PluginInstallation, error)
 	GetByID(ctx context.Context, id int64) (*PluginInstallation, error)
 	GetByKey(ctx context.Context, key string) (*PluginInstallation, error)
@@ -154,10 +159,19 @@ type PluginRepository interface {
 }
 
 func (m PluginManifest) RuntimeKey() string {
+	if m.SchemaVersion == 2 {
+		return pluginv2.RuntimeKey
+	}
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
 func (m PluginManifest) Validate() error {
+	if m.SchemaVersion == 2 {
+		return validateExtensionManifest(m)
+	}
+	if m.ProductID != "" || m.PublisherID != "" || m.Origin != nil {
+		return errors.New("unexpected v2 fields on v1 manifest")
+	}
 	if m.SchemaVersion != 1 {
 		return fmt.Errorf("不支持的插件清单版本: %d", m.SchemaVersion)
 	}
