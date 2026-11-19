@@ -43,6 +43,6 @@ Status legend: todo / doing / review / merged / blocked
 | FE-WP2 | Public site, model plaza, detail/compare heatmap, pricing, status, docs | gemini | — | todo | after WP1 + BE-05 |
 | FE-WP3 | Overview, keys, playground, task center, workspaces | gemini | — | todo | after WP1 (+BE-13/15) |
 | FE-WP4 | 5-step connection wizard, egress | gemini-4-hydrogen | codex/fe-wp4-connections | merged | 954146d71; router routes applied; typecheck + 97 tests pass |
-| FE-WP5 | Pools, mapping, routing simulator | gemini | — | todo | after WP1 + BE-08/10 |
+| FE-WP5 | Pools, mapping, routing workbench and simulator | gemini | codex/fe-wp5-routing | merged | 01ff24314 + routes dff37714c; branch 5321 tests pass |
 | FE-WP6 | Request waterfall, cost & quota, billing | gemini | — | todo | after WP1 + BE-14/16 |
 | FE-WP7 | Ops, members, audit, backup, settings, profile | gemini-4-hydrogen | codex/fe-wp7-ops | doing | parallel with WP1; routes applied after WP1 merge |
