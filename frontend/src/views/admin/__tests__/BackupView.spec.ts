@@ -53,6 +53,10 @@ vi.mock('@/composables/useStepUp', () => ({
   stepUpBlockReason: () => '',
 }))
 
+vi.mock('@/features/operations/RestoreWorkflow.vue', () => ({
+  default: { name: 'RestoreWorkflow', template: '<div />' },
+}))
+
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, params?: Record<string, unknown>) =>

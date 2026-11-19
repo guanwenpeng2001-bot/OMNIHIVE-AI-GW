@@ -170,6 +170,9 @@
       <div id="profile-section-totp" class="scroll-mt-20">
         <ProfileTotpCard />
       </div>
+      <div id="profile-section-sessions" class="scroll-mt-20">
+        <ProfileSessions />
+      </div>
       <div id="profile-section-passkey" class="scroll-mt-20">
         <ProfilePasskeyCard :enabled="passkeyEnabled" />
       </div>
@@ -187,6 +190,7 @@ import ProfileBillingTimelineCard from '@/components/user/profile/ProfileBilling
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
+import ProfileSessions from '@/features/operations/ProfileSessions.vue'
 import ProfilePasskeyCard from '@/components/user/profile/ProfilePasskeyCard.vue'
 import { isWeChatWebOAuthEnabled } from '@/api/auth'
 import { useAppStore } from '@/stores/app'
@@ -223,6 +227,7 @@ const sectionAnchors = computed(() => {
   }
   items.push(
     { id: 'profile-section-totp', label: '两步验证 (2FA)' },
+    { id: 'profile-section-sessions', label: '登录会话' },
     { id: 'profile-section-passkey', label: 'Passkey 通行密钥' }
   )
   return items
