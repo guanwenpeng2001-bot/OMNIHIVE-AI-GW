@@ -1,6 +1,6 @@
 # BE-24A 后端发布验证
 
-固定准备基线为 `2e9752eb95a347ce78ff7ad04ac40424a2d66aa6`。最终候选须包含 BE-22、BE-23 及独立发行验证，由发布负责人记录候选 SHA、镜像 digest 和迁移版本。范围与门槛见 [BE-24](../../refactor/backend/WORK_PACKAGES.md#be-24--full-scope-release-verification-and-cutover-gate--astra) 和 [API 契约](../../refactor/backend/API_CONTRACTS.md)。
+固定准备基线为 `2e9752eb95a347ce78ff7ad04ac40424a2d66aa6`。最终候选须包含 BE-22、BE-23 及独立发行验证，由发布负责人记录候选 SHA、镜像 digest 和迁移版本。本页表格提供开跑前的验收模板，各次执行的实际结果见 [GA 清单](GA_CHECKLIST.md)。范围与门槛见 [BE-24](../../refactor/backend/WORK_PACKAGES.md#be-24--full-scope-release-verification-and-cutover-gate--astra) 和 [API 契约](../../refactor/backend/API_CONTRACTS.md)。
 
 ## 只读检查
 
@@ -49,3 +49,42 @@ python3 contracts/release/backend/check-journey.py --observed /tmp/be24a-respons
 ## 证据模板与灰度
 
 复制 [evidence-template.md](evidence-template.md) 到核准的证据位置，按检查 ID 关联脱敏摘要。发现未授权选路、无法解释的金额差、重复金融效果、不可恢复的持久工作或协议偏离时，停止扩量，记录负责人与回退决策。证据支持后依次进入内部、1%、5%、20%、50%、100% 队列，并逐级记录观察窗和签核。
+
+## 完整隔离执行
+
+当前候选的逐项结论和负责人见 [GA 清单](GA_CHECKLIST.md)。下述命令从仓库根目录运行。需要 Linux 的非特权 user、net、PID、mount namespace，Bash、util-linux、iproute2、OpenSSL、ripgrep、Git、Python 3、Node，以及依赖已缓存的 Go 工具链。数据库工具使用 PostgreSQL 16 的服务端与客户端和 Redis 7 的服务端与客户端。主机无需预先启动服务。
+
+预先把 `openapi-typescript@7.10.1` 的 CLI 绝对路径设为 `OPENAPI_TYPESCRIPT`，或把该可执行文件放入 PATH。把已安装 `openai@4.104.0` 的 npm 项目根目录设为 `BE24_SDK_ROOT`。在工作区外准备两个 npm 工具的一种方式如下。
+
+```bash
+tool_dir=$(mktemp -d)
+npm install --prefix "$tool_dir" --ignore-scripts --no-audit --no-fund openai@4.104.0 openapi-typescript@7.10.1
+export BE24_SDK_ROOT="$tool_dir"
+export OPENAPI_TYPESCRIPT="$tool_dir/node_modules/.bin/openapi-typescript"
+```
+
+已安装的 PostgreSQL 和 Redis 可通过 PATH 提供。也可以设置 `BE24_TOOLS` 指向已解包的软件目录。脚本会在其下查找 `postgres16/root/usr/lib/postgresql/16/bin`、`redis7/root/usr/bin` 以及两者的 Ubuntu amd64 共享库目录。PostgreSQL 解包目录须保留对应的 share 文件。历史 schema 取自 Git 对象 `b0bf5b9e17df1d076f16ca57cfa0709f92a71612`，运行所用产品 checkout 需要该对象。
+
+```bash
+oh-remote local -- ./contracts/release/backend/verify.sh --full 300
+```
+
+脚本先检查隔离网络只有 loopback，再启动两个独立 PG 数据目录、一个 Redis、两个候选网关和本地 TLS 上游。所有命令共用本轮的临时命名空间及测试数据。退出时停止进程并删除临时数据库、日志、证书、备份及配置。持久证据位于 `contracts/release/backend/reports/<UTC>-<SHA>/`。完整运行结束后会写入 `summary.md`。只有 `results.json` 的中断运行不能充当完整报告。依赖未准备齐全或任一门禁 fail/pending 时退出码为非零。
+
+`registry.json` 中每个身份的 `cells[i]` 是第 `i` 个动作在 `decisions` 中的下标，能追溯候选注册表的声明及理由。`matrix.json` 为带合成模型端点证据的实际绑定测试。`PROTOCOL_HTTP` 单独记录真实 HTTP、原生响应及本地上游发送次数。供应商线上认证、WebSocket、compact 和其余真实供应商协议成功帧逐项由发布负责人补证。
+
+## 同机两小时对照
+
+准备两个独立的只读产品 checkout。对照版和候选版均需支持本次负载使用的项目、目录、网关与诊断入口。通过同一验证 checkout 依次运行两个版本，相同机器上固定负载驱动和工具版本，保留各自的报告路径。每轮完成后按对应报告检查其他 fail/pending 门禁。完整验收中的其他阻断不会删除已完成的负载测量。
+
+```bash
+BE24_PRODUCT_ROOT=/absolute/path/to/baseline oh-remote local -- ./contracts/release/backend/verify.sh --full 7200
+BE24_PRODUCT_ROOT=/absolute/path/to/candidate oh-remote local -- ./contracts/release/backend/verify.sh --full 7200
+python3 contracts/release/backend/compare-load.py "$baseline_report" "$candidate_report" --resource-limits "$limits_file"
+```
+
+两个 report 参数均为 `results.json` 路径。`limits_file` 是发布负责人在开跑前根据同机容量确定的 JSON 对象，需要填写 `rss_kib`、`fds`、`threads`、`redis_bytes`、`pg_connections`、`reserved_budgets`、`pending_receipts` 七个非负整数，分别限制每轮冷却后相对于本轮开跑前的增长量。两个进程的 RSS、FD、线程按和计算。省略该文件时，脚本仍输出两轮差值，资源回落门禁保留 pending。
+
+每秒一个请求，两条交错的执行线程按 access、catalog、chat、SSE、取消、chat 循环。流式固定间隔 80 ms，取消时读到首个字节后关闭客户端。每轮两小时应得到 7,200 个 HTTP 样本和 4,800 个推理开销样本。开销取客户端耗时减去本地上游处理时间；取消只计至上游首帧，完整流计至末帧。该指标包含本地传输及客户端开销。比较器要求两轮无错误、动作数一致、同机同驱动、不同产品 revision，候选 P95 开销不超过对照版的 1.10 倍，且冷却 60 秒后资源符合已选上限。300 秒短跑使用两秒冷却，独立记录一次部署的成本。
+
+单独重跑 BE-11 的冻结价格、幂等结算和预算并发用例时，执行 `oh-remote local -- ./contracts/release/backend/verify.sh --finance`。命令在新建命名空间中运行两个使用仓库 unit 构建标签的 PostgreSQL 套件，输出含候选 SHA、UTC 时间、测试名及结果的 JSON。

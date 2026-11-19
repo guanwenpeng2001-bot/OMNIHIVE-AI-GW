@@ -4,8 +4,16 @@ set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 root=$(cd -- "$here/../../.." && pwd)
 
+if [[ ${1-} == --finance && $# == 1 ]]; then
+  exec "$here/full.sh" --finance
+fi
+if [[ ${1-} == --full ]]; then
+  shift
+  if (( $# > 1 )); then echo 'Usage: verify.sh --full [load-seconds]' >&2; exit 2; fi
+  exec "$here/full.sh" "$@"
+fi
 if (( $# != 0 )); then
-  echo 'Usage: verify.sh' >&2
+  echo 'Usage: verify.sh [--full [load-seconds] | --finance]' >&2
   exit 2
 fi
 

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)
+root=${BE24_PRODUCT_ROOT:-$root}
 backend="$root/backend"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/be24a-openapi.XXXXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT

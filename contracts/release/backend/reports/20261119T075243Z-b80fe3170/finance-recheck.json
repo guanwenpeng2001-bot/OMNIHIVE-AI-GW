@@ -1,0 +1,22 @@
+{
+  "revision": "b80fe3170de114beab2cfa19c74ec264d171ffcb",
+  "started": "2026-11-19T08:02:00.629554+00:00",
+  "finished": "2026-11-19T08:02:53.321130+00:00",
+  "postgres": "pg_ctl (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+  "network": "lo               UNKNOWN        127.0.0.1/8 ::1/128",
+  "FINANCE_MODULES": {
+    "status": "pass",
+    "command": "go test -p 1 -count=1 -json -tags=unit -run ^Test(UsageSettlementReceiptPostgres|KeyBudgetReservationPostgres)$ ./internal/repository",
+    "counts": {
+      "pass": 40
+    },
+    "tests": {
+      "TestKeyBudgetReservationPostgres": "pass",
+      "TestUsageSettlementReceiptPostgres": "pass"
+    },
+    "missing": [],
+    "failed_locations": [],
+    "skipped": [],
+    "failed": []
+  }
+}
