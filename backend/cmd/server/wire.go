@@ -49,10 +49,15 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/google/wire"
+	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/redis/go-redis/v9"
 )
 
 type Application struct {
+	Supervisor *process.Supervisor
+	Admission  *process.Admission
+	Audit      *audithttp.Handler
+
 	Status          *statushttp.Handler
 	ImageTaskCenter *taskhttp.Handler
 	Restores        *legacyrestore.Runtime
@@ -64,14 +69,11 @@ type Application struct {
 	Cleanup         func()
 }
 
-func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
+func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supervisor *process.Supervisor) (*Application, error) {
 	wire.Build(
-		// Infrastructure layer ProviderSets
-		config.ProviderSet,
-
-		// Business layer ProviderSets
+		// Infrastructure and business providers
 		repository.ProviderSet,
-		service.ProviderSet,
+		runtimeServiceProviders,
 		securityaudit.ProviderSet,
 		payment.ProviderSet,
 		middleware.ProviderSet,
@@ -109,9 +111,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 		// Cleanup function provider
 		provideCleanup,
+		process.NewAdmission,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status", "Audit", "Supervisor", "Admission"),
 	)
 	return nil, nil
 }
@@ -213,6 +216,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 func provideCleanup(
 	entClient *ent.Client,
 	rdb *redis.Client,
+	wheel *service.TimingWheelService,
+	deferred *service.DeferredService,
+	restores *legacyrestore.Runtime,
 	opsMetricsCollector *service.OpsMetricsCollector,
 	opsAggregation *service.OpsAggregationService,
 	opsAlertEvaluator *service.OpsAlertEvaluatorService,
@@ -390,7 +396,9 @@ func provideCleanup(
 				return nil
 			}},
 			{"AccountExpiryService", func() error {
-				accountExpiry.Stop()
+				if accountExpiry != nil {
+					accountExpiry.Stop()
+				}
 				return nil
 			}},
 			{"CNProviderBalanceCheckService", func() error {
@@ -400,15 +408,21 @@ func provideCleanup(
 				return nil
 			}},
 			{"OpenAICodexVersionSyncService", func() error {
-				codexVersionSync.Stop()
+				if codexVersionSync != nil {
+					codexVersionSync.Stop()
+				}
 				return nil
 			}},
 			{"ProxyExpiryService", func() error {
-				proxyExpiry.Stop()
+				if proxyExpiry != nil {
+					proxyExpiry.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionExpiryService", func() error {
-				subscriptionExpiry.Stop()
+				if subscriptionExpiry != nil {
+					subscriptionExpiry.Stop()
+				}
 				return nil
 			}},
 			{"SubscriptionService", func() error {
@@ -423,19 +437,6 @@ func provideCleanup(
 			}},
 			{"EmailQueueService", func() error {
 				emailQueue.Stop()
-				return nil
-			}},
-			{"BillingCacheService", func() error {
-				billingCache.Stop()
-				return nil
-			}},
-			{"UsageRecordWorkerPool", func() error {
-				if usageSettlement != nil {
-					usageSettlement.Stop()
-				}
-				if usageRecordWorkerPool != nil {
-					usageRecordWorkerPool.Stop()
-				}
 				return nil
 			}},
 			{"OAuthService", func() error {
@@ -517,6 +518,37 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"UsageRecordWorkerPool", func() error {
+				if usageSettlement != nil {
+					usageSettlement.Stop()
+				}
+				if usageRecordWorkerPool != nil {
+					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"BillingCacheService", func() error {
+				billingCache.Stop()
+				return nil
+			}},
+			{"DeferredAccountUpdates", func() error {
+				if deferred != nil {
+					deferred.Stop()
+				}
+				return nil
+			}},
+			{"RestoreConnections", func() error {
+				if restores != nil {
+					restores.Close()
+				}
+				return nil
+			}},
+			{"TimingWheel", func() error {
+				if wheel != nil {
+					wheel.Stop()
+				}
+				return nil
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil
@@ -571,3 +603,145 @@ func provideCleanup(
 		}
 	}
 }
+
+// The binary selects passive constructors and worker-owned schedules explicitly.
+var runtimeServiceProviders = wire.NewSet(
+	service.NewStagedAccountImportService,
+	service.NewProxyGroupAdminService,
+	service.NewProxyGroupRuntime,
+	service.NewModelAccessService,
+	service.NewWorkspaceService,
+	provideUpstreamJobService,
+	service.ProvideCursorSessionProvider,
+	service.ProvideCursorGatewayService,
+	// Core services
+	service.ProvideAuthService,
+	service.NewPasskeyService,
+	service.NewUserService,
+	service.ProvideAPIKeyService,
+	service.ProvideAPIKeyAuthCacheInvalidator,
+	provideAuthCacheInvalidationWorker,
+	service.NewGroupService,
+	service.NewCompositeRouteResolver,
+	service.NewAccountService,
+	service.NewCredentialSecretService,
+	service.NewProxyService,
+	service.NewRedeemService,
+	service.NewPromoService,
+	service.NewUsageService,
+	service.NewDashboardService,
+	service.NewModelRegistry,
+	service.ProvidePricingService,
+	service.NewBillingService,
+	service.ProvideBillingCacheService,
+	service.NewAnnouncementService,
+	service.ProvideAdminServiceWithEgress,
+	service.ProvideAccountRuntimeInvalidator,
+	service.ProvideGatewayService,
+	service.ProvideOpenAIGatewayService,
+	service.ProvideImageStorageSettingService,
+	service.ProvideImageTaskService,
+	service.ProvideBatchImageModelPricingResolver,
+	service.NewBatchImagePublicService,
+	service.NewBatchImageDownloadService,
+	provideBatchImageCleanupService,
+	provideBatchImageWorkerRuntime,
+	wire.Bind(new(service.AccountRuntimeBlocker), new(*service.OpenAIGatewayService)),
+	service.ProvideOAuthServiceWithEgress,
+	service.ProvideOpenAIOAuthService,
+	service.ProvideGrokOAuthService,
+	wire.Bind(new(service.GrokOAuthTokenService), new(*service.GrokOAuthService)),
+	service.ProvideGeminiOAuthServiceWithEgress,
+	service.NewGeminiQuotaService,
+	service.NewCompositeTokenCacheInvalidator,
+	wire.Bind(new(service.TokenCacheInvalidator), new(*service.CompositeTokenCacheInvalidator)),
+	service.ProvideAntigravityOAuthServiceWithEgress,
+	service.ProvideOAuthRefreshAPI,
+	service.ProvideGeminiTokenProvider,
+	service.NewGeminiMessagesCompatService,
+	service.ProvideAntigravityTokenProvider,
+	service.ProvideGrokTokenProvider,
+	service.ProvideOpenAITokenProvider,
+	service.ProvideOpenAIQuotaService,
+	provideOpenAIQuotaAutoResetService,
+	service.ProvideGrokQuotaService,
+	service.ProvideCNProviderQuotaService,
+	service.ProvideCNProviderBalanceService,
+	provideCNProviderBalanceCheckService,
+	service.ProvideClaudeTokenProvider,
+	service.NewAntigravityGatewayService,
+	service.ProvideRateLimitService,
+	service.ProvideAccountUsageService,
+	service.ProvideAccountTestService,
+	provideUpstreamBillingProbeService,
+	provideOllamaCloudUsageService,
+	service.ProvideSettingService,
+	provideBackupService,
+	service.ProvideOpsSystemLogSink,
+	service.ProvideOpsService,
+	service.ProvideOpsIngressRejectAggregator,
+	service.ProvideAuditLogService,
+	provideOpsMetricsCollector,
+	provideOpsAggregationService,
+	provideOpsAlertEvaluatorService,
+	provideOpsCleanupService,
+	provideOpsScheduledReportService,
+	service.NewEmailService,
+	service.NewNotificationEmailService,
+	service.ProvideEmailQueueService,
+	service.NewTurnstileService,
+	service.NewTencentCaptchaService,
+	service.NewAliyunCaptchaService,
+	service.NewSubscriptionService,
+	wire.Bind(new(service.DefaultSubscriptionAssigner), new(*service.SubscriptionService)),
+	provideConcurrencyService,
+	provideUserMessageQueueService,
+	service.NewUsageRecordWorkerPool,
+	provideUsageSettlementService,
+	provideSchedulerSnapshotService,
+	service.NewIdentityService,
+	service.NewCRSSyncService,
+	service.ProvideUpdateService,
+	provideTokenRefreshService,
+	wire.Bind(new(service.GrokOAuthReconciler), new(*service.TokenRefreshService)),
+	provideAccountExpiryService,
+	provideOpenAICodexVersionSyncService,
+	provideProxyExpiryService,
+	provideSubscriptionExpiryService,
+	service.ProvideTimingWheelService,
+	provideDashboardAggregationService,
+	provideUsageCleanupService,
+	service.ProvideDeferredService,
+	service.NewAntigravityQuotaFetcher,
+	service.NewGrokQuotaFetcher,
+	service.NewUserAttributeService,
+	service.NewUsageCache,
+	service.NewTotpService,
+	service.NewErrorPassthroughService,
+	service.NewTLSFingerprintProfileService,
+	service.NewPluginManager,
+	service.NewDigestSessionStore,
+	service.ProvideIdempotencyCoordinator,
+	service.ProvideSystemOperationLockService,
+	provideIdempotencyCleanupService,
+	service.ProvideScheduledTestService,
+	provideScheduledTestRunnerService,
+	service.NewGroupCapacityService,
+	service.NewChannelService,
+	wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)),
+	service.NewModelPricingResolver,
+	service.NewModelPlazaService,
+	service.NewContentModerationService,
+	service.NewAffiliateService,
+	service.ProvidePaymentConfigService,
+	service.ProvidePaymentService,
+	providePaymentOrderExpiryService,
+	service.ProvideBalanceNotifyService,
+	service.ProvideChannelMonitorService,
+	provideChannelMonitorRunner,
+	service.NewChannelMonitorQuotaFetcher,
+	service.ProvideChannelMonitorV2Service,
+	provideChannelMonitorV2Aggregator,
+	service.NewChannelMonitorRequestTemplateService,
+	provideUserPlatformQuotaUsageFlusher,
+)
