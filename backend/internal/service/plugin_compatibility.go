@@ -14,13 +14,17 @@ type PluginHostInfo struct {
 }
 
 func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) PluginCompatibility {
+	required, recommended, testedVersions := manifest.Requires.hostVersions()
 	result := PluginCompatibility{
-		CurrentSub2API:     host.Version,
-		RequiredSub2API:    manifest.Requires.Sub2API,
-		RecommendedSub2API: manifest.Requires.RecommendedSub2APIVersion,
-		PluginProtocol:     manifest.Requires.PluginProtocol,
-		TransportAPI:       manifest.Requires.TransportAPI,
-		UIBridge:           manifest.Requires.UIBridge,
+		CurrentOmniHive:     host.Version,
+		RequiredOmniHive:    required,
+		RecommendedOmniHive: recommended,
+		CurrentSub2API:      host.Version,
+		RequiredSub2API:     required,
+		RecommendedSub2API:  recommended,
+		PluginProtocol:      manifest.Requires.PluginProtocol,
+		TransportAPI:        manifest.Requires.TransportAPI,
+		UIBridge:            manifest.Requires.UIBridge,
 	}
 	if manifest.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
 		manifest.Requires.TransportAPI != pluginv1.TransportAPIVersion ||
@@ -29,13 +33,13 @@ func EvaluatePluginCompatibility(manifest PluginManifest, host PluginHostInfo) P
 		result.Message = "插件协议版本与当前 OmniHive 不兼容"
 		return result
 	}
-	if !matchesSemverRange(host.Version, manifest.Requires.Sub2API) {
+	if !matchesSemverRange(host.Version, required) {
 		result.Status = "incompatible"
-		result.Message = fmt.Sprintf("当前 OmniHive %s 不满足插件要求 %s", host.Version, manifest.Requires.Sub2API)
+		result.Message = fmt.Sprintf("当前 OmniHive %s 不满足插件要求 %s", host.Version, required)
 		return result
 	}
 	result.Compatible = true
-	for _, tested := range manifest.Requires.TestedSub2APIVersions {
+	for _, tested := range testedVersions {
 		if normalizeSemver(tested) == normalizeSemver(host.Version) {
 			result.Tested = true
 			break

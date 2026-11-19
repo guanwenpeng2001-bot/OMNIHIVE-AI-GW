@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +22,42 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+}
+
+func TestLoadDatabaseName(t *testing.T) {
+	for _, test := range []struct {
+		name, file, env, skipSetup, want string
+		installed                        bool
+	}{
+		{name: "fresh install", want: "omnihive"},
+		{name: "existing config with omitted name", file: "database: {host: db.example}", want: "sub2api"},
+		{name: "install lock", installed: true, want: "sub2api"},
+		{name: "installer bypass", skipSetup: "true", want: "sub2api"},
+		{name: "explicit legacy config", file: "database: {dbname: sub2api}", want: "sub2api"},
+		{name: "explicit legacy environment", env: "sub2api", want: "sub2api"},
+		{name: "explicit new config", file: "database: {dbname: omnihive}", want: "omnihive"},
+		{name: "environment overrides config", file: "database: {dbname: sub2api}", env: "custom_database", want: "custom_database"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetViperWithJWTSecret(t)
+			dir := t.TempDir()
+			t.Chdir(dir)
+			t.Setenv(runtimeenv.DataDirKey, dir)
+			t.Setenv("DATABASE_DBNAME", test.env)
+			t.Setenv("SKIP_SETUP", test.skipSetup)
+			if test.file != "" {
+				configFile := filepath.Join(dir, "config.yaml")
+				require.NoError(t, os.WriteFile(configFile, []byte(test.file), 0o600))
+				t.Setenv("CONFIG_FILE", configFile)
+			}
+			if test.installed {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, runtimeenv.InstallLockFile), nil, 0o600))
+			}
+			cfg, err := Load()
+			require.NoError(t, err)
+			require.Equal(t, test.want, cfg.Database.DBName)
+		})
+	}
 }
 
 func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {

@@ -1256,7 +1256,7 @@ function clearChat() {
 }
 
 // Site settings - directly from appStore (already initialized from injected config)
-const siteName = computed(() => (appStore.cachedPublicSettings?.site_name || appStore.siteName || 'OmniHive').replace(/sub2api|omniscription/gi, 'OmniHive'))
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'OmniHive')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteSubtitle = computed(() => {
   const configured = appStore.cachedPublicSettings?.site_subtitle?.trim()

@@ -23,8 +23,10 @@ const (
 	pluginManifestFilename                   = "manifest.json"
 	pluginSignatureFilename                  = "signature.json"
 	pluginArchiveMaxFiles                    = 512
-	builtInOpenAITransportPluginID           = "local.sub2api.openai-transport"
-	builtInOpenAITransportPublisherKeyID     = "sub2api-openai-transport-v1"
+	builtInOpenAITransportPluginID           = "local.omnihive.openai-transport"
+	legacyOpenAITransportPluginID            = "local.sub2api.openai-transport"
+	builtInOpenAITransportPublisherKeyID     = "omnihive-openai-transport-v1"
+	legacyOpenAITransportPublisherKeyID      = "sub2api-openai-transport-v1"
 	builtInOpenAITransportPublisherKeyBase64 = "MqzSXAoG0iVR5kKWrC+mqcCeExkrT6zAr2WpQ4sA+yc="
 )
 
@@ -287,8 +289,14 @@ func (i *PluginPackageInstaller) verifySignature(file *zip.File, manifestRaw []b
 
 func trustedPluginPublisherKey(cfg *config.Config, keyID, pluginID string) string {
 	// 内置公钥是官方私有插件的固定信任根，不允许被部署配置覆盖。
-	if keyID == builtInOpenAITransportPublisherKeyID {
+	switch keyID {
+	case builtInOpenAITransportPublisherKeyID:
 		if pluginID != builtInOpenAITransportPluginID {
+			return ""
+		}
+		return builtInOpenAITransportPublisherKeyBase64
+	case legacyOpenAITransportPublisherKeyID:
+		if pluginID != legacyOpenAITransportPluginID {
 			return ""
 		}
 		return builtInOpenAITransportPublisherKeyBase64

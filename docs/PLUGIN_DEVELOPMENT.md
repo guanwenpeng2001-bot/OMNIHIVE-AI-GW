@@ -119,9 +119,9 @@ UI 是插件包内的静态页面，不需要修改 OmniHive 前端源码。宿�
   "name": "Example OpenAI Transport",
   "version": "0.1.0",
   "requires": {
-    "sub2api": ">=0.1.179 <0.2.0",
-    "recommended_sub2api_version": "0.1.179",
-    "tested_sub2api_versions": ["0.1.179"],
+    "omnihive": ">=0.1.179 <0.2.0",
+    "recommended_omnihive_version": "0.1.179",
+    "tested_omnihive_versions": ["0.1.179"],
     "plugin_protocol": 1,
     "transport_api": 1,
     "ui_bridge": 1
@@ -139,7 +139,7 @@ UI 是插件包内的静态页面，不需要修改 OmniHive 前端源码。宿�
 }
 ```
 
-打包器会自动填充目标平台运行时、UI 和运行时文件的 SHA-256。清单中的 `requires.sub2api` 是硬兼容范围；`tested_sub2api_versions` 应只填写真实验证过的版本；`recommended_sub2api_version` 用于管理页面展示。当前宿主仅处理 `openai.oauth.outbound_transport.v1`，声明其他能力不会自动产生新路由。后续增加 Provider 支持时，会在协议、能力清单和宿主路由完成适配后，再补充对应的清单示例。
+打包器会自动填充目标平台运行时、UI 和运行时文件的 SHA-256。清单中的 `requires.omnihive` 是硬兼容范围；`tested_omnihive_versions` 应只填写真实验证过的版本；`recommended_omnihive_version` 用于管理页面展示。当前宿主仅处理 `openai.oauth.outbound_transport.v1`，声明其他能力不会自动产生新路由。后续增加 Provider 支持时，会在协议、能力清单和宿主路由完成适配后，再补充对应的清单示例。
 
 ## 7. 生成密钥并签名
 
@@ -202,8 +202,8 @@ SUB2API_TEST_PLUGIN_PACKAGE=plugins/my-openai-plugin/dist/my-openai-plugin.s2plu
 ## 9. 发布前检查清单
 
 - 插件版本与 `GetInfo` 返回值一致；
-- `requires.sub2api` 覆盖范围经过验证，没有未经测试的破坏性版本；
-- `tested_sub2api_versions` 与实际测试记录一致；
+- `requires.omnihive` 覆盖范围经过验证，没有未经测试的破坏性版本；
+- `tested_omnihive_versions` 与实际测试记录一致；
 - 每个支持的平台和架构都有运行时文件；
 - 生产包存在有效 `signature.json`，公钥已交付部署者；
 - 包中没有私钥、源映射、测试数据、日志和临时文件；
@@ -216,7 +216,7 @@ SUB2API_TEST_PLUGIN_PACKAGE=plugins/my-openai-plugin/dist/my-openai-plugin.s2plu
 | 现象 | 排查方向 |
 | --- | --- |
 | 安装提示签名不受信任 | 检查 `signature.json.key_id`、Base64 公钥和配置键是否完全一致。 |
-| 插件显示不兼容 | 检查 `requires.sub2api`、`plugin_protocol`、`transport_api` 和 `ui_bridge`。 |
+| 插件显示不兼容 | 检查 `requires.omnihive`、`plugin_protocol`、`transport_api` 和 `ui_bridge`。 |
 | 插件进程无法启动 | 检查目标系统和架构对应的运行时路径、可执行权限和运行用户权限。 |
 | 配置页无法加载 | 检查 `ui.entrypoint`、UI 文件哈希、Bridge Token 校验和 iframe 消息来源。 |
 | 保存后配置未生效 | 查看 `ValidateConfig`、`ApplyConfig` 返回的规范化配置和诊断信息。 |

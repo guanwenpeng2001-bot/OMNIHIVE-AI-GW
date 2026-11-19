@@ -55,7 +55,7 @@
                 v-model="form.payment_product_name_prefix"
                 type="text"
                 class="input"
-                placeholder="Sub2API"
+                placeholder="OmniHive"
               />
             </div>
             <div>
@@ -77,7 +77,7 @@
                 class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--muted-foreground)]"
               >
                 {{
-                  (form.payment_product_name_prefix || "Sub2API") +
+                  (form.payment_product_name_prefix || "OmniHive") +
                   " 100 " +
                   (form.payment_product_name_suffix || "CNY")
                 }}
@@ -426,7 +426,7 @@
               </div>
             </div>
           </div>
-          <!-- Row 4: Enabled payment types (provider badges like sub2apipay) -->
+          <!-- Row 4: Enabled payment types -->
           <div>
             <label class="input-label">{{
               t("admin.settings.payment.enabledPaymentTypes")

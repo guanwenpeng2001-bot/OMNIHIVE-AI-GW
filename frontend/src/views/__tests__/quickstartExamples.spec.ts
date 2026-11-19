@@ -16,7 +16,7 @@ let root: string
 let dir: string
 const received: { url: string; headers: IncomingHttpHeaders; body: unknown }[] = []
 beforeAll(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'sub2api-quickstart-'))
+  dir = await mkdtemp(join(tmpdir(), 'omnihive-quickstart-'))
   server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(Buffer.from(chunk))
@@ -55,7 +55,7 @@ describe('copyable quickstart examples against a local mock', () => {
 
   it('executes every formal curl request, multipart upload and resource read against loopback', async () => {
     const bash = process.platform === 'win32' && existsSync('C:/Program Files/Git/bin/bash.exe') ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
-    const env = { ...process.env, SUB2API_API_KEY: 'mock-key-only', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
+    const env = { ...process.env, OMNIHIVE_API_KEY: 'mock-key-only', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
     await writeFile(join(dir, 'reference.png'), 'fixture image bytes')
     await writeFile(join(dir, 'speech.wav'), 'fixture audio bytes')
     const examples = guideExamples(root)
@@ -92,7 +92,7 @@ describe('copyable quickstart examples against a local mock', () => {
     }
     const file = join(dir, 'reasoning.mjs')
     await writeFile(file, samples.reasoning[0].code)
-    await run(process.execPath, [file], { env: { ...process.env, SUB2API_API_KEY: 'mock-key-only', MODEL_REASONING_EFFORT: 'low' }, timeout: 15000 })
+    await run(process.execPath, [file], { env: { ...process.env, OMNIHIVE_API_KEY: 'mock-key-only', MODEL_REASONING_EFFORT: 'low' }, timeout: 15000 })
     expect(received.at(-1)?.body).toMatchObject({ reasoning: { effort: 'low' } })
   })
   it('preserves prefixes and rejects credentials, query secrets and non-HTTP URLs', () => {
@@ -104,7 +104,7 @@ describe('copyable quickstart examples against a local mock', () => {
   })
   it.each(['', '/', '///', '/v1', '/v1///', '///v1///', '/v1beta', '/v1beta///', '///v1beta///'])(
     'normalizes public HTTPS bases ending in "%s" without losing the deployment prefix', (suffix) => {
-      const gatewayRoot = 'https://gateway.example:8443/proxy/sub2api'
+      const gatewayRoot = 'https://gateway.example:8443/proxy/omnihive'
       expect(publicRoot(`  ${gatewayRoot}${suffix}  `, '')).toBe(gatewayRoot)
       expect(publicRoot('', `${gatewayRoot}${suffix}`)).toBe(gatewayRoot)
       expect(requestExample(publicRoot(`${gatewayRoot}${suffix}`, ''), 'gemini-test', 'gemini').url)
@@ -139,7 +139,7 @@ describe('copyable quickstart examples against a local mock', () => {
   for (const protocol of protocols) {
     it(`runs curl, Python and Node ${protocol} examples with environment-only auth`, async () => {
       const sample = requestExample(root, "model-'quote-$(not-executed)", protocol)
-      const env = { ...process.env, SUB2API_API_KEY: 'mock-key-only', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
+      const env = { ...process.env, OMNIHIVE_API_KEY: 'mock-key-only', NO_PROXY: '127.0.0.1', no_proxy: '127.0.0.1' }
       const bash = process.platform === 'win32' && existsSync('C:/Program Files/Git/bin/bash.exe') ? 'C:/Program Files/Git/bin/bash.exe' : 'bash'
       const commands = [
         { bin: bash, args: (file: string) => [file], ext: 'sh' },
@@ -149,15 +149,15 @@ describe('copyable quickstart examples against a local mock', () => {
       for (const [index, command] of commands.entries()) {
         const file = join(dir, `example.${command.ext}`)
         const code = sample.examples[index].code
-        expect(code).not.toContain(env.SUB2API_API_KEY)
+        expect(code).not.toContain(env.OMNIHIVE_API_KEY)
         await writeFile(file, code)
         const { stdout } = await run(command.bin, command.args(file), { env, timeout: 15000 })
         expect(JSON.parse(stdout)).toEqual({ ok: true })
         const request = received.at(-1)!
         expect(request.url).toBe(new URL(sample.url).pathname)
-        expect(request.url).not.toContain(env.SUB2API_API_KEY)
+        expect(request.url).not.toContain(env.OMNIHIVE_API_KEY)
         expect(request.body).toEqual(sample.body)
-        expect(request.headers[sample.authHeader.toLowerCase()]).toBe((sample.authHeader === 'Authorization' ? 'Bearer ' : '') + env.SUB2API_API_KEY)
+        expect(request.headers[sample.authHeader.toLowerCase()]).toBe((sample.authHeader === 'Authorization' ? 'Bearer ' : '') + env.OMNIHIVE_API_KEY)
         if (protocol === 'messages') expect(request.headers['anthropic-version']).toBe('2023-06-01')
       }
     }, 60000)

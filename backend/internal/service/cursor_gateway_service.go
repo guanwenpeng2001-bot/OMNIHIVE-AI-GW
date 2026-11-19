@@ -448,7 +448,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 			message["reasoning_content"] = thinking.String()
 		}
 		if usage.Estimated {
-			requestContext.Header("X-Sub2API-Usage-Source", "estimated_missing_turn_ended")
+			writeCursorEstimatedUsageHeaders(requestContext)
 		}
 		err = output.response(gin.H{"id": completionID, "object": "chat.completion", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "message": message, "finish_reason": finishReason}}, "usage": chatUsage})
 	}

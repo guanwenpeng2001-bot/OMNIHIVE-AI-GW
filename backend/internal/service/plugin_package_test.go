@@ -93,7 +93,10 @@ func TestBuiltInOpenAITransportPublisherDoesNotRequireConfiguration(t *testing.T
 	require.NoError(t, err)
 	assert.Len(t, publicKey, ed25519.PublicKeySize)
 	assert.Equal(t, builtInOpenAITransportPublisherKeyBase64, encodedKey)
+	assert.Equal(t, encodedKey, trustedPluginPublisherKey(cfg, legacyOpenAITransportPublisherKeyID, legacyOpenAITransportPluginID))
 	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, "com.example.other-plugin"))
+	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, legacyOpenAITransportPluginID))
+	assert.Empty(t, trustedPluginPublisherKey(cfg, legacyOpenAITransportPublisherKeyID, builtInOpenAITransportPluginID))
 }
 
 func TestPluginPackageInstallerRejectsPathTraversal(t *testing.T) {
