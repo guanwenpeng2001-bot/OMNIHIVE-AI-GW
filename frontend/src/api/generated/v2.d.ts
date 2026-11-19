@@ -159,6 +159,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/billing/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        /** Aggregate across projects with workspace billing access */
+        get: operations["workspaceCostActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/billing/reconciliation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        /** Read workspace or delegated project discrepancies */
+        get: operations["listBillingDiscrepancies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/billing/reconciliation/{id}/resolve": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+                "If-Match": string;
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record a reviewed evidence reference */
+        post: operations["resolveBillingDiscrepancy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/connections": {
         parameters: {
             query?: never;
@@ -458,6 +519,175 @@ export interface paths {
         };
         /** Read current actions in project */
         get: operations["identityAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Aggregate project request and usage evidence for one currency */
+        get: operations["projectCostActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/adjustments": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append a wallet correction with a verified session */
+        post: operations["postBillingAdjustment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/budgets/{id}": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+                "If-Match": string;
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Update the project currency budget with a version precondition */
+        put: operations["updateProjectBudget"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/charges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Read scoped receipt amounts and frozen prices */
+        get: operations["billingChargeList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/exports": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a scoped read-only CSV snapshot */
+        post: operations["exportBillingCharges"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/exports/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Download an authorized unexpired CSV snapshot */
+        get: operations["downloadBillingCharges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Read scoped wallet entries and adjustment references */
+        get: operations["billingLedger"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/quotas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Explain effective funding and budget rules */
+        get: operations["billingEffectiveQuota"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1399,6 +1629,193 @@ export interface components {
             credential_version: string;
         };
         ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
+        CostActivity: {
+            timezone: string;
+            currency: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** Format: date-time */
+            as_of: string;
+            next_cursor: string | null;
+            items: components["schemas"]["CostGroup"][];
+            totals: components["schemas"]["CostTotals"];
+            data_completeness: {
+                state: string;
+                missing: {
+                    section: string;
+                    reason: string;
+                }[];
+            };
+        };
+        CostAdjustment: {
+            id: string;
+            ledger_entry_id: string;
+            reverses_id: string;
+            /** @enum {string} */
+            state: "posted";
+        };
+        CostAdjustmentInput: {
+            ledger_entry_id: string;
+            amount: components["schemas"]["CostMoney"];
+            /** @enum {string} */
+            reason: "billing_correction";
+            note: string;
+        };
+        CostBudgetInput: {
+            /** @enum {string} */
+            mode: "hard" | "soft";
+            limit: components["schemas"]["CostMoney"];
+            timezone: string;
+            /** @enum {string} */
+            window: "calendar_day" | "calendar_week" | "calendar_month";
+            include_byok_external_estimates: boolean;
+        };
+        CostCase: {
+            id: string;
+            project_id: string;
+            request_id: string;
+            settlement_id: string | null;
+            /** @enum {string} */
+            state: "needs_review" | "resolved";
+            reason: string;
+            difference: components["schemas"]["CostMoney"] | null;
+            currency: string;
+            version: string;
+        };
+        CostCasePage: {
+            items: components["schemas"]["CostCase"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        CostCharge: {
+            request_id: string;
+            settlement_id: string | null;
+            /** Format: date-time */
+            at: string;
+            model_id: string | null;
+            billing_source: string;
+            state: string;
+            platform_charge: components["schemas"]["CostMoney"] | null;
+            estimate: components["schemas"]["CostMoney"] | null;
+            currency: string;
+            price_version: string | null;
+            detail_url: string;
+        };
+        CostChargePage: {
+            items: components["schemas"]["CostCharge"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        CostEntry: {
+            id: string;
+            effect_id: string;
+            /** @enum {string} */
+            kind: "charge" | "adjustment";
+            request_id: string;
+            settlement_id: string;
+            funding_account_id: string;
+            signed_amount: components["schemas"]["CostMoney"];
+            /** Format: date-time */
+            posted_at: string;
+            reverses_id: string | null;
+        };
+        CostExportInput: {
+            timezone: string;
+            currency: string;
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            format: "csv";
+        };
+        CostGroup: {
+            group: string | null;
+            filter: {
+                [key: string]: string | null;
+            };
+            logical_requests: string;
+            attempts: string | null;
+            input_tokens: string | null;
+            output_tokens: string | null;
+            platform_charge: components["schemas"]["CostMoney"] | null;
+        };
+        CostLedgerPage: {
+            items: components["schemas"]["CostEntry"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        CostMoney: {
+            currency: string;
+            amount: string;
+        };
+        CostQuota: {
+            /** Format: date-time */
+            as_of: string;
+            funding_account_id: string | null;
+            rules: components["schemas"]["CostRule"][];
+            blocked: boolean;
+            blocking_rule_ids: string[];
+            external_exposure: {
+                state: string;
+                risk_limit: components["schemas"]["CostMoney"] | null;
+            };
+        };
+        CostResolutionInput: {
+            /** @enum {string} */
+            action: "attach_evidence";
+            evidence_id: string;
+            note: string;
+        };
+        CostRule: {
+            id: string;
+            version: string;
+            scope: {
+                type: string;
+                id: string;
+            };
+            owner_id: string;
+            shared_allowance_id: string;
+            source: string;
+            mode: string;
+            unit: string;
+            limit: string | null;
+            used: string | null;
+            reserved: string | null;
+            available: string | null;
+            overrun: string | null;
+            window: string;
+            timezone: string;
+            /** Format: date-time */
+            resets_at: string | null;
+            freshness: string;
+            /** Format: date-time */
+            observed_at: string | null;
+            allow_extra_spend: boolean;
+            include_byok_external_estimates: boolean;
+            adjust_action: string | null;
+            can_adjust: boolean;
+        };
+        CostTotals: {
+            observed_usage_requests: string;
+            catalog_reference: components["schemas"]["CostMoney"] | null;
+            subscription_consumption: components["schemas"]["CostMoney"] | null;
+            byok_external_estimate: components["schemas"]["CostMoney"] | null;
+            platform_service_fee: components["schemas"]["CostMoney"] | null;
+            reserved: components["schemas"]["CostMoney"] | null;
+            pending_requests: string;
+            needs_review_requests: string;
+            logical_requests: string;
+            attempts: string | null;
+            input_tokens: string | null;
+            output_tokens: string | null;
+            platform_charge: components["schemas"]["CostMoney"] | null;
+        };
         ExactCount: string;
         ExactDuration: string;
         /** @description Quantities per request. Cached input is included in input; other dimensions are disjoint. Missing usage fields default to zero and requests defaults to one. */
@@ -2179,6 +2596,28 @@ export interface components {
     parameters: {
         CatalogModelID: string;
         ConnectionID: components["schemas"]["IdentityID"];
+        CostQueryApiKeyId: string;
+        CostQueryAt: string;
+        CostQueryCurrency: string;
+        CostQueryCurrencyOptional: string;
+        CostQueryCursor: string;
+        CostQueryFrom: string;
+        CostQueryFromOptional: string;
+        CostQueryFundingAccountId: string;
+        CostQueryFundingSource: string;
+        CostQueryGroupBy: "day" | "model" | "key" | "member" | "workspace" | "project";
+        CostQueryKeyId: string;
+        CostQueryLimit: number;
+        CostQueryMemberId: string;
+        CostQueryModelId: string;
+        CostQueryProjectId: string;
+        CostQueryRequestId: string;
+        CostQuerySettlementId: string;
+        CostQuerySettlementState: string;
+        CostQueryState: string;
+        CostQueryTimezone: string;
+        CostQueryTo: string;
+        CostQueryToOptional: string;
         IdentityCursor: string;
         IdentityIdempotency: string;
         IdentityLimit: number;
@@ -2555,6 +2994,143 @@ export interface operations {
                 };
             };
             /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    workspaceCostActivity: {
+        parameters: {
+            query: {
+                from: components["parameters"]["CostQueryFrom"];
+                to: components["parameters"]["CostQueryTo"];
+                timezone: components["parameters"]["CostQueryTimezone"];
+                currency: components["parameters"]["CostQueryCurrency"];
+                key_id?: components["parameters"]["CostQueryKeyId"];
+                member_id?: components["parameters"]["CostQueryMemberId"];
+                model_id?: components["parameters"]["CostQueryModelId"];
+                funding_source?: components["parameters"]["CostQueryFundingSource"];
+                settlement_state?: components["parameters"]["CostQuerySettlementState"];
+                cursor?: components["parameters"]["CostQueryCursor"];
+                limit?: components["parameters"]["CostQueryLimit"];
+                group_by?: components["parameters"]["CostQueryGroupBy"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate across projects with workspace billing access */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostActivity"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    listBillingDiscrepancies: {
+        parameters: {
+            query?: {
+                project_id?: components["parameters"]["CostQueryProjectId"];
+                state?: components["parameters"]["CostQueryState"];
+                from?: components["parameters"]["CostQueryFromOptional"];
+                to?: components["parameters"]["CostQueryToOptional"];
+                currency?: components["parameters"]["CostQueryCurrencyOptional"];
+                cursor?: components["parameters"]["CostQueryCursor"];
+                limit?: components["parameters"]["CostQueryLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read workspace or delegated project discrepancies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostCasePage"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    resolveBillingDiscrepancy: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+                "If-Match": string;
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostResolutionInput"];
+            };
+        };
+        responses: {
+            /** @description Record a reviewed evidence reference */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["IdentityOperation"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
             default: {
                 headers: {
                     [name: string]: unknown;
@@ -3482,6 +4058,363 @@ export interface operations {
                 };
             };
             /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    projectCostActivity: {
+        parameters: {
+            query: {
+                from: components["parameters"]["CostQueryFrom"];
+                to: components["parameters"]["CostQueryTo"];
+                timezone: components["parameters"]["CostQueryTimezone"];
+                currency: components["parameters"]["CostQueryCurrency"];
+                key_id?: components["parameters"]["CostQueryKeyId"];
+                member_id?: components["parameters"]["CostQueryMemberId"];
+                model_id?: components["parameters"]["CostQueryModelId"];
+                funding_source?: components["parameters"]["CostQueryFundingSource"];
+                settlement_state?: components["parameters"]["CostQuerySettlementState"];
+                cursor?: components["parameters"]["CostQueryCursor"];
+                limit?: components["parameters"]["CostQueryLimit"];
+                group_by?: components["parameters"]["CostQueryGroupBy"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate project request and usage evidence for one currency */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostActivity"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    postBillingAdjustment: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostAdjustmentInput"];
+            };
+        };
+        responses: {
+            /** @description Append a wallet correction with a verified session */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostAdjustment"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    updateProjectBudget: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+                "If-Match": string;
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostBudgetInput"];
+            };
+        };
+        responses: {
+            /** @description Update the project currency budget with a version precondition */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostRule"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    billingChargeList: {
+        parameters: {
+            query: {
+                from: components["parameters"]["CostQueryFrom"];
+                to: components["parameters"]["CostQueryTo"];
+                timezone: components["parameters"]["CostQueryTimezone"];
+                currency: components["parameters"]["CostQueryCurrency"];
+                key_id?: components["parameters"]["CostQueryKeyId"];
+                member_id?: components["parameters"]["CostQueryMemberId"];
+                model_id?: components["parameters"]["CostQueryModelId"];
+                funding_source?: components["parameters"]["CostQueryFundingSource"];
+                settlement_state?: components["parameters"]["CostQuerySettlementState"];
+                cursor?: components["parameters"]["CostQueryCursor"];
+                limit?: components["parameters"]["CostQueryLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read scoped receipt amounts and frozen prices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostChargePage"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    exportBillingCharges: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostExportInput"];
+            };
+        };
+        responses: {
+            /** @description Register a scoped read-only CSV snapshot */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["IdentityOperation"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    downloadBillingCharges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Download an authorized unexpired CSV snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    billingLedger: {
+        parameters: {
+            query: {
+                from: components["parameters"]["CostQueryFrom"];
+                to: components["parameters"]["CostQueryTo"];
+                timezone: components["parameters"]["CostQueryTimezone"];
+                currency: components["parameters"]["CostQueryCurrency"];
+                key_id?: components["parameters"]["CostQueryKeyId"];
+                member_id?: components["parameters"]["CostQueryMemberId"];
+                model_id?: components["parameters"]["CostQueryModelId"];
+                funding_source?: components["parameters"]["CostQueryFundingSource"];
+                settlement_state?: components["parameters"]["CostQuerySettlementState"];
+                cursor?: components["parameters"]["CostQueryCursor"];
+                limit?: components["parameters"]["CostQueryLimit"];
+                request_id?: components["parameters"]["CostQueryRequestId"];
+                settlement_id?: components["parameters"]["CostQuerySettlementId"];
+                funding_account_id?: components["parameters"]["CostQueryFundingAccountId"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Read scoped wallet entries and adjustment references */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostLedgerPage"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    billingEffectiveQuota: {
+        parameters: {
+            query?: {
+                api_key_id?: components["parameters"]["CostQueryApiKeyId"];
+                member_id?: components["parameters"]["CostQueryMemberId"];
+                model_id?: components["parameters"]["CostQueryModelId"];
+                at?: components["parameters"]["CostQueryAt"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Explain effective funding and budget rules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["CostQuota"];
+                    };
+                };
+            };
+            /** @description Scoped management error */
             default: {
                 headers: {
                     [name: string]: unknown;

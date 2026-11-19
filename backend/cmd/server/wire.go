@@ -13,6 +13,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
@@ -67,6 +68,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		requestsHandlerProvider,
 		handler.ProvideImageTaskCenter,
 		policieshttp.ProviderSet,
+		billingHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -94,8 +96,12 @@ func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *con
 	return handler.ProvideRequestsHandler(db, store, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests}}
+func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *service.TotpService, cfg *config.Config) *billinghttp.Handler {
+	return handler.ProvideCostWorkbench(db, store, totp, cfg)
+}
+
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
