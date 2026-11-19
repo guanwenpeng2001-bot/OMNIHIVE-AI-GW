@@ -13,7 +13,11 @@
 
 ## 实体与运行方式
 
-插件的交付实体是一个 `.s2plugin` 文件，本质上是带清单、签名、独立可执行文件和静态 UI 的 ZIP 包。管理员在独立的插件管理页手动上传，OmniHive 不从网络自动下载插件，也不要求 Docker。
+> **当前格式：`.ohplugin`（v2）。** 新插件请从 [`v2/manifest.schema.json`](v2/manifest.schema.json) 与 [`contracts/plugins/README.md`](../../../contracts/plugins/README.md) 开始。
+>
+> 本目录中的 v1 `.s2plugin` 协议仅用于旧包验签、迁移和兼容期运行时说明。
+
+旧版插件的交付实体是一个 `.s2plugin` 文件，本质上是带清单、签名、独立可执行文件和静态 UI 的 ZIP 包。管理员在独立的插件管理页手动上传，OmniHive 不从网络自动下载插件，也不要求 Docker。
 
 启用后，OmniHive 以子进程方式拉起当前操作系统和 CPU 架构对应的二进制，通过本机 gRPC 流传递请求与响应。插件进程退出时会随 OmniHive 清理；停用时先停止接收新请求，再等待正在处理的请求结束。
 

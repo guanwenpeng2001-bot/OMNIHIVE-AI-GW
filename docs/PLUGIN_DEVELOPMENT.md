@@ -1,4 +1,10 @@
-# OmniHive 插件开发教程
+# 旧版 `.s2plugin` 插件迁移指南
+
+> **当前插件格式是 `.ohplugin`。** 新插件开发、v2 清单、WASI 运行时、签名和 v1 迁移请以
+> [`contracts/plugins/README.md`](../contracts/plugins/README.md) 为准。
+>
+> 本页保留用于理解旧 `.s2plugin` gRPC 运行时与兼容窗口，不再代表新插件的推荐开发方式。
+> 宿主只接受经过验签的旧包迁移，不会把旧包当作当前产品格式继续分发。
 
 本文面向希望为 OmniHive 开发、打包和发布插件的团队。插件是独立进程和静态 UI 组成的 `.s2plugin` 包，宿主通过稳定的 gRPC 协议调用它。本文以当前宿主已经定义的 `openai.oauth.outbound_transport.v1` 能力作为协议示例，说明开发者需要准备什么、哪些职责属于插件、哪些职责仍由 OmniHive 负责。
 

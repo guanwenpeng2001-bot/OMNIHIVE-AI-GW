@@ -27,7 +27,7 @@ OmniHive provides protocol ingress, routing governance, usage settlement and an 
 - **Quota probes and live usage windows**: Combine upstream quota availability, local usage records and runtime status to support capacity planning, incident investigation and cost management.
 - **Workspace routing policies**: Configure ZDR, automatic fallback, prompt caching and region preferences where supported by the selected upstream protocol and credentials.
 - **Batch image workbench**: Asynchronous queues, task tracking, failed-item retries and ZIP downloads for traceable multimodal production.
-- **Transport plugins and built-in extensions**: Isolated `.s2plugin` transport packages complement the four gateway extensions: `prompt-guard`, `rate-limiter`, `cache-layer` and `cost-tracker`.
+- **Transport plugins and built-in extensions**: Signed, isolated `.ohplugin` v2 transport packages complement the four gateway extensions: `prompt-guard`, `rate-limiter`, `cache-layer` and `cost-tracker`. Legacy `.s2plugin` archives are accepted only through the verified migration path.
 - **Console updates and rollback**: Administrators use the upper-left version badge to check GitHub Releases, update the application or select an allowed rollback version.
 
 ## Architecture
@@ -136,7 +136,7 @@ OMNIHIVE-AI-GW/
 | [Protocol matrix](docs/gateway-platform-protocol-matrix.md) | Platform, model and endpoint boundaries |
 | [Composite groups](docs/COMPOSITE_GROUPS.md) | Group composition and routing |
 | [Batch images](docs/BATCH_IMAGE_MVP.md) / [Asynchronous image tasks](docs/ASYNC_IMAGE_TASKS.md) | Queues, tasks, retries and downloads |
-| [Plugin development](docs/PLUGIN_DEVELOPMENT.md) | `.s2plugin` contracts, signatures and isolation |
+| [Plugin development](contracts/plugins/README.md) | `.ohplugin` v2 manifests, signatures, WASI runtime and migration |
 | [Payment configuration](docs/PAYMENT.md) | Neutral payment integration and webhook setup |
 | [Deployment and operation commitment](docs/legal/admin-compliance.en.md) | Instance operator responsibilities |
 

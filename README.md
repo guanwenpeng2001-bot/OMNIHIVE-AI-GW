@@ -27,7 +27,7 @@ OmniHive 面向需要统一管理多供应商、多账号和多模态 AI 调用�
 - **上游配额探针与实时用量窗口**：结合上游可用额度、本地调用台账和运行状态，辅助容量规划、故障定位与成本管理。
 - **工作空间路由策略**：按渠道能力配置 ZDR、自动回退、提示词缓存与地域偏好；策略是否可执行以对应上游协议和账号能力为准。
 - **批量生图工作台**：异步队列、任务状态追踪、失败子项重试与 ZIP 打包下载，支持可追踪的多模态生产流程。
-- **传输插件与内置扩展**：`.s2plugin` 为隔离运行的传输插件包；`prompt-guard`、`rate-limiter`、`cache-layer`、`cost-tracker` 四大内置网关扩展承担提示词治理、限流、缓存与成本追踪。
+- **传输插件与内置扩展**：`.ohplugin` 为签名、隔离运行的 v2 传输插件包；旧 `.s2plugin` 仅在迁移兼容窗口内验签导入。`prompt-guard`、`rate-limiter`、`cache-layer`、`cost-tracker` 四大内置网关扩展承担提示词治理、限流、缓存与成本追踪。
 - **面板更新与回滚**：管理员通过左上角版本徽标检查 GitHub Release、执行更新或选择允许回滚的版本。
 
 ## 系统架构概览
@@ -136,7 +136,7 @@ OMNIHIVE-AI-GW/
 | [协议矩阵](docs/gateway-platform-protocol-matrix.md) | 平台、模型和端点能力边界 |
 | [组合分组](docs/COMPOSITE_GROUPS.md) | 分组组合与路由规则 |
 | [批量生图](docs/BATCH_IMAGE_MVP.md) / [异步图像任务](docs/ASYNC_IMAGE_TASKS.md) | 队列、任务、重试与下载 |
-| [插件开发](docs/PLUGIN_DEVELOPMENT.md) | `.s2plugin` 协议、签名与隔离边界 |
+| [插件开发](contracts/plugins/README.md) | `.ohplugin` v2 清单、签名、WASI 运行时与迁移 |
 | [支付配置](docs/PAYMENT_CN.md) | 中立的支付渠道接入与回调配置 |
 | [部署与运营说明](docs/legal/admin-compliance.zh.md) | 实例管理者责任说明 |
 
