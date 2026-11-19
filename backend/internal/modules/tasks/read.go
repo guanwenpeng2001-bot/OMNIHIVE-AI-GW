@@ -21,18 +21,18 @@ type Page struct {
 }
 type scanner interface{ Scan(...any) error }
 
-const projection = `SELECT h.id,h.project_id,h.source,h.source_id,h.model,h.execution::text,h.parent_task,
- CASE WHEN h.source IN ('gateway','redis_image') AND h.state='running' AND h.lease_until<=clock_timestamp() THEN 'unknown' ELSE h.current_state END,
- h.stage,h.provider_state,h.cancellation,h.progress,h.current_version+(CASE WHEN h.cancel_state='requested' THEN 1 ELSE 0 END),h.created_at,h.changed_at,
+const projection = `SELECT h.id,h.project_id,h.kind,h.provider_job_id,h.source,h.source_id,h.model,h.execution::text,h.parent_task,
+ h.display_state,
+ h.display_stage,h.display_acceptance,h.display_cancel,h.progress,h.display_version+(CASE WHEN h.cancel_state='requested' THEN 1 ELSE 0 END),h.created_at,h.display_updated,
  h.owner_id,h.api_key_id,h.replay_input IS NOT NULL AND h.input_until>now(),h.item_count,h.success_count,h.fail_count,h.cancelled_count,
- h.estimate,h.currency,coalesce(r.id::text,CASE WHEN h.source='batch_image' AND h.settled_at IS NOT NULL THEN 'batch_image_capture:'||h.source_id END),
- coalesce(r.state,CASE WHEN h.settled_at IS NOT NULL THEN 'settled' WHEN EXISTS (SELECT 1 FROM usage_billing_dedup d
+ h.estimate,h.currency,coalesce(r.id::text,CASE WHEN ml.id IS NOT NULL THEN 'upstream_job_usage:'||ml.id WHEN h.source='batch_image' AND h.settled_at IS NOT NULL THEN 'batch_image_capture:'||h.source_id END),
+ coalesce(r.state,CASE WHEN ml.id IS NOT NULL OR h.settled_at IS NOT NULL THEN 'settled' WHEN EXISTS (SELECT 1 FROM usage_billing_dedup d
  WHERE d.api_key_id=h.api_key_id AND d.request_id='batch_image_hold:'||h.source_id) AND NOT EXISTS (SELECT 1 FROM usage_billing_dedup d
  WHERE d.api_key_id=h.api_key_id AND d.request_id='batch_image_release:'||h.source_id) THEN 'reserved' ELSE 'unknown' END),
  CASE WHEN r.state='settled' THEN CASE WHEN r.pricing_state='free' THEN '0.00000000' WHEN r.pricing_state='priced' THEN
  (CASE WHEN (r.billing_command->>'SubscriptionID') IS NOT NULL THEN r.billing_command->>'SubscriptionCost' ELSE r.billing_command->>'BalanceCost' END)::numeric(28,8)::text END
- WHEN h.settled_at IS NOT NULL THEN h.batch_charge END
- FROM image_task_history h LEFT JOIN LATERAL (SELECT s.* FROM usage_settlement_receipts s WHERE s.user_id=h.funding_user_id AND s.api_key_id=h.api_key_id
+ WHEN ml.id IS NOT NULL THEN ml.actual_cost::numeric(28,8)::text WHEN h.settled_at IS NOT NULL THEN h.batch_charge END
+ FROM task_center_history h LEFT JOIN usage_logs ml ON ml.id=h.media_usage AND ml.request_id=h.provider_job_id AND ml.account_id=h.media_account AND ml.api_key_id=h.api_key_id AND ml.user_id=h.funding_user_id LEFT JOIN LATERAL (SELECT s.* FROM usage_settlement_receipts s WHERE s.user_id=h.funding_user_id AND s.api_key_id=h.api_key_id
  AND ((s.request_id=h.execution::text AND EXISTS(SELECT 1 FROM gateway_execution_receipts x JOIN gateway_execution_attempts a USING(attempt_id) WHERE x.receipt_id=s.id AND a.request_id=h.execution))
  OR (h.source='upstream_job' AND EXISTS(SELECT 1 FROM upstream_jobs u WHERE u.public_request_id=h.source_id AND u.charged_usage_log_id=s.usage_log_id AND u.account_id=s.account_id)))
  ORDER BY s.id LIMIT 1) r ON true WHERE h.workspace_id=$1 AND h.project_id=$2`
@@ -42,11 +42,10 @@ func readDetail(row scanner, s Scope) (Detail, error) {
 	var total, ok, failed, canceled *int64
 	var estimate, charge *string
 	var currency string
-	err := row.Scan(&d.ID, &d.Project, &d.Source, &d.sourceID, &d.Model, &d.Request, &d.Parent, &d.State, &d.Stage, &d.Provider, &d.Cancel, &d.Progress, &d.Version, &d.Created, &d.Updated, &d.owner, &d.key, &d.replayable, &total, &ok, &failed, &canceled, &estimate, &currency, &d.SettlementID, &d.Settlement, &charge)
+	err := row.Scan(&d.ID, &d.Project, &d.Kind, &d.providerJob, &d.Source, &d.sourceID, &d.Model, &d.Request, &d.Parent, &d.State, &d.Stage, &d.Provider, &d.Cancel, &d.Progress, &d.Version, &d.Created, &d.Updated, &d.owner, &d.key, &d.replayable, &total, &ok, &failed, &canceled, &estimate, &currency, &d.SettlementID, &d.Settlement, &charge)
 	if err != nil {
 		return d, found(err)
 	}
-	d.Kind = "image"
 	d.Artifacts = []Artifact{}
 	d.Actions = []string{}
 	d.Reasons = map[string]string{}
@@ -124,8 +123,8 @@ func (s *Store) List(ctx context.Context, a Scope, p Page) ([]Detail, error) {
 		return nil, fault.Invalid("/limit")
 	}
 	rows, err := s.DB.QueryContext(ctx, projection+` AND h.created_at<=$3 AND ($4='' OR (h.created_at,h.id)<($5,$4))
- AND (cardinality($6::text[])=0 OR 'image'=ANY($6)) AND (cardinality($7::text[])=0 OR
- (CASE WHEN h.source IN ('gateway','redis_image') AND h.state='running' AND h.lease_until<=clock_timestamp() THEN 'unknown' ELSE h.current_state END)=ANY($7))
+ AND (cardinality($6::text[])=0 OR h.kind=ANY($6)) AND (cardinality($7::text[])=0 OR
+ (h.display_state)=ANY($7))
  AND (cardinality($8::text[])=0 OR h.model=ANY($8)) AND ($9::timestamptz IS NULL OR h.created_at>=$9) AND ($10::timestamptz IS NULL OR h.created_at<$10)
  ORDER BY h.created_at DESC,h.id DESC LIMIT $11`, a.WorkspaceID, a.ProjectID, p.AsOf, p.AfterID, p.AfterTime, pq.Array(append([]string{}, p.Kind...)), pq.Array(append([]string{}, p.State...)), pq.Array(append([]string{}, p.Model...)), p.From, p.To, p.Limit+1)
 	if err != nil {
@@ -158,7 +157,7 @@ func (s *Store) Detail(ctx context.Context, a Scope, id string) (Detail, error) 
 		d.ArtifactState = "withheld"
 		return d, nil
 	}
-	rows, e := s.DB.QueryContext(ctx, `SELECT id,content_type,size_bytes,expires_at,state FROM image_artifacts WHERE task_id=$1 ORDER BY id`, id)
+	rows, e := s.DB.QueryContext(ctx, `SELECT id,content_type,size_bytes,expires_at,state FROM task_center_artifacts WHERE task_id=$1 ORDER BY id`, id)
 	if e != nil {
 		return d, e
 	}
@@ -191,7 +190,7 @@ func (s *Store) Items(ctx context.Context, a Scope, id string, p Page) ([]Item, 
  CASE WHEN status IN ('success','failed') THEN 'accepted' ELSE $3 END AS acceptance,CASE WHEN status='failed' THEN 'ITEM_FAILED' END reason
  FROM batch_image_items WHERE $1='batch_image' AND job_id=$2 AND created_at<=$9
  UNION ALL SELECT '1',$4,$3,NULL WHERE $1<>'batch_image')
- SELECT id,state,acceptance,reason,ARRAY(SELECT a.id FROM image_artifacts a WHERE $5 AND a.task_id=$6 AND a.item_id=items.id ORDER BY a.id)
+ SELECT id,state,acceptance,reason,ARRAY(SELECT a.id FROM task_center_artifacts a WHERE $5 AND a.task_id=$6 AND a.item_id=items.id ORDER BY a.id)
  FROM items WHERE id>$7 ORDER BY id LIMIT $8`, d.Source, d.sourceID, d.Provider, d.State, a.Require("tasks.artifacts.read") == nil, id, p.AfterID, p.Limit+1, p.AsOf)
 	if e != nil {
 		return nil, e
@@ -213,8 +212,8 @@ func (s *Store) Artifact(ctx context.Context, a Scope, task, id string) (Artifac
 	if e := a.Require("tasks.artifacts.read"); e != nil {
 		return v, e
 	}
-	e := s.DB.QueryRowContext(ctx, `SELECT a.id,a.content_type,a.size_bytes,a.expires_at,a.state,h.source,a.locator,h.source_id,a.item_id,h.owner_id,h.api_key_id
- FROM image_task_history h JOIN image_artifacts a ON a.task_id=h.id WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.id=$3 AND a.id=$4`, a.WorkspaceID, a.ProjectID, task, id).
+	e := s.DB.QueryRowContext(ctx, `SELECT a.id,a.content_type,a.size_bytes,a.expires_at,a.state,CASE WHEN h.kind='video' THEN 'media_video' ELSE h.source END,a.locator,h.source_id,a.item_id,h.owner_id,h.api_key_id
+ FROM task_center_history h JOIN task_center_artifacts a ON a.task_id=h.id WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.id=$3 AND a.id=$4`, a.WorkspaceID, a.ProjectID, task, id).
 		Scan(&v.ID, &v.ContentType, &v.Size, &v.Expires, &v.State, &v.Source, &v.Locator, &v.SourceID, &v.ItemID, &v.Owner, &v.Key)
 	if errors.Is(e, sql.ErrNoRows) {
 		return v, fault.NotFound
@@ -228,8 +227,8 @@ func (s *Store) Revoke(ctx context.Context, a Scope, task, id string) error {
 	if e := a.Require("tasks.artifacts.revoke"); e != nil {
 		return e
 	}
-	res, e := s.DB.ExecContext(ctx, `INSERT INTO image_artifact_revocations(task_id,artifact_id,actor_id) SELECT h.id,i.id,$5 FROM image_task_history h
- JOIN image_artifacts i ON i.task_id=h.id WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.id=$3 AND i.id=$4
+	res, e := s.DB.ExecContext(ctx, `INSERT INTO image_artifact_revocations(task_id,artifact_id,actor_id) SELECT h.id,i.id,$5 FROM task_center_history h
+ JOIN task_center_artifacts i ON i.task_id=h.id WHERE h.workspace_id=$1 AND h.project_id=$2 AND h.id=$3 AND i.id=$4
  ON CONFLICT(task_id,artifact_id) DO UPDATE SET revoked_at=image_artifact_revocations.revoked_at`, a.WorkspaceID, a.ProjectID, task, id, a.ActorID)
 	if e != nil {
 		return e

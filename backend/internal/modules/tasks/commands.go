@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks/media"
 )
 
 type command struct {
@@ -88,7 +89,7 @@ func (s *Store) Create(ctx context.Context, a Scope, c Create, key, ip string) (
 	if e := a.Require("tasks.create"); e != nil {
 		return d, e
 	}
-	if c.Kind != "image" {
+	if c.Kind != "image" && c.Kind != "audio" && c.Kind != "video" {
 		return d, fault.Invalid("/kind")
 	}
 	if !c.Acknowledged {
@@ -100,17 +101,24 @@ func (s *Store) Create(ctx context.Context, a Scope, c Create, key, ip string) (
 	if c.Model == "" || len(c.Model) > 255 {
 		return d, fault.Invalid("/model_id")
 	}
-	if strings.TrimSpace(c.Input.Prompt) == "" || utf8.RuneCountInString(c.Input.Prompt) > 8000 {
-		return d, fault.Invalid("/input/prompt")
-	}
-	if c.Input.Count == 0 {
-		c.Input.Count = 1
-	}
-	if c.Input.Count < 1 || c.Input.Count > 4 {
-		return d, fault.Invalid("/input/count")
-	}
-	if len(c.Input.Size) > 32 {
-		return d, fault.Invalid("/input/size")
+	if c.Kind == "image" {
+		if c.Input.Format != "" || c.Input.Duration != 0 {
+			return d, fault.Invalid("/input")
+		}
+		if strings.TrimSpace(c.Input.Prompt) == "" || utf8.RuneCountInString(c.Input.Prompt) > 8000 {
+			return d, fault.Invalid("/input/prompt")
+		}
+		if c.Input.Count == 0 {
+			c.Input.Count = 1
+		}
+		if c.Input.Count < 1 || c.Input.Count > 4 {
+			return d, fault.Invalid("/input/count")
+		}
+		if len(c.Input.Size) > 32 {
+			return d, fault.Invalid("/input/size")
+		}
+	} else if err := media.Validate(c.Kind, c.Input.Prompt, c.Input.Format, c.Input.Size, c.Input.Duration, c.Input.Count); err != nil {
+		return d, err
 	}
 	cmd, e := s.command(ctx, a, "create", key, c)
 	if e != nil {
@@ -174,7 +182,7 @@ func (s *Store) Retry(ctx context.Context, a Scope, id, key, ip string, r Retry)
 	if e = json.Unmarshal([]byte(plain), &c); e != nil {
 		return out, e
 	}
-	if c.Key != d.key || c.Model != d.Model || !c.Acknowledged {
+	if c.Key != d.key || c.Model != d.Model || c.Kind != d.Kind || !c.Acknowledged {
 		return out, NotRetryable
 	}
 	d, e = s.submit(ctx, cmd, c, id, ip, "tasks.retry")
@@ -191,7 +199,7 @@ func (s *Store) submit(ctx context.Context, c *command, in Create, parent, ip, a
 	select {
 	case s.slots <- struct{}{}:
 	default:
-		return d, &fault.Fault{Status: 429, Reason: "TASK_CAPACITY", Message: "All image workers are busy."}
+		return d, &fault.Fault{Status: 429, Reason: "TASK_CAPACITY", Message: "All task workers are busy."}
 	}
 	launched := false
 	defer func() {
@@ -199,7 +207,7 @@ func (s *Store) submit(ctx context.Context, c *command, in Create, parent, ip, a
 			<-s.slots
 		}
 	}()
-	work := Work{ID: "task_" + uuid.NewString(), Request: uuid.NewString(), Model: in.Model, Key: in.Key, Input: in.Input, IP: ip, Action: action}
+	work := Work{ID: "task_" + uuid.NewString(), Request: uuid.NewString(), Model: in.Model, Key: in.Key, Kind: in.Kind, Input: in.Input, IP: ip, Action: action}
 	work.Lease = Lease{ID: work.ID, Owner: uuid.NewString(), Generation: 1}
 	plan, e := s.Runner.Prepare(ctx, c.scope, work)
 	if e != nil {
@@ -224,6 +232,22 @@ func (s *Store) submit(ctx context.Context, c *command, in Create, parent, ip, a
 		work.ID, c.scope.WorkspaceID, c.scope.ProjectID, c.scope.ActorID, work.Key, work.Model, work.Request, plan.Version, c.fingerprint, c.key, parent, work.Lease.Owner, encrypted)
 	if e != nil {
 		return d, e
+	}
+	if in.Kind != "image" {
+		if plan.Media == nil {
+			return d, media.Unsupported
+		}
+		var registered string
+		e = c.tx.QueryRowContext(ctx, `INSERT INTO task_media_attributes(task_id,kind,verification_id,account_id,format,duration_seconds,size,billing_unit,price_version,provider_job_id)
+ SELECT $1,$2,v.id,v.account_id,$3,nullif($4,0),nullif($5,''),v.billing_unit,v.price_version,CASE WHEN $2='video' THEN $6::text END
+ FROM task_media_verifications v WHERE v.id=$7 AND v.workspace_id=$8 AND v.project_id=$9 AND v.account_id=$10 AND v.price_version=$11
+ AND v.verified_at<=clock_timestamp() AND v.expires_at>clock_timestamp() AND v.revoked_at IS NULL RETURNING task_id`, work.ID, in.Kind, in.Input.Format, in.Input.Duration, in.Input.Size, work.Request, plan.Media.ID, c.scope.WorkspaceID, c.scope.ProjectID, plan.Media.Account, plan.Media.PriceVersion).Scan(&registered)
+		if errors.Is(e, sql.ErrNoRows) {
+			return d, media.Unsupported
+		}
+		if e != nil {
+			return d, e
+		}
 	}
 	d, e = readDetail(c.tx.QueryRowContext(ctx, projection+" AND h.id=$3", c.scope.WorkspaceID, c.scope.ProjectID, work.ID), c.scope)
 	if e != nil {
@@ -291,6 +315,12 @@ func (s *Store) Finish(ctx context.Context, l Lease, r Outcome) error {
 	if n != 1 {
 		return LostLease
 	}
+	if r.DurationMillis > 0 {
+		_, e = tx.ExecContext(ctx, `UPDATE task_media_attributes SET result_duration_ms=$2 WHERE task_id=$1 AND kind='audio'`, l.ID, r.DurationMillis)
+		if e != nil {
+			return e
+		}
+	}
 	for _, a := range r.Artifacts {
 		_, e = tx.ExecContext(ctx, `INSERT INTO image_task_artifacts(task_id,id,item_id,locator,content_type,size_bytes,expires_at)
  VALUES($1,$2,'1',$3,$4,$5,clock_timestamp()+interval '24 hours')`, l.ID, a.ID, a.Locator, a.ContentType, a.Size)
@@ -333,13 +363,13 @@ func (s *Store) Cancel(ctx context.Context, a Scope, id, key string) (CancelResu
 		out = CancelResult{id, "confirmed", d.State, d.Version}
 		return out, c.save(ctx, id, out)
 	}
-	if d.Cancel != "available" || d.Source != "batch_image" {
+	if d.Cancel != "available" || (d.Source != "batch_image" && d.Kind != "video") {
 		return out, UnsupportedCancel
 	}
-	if s.Batch == nil {
+	if (d.Kind == "video" && (s.Video == nil || d.providerJob == nil)) || (d.Kind != "video" && s.Batch == nil) {
 		return out, Unavailable
 	}
-	res, e := c.tx.ExecContext(ctx, `UPDATE image_tasks SET cancel_state='requested' WHERE id=$1 AND cancel_state<>'requested'`, id)
+	res, e := c.tx.ExecContext(ctx, `UPDATE image_tasks SET cancel_state='requested' WHERE id=$1 AND cancel_state<>'requested' AND EXISTS(SELECT 1 FROM task_center_history WHERE id=$1 AND display_cancel='available')`, id)
 	if e != nil {
 		return out, e
 	}
@@ -355,7 +385,12 @@ func (s *Store) Cancel(ctx context.Context, a Scope, id, key string) (CancelResu
 		return out, e
 	}
 	// No second provider invocation after a crash or lost acknowledgement.
-	if e = s.Batch.CancelBatch(ctx, d.owner, d.key, d.sourceID); e != nil {
+	if d.Kind == "video" {
+		e = s.Video.CancelVideo(ctx, d.owner, d.key, *d.providerJob)
+	} else {
+		e = s.Batch.CancelBatch(ctx, d.owner, d.key, d.sourceID)
+	}
+	if e != nil {
 		return out, Unknown
 	}
 	return out, nil

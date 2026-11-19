@@ -22,9 +22,10 @@ var ErrUpstreamJobTariff = errors.New("explicit video model/resolution tariff is
 // UpstreamJobBilling is an immutable admission-time price/ownership snapshot.
 // Never persist credentials or the client's potentially sensitive input body.
 type UpstreamJobBilling struct {
-	Egress          *ProxyGroupJobEgress `json:"-"`
-	PricingState    PricingState         `json:"pricing_state,omitempty"`
-	PricingSnapshot string               `json:"pricing_snapshot,omitempty"`
+	TaskPriceVersion string               `json:"task_price_version,omitempty"`
+	Egress           *ProxyGroupJobEgress `json:"-"`
+	PricingState     PricingState         `json:"pricing_state,omitempty"`
+	PricingSnapshot  string               `json:"pricing_snapshot,omitempty"`
 
 	Realtime              *QianwenRealtimeSnapshot `json:"realtime,omitempty"`
 	Model                 string                   `json:"model"`
@@ -185,6 +186,21 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	claim.ID = 0
 	claim.PublicRequestID = uuid.NewString()
 	claim.RequestFingerprint = fingerprint
+	binding, bound := ctx.Value(mediaTaskKey{}).(MediaTaskBinding)
+	if bound {
+		ex, err := GatewayRequestPlanFromContext(ctx).AdmittedExecution()
+		if err != nil || ex.RequestID != binding.Request || ex.Scope.KeyID != job.APIKeyID || ex.Scope.FundingUserID != job.UserID ||
+			binding.Kind != "video" || job.Family != "video" || job.Platform != PlatformQianwen || job.AccountID != binding.Account || job.Billing.Model != binding.Model {
+			return nil, ErrUpstreamJobTariff
+		}
+		// v2 idempotency belongs to the journaled command. Fresh paid commands
+		// with identical input have independent claims, receipts and cancel IDs.
+		claim.PublicRequestID = ex.RequestID
+		claim.Billing.TaskPriceVersion = ex.Versions.Price
+		hash := sha256.Sum256([]byte(ex.RequestID + "|" + fingerprint))
+		claim.RequestFingerprint = hex.EncodeToString(hash[:])
+		claim.SubmissionKey = claim.RequestFingerprint
+	}
 	claim.Status = "submitted"
 	claim.UpstreamTaskID = ""
 	claim.ChargedUsageLogID = nil
@@ -200,8 +216,11 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 		return existing, err
 	}
 	logJobEvent(ctx, existing, "admitted")
-	ctx, finishPlan := CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: existing.AccountID, UserID: existing.UserID, APIKeyID: existing.APIKeyID, BillingGroupID: valueOrZero(existing.GroupID), Model: existing.Billing.RequestedModel, UpstreamModel: existing.Billing.Model, Action: existing.Family, ExecutionID: existing.PublicRequestID})
-	defer finishPlan()
+	if !bound {
+		var finishPlan func()
+		ctx, finishPlan = CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: existing.AccountID, UserID: existing.UserID, APIKeyID: existing.APIKeyID, BillingGroupID: valueOrZero(existing.GroupID), Model: existing.Billing.RequestedModel, UpstreamModel: existing.Billing.Model, Action: existing.Family, ExecutionID: existing.PublicRequestID})
+		defer finishPlan()
+	}
 
 	networkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	update, upstreamErr := submit(networkCtx)
@@ -423,7 +442,7 @@ func (s *UpstreamJobService) settle(ctx context.Context, j *UpstreamJob, tx Upst
 }
 
 func (s *UpstreamJobService) advance(ctx context.Context, j *UpstreamJob, tx UpstreamJobTx, u UpstreamJobUpdate) error {
-	if j.Family == "batch" && u.ProviderStatus != "" {
+	if (j.Family == "batch" || (j.Family == "video" && j.Platform == PlatformQianwen)) && u.ProviderStatus != "" {
 		j.ResourceState.ProviderStatus = u.ProviderStatus
 	}
 	if len(u.Usage) > 0 {

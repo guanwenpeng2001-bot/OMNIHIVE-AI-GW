@@ -218,6 +218,31 @@ func (t *upstreamJobTx) Charge(ctx context.Context, log *service.UsageLog, cmd *
 		return err
 	}
 
+	if t.job != nil && t.job.Billing.TaskPriceVersion != "" {
+		// The native job remains the sole wallet writer. Publish its frozen
+		// receipt and outbox event inside the same transaction as the charge.
+		receipt, err := service.PrepareUsageSettlementReceipt(&service.UsageSettlementReceipt{
+			Key:     service.UsageSettlementKey{RequestID: cmd.RequestID, APIKeyID: cmd.APIKeyID, UserID: cmd.UserID},
+			Command: *cmd, Usage: *log, ResolutionState: "resolved", CompletionState: "complete"})
+		if err != nil {
+			return err
+		}
+		inserted, err := insertUsageSettlementReceipt(ctx, t.tx, receipt)
+		if err != nil {
+			return err
+		}
+		n, err := inserted.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return service.ErrUsageBillingRequestConflict
+		}
+		_, err = t.tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='settled',usage_log_id=$3,settled_at=now() WHERE request_id=$1 AND api_key_id=$2`, cmd.RequestID, cmd.APIKeyID, log.ID)
+		if err != nil {
+			return err
+		}
+	}
 	return InsertUserPlatformQuotaEvent(ctx, t.tx, log)
 }
 

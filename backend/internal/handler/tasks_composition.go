@@ -25,7 +25,10 @@ func NewImageTaskCenter(db *sql.DB, cfg *config.Config, access identity.AccessEv
 	if configured, ok := encryptor.(interface{ EncryptionKeyConfigured() bool }); ok && !configured.EncryptionKeyConfigured() {
 		encryptor = nil
 	}
-	return taskhttp.New(tasks.New(db, gateway, encryptor, reader, reader), access, cfg)
+	reader.video = taskVideoResults{native: images}
+	store := tasks.New(db, gateway, encryptor, reader, reader)
+	store.Video = reader.video
+	return taskhttp.New(store, access, cfg)
 }
 
 func ProvideImageTaskCenter(db *sql.DB, cfg *config.Config, access identity.AccessEvaluator, scopes identity.GatewayScopes,

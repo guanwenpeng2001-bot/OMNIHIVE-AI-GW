@@ -97,7 +97,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ImageTaskCreate'
+              $ref: '#/components/schemas/TaskCenterCreate'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}:
     parameters:
     - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -399,7 +399,7 @@ components:
         id:
           type: string
         kind:
-          const: image
+          $ref: '#/components/schemas/TaskCenterKind'
         state:
           type: string
           enum:
@@ -466,7 +466,7 @@ components:
         id:
           type: string
         kind:
-          const: image
+          $ref: '#/components/schemas/TaskCenterKind'
         state:
           type: string
           enum:
