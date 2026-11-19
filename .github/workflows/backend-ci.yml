@@ -99,7 +99,10 @@ jobs:
           PROMPT_AUDIT_TEST_REDIS_ADDR: localhost:6379
           SCHEDULER_RESOURCES_REDIS_ADDR: localhost:6379
           TEST_REDIS_URL: redis://localhost:6379/0
-        run: make test-integration
+        # Integration packages share the disposable job_test database. Running
+        # packages in parallel makes count-based assertions race across suites;
+        # the quality gate serializes them for the same reason.
+        run: go test -p 1 -mod=readonly -tags=integration -count=1 ./...
 
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.test-case.test }}
