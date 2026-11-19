@@ -120,3 +120,12 @@ After merging BE-06 (146fc5cdb), BE-09 (988c4f942) and the C5 release scaffold (
 | BE-08 planner/scheduler tests | Pass |
 | BE-12 apicompat/providers tests | Pass |
 | BE-23 CLI tests | Pass |
+
+## Frontend gate after WP2–WP7 (618120966)
+
+| Check | Result |
+| --- | --- |
+| `pnpm run typecheck` | Pass |
+| `pnpm run check:i18n` | Pass |
+| `pnpm run test:run` (remote, laptop) | 468 files / 5357 tests pass, 1 skipped |
+| `pnpm run build` (local, 6 GB heap) | Pass (~27s); laptop build OOMs at 7 GB |
