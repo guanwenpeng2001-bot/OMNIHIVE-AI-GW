@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OmniHive backend migration inventory and status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "module", "checkpoint", "counts", "unmapped", "unexplained_differences", "rollback_floor", "eligible_for_switch"],
+  "properties": {
+    "run_id": {"type": ["string", "null"], "format": "uuid"},
+    "module": {"const": "instance"},
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "revision", "recorded_at"],
+      "properties": {
+        "state": {"enum": ["observed", "unknown", "not_started", "recorded"]},
+        "revision": {"type": ["integer", "null"], "minimum": 1},
+        "recorded_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/count"},
+      "required": [
+        "workspaces", "projects", "api_keys", "api_key_credentials",
+        "legacy_upstream_accounts", "provider_connections", "legacy_credential_references",
+        "connection_credential_versions", "legacy_wallet_accounts", "billing_accounts",
+        "upstream_jobs", "batch_image_jobs", "restore_operations",
+        "restore_operations_outstanding", "restore_backups_requiring_review"
+      ],
+      "maxProperties": 15
+    },
+    "unmapped": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/nullableCount"},
+      "required": ["identity_scope_quarantine", "connection_migration_quarantine", "open_mapping_exceptions"],
+      "maxProperties": 3
+    },
+    "unexplained_differences": {"const": null},
+    "rollback_floor": {"const": null},
+    "eligible_for_switch": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"checkpoint": {"properties": {"state": {"const": "recorded"}}}}},
+      "then": {
+        "properties": {
+          "run_id": {"type": "string"},
+          "checkpoint": {
+            "properties": {"revision": {"type": "integer"}, "recorded_at": {"type": "string"}}
+          }
+        }
+      },
+      "else": {
+        "properties": {"checkpoint": {"properties": {"revision": {"type": "null"}, "recorded_at": {"type": "null"}}}}
+      }
+    },
+    {
+      "if": {"properties": {"checkpoint": {"properties": {"state": {"const": "observed"}}}}},
+      "then": {"properties": {"run_id": {"type": "string"}}}
+    },
+    {
+      "if": {"properties": {"checkpoint": {"properties": {"state": {"enum": ["unknown", "not_started"]}}}}},
+      "then": {"properties": {"run_id": {"type": "null"}}}
+    }
+  ],
+  "$defs": {
+    "nullableCount": {"type": ["integer", "null"], "minimum": 0},
+    "versionBound": {"type": ["string", "null"], "pattern": "^-?[0-9]+$"},
+    "count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "rows", "version"],
+      "properties": {
+        "state": {"enum": ["known", "unknown"]},
+        "rows": {"$ref": "#/$defs/nullableCount"},
+        "version": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["field", "min", "max"],
+          "properties": {
+            "field": {"enum": ["scope_version", "version", "generation"]},
+            "min": {"$ref": "#/$defs/versionBound"},
+            "max": {"$ref": "#/$defs/versionBound"}
+          }
+        }
+      },
+      "if": {"properties": {"state": {"const": "unknown"}}},
+      "then": {"properties": {"rows": {"type": "null"}, "version": {"type": "null"}}},
+      "else": {"properties": {"rows": {"type": "integer"}}}
+    }
+  }
+}
