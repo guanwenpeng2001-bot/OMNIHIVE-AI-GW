@@ -104,6 +104,7 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/stores/app', () => ({
+  SCOPE_CHANGED_EVENT: 'omnihive:scope-changed',
   useAppStore: () => ({
     showError,
     showInfo,
