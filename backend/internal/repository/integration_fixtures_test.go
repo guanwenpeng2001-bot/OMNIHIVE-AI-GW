@@ -112,6 +112,10 @@ func cleanupRepositoryRows(t *testing.T) {
 		_, err := tx.ExecContext(ctx, "DELETE FROM "+pq.QuoteIdentifier(table))
 		require.NoError(t, err, "clear fixture table %s", table)
 	}
+	// Flush deferred foreign-key trigger events before re-enabling user triggers;
+	// PostgreSQL rejects ALTER TABLE while a table still has pending events.
+	_, err = tx.ExecContext(ctx, "SET CONSTRAINTS ALL IMMEDIATE")
+	require.NoError(t, err, "flush deferred fixture constraints")
 	for _, table := range tables {
 		_, err := tx.ExecContext(ctx, "ALTER TABLE "+pq.QuoteIdentifier(table)+" ENABLE TRIGGER USER")
 		require.NoError(t, err, "re-enable fixture triggers for table %s", table)
