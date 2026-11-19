@@ -129,3 +129,19 @@ After merging BE-06 (146fc5cdb), BE-09 (988c4f942) and the C5 release scaffold (
 | `pnpm run check:i18n` | Pass |
 | `pnpm run test:run` (remote, laptop) | 468 files / 5357 tests pass, 1 skipped |
 | `pnpm run build` (local, 6 GB heap) | Pass (~27s); laptop build OOMs at 7 GB |
+
+## Final gate attempts at 24eab6e33 (2026-11-19)
+
+| Stage | Result | Note |
+| --- | --- | --- |
+| frontend (codespace) | PASS | i18n, typecheck, lint, full Vitest, build |
+| contracts (codespace) | PASS | |
+| generated-drift (codespace) | PASS | |
+| independence | PASS | |
+| backend full suite (codespace) | FAIL | environment + residual tests, see below |
+
+Backend failures observed:
+- Dedicated-DB tests reject the gate DSN: `model_access_test`, scheduler-recovery, scheduler-resources, membership-cooling expect their own databases but received `job_test`; one Redis test expects its own port (36085).
+- `TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate` fails with `invalid input syntax for type integer: "1.0"` (credential draft revision passed as decimal string) — needs product fix.
+- `TestForwardModelBindingManualMediaSelectionUsesInstalledAdapter`, `TestBillingBacklogPostgres`, `TestOpenRouterSynchronousMediaActualHandlers`, `TestOpenRouterMediaRejectsInvalidResultsAndUnsupportedInputs` fail; these are new media/billing paths and need per-test fixtures or fixes.
+- Earlier full `go test ./...` passed at 958fdedb1 (before BE-25/26/27/28/29/30 merges).
