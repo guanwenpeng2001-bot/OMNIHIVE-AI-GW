@@ -8,6 +8,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 )
 
 type Project struct {
@@ -55,6 +56,7 @@ type CreateKey struct {
 }
 
 type KeyPolicy struct {
+	Platform         string
 	AllowedGroups    []int64
 	GroupID          int64
 	GroupRPMOverride *int
@@ -78,7 +80,7 @@ func (p *KeyPolicy) Allows(action string, models []string) bool {
 			return false
 		}
 		for _, m := range models {
-			if !slices.Contains(p.Models, m) {
+			if !slices.Contains(p.Models, m) && (p.Platform == "" || !slices.Contains(p.Models, catalog.StableID(p.Platform, m))) {
 				return false
 			}
 		}

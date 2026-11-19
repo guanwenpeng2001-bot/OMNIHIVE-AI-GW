@@ -93,6 +93,10 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		return nil, egressErr
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	if errors.Is(err, ErrAccountModelUnsupported) {
+		writeOpenAIEmbeddingsError(c, http.StatusNotFound, "model_not_found", "Model does not support embeddings")
+		return nil, err
+	}
 	if IsTPMAdmissionError(err) {
 		return nil, err
 	}

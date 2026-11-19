@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
@@ -551,6 +552,20 @@ func TestMcpGrantExtensionEngines(t *testing.T) {
 			require.Empty(t, request(r, `{"stream":true}`, "key").Header().Get("X-OmniHive-Cache"))
 		}
 		require.Equal(t, 5, *calls)
+	})
+	t.Run("paid runs each reach the gateway journal", func(t *testing.T) {
+		h, r, calls := newEngine("cache-layer")
+		for i := 0; i < 2; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"message":"hi"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(ctxkey.WithPrivateGatewayContent(req.Context()))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Empty(t, w.Header().Get("X-OmniHive-Cache"))
+		}
+		require.Equal(t, 2, *calls)
+		require.Empty(t, h.cache)
 	})
 	t.Run("cost breaker", func(t *testing.T) {
 		h, r, calls := newEngine("cost-tracker")

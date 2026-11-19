@@ -42,13 +42,13 @@ func configuredCompactSelectionEvidence(account *Account, member AccountCatalogM
 
 // Configured endpoints describe installed adapters, never an upstream capability guarantee.
 func configuredSelectionEndpoints(account *Account, modelID string) []string {
-	endpoints := accountCatalogModelEndpoints(account, modelID, UpstreamModelMetadata{})
+	metadata, _ := account.GetUpstreamModelMetadata(modelID)
+	endpoints := accountCatalogModelEndpoints(account, modelID, metadata)
 	if account.IsGemini() {
 		endpoints = append(endpoints, "generate_content")
 	} else {
 		endpoints = append(endpoints, accountCatalogNativeTextEndpoints(account, modelID)...)
 	}
-	metadata, _ := account.GetUpstreamModelMetadata(modelID)
 	if metadata.TaskType == "" {
 		endpoints = append(endpoints, adapterBoundCatalogFamilies(account)...)
 	}
@@ -58,7 +58,7 @@ func configuredSelectionEndpoints(account *Account, modelID string) []string {
 func adapterBoundCatalogFamilies(account *Account) []string {
 	endpoints := []string{}
 	for _, candidate := range []struct{ endpoint, action string }{
-		{"images", "image.generate"}, {"images", "video.generate"}, {"embeddings", "embeddings"},
+		{"images", "image.generate"}, {"images", "video.generate"},
 		{"rerank", "rerank"}, {"voice", "voice"}, {"speech", "audio.tts"},
 		{"transcriptions", "audio.stt"}, {string(OpenAIEndpointCapabilityLive), "realtime"},
 	} {

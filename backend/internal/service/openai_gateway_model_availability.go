@@ -59,6 +59,19 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		// Mapping and explicit scope are persistent configuration; runtime
 		// availability and capability evidence must not decide a 404 here.
 		if accounts[i].IsModelSupported(requestedModel) && accountModelScopeAllowsDiagnosis(ctx, &accounts[i], requestedModel) {
+			if gatewayRequiredAction(ctx) == "embeddings" {
+				account, err := accountForCatalogSelection(ctx, s.accountRepo, &accounts[i])
+				if err != nil {
+					return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
+				}
+				parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
+				if err != nil {
+					return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
+				}
+				if !AccountSupportsResolvedModel(ctx, account, requestedModel, AccountModelBindingOptions{Endpoint: "embeddings", CredentialAccount: parent}) {
+					continue
+				}
+			}
 			diag.HasModelSupport = true
 			return diag
 		}

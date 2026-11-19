@@ -33,13 +33,14 @@ type ModelAccessGroup struct {
 }
 
 type ModelAccessSnapshot struct {
-	KeyGroup        GroupModelAllowlist
-	Generation      int64
-	RevisionKnown   bool
-	Key             []string
-	Accounts        map[int64][]string
-	AccountExcludes map[int64][]string
-	KeyExclude      []string
+	ProjectKeyPlatform string
+	KeyGroup           GroupModelAllowlist
+	Generation         int64
+	RevisionKnown      bool
+	Key                []string
+	Accounts           map[int64][]string
+	AccountExcludes    map[int64][]string
+	KeyExclude         []string
 }
 
 type ModelAccessPolicyReader interface {

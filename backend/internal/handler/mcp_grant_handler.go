@@ -23,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -1395,7 +1396,8 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		_ = json.Unmarshal(body, &input)
 	}
 	isBatchPath := strings.HasPrefix(c.Request.URL.Path, "/v1/images/batches") || strings.HasPrefix(c.Request.URL.Path, "/images/batches")
-	if cacheConfig != nil && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
+	// Paid Playground runs require their own dispatch, journal and settlement.
+	if cacheConfig != nil && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
 		limit = int(extFloat(cacheConfig, "max_payload_kb")) * 1024
 		if limit > 16<<20 {
 			limit = 16 << 20

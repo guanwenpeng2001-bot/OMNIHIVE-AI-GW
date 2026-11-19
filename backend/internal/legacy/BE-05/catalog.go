@@ -73,7 +73,7 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 				modelAt[id] = i
 				out.Models = append(out.Models, catalog.Candidate{Provider: model.Platform, Model: model.Name})
 			}
-			offer := catalog.Offer{Access: allowedGroups[group.ID], Eligible: len(model.CatalogBindings) > 0}
+			offer := catalog.Offer{GroupID: group.ID, Access: allowedGroups[group.ID], Eligible: len(model.CatalogBindings) > 0}
 			if p.Public() || offer.Access {
 				if priceErr == nil {
 					offer.Price = priceFor(model, group, userRates, p.Public())

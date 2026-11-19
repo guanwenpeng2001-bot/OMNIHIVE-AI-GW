@@ -186,3 +186,20 @@ func TestForwardEmbeddings_NonAccessFailoverKeepsLegacyShape(t *testing.T) {
 	require.Nil(t, failoverErr.ResponseHeaders)
 	require.False(t, c.Writer.Written())
 }
+
+func TestForwardEmbeddingsRejectsConfiguredTextModelBeforeSend(t *testing.T) {
+	const name = "fixture/text"
+	body := []byte(`{"model":"fixture/text","input":"test"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: name, Protocol: "embeddings"}))
+	c.Request = httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/embeddings", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "api_protocol": "chat_completions", "model_mapping": map[string]string{name: name}}}
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+	require.False(t, svc.supportsOpenAIAccountModel(ctx, account, name, OpenAIEndpointCapabilityEmbeddings))
+	_, err := svc.ForwardEmbeddings(ctx, c, account, body, "")
+	require.ErrorIs(t, err, ErrAccountModelUnsupported)
+	require.Nil(t, upstream.lastReq)
+}

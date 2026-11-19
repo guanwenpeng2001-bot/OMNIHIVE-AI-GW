@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -121,6 +122,7 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 	}
 	var k *service.APIKey
 	var base scope.Authorized
+	var keyPolicy *identity.KeyPolicy
 	if project {
 		pol, e := g.Scopes.ProjectCredential(ctx, digest)
 		if e != nil {
@@ -129,6 +131,7 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 		if pol == nil {
 			return p, fault.NotFound
 		}
+		keyPolicy = pol
 		base = pol.Scope
 		k, err = keycompat.ProjectKey(ctx, g.Keys, pol)
 	} else {
@@ -198,7 +201,12 @@ func (g *Gateway) prepare(ctx context.Context, a identity.Access, s pg.Submit, i
 	}
 	ctx = scope.With(context.WithValue(ctx, ctxkey.Group, k.Group), frozen)
 	ctx = journal.WithReauthorization(ctx, check)
-	scenario := policy.Scenario{Project: strconv.FormatInt(a.ProjectID, 10), Key: strconv.FormatInt(k.ID, 10), Model: model.Model.Model, Action: s.Action, Protocol: s.Protocol, Input: strconv.Itoa(native.InputBound), Output: strconv.Itoa(native.OutputBound)}
+	policyModel := model.Model.ID
+	// Earlier project credentials may explicitly select native model names.
+	if keyPolicy != nil && keyPolicy.Mode == "allow_list" && !slices.Contains(keyPolicy.Models, policyModel) && slices.Contains(keyPolicy.Models, model.Model.Model) {
+		policyModel = model.Model.Model
+	}
+	scenario := policy.Scenario{Project: strconv.FormatInt(a.ProjectID, 10), Key: strconv.FormatInt(k.ID, 10), Model: policyModel, Action: s.Action, Protocol: s.Protocol, Input: strconv.Itoa(native.InputBound), Output: strconv.Itoa(native.OutputBound)}
 	if native.Tools {
 		scenario.Required = []string{"tools"}
 	}
