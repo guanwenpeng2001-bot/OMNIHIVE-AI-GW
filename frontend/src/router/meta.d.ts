@@ -4,6 +4,8 @@
  */
 
 import 'vue-router'
+import type { NavSectionId } from './navigationRegistry'
+import type { RouteFeatureFlag, ShellTier } from './routePolicy'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -70,5 +72,40 @@ declare module 'vue-router' {
      * i18n key for the page description
      */
     descriptionKey?: string
+
+    /**
+     * Static fallback description string
+     */
+    description?: string
+
+    /**
+     * Target shell tier for this route ('public' | 'user' | 'admin' | 'bare')
+     */
+    shellTier?: ShellTier
+
+    /**
+     * Domain navigation section identifier
+     */
+    navSection?: NavSectionId
+
+    /**
+     * Declarative RoutePolicy feature flag gate
+     */
+    featureFlag?: RouteFeatureFlag
+
+    /**
+     * Restrict access when instance runs in Simple Mode
+     */
+    hideInSimpleMode?: boolean
+
+    /**
+     * Constrain console page content to max-w-[1600px]
+     */
+    contained?: boolean
+
+    /**
+     * Remove shell padding for multi-pane workbenches (e.g. Playground)
+     */
+    fullBleed?: boolean
   }
 }

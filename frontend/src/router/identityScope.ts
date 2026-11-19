@@ -1,6 +1,7 @@
-import { defineComponent, h, ref, watch, type Component } from 'vue'
+import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRoute, type Router } from 'vue-router'
+import { SCOPE_CHANGED_EVENT } from '@/stores/app'
 
 /** Recover an already-open protected route when another tab revokes its identity. */
 export function watchIdentityRouteRecovery(router: Router, auth: ReturnType<typeof useAuthStore>) {
@@ -25,9 +26,22 @@ export function identityScoped(component: Component, admin: boolean) {
       const auth = useAuthStore()
       const route = useRoute()
       const revision = ref(0)
+      const bumpRevision = () => {
+        revision.value++
+      }
       watch(() => route?.params.workspace_id, () => revision.value++, { flush: 'sync' })
       // Token rotation alone is not a different principal. Never put a token into a DOM key.
       watch([() => auth.user?.id, () => auth.user?.role, () => auth.isAuthenticated, () => auth.sessionRevision], () => revision.value++, { flush: 'sync' })
+      onMounted(() => {
+        if (typeof window !== 'undefined') {
+          window.addEventListener(SCOPE_CHANGED_EVENT, bumpRevision)
+        }
+      })
+      onBeforeUnmount(() => {
+        if (typeof window !== 'undefined') {
+          window.removeEventListener(SCOPE_CHANGED_EVENT, bumpRevision)
+        }
+      })
       return () => auth.isAuthenticated && (!admin || auth.isAdmin)
         ? h(component, { key: revision.value }) : null
     }
