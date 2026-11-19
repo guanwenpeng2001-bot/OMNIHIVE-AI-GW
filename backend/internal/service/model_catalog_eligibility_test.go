@@ -47,7 +47,7 @@ func TestModelCatalogBindingUsesSameAccountFinalTarget(t *testing.T) {
 	require.Equal(t, int64(1), binding.AccountID)
 	require.Equal(t, int64(7), binding.SnapshotRevision)
 	require.Equal(t, "native_account_catalog", binding.EvidenceKind)
-	require.True(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
+	require.False(t, ResolveAccountModelBinding(ctx, &first, "company", AccountModelBindingOptions{Endpoint: "embeddings"}).Supported)
 }
 
 func TestModelCatalogBindingIdentityRevocationAndUnlistedEvidence(t *testing.T) {

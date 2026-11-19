@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -202,4 +203,15 @@ func TestForwardEmbeddingsRejectsConfiguredTextModelBeforeSend(t *testing.T) {
 	_, err := svc.ForwardEmbeddings(ctx, c, account, body, "")
 	require.ErrorIs(t, err, ErrAccountModelUnsupported)
 	require.Nil(t, upstream.lastReq)
+}
+
+func TestModelExcludesEmbeddingsUsesEndpointEvidence(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "text", "vector")
+	account.ExpiresAt = new(time.Now().Add(-time.Minute))
+	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot.EligibleModels[1].Endpoints = []string{"embeddings"}
+	ctx := context.Background()
+	require.True(t, modelExcludesEmbeddings(ctx, &account, nil, "text"))
+	require.False(t, modelExcludesEmbeddings(ctx, &account, nil, "vector"))
+	require.False(t, modelExcludesEmbeddings(ctx, &account, nil, "unknown"))
 }

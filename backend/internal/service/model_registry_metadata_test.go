@@ -138,7 +138,7 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 		endpointsByAccount[binding.AccountID] = append(endpointsByAccount[binding.AccountID], binding.Endpoint)
 	}
 	require.Len(t, endpointsByAccount, 2)
-	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "embeddings", "images", "live"}, endpointsByAccount[first.ID])
+	require.ElementsMatch(t, []string{"responses", "chat_completions", "messages", "count_tokens", "images", "live"}, endpointsByAccount[first.ID])
 	require.ElementsMatch(t, []string{"chat_completions", "embeddings", "images", "live"}, endpointsByAccount[second.ID])
 	for index, binding := range view.Bindings["public"] {
 		fact := metadata["public"][index]

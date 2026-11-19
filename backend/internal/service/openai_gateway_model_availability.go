@@ -68,7 +68,7 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 				if err != nil {
 					return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 				}
-				if !AccountSupportsResolvedModel(ctx, account, requestedModel, AccountModelBindingOptions{Endpoint: "embeddings", CredentialAccount: parent}) {
+				if modelExcludesEmbeddings(ctx, account, parent, requestedModel) {
 					continue
 				}
 			}
@@ -77,4 +77,27 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 		}
 	}
 	return diag
+}
+
+// Report a client error only for a known catalog member with no embedding
+// endpoint. Missing evidence or a temporarily unavailable account stays on
+// the normal service-unavailable path.
+func modelExcludesEmbeddings(ctx context.Context, account, parent *Account, requested string) bool {
+	options := AccountModelBindingOptions{Endpoint: "embeddings", CredentialAccount: parent}
+	target, mapped := computeAccountBindingModel(ctx, account, requested, options)
+	catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(parent)
+	if !mapped || catalog == nil {
+		return false
+	}
+	matched := false
+	for index, member := range catalog.EligibleModels {
+		if normalizeAccountBindingWireModel(account, member.ID) != target {
+			continue
+		}
+		matched = true
+		if computeAccountBindingEndpoint(account, target, options, index, member) {
+			return false
+		}
+	}
+	return matched
 }
