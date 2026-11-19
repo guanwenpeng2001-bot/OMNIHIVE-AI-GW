@@ -1,0 +1,1 @@
+{"state":"estimated","price_version":"pr_golden","source":"published","estimated_charge":{"currency":"USD","amount":"0.00007813"},"components":[{"kind":"input","quantity":"1","raw_amount":"0.000078125000000000","numerator":"1","denominator":"12800"}],"rounding_adjustment":"0.000000005000000000","effective_scope":{"workspace_id":"1","project_id":"2","scope_version":"3"}}

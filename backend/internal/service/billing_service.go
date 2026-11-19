@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
 )
@@ -2380,4 +2382,25 @@ func getDefaultGrokImagineVideoPrice(model string, resolution string) (float64, 
 	default:
 		return 0, false
 	}
+}
+
+// FreezeExactCost resolves a legacy tariff using the existing group, channel,
+// tier and provider rules and exports its effective leaf for read-only comparison.
+func (s *BillingService) FreezeExactCost(input CostInput) (pricing.Frozen, error) {
+	input.displayProbe = false
+	if input.Ctx == nil {
+		input.Ctx = context.Background()
+	}
+	if input.PricingAt.IsZero() {
+		input.PricingAt = timezone.Now()
+	}
+	cost, err := s.CalculateCostUnified(input)
+	if err != nil {
+		return pricing.Frozen{}, err
+	}
+	var snapshot PricingSnapshot
+	if err := json.Unmarshal([]byte(cost.PricingSnapshot), &snapshot); err != nil {
+		return pricing.Frozen{}, err
+	}
+	return snapshot.exactLeaf()
 }
