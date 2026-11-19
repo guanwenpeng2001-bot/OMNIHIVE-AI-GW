@@ -58,9 +58,9 @@ func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access i
 		return nil, errors.New("invalid isolated restore DSN")
 	}
 	closeDB := func() { i.Close(); j.Close() }
-	r.Service.Journal = j
-	r.Service.Archives = r
-	r.Service.Targets = map[string]restore.Target{restore.Production: {DB: db, Database: repository.NewPgDumper(cfg, db)}, restore.Isolated: {DB: i, Database: repository.NewPgDumper(&config.Config{Database: isoCfg}, i)}}
+	r.Journal = j
+	r.Archives = r
+	r.Targets = map[string]restore.Target{restore.Production: {DB: db, Database: repository.NewPgDumper(cfg, db)}, restore.Isolated: {DB: i, Database: repository.NewPgDumper(&config.Config{Database: isoCfg}, i)}}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err = r.Initialize(ctx); err != nil {

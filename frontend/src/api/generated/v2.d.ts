@@ -437,16 +437,93 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List scoped pilot credentials
+         * List scoped tenant credentials
          * @description Requires credentials.byok.manage.
          */
         get: operations["byokWorkspaceList"];
         put?: never;
         /**
-         * Enroll an ordinary provider API key
+         * Enroll a credential for an enabled provider class
          * @description Requires credentials.byok.manage.
          */
         post: operations["byokWorkspaceCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read credential status and grants
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokWorkspaceGet"];
+        put?: never;
+        post?: never;
+        /**
+         * Force-revoke a credential and retain its history
+         * @description Requires credentials.byok.manage.
+         */
+        delete: operations["byokWorkspaceDelete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update the supplied grant and funding fields
+         * @description Requires credentials.byok.manage.
+         */
+        patch: operations["byokWorkspacePatch"];
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Estimate tenant exposure and platform service fee
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokWorkspaceEstimate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read metadata-only credential events
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokWorkspaceEvents"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -539,6 +616,28 @@ export interface paths {
          * @description Requires credentials.byok.manage.
          */
         post: operations["byokWorkspaceVerify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/byok/provider-classes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read available provider credential classes
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokWorkspaceClasses"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1262,13 +1361,13 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List scoped pilot credentials
+         * List scoped tenant credentials
          * @description Requires credentials.byok.manage.
          */
         get: operations["byokProjectList"];
         put?: never;
         /**
-         * Enroll an ordinary provider API key
+         * Enroll a credential for an enabled provider class
          * @description Requires credentials.byok.manage.
          */
         post: operations["byokProjectCreate"];
@@ -1276,6 +1375,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read credential status and grants
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectGet"];
+        put?: never;
+        post?: never;
+        /**
+         * Force-revoke a credential and retain its history
+         * @description Requires credentials.byok.manage.
+         */
+        delete: operations["byokProjectDelete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update the supplied grant and funding fields
+         * @description Requires credentials.byok.manage.
+         */
+        patch: operations["byokProjectPatch"];
         trace?: never;
     };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/estimate": {
@@ -1294,6 +1425,30 @@ export interface paths {
          * @description Requires credentials.byok.manage.
          */
         get: operations["byokProjectEstimate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read metadata-only credential events
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1393,6 +1548,61 @@ export interface paths {
          */
         post: operations["byokProjectVerify"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/provider-classes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read available provider credential classes
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectClasses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/service-accounts/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a service account by its dedicated key
+         * @description Requires credentials.byok.manage.
+         */
+        get: operations["byokProjectServiceAccount"];
+        /**
+         * Designate an owned project key for a service account
+         * @description Requires credentials.byok.manage.
+         */
+        put: operations["byokProjectRegisterServiceAccount"];
+        post?: never;
+        /**
+         * Retire a service account designation
+         * @description Requires credentials.byok.manage.
+         */
+        delete: operations["byokProjectRevokeServiceAccount"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2051,13 +2261,24 @@ export interface components {
                 format: "wav";
             };
         };
+        /** @enum {string} */
+        ByokAuthType: "api_key" | "oauth" | "setup-token" | "bedrock" | "service_account";
+        ByokClass: {
+            provider: string;
+            auth_type: string;
+            supported: boolean;
+            enabled: boolean;
+        };
+        ByokClassList: {
+            items: components["schemas"]["ByokClass"][];
+        };
         ByokCreate: {
             provider: string;
-            /** @constant */
-            auth_type: "api_key";
+            auth_type: components["schemas"]["ByokAuthType"];
             secret: string;
             allowed_project_ids: components["schemas"]["IdentityID"][];
-            allowed_member_ids: components["schemas"]["IdentityID"][];
+            allowed_service_account_ids?: components["schemas"]["ByokPrincipalIDs"];
+            allowed_member_ids?: components["schemas"]["IdentityID"][];
             allowed_key_ids: components["schemas"]["IdentityID"][];
             allowed_model_ids: string[];
             /**
@@ -2069,19 +2290,26 @@ export interface components {
             allow_platform_fallback: boolean;
             /** @default false */
             include_external_in_budget: boolean;
+        } | {
+            allowed_member_ids: unknown;
+        } | {
+            allowed_service_account_ids: unknown;
         };
         ByokCredential: {
             id: components["schemas"]["IdentityID"];
             owner_workspace_id: components["schemas"]["IdentityID"];
+            auth_type: components["schemas"]["ByokAuthType"];
             provider: string;
             version: components["schemas"]["IdentityID"];
             credential_version: components["schemas"]["IdentityID"];
             /** @enum {string} */
             state: "unverified" | "verified" | "expired" | "revoked";
             fingerprint: string;
+            verified_model_ids: string[];
             verified_until: string | null;
             scope: {
                 project_ids: components["schemas"]["IdentityID"][];
+                service_account_ids: components["schemas"]["ByokPrincipalIDs"];
                 member_ids: components["schemas"]["IdentityID"][];
                 key_ids: components["schemas"]["IdentityID"][];
                 model_ids: string[];
@@ -2107,13 +2335,30 @@ export interface components {
             price_version: string | null;
             include_external_in_budget: boolean;
         };
+        ByokGrantPatch: {
+            allowed_project_ids?: components["schemas"]["IdentityID"][];
+            allowed_service_account_ids?: components["schemas"]["ByokPrincipalIDs"];
+            allowed_member_ids?: components["schemas"]["IdentityID"][];
+            allowed_key_ids?: components["schemas"]["IdentityID"][];
+            allowed_model_ids?: string[];
+            /**
+             * @description Lower values are preferred.
+             * @default 0
+             */
+            priority: number;
+            /** @default false */
+            allow_platform_fallback: boolean;
+            /** @default false */
+            include_external_in_budget: boolean;
+        };
         ByokPage: {
             items: components["schemas"]["ByokCredential"][];
             next_cursor: string | null;
         };
         ByokPolicy: {
             allowed_project_ids: components["schemas"]["IdentityID"][];
-            allowed_member_ids: components["schemas"]["IdentityID"][];
+            allowed_service_account_ids?: components["schemas"]["ByokPrincipalIDs"];
+            allowed_member_ids?: components["schemas"]["IdentityID"][];
             allowed_key_ids: components["schemas"]["IdentityID"][];
             allowed_model_ids: string[];
             /**
@@ -2125,7 +2370,12 @@ export interface components {
             allow_platform_fallback: boolean;
             /** @default false */
             include_external_in_budget: boolean;
+        } | {
+            allowed_member_ids: unknown;
+        } | {
+            allowed_service_account_ids: unknown;
         };
+        ByokPrincipalIDs: components["schemas"]["IdentityID"][];
         ByokRevoke: {
             /** @enum {string} */
             mode: "force" | "drain";
@@ -2134,6 +2384,14 @@ export interface components {
             replacement: {
                 secret: string;
             };
+        };
+        ByokServiceAccount: {
+            id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+            key_id: components["schemas"]["IdentityID"];
+            active: boolean;
+            /** Format: date-time */
+            revoked_at: string | null;
         };
         ByokVerify: Record<string, never>;
         CatalogBenchmark: {
@@ -3991,6 +4249,21 @@ export interface components {
                 };
             };
         };
+        /** @description Scoped credential lifecycle events */
+        ByokLifecyclePage: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ConnectionEventPage"];
+                };
+            };
+        };
         /** @description Operation */
         ByokOperation: {
             headers: {
@@ -4018,6 +4291,36 @@ export interface components {
                     /** @constant */
                     message: "success";
                     data: components["schemas"]["ByokPage"];
+                };
+            };
+        };
+        /** @description Provider and auth class eligibility */
+        ByokProviderClasses: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokClassList"];
+                };
+            };
+        };
+        /** @description Project service account designation */
+        ByokServicePrincipal: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["ByokServiceAccount"];
                 };
             };
         };
@@ -5134,6 +5437,105 @@ export interface operations {
             default: components["responses"]["ByokError"];
         };
     };
+    byokWorkspaceGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceDelete: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspacePatch: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokGrantPatch"];
+            };
+        };
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceEstimate: {
+        parameters: {
+            query: {
+                project_id: components["schemas"]["IdentityID"];
+                member_id: components["schemas"]["IdentityID"];
+                key_id: components["schemas"]["IdentityID"];
+                model_id: string;
+                input_token_bound: string;
+                output_token_bound: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokEstimate"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokLifecyclePage"];
+            default: components["responses"]["ByokError"];
+        };
+    };
     byokWorkspacePolicy: {
         parameters: {
             query?: never;
@@ -5222,6 +5624,21 @@ export interface operations {
         };
         responses: {
             202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokWorkspaceClasses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokProviderClasses"];
             default: components["responses"]["ByokError"];
         };
     };
@@ -6903,6 +7320,66 @@ export interface operations {
             default: components["responses"]["ByokError"];
         };
     };
+    byokProjectGet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectDelete: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectPatch: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ByokGrantPatch"];
+            };
+        };
+        responses: {
+            200: components["responses"]["ByokChanged"];
+            default: components["responses"]["ByokError"];
+        };
+    };
     byokProjectEstimate: {
         parameters: {
             query: {
@@ -6923,6 +7400,26 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["ByokEstimate"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectEvents: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokLifecyclePage"];
             default: components["responses"]["ByokError"];
         };
     };
@@ -7018,6 +7515,73 @@ export interface operations {
         };
         responses: {
             202: components["responses"]["ByokOperation"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectClasses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokProviderClasses"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokServicePrincipal"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectRegisterServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokServicePrincipal"];
+            default: components["responses"]["ByokError"];
+        };
+    };
+    byokProjectRevokeServiceAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                key_id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ByokServicePrincipal"];
             default: components["responses"]["ByokError"];
         };
     };

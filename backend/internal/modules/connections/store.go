@@ -86,9 +86,9 @@ func (s *Store) Run(ctx context.Context, c Command, actions []string, fn Work) (
 			return nil, fault.Invalid("/Idempotency-Key")
 		}
 		mac := hmac.New(sha256.New, s.key)
-		mac.Write([]byte("connections.receipt.v1\x00"))
-		mac.Write(c.Fingerprint)
-		mac.Write([]byte(strconv.FormatInt(c.Version, 10)))
+		_, _ = mac.Write([]byte("connections.receipt.v1\x00"))
+		_, _ = mac.Write(c.Fingerprint)
+		_, _ = mac.Write([]byte(strconv.FormatInt(c.Version, 10)))
 		var cached []byte
 		err = tx.QueryRowContext(ctx, `INSERT INTO identity_create_receipts(workspace_id,project_scope,actor_id,route,request_key,fingerprint)
    VALUES($1,0,$2,$3,$4,$5) ON CONFLICT(workspace_id,project_scope,actor_id,route,request_key)

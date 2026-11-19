@@ -160,7 +160,7 @@ func TestImageTaskCenterPostgresRedis(t *testing.T) {
 	require.NoError(t, e)
 	var owner string
 	require.NoError(t, db.QueryRowContext(ctx, "UPDATE image_tasks SET lease_until=now()-interval '1 second' WHERE id=$1 RETURNING lease_owner", lost.ID).Scan(&owner))
-	require.ErrorIs(t, s.Finish(ctx, tasks.Lease{ID: lost.ID, Owner: owner, Generation: 1}, tasks.Outcome{State: "failed", Acceptance: "not_sent"}), tasks.LostLease)
+	require.ErrorIs(t, s.Finish(ctx, tasks.Lease{ID: lost.ID, Owner: owner, Generation: 1}, tasks.Outcome{State: "failed", Acceptance: "not_sent"}), tasks.ErrLostLease)
 	require.NoError(t, s.Recover(ctx))
 	gateway.outcomes <- tasks.Outcome{State: "succeeded", Acceptance: "accepted", Artifacts: []tasks.Output{{ID: "stale", Size: 1, Locator: "private"}}}
 	<-gateway.stopped

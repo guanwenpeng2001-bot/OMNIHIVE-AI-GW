@@ -70,7 +70,11 @@ func saveEvent(ctx context.Context, tx *sql.Tx, cmd Command, result any) error {
 	case Credential:
 		c = v
 	case identity.Operation:
-		c = v.Result.(Credential)
+		var ok bool
+		c, ok = v.Result.(Credential)
+		if !ok {
+			return errors.New("missing BYOK lifecycle result")
+		}
 		if v.State == "failed" {
 			event += ".failed"
 		}

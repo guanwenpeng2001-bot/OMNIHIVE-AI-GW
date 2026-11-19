@@ -30,7 +30,9 @@ func TestRuntimeDrainsSSEBeforeWorkerAndCleanup(t *testing.T) {
 	handler := admission.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: accepted\n\n")
-		w.(http.Flusher).Flush()
+		flusher, ok := w.(http.Flusher)
+		require.True(t, ok)
+		flusher.Flush()
 		<-r.Context().Done()
 		persisted.Store(true)
 	}))
@@ -62,11 +64,13 @@ func TestRuntimeClosesUnresponsiveHijackedTransport(t *testing.T) {
 	ended := make(chan struct{})
 	server := httptest.NewUnstartedServer(admission.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		defer close(ended)
-		conn, rw, err := w.(http.Hijacker).Hijack()
+		hijacker, ok := w.(http.Hijacker)
+		require.True(t, ok)
+		conn, rw, err := hijacker.Hijack()
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, _ = rw.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
 		_ = rw.Flush()
 		_, _ = rw.ReadByte() // A client that sends no further frames.

@@ -14,7 +14,10 @@ func TestGeminiMessagesStreamGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 		events = append(events, event+" "+string(wire))
-	}, func() {}, func(call map[string]any) string { return call["id"].(string) },
+	}, func() {}, func(call map[string]any) string {
+		id, _ := call["id"].(string)
+		return id
+	},
 		func(map[string]any, string, string, map[string]bool) error { return nil },
 	)
 	stream.Start("msg_fixture", "fixture")

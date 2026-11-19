@@ -48,7 +48,7 @@ func checkDependencies(ctx context.Context, cfg *config.Config) error {
 		return errors.New("required PostgreSQL dependency unavailable")
 	}
 	cache := repository.InitRedis(cfg)
-	defer cache.Close()
+	defer func() { _ = cache.Close() }()
 	if cache.Ping(ctx).Err() != nil {
 		return errors.New("required Redis dependency unavailable")
 	}
@@ -140,7 +140,7 @@ func roleHandler(mode process.Mode, ready, next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if mode == process.Worker && !(path == "/health" && (r.Method == http.MethodGet || r.Method == http.MethodHead)) {
+		if mode == process.Worker && (path != "/health" || (r.Method != http.MethodGet && r.Method != http.MethodHead)) {
 			http.NotFound(w, r)
 			return
 		}

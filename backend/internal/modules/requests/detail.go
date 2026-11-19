@@ -85,8 +85,8 @@ func (s *Store) Detail(ctx context.Context, p Projection, id string) (Detail, er
 	if item.Reason != nil {
 		out.Diagnostics = append(out.Diagnostics, Diagnostic{Reason: *item.Reason})
 	}
-	switch {
-	case row.journalID == nil:
+	switch row.journalID {
+	case nil:
 		out.DataCompleteness.missing("timeline", "LEGACY_NOT_RECORDED")
 		out.DataCompleteness.missing("attempts", "LEGACY_NOT_RECORDED")
 	default:

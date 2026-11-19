@@ -127,7 +127,7 @@ func pageFingerprint(p status.IncidentPage) [32]byte {
 
 func (h *Handler) sign(raw []byte) []byte {
 	mac := hmac.New(sha256.New, h.cursorKey[:])
-	mac.Write(raw)
+	_, _ = mac.Write(raw)
 	return mac.Sum(nil)
 }
 

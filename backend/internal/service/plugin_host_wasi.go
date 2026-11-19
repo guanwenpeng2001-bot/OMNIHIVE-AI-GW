@@ -180,7 +180,7 @@ func (e *extensionRuntime) invoke(ctx context.Context, request *v2.Request) (*v2
 	// No file system, environment, host sockets, credentials, or custom host imports.
 	mod, err := e.vm.InstantiateModule(ctx, e.module, wazero.NewModuleConfig().WithName("").WithStdin(bytes.NewReader(raw)).WithStdout(&out))
 	if mod != nil {
-		defer mod.Close(ctx)
+		defer func() { _ = mod.Close(ctx) }()
 	}
 	if ctx.Err() != nil {
 		return nil, ctx.Err()

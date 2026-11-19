@@ -262,8 +262,12 @@ func TestWireAndCacheRoundTrip(t *testing.T) {
 	} {
 		raw, err := tc.in.Value()
 		require.NoError(t, err)
-		require.NoError(t, tc.dst.Scan([]byte(raw.(string))))
-		v, err := tc.dst.(driver.Valuer).Value()
+		rawText, ok := raw.(string)
+		require.True(t, ok)
+		require.NoError(t, tc.dst.Scan([]byte(rawText)))
+		valuer, ok := tc.dst.(driver.Valuer)
+		require.True(t, ok)
+		v, err := valuer.Value()
 		require.NoError(t, err)
 		require.Equal(t, raw, v)
 	}

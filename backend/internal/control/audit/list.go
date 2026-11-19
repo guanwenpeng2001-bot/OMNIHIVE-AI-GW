@@ -25,7 +25,7 @@ type cursor struct {
 
 func (h *Handler) mac(b []byte) []byte {
 	m := hmac.New(sha256.New, h.secret[:])
-	m.Write(b)
+	_, _ = m.Write(b)
 	return m.Sum(nil)
 }
 func (h *Handler) encode(v cursor) string {

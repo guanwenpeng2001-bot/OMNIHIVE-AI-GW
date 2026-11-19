@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
@@ -18,7 +17,7 @@ import (
 )
 
 var (
-	LostLease         = errors.New("image task lease lost")
+	ErrLostLease      = errors.New("image task lease lost")
 	Unknown           = &fault.Fault{Status: 409, Reason: "SUBMISSION_UNKNOWN", Message: "The provider may have accepted the task. Query its status before retrying."}
 	UnsupportedCancel = &fault.Fault{Status: 409, Reason: "CANCEL_UNSUPPORTED", Message: "Cancellation is unavailable at this stage."}
 	NotRetryable      = &fault.Fault{Status: 409, Reason: "RETRY_UNAVAILABLE", Message: "A safely retryable item with retained input is required."}
@@ -176,7 +175,6 @@ func Base(s Scope) string {
 	return fmt.Sprintf("/api/v2/workspaces/%d/projects/%d", s.WorkspaceID, s.ProjectID)
 }
 func TaskURL(s Scope, id string) string { return Base(s) + "/tasks/" + url.PathEscape(id) }
-func str(i int64) string                { return strconv.FormatInt(i, 10) }
 func found(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return fault.NotFound

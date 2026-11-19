@@ -130,8 +130,8 @@ func (s *Store) Change(ctx context.Context, cmd Command) (json.RawMessage, error
 			return nil, e
 		}
 		mac := hmac.New(sha256.New, s.signing)
-		mac.Write([]byte("byok/receipt/v1\x00"))
-		mac.Write(doc)
+		_, _ = mac.Write([]byte("byok/receipt/v1\x00"))
+		_, _ = mac.Write(doc)
 		var cached []byte
 		e = tx.QueryRowContext(ctx, `INSERT INTO identity_create_receipts(workspace_id,project_scope,actor_id,route,request_key,fingerprint) VALUES($1,$2,$3,$4,$5,$6)
             ON CONFLICT(workspace_id,project_scope,actor_id,route,request_key) DO UPDATE SET fingerprint=excluded.fingerprint

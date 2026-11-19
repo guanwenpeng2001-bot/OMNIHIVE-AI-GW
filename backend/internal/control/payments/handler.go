@@ -131,9 +131,10 @@ func fail(c *gin.Context, err error) {
 		f = &fault.Fault{Status: 503, Reason: "DEPENDENCY_UNAVAILABLE", Message: "Payment evidence is unavailable."}
 	}
 	category, retry := "authorization", "never"
-	if f.Status == 503 {
+	switch f.Status {
+	case 503:
 		category, retry = "persistence", "after_delay"
-	} else if f.Status == 422 {
+	case 422:
 		category = "validation"
 	}
 	fields := []gin.H{}

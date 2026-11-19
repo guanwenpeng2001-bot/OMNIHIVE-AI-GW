@@ -1599,6 +1599,8 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 }
 
 // filterByMinPriority 过滤出优先级最小的账号集合
+//
+//nolint:unused // exercised by scheduler selection tests
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
@@ -1619,6 +1621,8 @@ func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 }
 
 // filterByMinLoadRate 过滤出负载率最低的账号集合
+//
+//nolint:unused // exercised by scheduler selection tests
 func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
@@ -1642,6 +1646,8 @@ func filterByMinLoadRate(accounts []accountWithLoad) []accountWithLoad {
 // 仅保留拥有未来重置时间（SessionWindowEnd 在当前时间之后）且最早的账号；
 // 窗口为空或已过期的账号视为无活跃窗口、优先级最低。
 // 当所有账号都没有活跃窗口时，返回原集合（不改变后续 LRU 选择）。
+//
+//nolint:unused // exercised by scheduler selection tests
 func filterBySoonestReset(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) <= 1 {
 		return accounts
@@ -1673,6 +1679,8 @@ func filterBySoonestReset(accounts []accountWithLoad) []accountWithLoad {
 
 // selectByLRU 从集合中选择最久未用的账号
 // 如果有多个账号具有相同的最小 LastUsedAt，则随机选择一个
+//
+//nolint:unused // exercised by scheduler selection tests
 func selectByLRU(accounts []accountWithLoad, preferOAuth bool) *accountWithLoad {
 	if len(accounts) == 0 {
 		return nil

@@ -101,7 +101,10 @@ func decodeValue(dec *json.Decoder) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			key := name.(string)
+			key, ok := name.(string)
+			if !ok {
+				return nil, ErrRegistration
+			}
 			if _, exists := obj[key]; exists {
 				return nil, ErrRegistration
 			}

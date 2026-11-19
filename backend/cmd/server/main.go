@@ -182,7 +182,7 @@ func runMainServer(role string) error {
 	if err != nil {
 		return fmt.Errorf("bind %s listener: %w", mode, err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	if err := checkDependencies(ctx, cfg); err != nil {
 		return err
 	}

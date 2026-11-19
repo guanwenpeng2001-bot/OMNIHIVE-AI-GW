@@ -34,7 +34,8 @@ func (i *PluginPackageInstaller) WriteExtension(ctx context.Context, w io.Writer
 	if err != nil {
 		return err
 	}
-	if len(privateKey) != ed25519.PrivateKeySize || !bytes.Equal(public, privateKey.Public().(ed25519.PublicKey)) {
+	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
+	if !ok || len(privateKey) != ed25519.PrivateKeySize || !bytes.Equal(public, publicKey) {
 		return errors.New("private key does not match the authorized v2 publisher")
 	}
 	raw, err := json.Marshal(m)

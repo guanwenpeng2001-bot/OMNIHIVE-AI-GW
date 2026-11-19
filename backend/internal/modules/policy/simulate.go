@@ -129,7 +129,7 @@ func readAccess(ctx context.Context, q queryer, c Caller, s Scenario) error {
 
 func (s *Store) Simulate(ctx context.Context, c Caller, id string, in SimulationInput) (Simulation, error) {
 	var out Simulation
-	if err := in.Scenario.validate(); err != nil {
+	if err := in.validate(); err != nil {
 		return out, err
 	}
 	seed, err := strconv.ParseUint(in.Seed, 10, 64)

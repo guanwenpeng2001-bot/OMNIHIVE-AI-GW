@@ -313,7 +313,7 @@ func (s *Store) Finish(ctx context.Context, l Lease, r Outcome) error {
 		return e
 	}
 	if n != 1 {
-		return LostLease
+		return ErrLostLease
 	}
 	if r.DurationMillis > 0 {
 		_, e = tx.ExecContext(ctx, `UPDATE task_media_attributes SET result_duration_ms=$2 WHERE task_id=$1 AND kind='audio'`, l.ID, r.DurationMillis)

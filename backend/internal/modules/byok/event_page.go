@@ -21,7 +21,7 @@ type eventSeek struct {
 func (s *Store) eventMAC(t Target, data []byte) []byte {
 	h := hmac.New(sha256.New, s.signing)
 	fmt.Fprintf(h, "byok/events/v1/%d/%d/%d/%d\x00", t.Workspace, t.Project, t.ID, t.Actor)
-	h.Write(data)
+	_, _ = h.Write(data)
 	return h.Sum(nil)
 }
 func (s *Store) eventCursor(t Target, p eventSeek) (string, error) {

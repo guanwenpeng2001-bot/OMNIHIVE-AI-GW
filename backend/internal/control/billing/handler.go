@@ -225,7 +225,7 @@ type token struct {
 
 func (h *Handler) sign(raw []byte) []byte {
 	sig := hmac.New(sha256.New, h.key[:])
-	sig.Write(raw)
+	_, _ = sig.Write(raw)
 	return sig.Sum(nil)
 }
 func (h *Handler) cursor(raw string, v token) (token, error) {
@@ -282,7 +282,7 @@ func (h *Handler) list(kind string) endpoint {
 				return nil, fault.Invalid("/currency")
 			}
 		} else {
-			if err = f.Window.Validate(); err != nil {
+			if err = f.Validate(); err != nil {
 				return nil, err
 			}
 			if f.Source != "" && !slices.Contains([]string{"wallet", "subscription", "byok", "mixed", "unknown"}, f.Source) {

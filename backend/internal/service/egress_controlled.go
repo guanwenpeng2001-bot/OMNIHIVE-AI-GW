@@ -52,7 +52,7 @@ func (e *ControlledEgress) Do(req *http.Request) (*http.Response, error) {
 			return errEgress
 		}
 		// Signed delivery URLs may redirect to another CDN. Forward no original headers.
-		r.Header = make(http.Header)
+		r.Header = make(http.Header) //nolint:gosec // G119: forwarding no original headers is the policy
 		return nil
 	}
 	return e.send(req, client.Do)

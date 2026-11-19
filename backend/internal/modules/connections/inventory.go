@@ -66,8 +66,8 @@ func (r *Session) page(q url.Values, allowed []string) (page, int, error) {
 }
 func (r *Session) cursorMAC(data []byte) []byte {
 	m := hmac.New(sha256.New, r.store.key)
-	m.Write([]byte("connections.page.v1\x00"))
-	m.Write(data)
+	_, _ = m.Write([]byte("connections.page.v1\x00"))
+	_, _ = m.Write(data)
 	return m.Sum(nil)
 }
 func (r *Session) List(kind string, q url.Values) (any, error) {

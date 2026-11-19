@@ -78,7 +78,7 @@ func validText(v string, bound int, allowLines bool) bool {
 	if v == "" || !utf8.ValidString(v) || utf8.RuneCountInString(v) > bound {
 		return false
 	}
-	return !strings.ContainsFunc(v, func(r rune) bool { return unicode.IsControl(r) && !(allowLines && r == '\n') })
+	return !strings.ContainsFunc(v, func(r rune) bool { return unicode.IsControl(r) && (!allowLines || r != '\n') })
 }
 
 func ValidIncidentID(v string) bool {

@@ -22,8 +22,8 @@ type cursor struct {
 
 func (h *Handler) sign(data []byte) []byte {
 	m := hmac.New(sha256.New, h.cursorKey)
-	m.Write([]byte("identity.cursor.v1\x00"))
-	m.Write(data)
+	_, _ = m.Write([]byte("identity.cursor.v1\x00"))
+	_, _ = m.Write(data)
 	return m.Sum(nil)
 }
 

@@ -52,14 +52,14 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		f, err := os.OpenFile(*keyFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		f, err := os.OpenFile(*keyFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600) //nolint:gosec // operator-supplied offline seed path
 		if err != nil {
 			return err
 		}
 		_, err = fmt.Fprintln(f, base64.StdEncoding.EncodeToString(priv.Seed()))
 		err = errors.Join(err, f.Close())
 		if err != nil {
-			_ = os.Remove(*keyFile)
+			_ = os.Remove(*keyFile) //nolint:gosec // operator-supplied offline seed path
 			return err
 		}
 		_, err = fmt.Fprintln(os.Stdout, base64.StdEncoding.EncodeToString(pub))
@@ -68,7 +68,7 @@ func run() error {
 	if (mode != "sign" && mode != "migrate") || *src == "" || *keyFile == "" || *trust == "" || filepath.Ext(*out) != ".ohplugin" {
 		return errors.New("specify sign or migrate, -src, -trust, -key and a new .ohplugin -out")
 	}
-	seedText, err := os.ReadFile(*keyFile)
+	seedText, err := os.ReadFile(*keyFile) //nolint:gosec // operator-supplied offline seed path
 	if err != nil {
 		return err
 	}
@@ -82,16 +82,16 @@ func run() error {
 		return err
 	}
 	defer os.RemoveAll(dir)
-	policy, err := os.ReadFile(*trust)
+	policy, err := os.ReadFile(*trust) //nolint:gosec // operator-supplied offline trust policy
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(filepath.Join(dir, "trust-v2.json"), policy, 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(dir, "trust-v2.json"), policy, 0600); err != nil { //nolint:gosec // temp path owned by this command
 		return err
 	}
 	cfg := &config.Config{Plugins: config.PluginConfig{DataDir: dir, MaxUploadBytes: 128 << 20, MaxUncompressedBytes: 256 << 20}}
 	if *legacy != "" {
-		data, e := os.ReadFile(*legacy)
+		data, e := os.ReadFile(*legacy) //nolint:gosec // operator-supplied offline migration input
 		if e != nil {
 			return e
 		}
@@ -130,12 +130,12 @@ func run() error {
 		}
 		err = installer.WriteExtension(ctx, f, m, root, private)
 	case "migrate":
-		in, e := os.Open(*src)
+		in, e := os.Open(*src) //nolint:gosec // operator-supplied offline migration input
 		if e != nil {
 			return e
 		}
 		defer in.Close()
-		wasm, e := os.Open(*module)
+		wasm, e := os.Open(*module) //nolint:gosec // operator-supplied offline WASI module
 		if e != nil {
 			return e
 		}

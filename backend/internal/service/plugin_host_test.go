@@ -35,7 +35,9 @@ func writePolicy(t *testing.T, dir string, keys map[string]ed25519.PrivateKey, g
 	t.Helper()
 	p := ExtensionTrust{Publishers: map[string]ExtensionPublisher{}}
 	for id, key := range keys {
-		root := ExtensionPublisher{PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), Grants: map[string][]string{testExtensionID: grants}}
+		publicKey, ok := key.Public().(ed25519.PublicKey)
+		require.True(t, ok)
+		root := ExtensionPublisher{PublicKey: base64.StdEncoding.EncodeToString(publicKey), Grants: map[string][]string{testExtensionID: grants}}
 		root.Predecessors = map[string]struct {
 			PluginID string `json:"plugin_id"`
 			KeyID    string `json:"key_id"`
@@ -136,7 +138,9 @@ func TestExtensionRebuildUsesVerifiedOriginalBytes(t *testing.T) {
 	}
 	require.ErrorContains(t, rebuild(archive), "不受信任")
 	require.Empty(t, result.Bytes())
-	cfg.Plugins.TrustedPublishers["legacy"] = base64.StdEncoding.EncodeToString(prior.Public().(ed25519.PublicKey))
+	priorPublic, ok := prior.Public().(ed25519.PublicKey)
+	require.True(t, ok)
+	cfg.Plugins.TrustedPublishers["legacy"] = base64.StdEncoding.EncodeToString(priorPublic)
 	require.ErrorContains(t, rebuild(exactSignedArchive(t, raw, files, "legacy", prior, canonical)), "签名校验")
 	require.Empty(t, result.Bytes())
 	require.NoError(t, rebuild(archive))
@@ -146,7 +150,7 @@ func TestExtensionRebuildUsesVerifiedOriginalBytes(t *testing.T) {
 	delete(cfg.Plugins.TrustedPublishers, "legacy")
 	_, err := i.Install(t.Context(), bytes.NewReader(result.Bytes()), nil)
 	require.ErrorContains(t, err, "original v1 signature")
-	cfg.Plugins.TrustedPublishers["legacy"] = base64.StdEncoding.EncodeToString(prior.Public().(ed25519.PublicKey))
+	cfg.Plugins.TrustedPublishers["legacy"] = base64.StdEncoding.EncodeToString(priorPublic)
 	require.Equal(t, PluginStateDisabled, p.State)
 	require.Equal(t, m.Requires.Sub2API, p.Manifest.Requires.OmniHive)
 	require.Equal(t, "next", p.Manifest.PublisherID)

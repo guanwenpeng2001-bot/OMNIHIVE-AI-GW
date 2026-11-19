@@ -39,7 +39,7 @@ func run(ctx context.Context) error {
 	}
 	defer db.Close()
 	rd := redis.NewClient(opt)
-	defer rd.Close()
+	defer func() { _ = rd.Close() }()
 	m := tasks.LegacyImport{DB: db, Redis: rd, BatchLockPrefix: *prefix}
 	scan := m.Page
 	if *source == "batch-leases" {

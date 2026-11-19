@@ -138,8 +138,8 @@ func fail(c *gin.Context, err error, r *pg.Summary) {
 func (h *Handler) summary(c *gin.Context, a identity.Access, r pg.Summary) {
 	if a.Require("requests.content.read") == nil {
 		if value, ok := h.previews.Load(r.Run); ok {
-			entry := value.(preview)
-			if time.Now().Before(entry.until) {
+			entry, ok := value.(preview)
+			if ok && time.Now().Before(entry.until) {
 				r.Retained = true
 				r.Preview = entry.text
 			}
@@ -347,10 +347,11 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 		name = "failed"
 		data["reason"] = "EXECUTION_FAILED"
 		data["retry"] = "never"
-		if state == "unknown" {
+		switch state {
+		case "unknown":
 			data["reason"] = "OUTCOME_UNKNOWN"
 			data["retry"] = "query_status"
-		} else if state == "canceled" {
+		case "canceled":
 			data["reason"] = "USER_CANCELED"
 		}
 	}

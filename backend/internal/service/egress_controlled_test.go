@@ -30,13 +30,15 @@ func TestControlledEgressPolicy(t *testing.T) {
 		require.Empty(t, r.Header.Get("Tracestate"))
 		switch r.URL.Path {
 		case "/move":
-			http.Redirect(w, r, "/ok", 302)
+			http.Redirect(w, r, "/ok", http.StatusFound)
 		case "/cycle":
-			http.Redirect(w, r, "/cycle", 302)
+			http.Redirect(w, r, "/cycle", http.StatusFound)
 		case "/private":
-			http.Redirect(w, r, "https://127.0.0.1/private?token=secret", 302)
+			http.Redirect(w, r, "https://127.0.0.1/private?token=secret", http.StatusFound)
 		case "/large":
-			w.(http.Flusher).Flush()
+			flusher, ok := w.(http.Flusher)
+			require.True(t, ok)
+			flusher.Flush()
 			_, _ = io.WriteString(w, "123456")
 		case "/slow":
 			<-r.Context().Done()

@@ -384,7 +384,7 @@ func TestWebSocketSilentAttemptClosesUpstreamBeforeReplay(t *testing.T) {
 	server, serverErr := startPassthroughLifecycleServer(t, ctx, svc, account)
 	defer server.Close()
 	conn := dialPassthroughLifecycleClient(t, server)
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	requirePassthroughUpstreamWrite(t, upstream, time.Second)
 	controller := attempt.New(3)
 	require.Equal(t, "acceptance_unknown", AttemptDecisionBudget(ctx).StopReason)

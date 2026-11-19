@@ -48,8 +48,8 @@ func (s *Store) sign(purpose string, v any) (string, error) {
 }
 func (s *Store) mac(purpose string, raw []byte) string {
 	h := hmac.New(sha256.New, s.secret)
-	h.Write([]byte("routing/v1/" + purpose + "\x00"))
-	h.Write(raw)
+	_, _ = h.Write([]byte("routing/v1/" + purpose + "\x00"))
+	_, _ = h.Write(raw)
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 func (s *Store) verify(purpose, value string, v any) bool {

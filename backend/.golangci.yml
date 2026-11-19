@@ -78,6 +78,30 @@ linters:
         - io/ioutil.ReadFile
         - io.Copy(*bytes.Buffer)
         - io.Copy(os.Stdout)
+        # Deferred cleanup and buffer writers are intentionally best-effort.
+        # Database writes, HTTP sends, response writes and mutating business
+        # operations remain checked by errcheck.
+        - (*bytes.Buffer).Write
+        - (*bytes.Buffer).WriteString
+        - (*bytes.Buffer).WriteByte
+        - (*strings.Builder).WriteString
+        - (*strings.Builder).WriteByte
+        - (*database/sql.Rows).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.DB).Close
+        - (*os.File).Close
+        - (*os.Root).Close
+        - (*compress/gzip.Reader).Close
+        - (io.Closer).Close
+        - (*redis.Client).Close
+        - (*websocket.Conn).CloseNow
+        - (*io.PipeWriter).Close
+        - (api.Closer).Close
+        - os.Remove
+        - os.RemoveAll
+        - closeOpenAIClientWS
+        - handler.closeOpenAIClientWS
+        - github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler.closeOpenAIClientWS
         - fmt.Println
         - fmt.Print
         - fmt.Printf

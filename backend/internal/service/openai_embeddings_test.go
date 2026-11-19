@@ -208,7 +208,8 @@ func TestForwardEmbeddingsRejectsConfiguredTextModelBeforeSend(t *testing.T) {
 func TestModelExcludesEmbeddingsUsesEndpointEvidence(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "text", "vector")
 	account.ExpiresAt = new(time.Now().Add(-time.Minute))
-	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
 	snapshot.EligibleModels[1].Endpoints = []string{"embeddings"}
 	ctx := context.Background()
 	require.True(t, modelExcludesEmbeddings(ctx, &account, nil, "text"))

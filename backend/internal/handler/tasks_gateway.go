@@ -80,7 +80,7 @@ func (s imageJobJournal) Dispatch(ctx context.Context, e journal.AdmittedExecuti
 	var live bool
 	err = tx.QueryRowContext(ctx, `SELECT true FROM image_tasks WHERE id=$1 AND request_id=$2 AND lease_owner=$3 AND generation=$4 AND state='running' AND lease_until>clock_timestamp() FOR SHARE`, s.task, s.request, s.lease.Owner, s.lease.Generation).Scan(&live)
 	if errors.Is(err, sql.ErrNoRows) {
-		return journal.Attempt{}, tasks.LostLease
+		return journal.Attempt{}, tasks.ErrLostLease
 	}
 	if err != nil {
 		return journal.Attempt{}, err
@@ -318,23 +318,23 @@ type taskUploads struct {
 	outputs []tasks.Output
 }
 
-func (u *taskUploads) Save(ctx context.Context, key, mime string, data []byte) (string, error) {
+func (u *taskUploads) Save(ctx context.Context, key, _ string, data []byte) (string, error) {
 	if len(data) > 32<<20 || len(u.outputs) >= 4 {
 		return "", errors.New("image result exceeds task capacity")
 	}
-	mime = http.DetectContentType(data)
-	switch mime {
+	contentType := http.DetectContentType(data)
+	switch contentType {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":
 	default:
 		return "", errors.New("invalid image")
 	}
-	n, e := u.objects.Upload(ctx, key, bytes.NewReader(data), mime)
+	n, e := u.objects.Upload(ctx, key, bytes.NewReader(data), contentType)
 	if e != nil {
 		return "", e
 	}
 	if n != int64(len(data)) {
 		return "", io.ErrShortWrite
 	}
-	u.outputs = append(u.outputs, tasks.Output{ID: fmt.Sprintf("image_%d", len(u.outputs)+1), Locator: key, ContentType: mime, Size: n})
+	u.outputs = append(u.outputs, tasks.Output{ID: fmt.Sprintf("image_%d", len(u.outputs)+1), Locator: key, ContentType: contentType, Size: n})
 	return key, nil
 }

@@ -795,7 +795,7 @@ paths:
   /api/v2/workspaces/{workspace_id}/byok:
     get:
       operationId: byokWorkspaceList
-      summary: List scoped pilot credentials
+      summary: List scoped tenant credentials
       description: Requires credentials.byok.manage.
       parameters:
         - $ref: '#/components/parameters/IdentityCursor'
@@ -809,7 +809,7 @@ paths:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
     post:
       operationId: byokWorkspaceCreate
-      summary: Enroll an ordinary provider API key
+      summary: Enroll a credential for an enabled provider class
       description: Requires credentials.byok.manage.
       parameters:
         - $ref: '#/components/parameters/IdentityIdempotency'
@@ -824,6 +824,124 @@ paths:
           $ref: '#/components/responses/ByokCreated'
         default:
           $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/{id}:
+    delete:
+      operationId: byokWorkspaceDelete
+      summary: Force-revoke a credential and retain its history
+      description: Requires credentials.byok.manage.
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+    get:
+      operationId: byokWorkspaceGet
+      summary: Read credential status and grants
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    patch:
+      operationId: byokWorkspacePatch
+      summary: Update the supplied grant and funding fields
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokGrantPatch'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/estimate:
+    get:
+      operationId: byokWorkspaceEstimate
+      summary: Estimate tenant exposure and platform service fee
+      description: Requires credentials.byok.manage.
+      parameters:
+        - name: project_id
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdentityID'
+        - name: member_id
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdentityID'
+        - name: key_id
+          in: query
+          required: true
+          schema:
+            $ref: '#/components/schemas/IdentityID'
+        - name: model_id
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 128
+        - name: input_token_bound
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+        - name: output_token_bound
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]+$
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokEstimate'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+  /api/v2/workspaces/{workspace_id}/byok/{id}/events:
+    get:
+      operationId: byokWorkspaceEvents
+      summary: Read metadata-only credential events
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokLifecyclePage'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
   /api/v2/workspaces/{workspace_id}/byok/{id}/policy:
     parameters:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
@@ -927,6 +1045,18 @@ paths:
           $ref: '#/components/responses/ByokOperation'
         default:
           $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/byok/provider-classes:
+    get:
+      operationId: byokWorkspaceClasses
+      summary: Read available provider credential classes
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokProviderClasses'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
   /api/v2/workspaces/{workspace_id}/connections:
     get:
       operationId: connectionList
@@ -2239,7 +2369,7 @@ paths:
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials:
     get:
       operationId: byokProjectList
-      summary: List scoped pilot credentials
+      summary: List scoped tenant credentials
       description: Requires credentials.byok.manage.
       parameters:
         - $ref: '#/components/parameters/IdentityCursor'
@@ -2254,7 +2384,7 @@ paths:
       - $ref: '#/components/parameters/IdentityProjectID'
     post:
       operationId: byokProjectCreate
-      summary: Enroll an ordinary provider API key
+      summary: Enroll a credential for an enabled provider class
       description: Requires credentials.byok.manage.
       parameters:
         - $ref: '#/components/parameters/IdentityIdempotency'
@@ -2269,6 +2399,53 @@ paths:
           $ref: '#/components/responses/ByokCreated'
         default:
           $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}:
+    delete:
+      operationId: byokProjectDelete
+      summary: Force-revoke a credential and retain its history
+      description: Requires credentials.byok.manage.
+      responses:
+        '202':
+          $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+    get:
+      operationId: byokProjectGet
+      summary: Read credential status and grants
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    patch:
+      operationId: byokProjectPatch
+      summary: Update the supplied grant and funding fields
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokChanged'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ByokGrantPatch'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/estimate:
     get:
       operationId: byokProjectEstimate
@@ -2309,6 +2486,27 @@ paths:
           $ref: '#/components/responses/ByokEstimate'
         default:
           $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/{id}/events:
+    get:
+      operationId: byokProjectEvents
+      summary: Read metadata-only credential events
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokLifecyclePage'
+        default:
+          $ref: '#/components/responses/ByokError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
     parameters:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
       - $ref: '#/components/parameters/IdentityProjectID'
@@ -2422,6 +2620,55 @@ paths:
       responses:
         '202':
           $ref: '#/components/responses/ByokOperation'
+        default:
+          $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/provider-classes:
+    get:
+      operationId: byokProjectClasses
+      summary: Read available provider credential classes
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokProviderClasses'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/byok/credentials/service-accounts/{key_id}:
+    delete:
+      operationId: byokProjectRevokeServiceAccount
+      summary: Retire a service account designation
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokServicePrincipal'
+        default:
+          $ref: '#/components/responses/ByokError'
+    get:
+      operationId: byokProjectServiceAccount
+      summary: Read a service account by its dedicated key
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokServicePrincipal'
+        default:
+          $ref: '#/components/responses/ByokError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: key_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: byokProjectRegisterServiceAccount
+      summary: Designate an owned project key for a service account
+      description: Requires credentials.byok.manage.
+      responses:
+        '200':
+          $ref: '#/components/responses/ByokServicePrincipal'
         default:
           $ref: '#/components/responses/ByokError'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/keys:
@@ -4018,6 +4265,24 @@ components:
                 const: success
               data:
                 $ref: '#/components/schemas/ByokEstimate'
+    ByokLifecyclePage:
+      description: Scoped credential lifecycle events
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ConnectionEventPage'
     ByokOperation:
       description: Operation
       content:
@@ -4054,6 +4319,42 @@ components:
                 const: success
               data:
                 $ref: '#/components/schemas/ByokPage'
+    ByokProviderClasses:
+      description: Provider and auth class eligibility
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokClassList'
+    ByokServicePrincipal:
+      description: Project service account designation
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required:
+              - code
+              - message
+              - data
+            properties:
+              code:
+                const: 0
+              message:
+                const: success
+              data:
+                $ref: '#/components/schemas/ByokServiceAccount'
     CatalogVerificationError:
       description: Management error
       content:
@@ -4214,15 +4515,56 @@ components:
           properties:
             prompt: {type: string, minLength: 1, maxLength: 600}
             format: {const: wav}
+    ByokAuthType:
+      type: string
+      enum:
+        - api_key
+        - oauth
+        - setup-token
+        - bedrock
+        - service_account
+    ByokClass:
+      type: object
+      additionalProperties: false
+      required:
+        - provider
+        - auth_type
+        - supported
+        - enabled
+      properties:
+        provider:
+          type: string
+        auth_type:
+          type: string
+        supported:
+          type: boolean
+        enabled:
+          type: boolean
+    ByokClassList:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ByokClass'
     ByokCreate:
       type: object
+      anyOf:
+        - required: [allowed_member_ids]
+          properties:
+            allowed_member_ids: {minItems: 1}
+        - required: [allowed_service_account_ids]
+          properties:
+            allowed_service_account_ids: {minItems: 1}
       additionalProperties: false
       required:
         - provider
         - auth_type
         - secret
         - allowed_project_ids
-        - allowed_member_ids
         - allowed_key_ids
         - allowed_model_ids
       properties:
@@ -4231,7 +4573,7 @@ components:
           minLength: 1
           maxLength: 128
         auth_type:
-          const: api_key
+          $ref: '#/components/schemas/ByokAuthType'
         secret:
           type: string
           minLength: 1
@@ -4244,9 +4586,11 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/IdentityID'
+        allowed_service_account_ids:
+          $ref: '#/components/schemas/ByokPrincipalIDs'
         allowed_member_ids:
           type: array
-          minItems: 1
+          minItems: 0
           maxItems: 100
           uniqueItems: true
           items:
@@ -4286,11 +4630,13 @@ components:
         - id
         - owner_workspace_id
         - provider
+        - auth_type
         - version
         - credential_version
         - state
         - fingerprint
         - verified_until
+        - verified_model_ids
         - scope
         - priority
         - allow_platform_fallback
@@ -4300,6 +4646,8 @@ components:
           $ref: '#/components/schemas/IdentityID'
         owner_workspace_id:
           $ref: '#/components/schemas/IdentityID'
+        auth_type:
+          $ref: '#/components/schemas/ByokAuthType'
         provider:
           type: string
           minLength: 1
@@ -4317,6 +4665,10 @@ components:
             - revoked
         fingerprint:
           type: string
+        verified_model_ids:
+          type: array
+          items:
+            type: string
         verified_until:
           oneOf:
             - type: string
@@ -4327,6 +4679,7 @@ components:
           additionalProperties: false
           required:
             - project_ids
+            - service_account_ids
             - member_ids
             - key_ids
             - model_ids
@@ -4338,9 +4691,11 @@ components:
               uniqueItems: true
               items:
                 $ref: '#/components/schemas/IdentityID'
+            service_account_ids:
+              $ref: '#/components/schemas/ByokPrincipalIDs'
             member_ids:
               type: array
-              minItems: 1
+              minItems: 0
               maxItems: 100
               uniqueItems: true
               items:
@@ -4406,29 +4761,10 @@ components:
             - type: 'null'
         include_external_in_budget:
           type: boolean
-    ByokPage:
+    ByokGrantPatch:
       type: object
       additionalProperties: false
-      required:
-        - items
-        - next_cursor
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/ByokCredential'
-        next_cursor:
-          oneOf:
-            - type: string
-            - type: 'null'
-    ByokPolicy:
-      type: object
-      additionalProperties: false
-      required:
-        - allowed_project_ids
-        - allowed_member_ids
-        - allowed_key_ids
-        - allowed_model_ids
+      minProperties: 1
       properties:
         allowed_project_ids:
           type: array
@@ -4437,9 +4773,11 @@ components:
           uniqueItems: true
           items:
             $ref: '#/components/schemas/IdentityID'
+        allowed_service_account_ids:
+          $ref: '#/components/schemas/ByokPrincipalIDs'
         allowed_member_ids:
           type: array
-          minItems: 1
+          minItems: 0
           maxItems: 100
           uniqueItems: true
           items:
@@ -4472,6 +4810,86 @@ components:
         include_external_in_budget:
           type: boolean
           default: false
+    ByokPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ByokCredential'
+        next_cursor:
+          oneOf:
+            - type: string
+            - type: 'null'
+    ByokPolicy:
+      type: object
+      anyOf:
+        - required: [allowed_member_ids]
+          properties:
+            allowed_member_ids: {minItems: 1}
+        - required: [allowed_service_account_ids]
+          properties:
+            allowed_service_account_ids: {minItems: 1}
+      additionalProperties: false
+      required:
+        - allowed_project_ids
+        - allowed_key_ids
+        - allowed_model_ids
+      properties:
+        allowed_project_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_service_account_ids:
+          $ref: '#/components/schemas/ByokPrincipalIDs'
+        allowed_member_ids:
+          type: array
+          minItems: 0
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_key_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/IdentityID'
+        allowed_model_ids:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          default: 0
+          description: Lower values are preferred.
+        allow_platform_fallback:
+          type: boolean
+          default: false
+        include_external_in_budget:
+          type: boolean
+          default: false
+    ByokPrincipalIDs:
+      type: array
+      maxItems: 100
+      uniqueItems: true
+      items:
+        $ref: '#/components/schemas/IdentityID'
     ByokRevoke:
       type: object
       additionalProperties: false
@@ -4500,6 +4918,29 @@ components:
               minLength: 1
               maxLength: 262144
               writeOnly: true
+    ByokServiceAccount:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - key_id
+        - active
+        - revoked_at
+      properties:
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+        key_id:
+          $ref: '#/components/schemas/IdentityID'
+        active:
+          type: boolean
+        revoked_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
     ByokVerify:
       type: object
       additionalProperties: false

@@ -181,8 +181,8 @@ func binding(r request, res string) token {
 }
 func (h *Handler) mac(b []byte) []byte {
 	m := hmac.New(sha256.New, h.key)
-	m.Write([]byte("image-task-center/v1\x00"))
-	m.Write(b)
+	_, _ = m.Write([]byte("image-task-center/v1\x00"))
+	_, _ = m.Write(b)
 	return m.Sum(nil)
 }
 func (h *Handler) sign(v token) (string, error) {
@@ -278,9 +278,10 @@ func (h *Handler) content(r request) (any, error) {
 	}
 	r.Header("X-Content-Type-Options", "nosniff")
 	filename := "image"
-	if mime == "audio/wav" {
+	switch mime {
+	case "audio/wav":
 		filename = "audio.wav"
-	} else if mime == "video/mp4" {
+	case "video/mp4":
 		filename = "video.mp4"
 	}
 	r.Header("Content-Disposition", `attachment; filename="`+filename+`"`)

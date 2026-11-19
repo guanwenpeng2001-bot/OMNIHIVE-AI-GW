@@ -127,7 +127,7 @@ func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s 
 		return trace.DecisionTrace{}, 0, err
 	}
 	var seed [8]byte
-	rand.Read(seed[:])
+	_, _ = rand.Read(seed[:])
 	decision, err := g.Policies.PlanExecution(ctx, a, s, nil, binary.BigEndian.Uint64(seed[:]))
 	if err != nil {
 		return decision, 0, err

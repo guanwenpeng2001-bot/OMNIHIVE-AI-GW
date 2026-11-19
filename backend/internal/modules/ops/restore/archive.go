@@ -67,10 +67,10 @@ func inspectSQL(ctx context.Context, sql io.Reader) (map[string]string, error) {
 			continue
 		}
 		if table != nil {
-			table.row.Write(line)
+			_, _ = table.row.Write(line)
 			for errors.Is(err, bufio.ErrBufferFull) {
 				line, err = r.ReadSlice('\n')
-				table.row.Write(line)
+				_, _ = table.row.Write(line)
 			}
 			if err != nil {
 				return nil, invalidArchive

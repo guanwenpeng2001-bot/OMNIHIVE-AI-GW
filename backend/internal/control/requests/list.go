@@ -178,7 +178,7 @@ func cursorMatch(r request, f domain.Filter) ([32]byte, error) {
 
 func (h *Handler) sign(data []byte) []byte {
 	mac := hmac.New(sha256.New, h.cursorKey[:])
-	mac.Write(data)
+	_, _ = mac.Write(data)
 	return mac.Sum(nil)
 }
 

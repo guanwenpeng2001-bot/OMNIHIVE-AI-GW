@@ -246,7 +246,7 @@ func (s Store) Quotas(ctx context.Context, sc Scope, f QuotaFilter, adjust bool)
 		selectable := f.Key != 0 || r.Source == "budget"
 		// This legacy payer uses USD. Independent budgets in other currencies
 		// remain visible and apply only to admission in their own currency.
-		if r.Unit == "USD" && r.Mode == "hard" && selectable && r.Available != nil && !positive(*r.Available) && !(r.Source == "wallet" && hasSubscription) {
+		if r.Unit == "USD" && r.Mode == "hard" && selectable && r.Available != nil && !positive(*r.Available) && (r.Source != "wallet" || !hasSubscription) {
 			out.Blocking = append(out.Blocking, r.ID)
 		}
 	}
