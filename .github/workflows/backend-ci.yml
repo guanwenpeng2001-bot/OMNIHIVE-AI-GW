@@ -313,6 +313,9 @@ jobs:
           check-latest: true
           cache: true
           cache-dependency-path: backend/go.sum
+      - name: Warm Go modules for frontend contract tests
+        working-directory: backend
+        run: go mod download
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
