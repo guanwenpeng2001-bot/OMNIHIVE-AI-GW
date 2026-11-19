@@ -1,12 +1,56 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type fixedAcquisition struct {
+	version string
+	input   Input
+}
+
+func (f fixedAcquisition) Load(context.Context, Perspective, Window, time.Time) (Input, error) {
+	in := f.input
+	in.RegistryVersion = f.version
+	return in, nil
+}
+
+type countingPublisher struct{ calls int }
+
+func (c *countingPublisher) Publish(context.Context, Snapshot, string, time.Time) error {
+	c.calls++
+	return nil
+}
+
+func TestPublicSnapshotDoesNotRepublishUnchangedProjection(t *testing.T) {
+	now := time.Now().UTC()
+	pub := &countingPublisher{}
+	source := fixedAcquisition{version: "reg_1", input: Input{Models: []Candidate{
+		{Provider: "openai", Model: "public-model", Offers: []Offer{{Eligible: true}}},
+	}}}
+	reader := NewReader(source, pub)
+
+	_, err := reader.Snapshot(context.Background(), Perspective{}, time.Time{})
+	require.NoError(t, err)
+	_, err = reader.Snapshot(context.Background(), Perspective{}, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, 1, pub.calls, "an unchanged public projection must not write twice")
+
+	_, err = reader.Snapshot(context.Background(), Perspective{}, now.Add(-time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 1, pub.calls, "historical snapshots are read-only")
+
+	source.version = "reg_2"
+	reader = NewReader(source, pub)
+	_, err = reader.Snapshot(context.Background(), Perspective{}, time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, 2, pub.calls)
+}
 
 func TestProjectionRedactsPrivateEvidenceAndPreservesUnknown(t *testing.T) {
 	now := time.Now().UTC()

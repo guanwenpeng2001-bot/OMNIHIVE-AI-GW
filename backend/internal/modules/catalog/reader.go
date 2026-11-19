@@ -5,6 +5,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,10 +14,17 @@ const SnapshotTTL = 15 * time.Minute
 type Reader struct {
 	source       Acquisition
 	publications CatalogPublisher
+
+	mu          sync.Mutex
+	lastVersion string
+	lastPublish time.Time
 }
 
+// publicationRefresh bounds how often an unchanged public snapshot is republished.
+const publicationRefresh = time.Minute
+
 func NewReader(source Acquisition, publications CatalogPublisher) *Reader {
-	return &Reader{source, publications}
+	return &Reader{source: source, publications: publications}
 }
 
 func (r *Reader) Snapshot(ctx context.Context, p Perspective, asOf time.Time) (Snapshot, error) {
@@ -32,12 +40,27 @@ func (r *Reader) Snapshot(ctx context.Context, p Perspective, asOf time.Time) (S
 		return Snapshot{}, err
 	}
 	out := Project(p, input, window, asOf)
-	if current && p.Public() && r.publications != nil {
+	if current && p.Public() && r.publications != nil && r.shouldPublish(out.Version, now) {
 		if err := r.publications.Publish(ctx, out, input.RegistryVersion, now); err != nil {
 			return Snapshot{}, err
 		}
+		r.markPublished(out.Version, now)
 	}
 	return out, nil
+}
+
+// shouldPublish suppresses the write per request when the public projection has
+// not changed. A changed version is always published immediately.
+func (r *Reader) shouldPublish(version string, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return version != r.lastVersion || now.Sub(r.lastPublish) >= publicationRefresh
+}
+
+func (r *Reader) markPublished(version string, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastVersion, r.lastPublish = version, now
 }
 
 func Project(p Perspective, input Input, window Window, asOf time.Time) Snapshot {
