@@ -569,6 +569,30 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/connections/new',
+    name: 'AdminConnectionNew',
+    component: () => import('@/views/admin/connections/ConnectionWizardView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'New Upstream Connection',
+      titleKey: 'admin.accounts.title',
+      descriptionKey: 'admin.accounts.description'
+    }
+  },
+  {
+    path: '/admin/connections/:id/edit',
+    name: 'AdminConnectionEdit',
+    component: () => import('@/views/admin/connections/ConnectionWizardView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Edit Upstream Connection',
+      titleKey: 'admin.accounts.title',
+      descriptionKey: 'admin.accounts.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),
