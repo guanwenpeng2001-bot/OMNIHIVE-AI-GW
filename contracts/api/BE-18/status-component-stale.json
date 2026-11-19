@@ -1,0 +1,32 @@
+{
+  "id": "inference",
+  "name": "Inference gateway",
+  "state": "unknown",
+  "observed_state": "unknown",
+  "source": "gateway_observations",
+  "freshness": "stale",
+  "stale_after": "2026-11-19T10:00:00Z",
+  "last_success": "2026-11-19T09:55:00Z",
+  "sample_count": "24",
+  "minimum_sample_count": "20",
+  "reason": "STALE_DATA",
+  "success_rate": null,
+  "ttft_sample_count": "20",
+  "ttft_p50_ms": null,
+  "ttft_p95_ms": null,
+  "stream_completion_rate": null,
+  "counts": {
+    "succeeded": "20",
+    "gateway_errors": "1",
+    "upstream_errors": "1",
+    "upstream_rate_limits": "1",
+    "stream_interruptions": "1",
+    "unknown_outcomes": "0",
+    "admission_denials": "6",
+    "client_cancellations": "2",
+    "attempts": "4",
+    "first_byte_timeouts": "1",
+    "stream_samples": "21",
+    "stream_succeeded": "20"
+  }
+}
