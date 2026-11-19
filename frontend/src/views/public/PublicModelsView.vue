@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import PublicShell from '@/components/layout/PublicShell.vue'
@@ -9,6 +10,7 @@ import ErrorState from '@/components/ui/ErrorState.vue'
 import Input from '@/components/ui/Input.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import { publicTokenPrice, publicValue } from '@/features/public/format'
 import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
@@ -16,27 +18,28 @@ type ViewMode = 'table' | 'cards'
 const models = ref<PublicModelSummary[]>([])
 const nextCursor = ref<string | null>(null)
 const asOf = ref<string | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const loadingMore = ref(false)
 const error = ref<unknown>(null)
+const paginationError = ref<unknown>(null)
+let request = 0
 const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('name')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
 
-const providerOptions = computed(() => {
-  const seen = new Set<string>()
-  for (const model of models.value) {
-    const provider = model.provider?.trim()
-    if (provider) seen.add(provider)
-  }
-  return Array.from(seen).sort()
-})
+const providerOptions = ref<string[]>([])
+let appliedQuery = ''
 
 const activeFilters = computed(() => providers.value.length > 0 || query.value.trim().length > 0)
 
 async function load(reset = true): Promise<void> {
+  if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
+  const currentRequest = ++request
+  paginationError.value = null
   if (reset) {
+    appliedQuery = query.value.trim()
+    loadingMore.value = false
     loading.value = true
     error.value = null
   } else {
@@ -44,20 +47,34 @@ async function load(reset = true): Promise<void> {
   }
   try {
     const page = await listPublicModels({
-      q: query.value.trim() || undefined,
+      q: appliedQuery || undefined,
       provider: providers.value.length ? providers.value : undefined,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
       limit: 20
     })
+    if (currentRequest !== request) return
+    if (!appliedQuery && !providers.value.length) {
+      const seen = new Set(providerOptions.value)
+      for (const model of page.items ?? []) {
+        const provider = model.provider?.trim()
+        if (provider && provider !== 'unknown') seen.add(provider)
+      }
+      providerOptions.value = [...seen].sort()
+    }
     models.value = reset ? page.items ?? [] : [...models.value, ...(page.items ?? [])]
     nextCursor.value = page.next_cursor ?? null
     asOf.value = page.as_of ?? null
   } catch (err) {
-    error.value = err
+    if (currentRequest === request) {
+      if (reset) error.value = err
+      else paginationError.value = err
+    }
   } finally {
-    loading.value = false
-    loadingMore.value = false
+    if (currentRequest === request) {
+      loading.value = false
+      loadingMore.value = false
+    }
   }
 }
 
@@ -75,19 +92,13 @@ function resetFilters(): void {
   void load()
 }
 
-function priceText(rate: PublicModelSummary['input_price']): string {
-  if (!rate) return '—'
-  const amount = Number(rate.amount)
-  if (!Number.isFinite(amount) || amount === 0) return rate.currency === 'USD' ? 'Free' : rate.amount
-  const per = Number(rate.per) || 1_000_000
-  return `$${(amount * 1_000_000 / per).toFixed(2)}/M`
-}
-
-function contextText(value?: number | null): string {
+function contextText(value?: string | null): string {
   if (!value) return '—'
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${Math.round(value / 1_000)}K`
-  return String(value)
+  const tokens = Number(value)
+  if (!Number.isFinite(tokens)) return '—'
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
+  return String(tokens)
 }
 
 onMounted(() => void load())
@@ -125,10 +136,11 @@ onMounted(() => void load())
           v-for="provider in providerOptions"
           :key="provider"
           type="button"
-          class="rounded-full border px-3 py-1 font-mono text-xs transition-colors"
+          class="oh-focus-ring max-w-full break-all rounded-full border px-3 py-1 font-mono text-xs transition-colors"
           :class="providers.includes(provider)
-            ? 'border-oh-accent bg-oh-accent-soft text-oh-accent-text'
+            ? 'border-oh-accent bg-oh-accent-subtle text-oh-accent-text'
             : 'border-oh-default text-oh-secondary hover:border-oh-strong'"
+          :aria-pressed="providers.includes(provider)"
           @click="toggleProvider(provider)"
         >
           {{ provider }}
@@ -136,7 +148,7 @@ onMounted(() => void load())
         <button
           v-if="activeFilters"
           type="button"
-          class="text-xs text-oh-muted underline-offset-2 hover:underline"
+          class="oh-focus-ring rounded-oh-sm text-xs text-oh-muted underline-offset-2 hover:underline"
           @click="resetFilters"
         >
           Clear filters
@@ -145,18 +157,18 @@ onMounted(() => void load())
       </div>
     </section>
 
-    <Skeleton v-if="loading" variant="table-row" :lines="8" />
-    <ErrorState v-else-if="error" title="Model catalog unavailable" :message="String((error as any)?.message ?? error)" @retry="load()" />
+    <Skeleton v-if="loading" class="py-4" :lines="8" />
+    <ErrorState v-else-if="error" title="Model catalog unavailable" :message="extractApiErrorMessage(error, '')" @retry="load()" />
     <EmptyState
       v-else-if="models.length === 0"
-      title="No models match these filters"
-      description="Clear the filters or try a different search term."
-      action-label="Reset filters"
+      :title="activeFilters ? 'No models match these filters' : 'No models published yet'"
+      :description="activeFilters ? 'Clear the filters or try a different search term.' : undefined"
+      :action-label="activeFilters ? 'Reset filters' : undefined"
       @action="resetFilters"
     />
 
     <template v-else>
-      <div v-if="viewMode === 'table'" class="overflow-x-auto border border-oh-default">
+      <div v-if="viewMode === 'table'" class="oh-focus-ring overflow-x-auto border border-oh-default" tabindex="0" role="region" aria-label="Model catalog table">
         <table class="w-full min-w-[720px] border-collapse text-sm">
           <thead>
             <tr class="border-b border-oh-default bg-oh-subtle text-left font-mono text-[11px] uppercase tracking-wider text-oh-muted">
@@ -169,18 +181,18 @@ onMounted(() => void load())
             </tr>
           </thead>
           <tbody>
-            <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-subtle/60">
-              <td class="px-4 py-3">
-                <RouterLink :to="`/models/${encodeURIComponent(model.id)}`" class="font-medium text-oh-primary hover:text-oh-accent-text">
+            <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
+              <td class="max-w-[14rem] break-all px-4 py-3">
+                <RouterLink :to="`/models/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                   {{ model.model }}
                 </RouterLink>
                 <div class="font-mono text-[11px] text-oh-muted">{{ model.id }}</div>
               </td>
-              <td class="px-4 py-3 text-oh-secondary">{{ model.provider ?? '—' }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ contextText(model.context_window) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ priceText(model.input_price) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ priceText(model.output_price) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ model.ttft_ms ? `${model.ttft_ms} ms` : '—' }}</td>
+              <td class="px-4 py-3 text-oh-secondary">{{ publicValue(model.provider) }}</td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ contextText(model.context_tokens) }}</td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ publicTokenPrice(model.input_rate) }}</td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ publicTokenPrice(model.output_rate) }}</td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums">—</td>
             </tr>
           </tbody>
         </table>
@@ -191,26 +203,34 @@ onMounted(() => void load())
           v-for="model in models"
           :key="model.id"
           :to="`/models/${encodeURIComponent(model.id)}`"
-          class="group border border-oh-default p-4 transition-colors hover:border-oh-strong"
+          class="oh-focus-ring group min-w-0 border border-oh-default p-4 transition-colors hover:border-oh-strong"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <p class="truncate font-medium text-oh-primary">{{ model.model }}</p>
-              <p class="font-mono text-[11px] text-oh-muted">{{ model.provider ?? 'unknown provider' }}</p>
+              <p class="break-all font-mono text-[11px] text-oh-muted">{{ publicValue(model.provider) }}</p>
             </div>
-            <Badge tone="neutral" variant="subtle">{{ contextText(model.context_window) }}</Badge>
+            <Badge tone="neutral" variant="subtle">{{ contextText(model.context_tokens) }}</Badge>
           </div>
           <dl class="mt-4 grid grid-cols-2 gap-2 font-mono text-xs tabular-nums">
-            <div><dt class="text-oh-muted">in</dt><dd>{{ priceText(model.input_price) }}</dd></div>
-            <div><dt class="text-oh-muted">out</dt><dd>{{ priceText(model.output_price) }}</dd></div>
-            <div><dt class="text-oh-muted">ttft</dt><dd>{{ model.ttft_ms ? `${model.ttft_ms} ms` : '—' }}</dd></div>
-            <div><dt class="text-oh-muted">stability</dt><dd>{{ model.stability ?? '—' }}</dd></div>
+            <div><dt class="text-oh-muted">in</dt><dd>{{ publicTokenPrice(model.input_rate) }}</dd></div>
+            <div><dt class="text-oh-muted">out</dt><dd>{{ publicTokenPrice(model.output_rate) }}</dd></div>
+            <div><dt class="text-oh-muted">ttft</dt><dd>—</dd></div>
+            <div><dt class="text-oh-muted">stability</dt><dd>—</dd></div>
           </dl>
         </RouterLink>
       </div>
 
-      <div class="flex justify-center py-8">
-        <Button v-if="nextCursor" variant="secondary" :loading="loadingMore" @click="load(false)">Load more</Button>
+      <ErrorState
+        v-if="paginationError"
+        compact
+        class="mt-4"
+        title="Could not load more models"
+        @retry="load(false)"
+      />
+      <div class="flex flex-col items-center gap-2 py-8">
+        <p role="status" class="text-xs text-oh-muted">{{ models.length }} models loaded</p>
+        <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">Load more</Button>
       </div>
     </template>
   </PublicShell>
