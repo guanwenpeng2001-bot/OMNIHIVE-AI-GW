@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -378,5 +380,33 @@ func TestLoggers_RedactPluginUIToken(testContext *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func TestScopedAuditAccessLogsUseMatchedRouteAndServerCorrelation(t *testing.T) {
+	sink := initMiddlewareTestLogger(t)
+	r := gin.New()
+	r.Use(RequestLogger(), Logger())
+	r.GET("/api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id", func(c *gin.Context) {
+		_ = c.Error(errors.New("private-canary-error"))
+		c.Status(200)
+	})
+	url := "/api/v2/workspaces/1/projects/2/tasks/private-canary-path?ticket=private-canary-ticket"
+	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set(requestIDHeader, "private-canary-request-id")
+	req = req.WithContext(context.WithValue(req.Context(), ctxkey.ClientRequestID, "private-canary-client-id"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != 200 || w.Header().Get(requestIDHeader) == "private-canary-request-id" {
+		t.Fatal("untrusted request correlation")
+	}
+	if len(sink.list()) == 0 {
+		t.Fatal("missing access log")
+	}
+	for _, e := range sink.list() {
+		b, err := json.Marshal(e)
+		if err != nil || strings.Contains(string(b), "private-canary") {
+			t.Fatal("raw request value in access log")
+		}
 	}
 }

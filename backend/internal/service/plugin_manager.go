@@ -959,6 +959,10 @@ func (m *PluginManager) ReadUIAsset(ctx context.Context, id int64, relative stri
 }
 
 func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.Request, proxyURL string, account *Account) (*http.Response, bool, error) {
+	return m.roundTripOpenAIOAuth(ctx, request, proxyURL, account, nil)
+}
+
+func (m *PluginManager) roundTripOpenAIOAuth(ctx context.Context, request *http.Request, proxyURL string, account *Account, host func(*http.Request) (*http.Response, error)) (*http.Response, bool, error) {
 	if !m.ShouldRouteOpenAIOAuth(account) {
 		return nil, false, nil
 	}
@@ -979,6 +983,10 @@ func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.
 	if route.runtime.extension != nil {
 		if err := m.authorizeRuntime(ctx, route.runtime, v2.Provider); err != nil {
 			return nil, true, err
+		}
+		if host != nil {
+			response, err := controlledProvider(request, host)
+			return response, true, err
 		}
 		return nil, false, nil
 	}

@@ -1,0 +1,165 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events:
+    parameters: &auditScope
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+    get:
+      operationId: listScopedAuditEvents
+      summary: List redacted project events from newest to oldest
+      parameters:
+        - {name: from, in: query, description: Inclusive lower bound, schema: {type: string, format: date-time}}
+        - {name: to, in: query, description: Exclusive upper bound, schema: {type: string, format: date-time}}
+        - {name: action, in: query, schema: {$ref: '#/components/schemas/ScopedAuditAction'}}
+        - {name: resource, in: query, schema: {$ref: '#/components/schemas/ScopedAuditResource'}}
+        - {name: resource_id, in: query, schema: {type: string}, description: Opaque resource reference from an audit event}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 1024}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
+      responses:
+        '200':
+          description: Audit page under current grants
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data:
+                    type: object
+                    required: [items, as_of, next_cursor]
+                    properties:
+                      items: {type: array, items: {$ref: '#/components/schemas/ScopedAuditEvent'}}
+                      as_of: {type: string, format: date-time}
+                      next_cursor: {type: [string, 'null']}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}:
+    parameters: &auditEvent
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/ScopedAuditEventID'}
+    get:
+      operationId: getScopedAuditEvent
+      summary: Read one event with audit.read
+      responses:
+        '200':
+          description: Redacted event
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/ScopedAuditEvent'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}/exports:
+    parameters: *auditEvent
+    post:
+      operationId: exportScopedAuditEvent
+      summary: Register a 15-minute actor-bound metadata export with audit.read and audit.export
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 1, maxLength: 256}}
+      responses:
+        '202':
+          description: Ready export operation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {type: string}
+                  data: {$ref: '#/components/schemas/IdentityOperation'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}/exports/{export_id}/download:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/ScopedAuditEventID'}
+      - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+    get:
+      operationId: downloadScopedAuditEvent
+      summary: Download the current metadata projection
+      responses:
+        '200':
+          description: JSON attachment
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ScopedAuditEvent'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/retention:
+    parameters: *auditScope
+    get:
+      operationId: getScopedAuditRetention
+      summary: Read the project retention periods with audit.read
+      responses:
+        '200': {$ref: '#/components/responses/ScopedAuditPolicy'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+    put:
+      operationId: setScopedAuditRetention
+      summary: Set the project retention periods with audit.retention.write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ScopedAuditRetention'}
+      responses:
+        '200': {$ref: '#/components/responses/ScopedAuditPolicy'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+components:
+  parameters:
+    ScopedAuditEventID:
+      name: id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/IdentityID'}
+  schemas:
+    ScopedAuditResource:
+      type: string
+      enum: [request_export, artifact, billing_command, retention, audit_event, project]
+    ScopedAuditAction:
+      type: string
+      enum: [requests.export, tasks.artifacts.revoke, billing.adjust, billing.reconcile, audit.retention.set, audit.retention.purge, audit.export, scope.read, scope.write]
+    ScopedAuditEvent:
+      type: object
+      additionalProperties: false
+      required: [audit_event_id, workspace_id, project_id, actor_id, resource, resource_id, action, effect, at]
+      properties:
+        audit_event_id: {$ref: '#/components/schemas/IdentityID'}
+        workspace_id: {$ref: '#/components/schemas/IdentityID'}
+        project_id: {$ref: '#/components/schemas/IdentityID'}
+        actor_id: {type: [string, 'null']}
+        resource: {$ref: '#/components/schemas/ScopedAuditResource'}
+        resource_id: {type: [string, 'null']}
+        action: {$ref: '#/components/schemas/ScopedAuditAction'}
+        effect: {type: string, enum: [committed, observed]}
+        at: {type: string, format: date-time}
+        affected: {type: string}
+    ScopedAuditRetention:
+      type: object
+      additionalProperties: false
+      required: [event_days, trace_days, content_hours]
+      properties:
+        event_days: {type: integer, minimum: 1, maximum: 3650, default: 90}
+        trace_days: {type: integer, minimum: 1, maximum: 3650, default: 7}
+        content_hours: {type: integer, minimum: 0, maximum: 24, default: 24}
+  responses:
+    ScopedAuditError:
+      description: Scoped audit error
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/IdentityError'}
+    ScopedAuditPolicy:
+      description: Effective policy
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data: {$ref: '#/components/schemas/ScopedAuditRetention'}

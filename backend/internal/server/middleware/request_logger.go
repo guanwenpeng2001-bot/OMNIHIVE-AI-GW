@@ -22,7 +22,7 @@ func RequestLogger() gin.HandlerFunc {
 		}
 
 		requestID, validRequestID := normalizeCorrelationID(c.GetHeader(requestIDHeader))
-		if !validRequestID {
+		if !validRequestID || isWorkspaceV2(c) {
 			requestID = uuid.NewString()
 		}
 		c.Header(requestIDHeader, requestID)
@@ -30,12 +30,15 @@ func RequestLogger() gin.HandlerFunc {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestID, requestID)
 		clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
 		clientRequestID, _ = normalizeCorrelationID(clientRequestID)
+		if isWorkspaceV2(c) {
+			clientRequestID = ""
+		}
 
 		requestLogger := logger.With(
 			zap.String("component", "http"),
 			zap.String("request_id", requestID),
 			zap.String("client_request_id", strings.TrimSpace(clientRequestID)),
-			zap.String("path", redactPluginUIPath(c.Request.URL.Path)),
+			zap.String("path", accessLogPath(c)),
 			zap.String("method", c.Request.Method),
 		)
 
