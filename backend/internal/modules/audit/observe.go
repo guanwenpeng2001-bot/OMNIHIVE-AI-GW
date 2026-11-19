@@ -42,11 +42,19 @@ func (o *Observer) Offer(v Observation) bool {
 }
 func (o *Observer) Dropped() uint64 { return o.dropped.Load() }
 func (o *Observer) Run(ctx context.Context, store *Store, onError func()) {
+	o.RunWithExport(ctx, store, onError, nil)
+}
+
+// RunWithExport forwards safe observations to a nonblocking workspace export sink.
+func (o *Observer) RunWithExport(ctx context.Context, store *Store, onError func(), offer func(Observation) bool) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case v := <-o.queue:
+			if offer != nil {
+				offer(v)
+			}
 			action := "scope.read"
 			if v.Write {
 				action = "scope.write"
