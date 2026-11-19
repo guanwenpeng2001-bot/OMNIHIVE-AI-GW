@@ -1,0 +1,57 @@
+{
+  "scope": "/api/v2/workspaces/w-fixture/projects/p-fixture",
+  "steps": [
+    {
+      "id": "J01",
+      "method": "GET",
+      "path": "{scope}/models?accessible=true&routable=true",
+      "status": 200,
+      "data": {"items": [{"id": "m-fixture", "model": "fixture/text", "access_state": "allowed", "route_state": "eligible", "price_state": "priced", "catalog_version": "cat-fixture"}]},
+      "checks": [["items.0.id", "m-fixture"], ["items.0.model", "fixture/text"], ["items.0.access_state", "allowed"], ["items.0.route_state", "eligible"], ["items.0.price_state", "priced"]]
+    },
+    {
+      "id": "J02",
+      "method": "POST",
+      "path": "{scope}/keys",
+      "headers": {"Idempotency-Key": "fixture-create-key"},
+      "body": {"name": "Release fixture", "model_access": {"mode": "allow_list", "ids": ["m-fixture"]}, "actions": ["text.chat"], "expires_at": null},
+      "status": 201,
+      "data": {"id": "k-fixture", "credential": "<redacted>"},
+      "checks": [["id", "k-fixture"], ["credential", "<redacted>"]]
+    },
+    {
+      "id": "J03",
+      "method": "POST",
+      "path": "{scope}/playground/runs",
+      "headers": {"Idempotency-Key": "fixture-run", "Accept": "application/json"},
+      "body": {"api_key_id": "k-fixture", "model_id": "m-fixture", "protocol": "openai_chat", "action": "text.chat", "input": {"messages": [{"role": "user", "content": "Fixture ping"}], "max_tokens": 128}, "options": {"stream": false, "include_raw_events": false}, "funding_acknowledged": true},
+      "status": 200,
+      "data": {"request_id": "r-fixture", "protocol": "openai_chat", "outcome": "succeeded", "output": {"choices": [{"message": {"content": "Fixture pong"}}]}, "detail_url": "{scope}/requests/r-fixture"},
+      "checks": [["request_id", "r-fixture"], ["protocol", "openai_chat"], ["outcome", "succeeded"], ["output.choices.0.message.content", "Fixture pong"], ["detail_url", "{scope}/requests/r-fixture"]]
+    },
+    {
+      "id": "J04",
+      "method": "GET",
+      "path": "{scope}/requests/r-fixture",
+      "status": 200,
+      "data": {"id": "r-fixture", "workspace_id": "w-fixture", "project_id": "p-fixture", "api_key_id": "k-fixture", "outcome": "succeeded", "attempts": [{"number": 1, "acceptance": "accepted"}], "usage": {"level": "observed"}, "billing": {"price_version": "pr-fixture", "receipt_state": "settled", "platform_charge": {"currency": "USD", "amount": "0.00225000"}}},
+      "checks": [["id", "r-fixture"], ["workspace_id", "w-fixture"], ["project_id", "p-fixture"], ["api_key_id", "k-fixture"], ["outcome", "succeeded"], ["attempts.0.number", 1], ["attempts.0.acceptance", "accepted"], ["usage.level", "observed"], ["billing.price_version", "pr-fixture"], ["billing.receipt_state", "settled"], ["billing.platform_charge", {"currency": "USD", "amount": "0.00225000"}]]
+    },
+    {
+      "id": "J05",
+      "method": "GET",
+      "path": "{scope}/billing/charges?from=2026-11-19T00:00:00Z&to=2026-11-20T00:00:00Z&timezone=UTC&currency=USD",
+      "status": 200,
+      "data": {"items": [{"request_id": "r-fixture", "settlement_id": "st-fixture", "price_version": "pr-fixture", "state": "settled", "platform_charge": {"currency": "USD", "amount": "0.00225000"}}]},
+      "checks": [["items.0.request_id", "r-fixture"], ["items.0.settlement_id", "st-fixture"], ["items.0.price_version", "pr-fixture"], ["items.0.state", "settled"], ["items.0.platform_charge", {"currency": "USD", "amount": "0.00225000"}]]
+    },
+    {
+      "id": "J06",
+      "method": "GET",
+      "path": "{scope}/requests/r-fixture/route-explain",
+      "status": 200,
+      "data": {"request_id": "r-fixture", "trace": {"mode": "execution", "policy_version": "policy-fixture", "candidates": [{"id": "excluded-fixture", "state": "excluded", "reasons": [{"code": "REGION_UNVERIFIED"}]}]}, "data_completeness": {"state": "complete"}},
+      "checks": [["request_id", "r-fixture"], ["trace.mode", "execution"], ["trace.policy_version", "policy-fixture"], ["trace.candidates.0.state", "excluded"], ["trace.candidates.0.reasons.0.code", "REGION_UNVERIFIED"], ["data_completeness.state", "complete"]]
+    }
+  ]
+}
