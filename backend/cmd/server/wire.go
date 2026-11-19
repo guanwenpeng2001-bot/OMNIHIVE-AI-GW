@@ -54,8 +54,6 @@ type Application struct {
 	Supervisor *process.Supervisor
 	Admission  *process.Admission
 	Audit      *audithttp.Handler
-	Deferred   *service.DeferredService
-	Wheel      *service.TimingWheelService
 
 	Status          *statushttp.Handler
 	ImageTaskCenter *taskhttp.Handler
@@ -70,9 +68,7 @@ type Application struct {
 
 func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supervisor *process.Supervisor) (*Application, error) {
 	wire.Build(
-		// Infrastructure layer ProviderSets
-
-		// Business layer ProviderSets
+		// Infrastructure and business providers
 		repository.ProviderSet,
 		runtimeServiceProviders,
 		securityaudit.ProviderSet,
@@ -113,7 +109,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		process.NewAdmission,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status", "Audit", "Supervisor", "Admission", "Wheel", "Deferred"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status", "Audit", "Supervisor", "Admission"),
 	)
 	return nil, nil
 }
@@ -198,6 +194,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 func provideCleanup(
 	entClient *ent.Client,
 	rdb *redis.Client,
+	wheel *service.TimingWheelService,
+	deferred *service.DeferredService,
+	restores *legacyrestore.Runtime,
 	opsMetricsCollector *service.OpsMetricsCollector,
 	opsAggregation *service.OpsAggregationService,
 	opsAlertEvaluator *service.OpsAlertEvaluatorService,
@@ -418,19 +417,6 @@ func provideCleanup(
 				emailQueue.Stop()
 				return nil
 			}},
-			{"BillingCacheService", func() error {
-				billingCache.Stop()
-				return nil
-			}},
-			{"UsageRecordWorkerPool", func() error {
-				if usageSettlement != nil {
-					usageSettlement.Stop()
-				}
-				if usageRecordWorkerPool != nil {
-					usageRecordWorkerPool.Stop()
-				}
-				return nil
-			}},
 			{"OAuthService", func() error {
 				oauth.Stop()
 				return nil
@@ -510,6 +496,37 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"UsageRecordWorkerPool", func() error {
+				if usageSettlement != nil {
+					usageSettlement.Stop()
+				}
+				if usageRecordWorkerPool != nil {
+					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"BillingCacheService", func() error {
+				billingCache.Stop()
+				return nil
+			}},
+			{"DeferredAccountUpdates", func() error {
+				if deferred != nil {
+					deferred.Stop()
+				}
+				return nil
+			}},
+			{"RestoreConnections", func() error {
+				if restores != nil {
+					restores.Close()
+				}
+				return nil
+			}},
+			{"TimingWheel", func() error {
+				if wheel != nil {
+					wheel.Stop()
+				}
+				return nil
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

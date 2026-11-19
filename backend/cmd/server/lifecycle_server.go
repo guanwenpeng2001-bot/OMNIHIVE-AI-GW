@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -21,6 +24,17 @@ import (
 
 var auditWriteFailures = expvar.NewInt("audit_observation_write_failures")
 var auditSweepFailures = expvar.NewInt("audit_retention_sweep_failures")
+
+var servingObserver atomic.Pointer[audit.Observer]
+
+func init() {
+	expvar.Publish("audit_observations_dropped", expvar.Func(func() any {
+		if observer := servingObserver.Load(); observer != nil {
+			return observer.Dropped()
+		}
+		return uint64(0)
+	}))
+}
 
 func checkDependencies(ctx context.Context, cfg *config.Config) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -44,6 +58,10 @@ func checkDependencies(ctx context.Context, cfg *config.Config) error {
 func configureLifecycle(app *Application) {
 	s := app.Supervisor
 	var degraded []string
+	var recoveryFailed atomic.Bool
+	if app.Restores.Journal == nil && s.Mode != process.Gateway {
+		degraded = append(degraded, "restore")
+	}
 	if s.Mode.Serving() {
 		for _, component := range []struct {
 			name  string
@@ -54,6 +72,7 @@ func configureLifecycle(app *Application) {
 				log.Printf("%s startup degraded: %v", component.name, err)
 			}
 		}
+		servingObserver.Store(app.Audit.Observer)
 		s.Add(func(ctx context.Context) {
 			app.Audit.Observer.Run(ctx, app.Audit.Store, func() { auditWriteFailures.Add(1) })
 		})
@@ -62,11 +81,17 @@ func configureLifecycle(app *Application) {
 		s.Add(app.Status.RunCollector)
 		s.Add(func(ctx context.Context) { app.Audit.Store.RunRetention(ctx, func() { auditSweepFailures.Add(1) }) })
 		if app.Restores.Journal != nil {
-			s.Add(func(ctx context.Context) { stop := app.Restores.StartWorker(ctx); <-ctx.Done(); stop() })
+			s.Add(func(ctx context.Context) {
+				stop := app.Restores.StartWorker(ctx)
+				<-ctx.Done()
+				stop()
+			})
 		}
 		s.Add(func(ctx context.Context) {
 			process.Every(ctx, 5*time.Minute, func(ctx context.Context) {
-				if err := app.ImageTaskCenter.Store.Recover(ctx); err != nil && ctx.Err() == nil {
+				err := app.ImageTaskCenter.Store.Recover(ctx)
+				recoveryFailed.Store(err != nil && ctx.Err() == nil)
+				if recoveryFailed.Load() {
 					log.Print("image task recovery failed")
 				}
 			})
@@ -75,13 +100,23 @@ func configureLifecycle(app *Application) {
 	if runner := app.ImageTaskCenter.Store.Runner; runner != nil {
 		app.ImageTaskCenter.Store.Runner = &taskRunner{runner, app.Admission}
 	}
-	ready := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.Admission.Ready)
+	probe := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.Admission.Ready)
+	ready := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		names := degraded
+		if recoveryFailed.Load() {
+			names = slices.Concat(degraded, []string{"image-task-recovery"})
+		}
+		if len(names) != 0 {
+			w.Header().Set("X-OmniHive-Degraded", strings.Join(names, ","))
+		}
+		probe.ServeHTTP(w, r)
+	})
 	app.Server.ConnContext = app.Admission.ConnContext
 	app.Server.ConnState = app.Admission.ConnState
-	app.Server.Handler = app.Admission.Wrap(roleHandler(s.Mode, ready, strings.Join(degraded, ","), app.Server.Handler))
+	app.Server.Handler = app.Admission.Wrap(roleHandler(s.Mode, ready, app.Server.Handler))
 }
 
-func roleHandler(mode process.Mode, ready http.Handler, degraded string, next http.Handler) http.Handler {
+func roleHandler(mode process.Mode, ready, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.URL.RawPath != "" {
@@ -90,9 +125,6 @@ func roleHandler(mode process.Mode, ready http.Handler, degraded string, next ht
 		if path == "/ready" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("X-OmniHive-Mode", string(mode))
-			if degraded != "" {
-				w.Header().Set("X-OmniHive-Degraded", degraded)
-			}
 			ready.ServeHTTP(w, r)
 			return
 		}
@@ -211,12 +243,6 @@ func shutdownApplication(ctx context.Context, app *Application) error {
 			<-app.Supervisor.Stop()
 		}
 		<-joined
-		if app.Restores != nil {
-			app.Restores.Close()
-		}
-		if app.Deferred != nil {
-			app.Deferred.Stop()
-		}
 		app.Cleanup()
 	}()
 	select {

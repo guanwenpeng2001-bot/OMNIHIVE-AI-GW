@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"log"
+	"time"
+
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	process "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
-	"log"
-	"time"
 )
 
 func provideOpsAggregationService(s *process.Supervisor, opsRepo service.OpsRepository,
@@ -337,11 +338,10 @@ func provideSchedulerSnapshotService(s *process.Supervisor, cache service.Schedu
 func provideConcurrencyService(s *process.Supervisor, cache service.ConcurrencyCache, cfg *config.Config) *service.ConcurrencyService {
 	svc := service.NewConcurrencyService(cache)
 	svc.SetAccountLoadBatchCacheTTL(time.Duration(cfg.Gateway.Scheduling.LoadBatchCacheTTLMS) * time.Millisecond)
-	s.Add(func(ctx context.Context) {
-		if err := svc.CleanupStaleProcessSlots(ctx); err != nil && ctx.Err() == nil {
-			log.Print("stale slot cleanup failed")
-		}
-		if interval := cfg.Gateway.Scheduling.SlotCleanupInterval; s.Mode.Workers() && interval > 0 {
+	// Process prefixes identify ownership, not liveness. Other gateway and all
+	// replicas can hold active slots when this process starts or restarts.
+	if interval := cfg.Gateway.Scheduling.SlotCleanupInterval; s.Mode.Workers() && interval > 0 {
+		s.Add(func(ctx context.Context) {
 			process.Every(ctx, interval, func(ctx context.Context) {
 				run, cancel := context.WithTimeout(ctx, 5*time.Second)
 				defer cancel()
@@ -349,8 +349,8 @@ func provideConcurrencyService(s *process.Supervisor, cache service.ConcurrencyC
 					log.Print("expired account slot cleanup failed")
 				}
 			})
-		}
-	})
+		})
+	}
 	return svc
 }
 

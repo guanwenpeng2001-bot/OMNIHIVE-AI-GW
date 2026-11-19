@@ -424,7 +424,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	channelMonitorRunner := provideChannelMonitorRunner(supervisor, channelMonitorService, settingService, channelMonitorQuotaFetcher)
 	channelMonitorV2Aggregator := provideChannelMonitorV2Aggregator(supervisor, channelMonitorV2Repository, db, settingService)
 	userPlatformQuotaUsageFlusher := provideUserPlatformQuotaUsageFlusher(supervisor, cfg, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, usageSettlementService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
+	v := provideCleanup(client, redisClient, timingWheelService, deferredService, be09Runtime, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, usageSettlementService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	admission := runtime.NewAdmission()
 	application := &Application{
 		Server:          httpServer,
@@ -439,8 +439,6 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		Audit:           auditHandler,
 		Supervisor:      supervisor,
 		Admission:       admission,
-		Wheel:           timingWheelService,
-		Deferred:        deferredService,
 	}
 	return application, nil
 }
@@ -451,8 +449,6 @@ type Application struct {
 	Supervisor *runtime.Supervisor
 	Admission  *runtime.Admission
 	Audit      *audit.Handler
-	Deferred   *service.DeferredService
-	Wheel      *service.TimingWheelService
 
 	Status          *status.Handler
 	ImageTaskCenter *tasks.Handler
@@ -544,6 +540,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 func provideCleanup(
 	entClient *ent.Client,
 	rdb *redis.Client,
+	wheel *service.TimingWheelService,
+	deferred *service.DeferredService,
+	restores *be09.Runtime,
 	opsMetricsCollector *service.OpsMetricsCollector,
 	opsAggregation *service.OpsAggregationService,
 	opsAlertEvaluator *service.OpsAlertEvaluatorService,
@@ -763,19 +762,6 @@ func provideCleanup(
 				emailQueue.Stop()
 				return nil
 			}},
-			{"BillingCacheService", func() error {
-				billingCache.Stop()
-				return nil
-			}},
-			{"UsageRecordWorkerPool", func() error {
-				if usageSettlement != nil {
-					usageSettlement.Stop()
-				}
-				if usageRecordWorkerPool != nil {
-					usageRecordWorkerPool.Stop()
-				}
-				return nil
-			}},
 			{"OAuthService", func() error {
 				oauth.Stop()
 				return nil
@@ -855,6 +841,37 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"UsageRecordWorkerPool", func() error {
+				if usageSettlement != nil {
+					usageSettlement.Stop()
+				}
+				if usageRecordWorkerPool != nil {
+					usageRecordWorkerPool.Stop()
+				}
+				return nil
+			}},
+			{"BillingCacheService", func() error {
+				billingCache.Stop()
+				return nil
+			}},
+			{"DeferredAccountUpdates", func() error {
+				if deferred != nil {
+					deferred.Stop()
+				}
+				return nil
+			}},
+			{"RestoreConnections", func() error {
+				if restores != nil {
+					restores.Close()
+				}
+				return nil
+			}},
+			{"TimingWheel", func() error {
+				if wheel != nil {
+					wheel.Stop()
+				}
+				return nil
+			}},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

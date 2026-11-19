@@ -26,6 +26,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -52,7 +53,7 @@ type childServer struct {
 	log  string
 }
 
-func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pricing string) *childServer {
+func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pricing, startupError string, overrides ...string) *childServer {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -70,12 +71,17 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 	case "env":
 		roleEnv = mode
 	case "flag":
+		roleEnv = "control"
 		roleFlag = mode
 	case "default":
 	default:
 		t.Fatal(source)
 	}
-	require.NoError(t, os.WriteFile(cfg, []byte(fmt.Sprintf("runtime:\n  mode: %s\n", roleConfig)), 0600))
+	contents := ""
+	if source != "default" {
+		contents = fmt.Sprintf("runtime:\n  mode: %s\n", roleConfig)
+	}
+	require.NoError(t, os.WriteFile(cfg, []byte(contents), 0600))
 	exe, err := os.Executable()
 	require.NoError(t, err)
 	cmd := exec.Command(exe, "-test.run=^TestRuntimeProcessEntry$")
@@ -83,6 +89,8 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 	password, _ := dsn.User.Password()
 	cmd.Env = append(os.Environ(), "BE22_CHILD=1", "BE22_FLAG="+roleFlag, "OMNIHIVE_RUNTIME_MODE="+roleEnv,
 		"CONFIG_FILE="+cfg, "OMNIHIVE_DATA_DIR="+dir, "SKIP_SETUP=true", "SERVER_HOST=127.0.0.1", "SERVER_PORT="+strconv.Itoa(port), "DATABASE_HOST="+dsn.Hostname(), "DATABASE_PORT="+dsn.Port(), "DATABASE_USER="+dsn.User.Username(), "DATABASE_PASSWORD="+password, "DATABASE_DBNAME=job_test", "DATABASE_SSLMODE=disable", "REDIS_HOST=127.0.0.1", "REDIS_PORT="+redisPort, "LOG_OUTPUT_TO_FILE=false", "PRICING_DATA_DIR="+pricing, "PRICING_HASH_URL=", "PRICING_REMOTE_URL=https://127.0.0.1:1/prices", "PLUGINS_ROOT_DIR="+dir)
+	cmd.Env = append(cmd.Env, "OMNIHIVE_RESTORE_JOURNAL_DSN=", "OMNIHIVE_RESTORE_ISOLATED_DSN=")
+	cmd.Env = append(cmd.Env, overrides...)
 	p := &childServer{cmd: cmd, base: "http://" + addr, done: make(chan struct{}), log: filepath.Join(dir, "server.log")}
 	f, err := os.Create(p.log)
 	require.NoError(t, err)
@@ -106,7 +114,14 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 	for {
 		select {
 		case <-p.done:
-			p.fail(t, "startup exited")
+			if startupError == "" {
+				p.fail(t, "startup exited")
+			}
+			require.Error(t, p.err)
+			raw, err := os.ReadFile(p.log)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), startupError)
+			return p
 		case <-deadline.C:
 			p.fail(t, "readiness deadline")
 		case <-time.After(100 * time.Millisecond):
@@ -117,7 +132,11 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 			}
 			res.Body.Close()
 			if res.StatusCode == 200 {
+				require.Empty(t, startupError, "an unavailable required dependency became ready")
 				require.Equal(t, mode, res.Header.Get("X-OmniHive-Mode"))
+				if mode != "gateway" {
+					require.Contains(t, res.Header.Get("X-OmniHive-Degraded"), "restore")
+				}
 				return p
 			}
 		}
@@ -129,7 +148,7 @@ func (p *childServer) fail(t *testing.T, reason string) {
 	if len(raw) > 2500 {
 		raw = raw[len(raw)-2500:]
 	}
-	t.Fatalf("%s (%v)\n%s", reason, p.err, raw)
+	t.Fatalf("%s\n%s", reason, raw)
 }
 func (p *childServer) stop(t *testing.T, sig os.Signal) {
 	t.Helper()
@@ -152,6 +171,7 @@ func (p *childServer) request(t *testing.T, status int, method, path, token, bod
 	}
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", uuid.NewString())
 	}
 	client := http.Client{Timeout: 5 * time.Second}
 	res, err := client.Do(req)
@@ -175,7 +195,17 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	raw, err := os.ReadFile("../../resources/model-pricing/model_prices_and_context_window.json")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(pricing, "model_prices_and_context_window.json"), raw, 0600))
-	start := func(mode, source string) *childServer { return startChild(t, mode, source, dsn, redisPort, pricing) }
+	for _, tc := range []struct{ name, message, override string }{
+		{"postgres", "required PostgreSQL dependency unavailable", "DATABASE_PORT=1"},
+		{"redis", "required Redis dependency unavailable", "REDIS_PORT=1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			startChild(t, "worker", "flag", dsn, redisPort, pricing, tc.message, tc.override)
+		})
+	}
+	start := func(mode, source string) *childServer {
+		return startChild(t, mode, source, dsn, redisPort, pricing, "")
+	}
 	all := start("all", "default")
 	groupName := "be22-" + uuid.NewString()
 	email := groupName + "@example.test"
@@ -186,14 +216,16 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	require.NoError(t, db.QueryRow("INSERT INTO users(email,password_hash,role,balance) VALUES ($1,$2,'admin',100) RETURNING id", email, string(hash)).Scan(&user))
 	require.NoError(t, db.QueryRow("INSERT INTO groups(name,platform) VALUES ($1,'openai') RETURNING id", groupName).Scan(&group))
 	secret := uuid.NewString()
-	require.NoError(t, db.QueryRow("INSERT INTO api_keys(user_id,group_id,key,name) VALUES($1,$2,$3,'BE-22') RETURNING id", user, group, secret).Scan(&key))
+	require.NoError(t, db.QueryRow("INSERT INTO api_keys(user_id,group_id,name) VALUES($1,$2,'BE-22') RETURNING id", user, group).Scan(&key))
+	_, err = db.Exec("INSERT INTO api_key_credentials(workspace_id,api_key_id,credential_digest,display_suffix,status) VALUES(1,$1,$2,'test','current')", key, service.APIKeyCredentialDigest(secret))
+	require.NoError(t, err)
 	require.NoError(t, db.QueryRow("INSERT INTO accounts(name,platform,type) VALUES($1,'openai','apikey') RETURNING id", groupName).Scan(&account))
 	_, err = db.Exec("INSERT INTO user_subscriptions(user_id,group_id,starts_at,expires_at) VALUES ($1,$2,now(),now()+interval '1 day')", user, group)
 	require.NoError(t, err)
 	batchID := "batch-" + uuid.NewString()
 	_, err = db.Exec("INSERT INTO batch_image_jobs(batch_id,user_id,api_key_id,provider,model,status,item_count) VALUES ($1,$2,$3,'gemini','runtime-model','completed',1)", batchID, user, key)
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO sub2api_plugin_installations(plugin_key,name,version,artifact_path,install_path,binary_path,binary_sha256) VALUES ($1,$1,'1.0','unused','unused','unused',repeat('0',64))", groupName)
+	_, err = db.Exec("INSERT INTO sub2api_plugin_installations(plugin_key,name,version,artifact_path,install_path,binary_path,binary_sha256,manifest) VALUES ($1::text,$1::text,'1.0','unused','unused','unused',repeat('0',64),jsonb_build_object('schema_version',1,'id',$1::text,'capabilities',jsonb_build_array()))", groupName)
 	require.NoError(t, err)
 	payload, _ := json.Marshal(map[string]string{"email": email, "password": password})
 	response := all.request(t, 200, "POST", "/api/v1/auth/login", "", string(payload))
@@ -216,12 +248,54 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	}
 	retained(all, all)
 	all.stop(t, syscall.SIGTERM)
+	// A rolling restart must preserve another process's unexpired concurrency slot.
+	cache := redis.NewClient(&redis.Options{Addr: os.Getenv("AFFINITY_REDIS_TEST_ADDR")})
+	t.Cleanup(func() { _ = cache.Close() })
+	slots := repository.NewConcurrencyCache(cache, 10, 30)
+	ctx := t.Context()
+	held, err := slots.AcquireAccountSlot(ctx, account, 1, groupName)
+	require.NoError(t, err)
+	require.True(t, held)
+	defer slots.ReleaseAccountSlot(ctx, account, groupName)
 	control := start("control", "yaml")
 	gateway := start("gateway", "env")
 	retained(control, gateway)
 	control.request(t, 404, "GET", "/v1/images/batches", secret, "")
 	gateway.request(t, 404, "GET", "/api/v1/subscriptions", token, "")
+	// Publish a second key in control and use its one-time credential on gateway.
+	var issued struct {
+		Data struct {
+			Secret string
+			APIKey struct{ ID int64 } `json:"api_key"`
+		}
+	}
+	body := control.request(t, 200, "POST", "/api/v1/keys", token, fmt.Sprintf(`{"name":"published","group_id":%d}`, group))
+	require.NoError(t, json.Unmarshal([]byte(body), &issued))
+	require.NotEmpty(t, issued.Data.Secret)
+	gateway.request(t, 200, "GET", "/v1/images/batches", issued.Data.Secret, "")
+	control.request(t, 200, "DELETE", fmt.Sprintf("/api/v1/keys/%d", issued.Data.APIKey.ID), token, "")
+	gateway.request(t, 401, "GET", "/v1/images/batches", issued.Data.Secret, "")
+
+	taskID := "be22-" + uuid.NewString()
+	_, err = db.Exec(`INSERT INTO image_tasks(id,workspace_id,project_id,actor_id,owner_id,funding_user_id,api_key_id,source,source_id,model,state,acceptance,generation,lease_owner,lease_until,replay_input,input_until)
+		SELECT $1,workspace_id,id,$2,$2,$2,$3,'gateway',$1,'model','running','unknown',1,'lost',now()-interval '1 second','expired',now()-interval '1 second'
+		FROM projects WHERE workspace_id=1 AND is_default`, taskID, user, key)
+	require.NoError(t, err)
 	requestID := queueReceipt(t, db, user, key, account)
+	// Hold the receipt row so process death occurs inside real financial recovery.
+	lock, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer lock.Rollback()
+	var lockerPID int
+	require.NoError(t, lock.QueryRow("SELECT pg_backend_pid() FROM usage_settlement_receipts WHERE request_id=$1 FOR UPDATE", requestID).Scan(&lockerPID))
+	awaitBlocked := func() {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			var blocked bool
+			err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)) AND query LIKE '%usage_settlement_receipts%')`, lockerPID).Scan(&blocked)
+			return err == nil && blocked
+		}, 25*time.Second, 100*time.Millisecond)
+	}
 	var state string
 	check := func() string {
 		t.Helper()
@@ -230,18 +304,34 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	}
 	require.Equal(t, "pending", check())
 	worker := start("worker", "flag")
-	peer := start("worker", "env")
+	awaitBlocked()
 	worker.request(t, 404, "GET", "/v1/models", secret, "")
-	peer.request(t, 404, "GET", "/api/v1/user/profile", token, "")
 	worker.stop(t, os.Kill)
+	require.Equal(t, "pending", check())
 	restarted := start("worker", "yaml")
+	peer := start("worker", "env")
+	peer.request(t, 404, "GET", "/api/v1/user/profile", token, "")
+	awaitBlocked()
+	require.NoError(t, lock.Rollback())
 	require.Eventually(t, func() bool { return check() == "settled" }, 25*time.Second, 100*time.Millisecond)
+	var taskState string
+	var generation int
+	var expired bool
+	require.NoError(t, db.QueryRow(`SELECT state,generation,replay_input IS NULL FROM image_tasks WHERE id=$1`, taskID).Scan(&taskState, &generation, &expired))
+	require.Equal(t, "unknown", taskState)
+	require.Equal(t, 2, generation)
+	require.True(t, expired)
+	active, err := slots.GetAccountConcurrency(ctx, account)
+	require.NoError(t, err)
+	require.Equal(t, 1, active)
 	var balance float64
 	var count int
 	require.NoError(t, db.QueryRow("SELECT balance FROM users WHERE id=$1", user).Scan(&balance))
 	require.Equal(t, 99.0, balance)
 	require.NoError(t, db.QueryRow("SELECT count(*) FROM usage_logs WHERE request_id=$1 AND api_key_id=$2", requestID, key).Scan(&count))
 	require.Equal(t, 1, count)
+	control.request(t, 200, "DELETE", fmt.Sprintf("/api/v1/keys/%d", key), token, "")
+	gateway.request(t, 401, "GET", "/v1/images/batches", secret, "")
 	for _, p := range []*childServer{restarted, peer, gateway, control} {
 		p.stop(t, syscall.SIGTERM)
 	}
