@@ -1064,7 +1064,7 @@ export default {
       upstreamRequestIdHeaderHelp: {
         intro: '填写直接上游在响应头中声明请求标识的头名，记录到用量明细的“上游ID”列；留空则不记录。',
         examplesTitle: '常见取值',
-        sub2apiNote: '对应对方用量明细的请求ID列',
+        omnihiveNote: '对应对方用量明细的请求ID列',
         official: '{platform} 官方 API'
       },
       // OpenAI specific hints

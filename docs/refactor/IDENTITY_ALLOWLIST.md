@@ -9,8 +9,8 @@ The root [NOTICE](../../NOTICE) credits the inherited source alongside the exist
 | License / attribution | 13 |
 | Persisted compatibility | 495 |
 | Historical docs | 218 |
-| Defect | 49 |
-| **Total** | **775** |
+| Defect | 14 |
+| **Total** | **740** |
 
 ## License / attribution
 
@@ -264,31 +264,16 @@ The root [NOTICE](../../NOTICE) credits the inherited source alongside the exist
 
 ## Defect
 
-FE-WP1 owns the logo, main entry-point predicate, auth view fallbacks and setup wizard. The wizard controls the initial database name and placeholder. Keep D08 storage keys on their existing identifiers until the adapter migration.
+FE-WP1 owns the logo, shell bootstrap and router, and setup wizard. The wizard controls the initial database name and placeholder. D08 storage keys retain their existing identifiers until the adapter migration.
 
-FE-WP4 owns the account export basename, account UI copy and request-ID translation keys. Remove the external proxy advertisement with its call sites in ProxiesView, CreateAccountModal and EditAccountModal. Account import continues accepting the historical discriminators during archive migration.
+FE-WP4 owns the account export filename and account page copy. The proxy surfaces link to the OmniHive deployment guide. Account import continues accepting the historical discriminators during archive migration.
 
 | File | Lines | Reason |
 | --- | --- | --- |
 | `frontend/public/logo.svg` | 2 | FE-WP1 shell copy |
-| `frontend/src/components/account/AccountUsageCell.vue` | 361, 389 | FE-WP4 account labels and export filename |
 | `frontend/src/components/account/CreateAccountModal.vue` | 1459, 1757 | FE-WP4 account labels and export filename |
 | `frontend/src/components/account/EditAccountModal.vue` | 498, 947 | FE-WP4 account labels and export filename |
-| `frontend/src/components/account/UpstreamRequestIdHeaderField.vue` | 35 | FE-WP4 paired translation key and component/test references |
-| `frontend/src/components/account/__tests__/UpstreamRequestIdHeaderField.spec.ts` | 33 | FE-WP4 paired translation key and component/test references |
-| `frontend/src/components/common/ProxyAdBanner.vue` | 4 | FE-WP4 retiring the banner and its three call sites |
-| `frontend/src/components/layout/README.md` | 3 | FE-WP1 shell copy |
-| `frontend/src/i18n/locales/en/admin/accounts.ts` | 979 | FE-WP4 paired translation key and component/test references |
-| `frontend/src/i18n/locales/zh/admin/accounts.ts` | 1067 | FE-WP4 paired translation key and component/test references |
 | `frontend/src/main.ts` | 48 | FE-WP1 shell copy |
-| `frontend/src/router/README.md` | 5 | FE-WP1 shell copy |
 | `frontend/src/router/index.ts` | 5 | FE-WP1 shell copy |
-| `frontend/src/stores/README.md` | 3 | FE-WP1 shell copy |
 | `frontend/src/views/admin/AccountsView.vue` | 339, 395, 2369 | FE-WP4 account labels and export filename |
-| `frontend/src/views/auth/EmailVerifyView.vue` | 283, 388 | FE-WP1 setup/auth copy and fixtures |
-| `frontend/src/views/auth/README.md` | 3 | FE-WP1 setup/auth copy and fixtures |
-| `frontend/src/views/auth/USAGE_EXAMPLES.md` | 3, 64 | FE-WP1 setup/auth copy and fixtures |
-| `frontend/src/views/auth/VISUAL_GUIDE.md` | 14, 42, 136, 142 | FE-WP1 setup/auth copy and fixtures |
-| `frontend/src/views/auth/__tests__/EmailVerifyView.spec.ts` | 65, 130, 144, 238, 282, 317, 352, 390, 433, 471, 513, 620, 692, 749, 851 | FE-WP1 setup/auth copy and fixtures |
-| `frontend/src/views/auth/__tests__/RegisterView.spec.ts` | 29 | FE-WP1 setup/auth copy and fixtures |
 | `frontend/src/views/setup/SetupWizardView.vue` | 17–18, 144, 560 | FE-WP1 setup/auth copy and fixtures |

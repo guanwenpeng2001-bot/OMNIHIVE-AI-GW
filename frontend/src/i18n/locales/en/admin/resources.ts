@@ -47,9 +47,7 @@ export default {
       createProxy: 'Create Proxy',
       editProxy: 'Edit Proxy',
       deleteProxy: 'Delete Proxy',
-      ad: {
-        inline: 'Need proxy IP?'
-      },
+      setupGuide: 'Proxy setup guide',
       deleteConfirmMessage: "Are you sure you want to delete proxy '{name}'?",
       testProxy: 'Test Proxy',
       dataImport: 'Import',
