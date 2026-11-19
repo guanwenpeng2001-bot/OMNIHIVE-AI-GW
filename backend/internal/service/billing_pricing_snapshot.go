@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 )
@@ -348,13 +350,17 @@ func (s PricingSnapshot) exactLeaf() (pricing.Frozen, error) {
 		if err != nil {
 			return err
 		}
-		r, err := money.NewRate("USD", strconv.FormatFloat(rate, 'f', -1, 64), unit, "1")
+		text, err := exactLegacyDecimal(rate, 18)
+		if err != nil {
+			return err
+		}
+		r, err := money.NewRate("USD", text, unit, "1")
 		if err != nil {
 			return err
 		}
 		rule := pricing.Rule{Kind: kind, Rate: r}
 		for _, factor := range factors {
-			a, err := money.Parse(strconv.FormatFloat(factor, 'f', -1, 64))
+			a, err := exactLegacyMultiplier(factor)
 			if err != nil {
 				return err
 			}
@@ -364,7 +370,7 @@ func (s PricingSnapshot) exactLeaf() (pricing.Frozen, error) {
 		f.Usage.Dimensions = append(f.Usage.Dimensions, pricing.Dimension{Kind: kind, Quantity: q})
 		return nil
 	}
-	rateMultiplier, err := money.Parse(strconv.FormatFloat(s.RateMultiplier, 'f', -1, 64))
+	rateMultiplier, err := exactLegacyMultiplier(s.RateMultiplier)
 	if err != nil {
 		return pricing.Frozen{}, err
 	}
@@ -377,7 +383,7 @@ func (s PricingSnapshot) exactLeaf() (pricing.Frozen, error) {
 		factors = append(factors, s.AdjustmentMultiplier)
 	}
 	for _, factor := range factors {
-		a, err := money.Parse(strconv.FormatFloat(factor, 'f', -1, 64))
+		a, err := exactLegacyMultiplier(factor)
 		if err != nil {
 			return pricing.Frozen{}, err
 		}
@@ -467,4 +473,25 @@ func (s PricingSnapshot) exactLeaf() (pricing.Frozen, error) {
 		}
 	}
 	return f, nil
+}
+
+func exactLegacyMultiplier(value float64) (money.Amount, error) {
+	text, err := exactLegacyDecimal(value, 10)
+	if err != nil {
+		return money.Amount{}, err
+	}
+	return money.Parse(text)
+}
+
+func exactLegacyDecimal(value float64, scale int32) (string, error) {
+	if !validBillingNumber(value) {
+		return "", ErrInvalidBillingAmount
+	}
+	// Old float cards can have tails from unit conversion. Normalize them
+	// once to the exact storage scale before pricing any usage.
+	d := decimal.NewFromFloat(value).Round(scale)
+	if value != 0 && d.IsZero() {
+		return "", money.ErrBounds
+	}
+	return d.String(), nil
 }
