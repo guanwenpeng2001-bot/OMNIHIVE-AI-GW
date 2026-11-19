@@ -19,7 +19,7 @@ func Logger() gin.HandlerFunc {
 		startTime := time.Now()
 
 		// 请求路径
-		path := redactPluginUIPath(c.Request.URL.Path)
+		path := accessLogPath(c)
 		if _, private := playgroundAuditActions[c.Request.Method+" "+c.FullPath()]; private {
 			path = c.FullPath()
 		}
@@ -37,6 +37,14 @@ func Logger() gin.HandlerFunc {
 
 		method := c.Request.Method
 		statusCode := c.Writer.Status()
+		if isWorkspaceV2(c) {
+			// Request paths, arbitrary Gin errors and client-supplied context labels
+			// can contain tickets or request content. The matched route is static.
+			logger.FromContext(c.Request.Context()).Info("http request completed",
+				zap.String("component", "http.access"), zap.String("path", path),
+				zap.Int("status_code", statusCode), zap.Int64("latency_ms", latency.Milliseconds()))
+			return
+		}
 		clientIP := ip.GetClientIP(c)
 		protocol := c.Request.Proto
 		accountID, hasAccountID := c.Request.Context().Value(ctxkey.AccountID).(int64)
@@ -90,6 +98,20 @@ func Logger() gin.HandlerFunc {
 			l.Warn("http request contains gin errors", zap.String("errors", c.Errors.String()))
 		}
 	}
+}
+
+func isWorkspaceV2(c *gin.Context) bool {
+	return strings.HasPrefix(c.Request.URL.Path, "/api/v2/workspaces/")
+}
+
+func accessLogPath(c *gin.Context) string {
+	if isWorkspaceV2(c) {
+		if path := c.FullPath(); path != "" {
+			return path
+		}
+		return "/api/v2/workspaces/"
+	}
+	return redactPluginUIPath(c.Request.URL.Path)
 }
 
 // redactPluginUIPath removes the capability token from log fields without

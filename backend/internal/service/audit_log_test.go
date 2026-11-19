@@ -15,7 +15,7 @@ func TestMaskAuditCredential(t *testing.T) {
 		{"empty", "", ""},
 		{"short", "abc", "****"},
 		{"boundary_14", "12345678901234", "****"},
-		{"long", "sk-ant-api03-abcdefghijklmnop1234", "sk-ant****1234"},
+		{"long", "sk-ant-api03-abcdefghijklmnop1234", "****"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,9 +53,9 @@ func TestRedactAuditBody_JSONRedactsSecrets(t *testing.T) {
 			t.Fatalf("redacted body still contains secret %q: %s", secret, out)
 		}
 	}
-	// 非敏感字段（base_url、name）保留以便追责。
-	if !strings.Contains(out, "evil.example.com") {
-		t.Fatalf("base_url should be preserved for accountability: %s", out)
+	// Destination URLs must not be persisted in the audit trail.
+	if strings.Contains(out, "evil.example.com") {
+		t.Fatalf("destination URL leaked into audit: %s", out)
 	}
 	if !strings.Contains(out, "acc1") {
 		t.Fatalf("name should be preserved: %s", out)

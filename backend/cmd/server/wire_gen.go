@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	audit2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byok2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
@@ -27,6 +28,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-05"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
@@ -382,7 +384,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	requestsHandler := requestsHandlerProvider(db, store, configConfig)
 	billingHandler := billingHandlerProvider(db, store, totpService, configConfig)
 	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, store, configConfig)
-	operations := provideIdentityOperations(connectionsStore, runtime, requestsHandler, billingHandler, byokStore)
+	auditStore := auditStoreProvider(db, store)
+	operations := provideIdentityOperations(connectionsStore, runtime, requestsHandler, billingHandler, byokStore, auditStore)
 	identityHandler := identity.New(store, operations, configConfig)
 	connectionsHandler := connections2.New(connectionsStore)
 	postgresStore := postgres2.New(db)
@@ -395,6 +398,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	playgroundHandler := playgroundHandlerProvider(db, store, store, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, configConfig)
 	statusHandler := statusHandlerProvider(db, store, configConfig, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
+	observer := auditObserverProvider()
+	auditHandler := auditHandlerProvider(auditStore, observer, configConfig)
 	tasksHandler := handler.ProvideImageTaskCenter(db, configConfig, store, store, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
@@ -402,7 +407,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, auditHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -478,6 +483,16 @@ func playgroundHandlerProvider(
 	}, cfg.TrustForwardedIPForAPIKeyACL())
 }
 
+func auditStoreProvider(db *sql.DB, access *postgres.Store) *audit.Store {
+	return audit.New(db, access)
+}
+
+func auditObserverProvider() *audit.Observer { return audit.NewObserver() }
+
+func auditHandlerProvider(store *audit.Store, observer *audit.Observer, cfg *config.Config) *audit2.Handler {
+	return audit2.New(store, observer, cfg)
+}
+
 func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identity2.AccessEvaluator, cfg *config.Config) *byok.Store {
 	return byok.New(db, enc, probe, access, []byte(cfg.JWT.Secret))
 }
@@ -494,8 +509,8 @@ func billingHandlerProvider(db *sql.DB, store *postgres.Store, totp *service.Tot
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *be09.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store) identity2.Operations {
-	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3}}
+func provideIdentityOperations(store *connections.Store, restores *be09.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store, audit3 *audit.Store) identity2.Operations {
+	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3, audit3}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

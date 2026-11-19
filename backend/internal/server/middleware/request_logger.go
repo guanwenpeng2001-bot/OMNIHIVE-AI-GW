@@ -23,7 +23,7 @@ func RequestLogger() gin.HandlerFunc {
 
 		_, playground := playgroundAuditActions[c.Request.Method+" "+c.FullPath()]
 		requestID, validRequestID := normalizeCorrelationID(c.GetHeader(requestIDHeader))
-		if !validRequestID || playground {
+		if !validRequestID || playground || isWorkspaceV2(c) {
 			requestID = uuid.NewString()
 		}
 		c.Header(requestIDHeader, requestID)
@@ -31,8 +31,14 @@ func RequestLogger() gin.HandlerFunc {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestID, requestID)
 		clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
 		clientRequestID, _ = normalizeCorrelationID(clientRequestID)
+		if isWorkspaceV2(c) {
+			clientRequestID = ""
+		}
 
-		path := redactPluginUIPath(c.Request.URL.Path)
+		path := accessLogPath(c)
+		if playground {
+			path = c.FullPath()
+		}
 		if playground {
 			path = c.FullPath()
 		}

@@ -746,6 +746,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** List redacted project events from newest to oldest */
+        get: operations["listScopedAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+            };
+            cookie?: never;
+        };
+        /** Read one event with audit.read */
+        get: operations["getScopedAuditEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a 15-minute actor-bound metadata export with audit.read and audit.export */
+        post: operations["exportScopedAuditEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/events/{id}/exports/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        /** Download the current metadata projection */
+        get: operations["downloadScopedAuditEvent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** Read the project retention periods with audit.read */
+        get: operations["getScopedAuditRetention"];
+        /** Set the project retention periods with audit.retention.write */
+        put: operations["setScopedAuditRetention"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/activity": {
         parameters: {
             query?: never;
@@ -782,6 +887,49 @@ export interface paths {
         put?: never;
         /** Append a wallet correction with a verified session */
         post: operations["postBillingAdjustment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/adjustments/{id}/payment-evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PaymentAdjustmentID"];
+            };
+            cookie?: never;
+        };
+        /** Read reviewed entitlement links for a project adjustment */
+        get: operations["listPaymentAdjustmentEvidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/adjustments/{id}/payment-evidence/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PaymentAdjustmentID"];
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Attach same-payer evidence using a session step-up and billing adjustment grant */
+        put: operations["linkPaymentAdjustmentEvidence"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2714,6 +2862,23 @@ export interface components {
             evidence_state: "fresh" | "stale" | "unknown";
             effective_scope?: components["schemas"]["CatalogScope"];
         };
+        PaymentAdjustmentEvidence: {
+            id: string;
+            kind: string;
+            /** @enum {string} */
+            billing_source: "wallet" | "subscription" | "byok" | "mixed" | "unknown";
+            entitlement_consumption: components["schemas"]["CostMoney"] | null;
+            platform_charge: components["schemas"]["CostMoney"] | null;
+            references?: {
+                /** Format: uuid */
+                source_command_id: string;
+                source_wallet_event_id: string | null;
+                original_wallet_event_id: string;
+                adjustment_wallet_event_id: string;
+                /** Format: uuid */
+                adjustment_command_id: string;
+            };
+        };
         PlaygroundEvent: {
             seq: number;
             /** Format: uuid */
@@ -3245,6 +3410,32 @@ export interface components {
             published_at: string;
             change_note: string;
         };
+        /** @enum {string} */
+        ScopedAuditAction: "requests.export" | "tasks.artifacts.revoke" | "billing.adjust" | "billing.reconcile" | "audit.retention.set" | "audit.retention.purge" | "audit.export" | "scope.read" | "scope.write";
+        ScopedAuditEvent: {
+            audit_event_id: components["schemas"]["IdentityID"];
+            workspace_id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+            actor_id: string | null;
+            resource: components["schemas"]["ScopedAuditResource"];
+            resource_id: string | null;
+            action: components["schemas"]["ScopedAuditAction"];
+            /** @enum {string} */
+            effect: "committed" | "observed";
+            /** Format: date-time */
+            at: string;
+            affected?: string;
+        };
+        /** @enum {string} */
+        ScopedAuditResource: "request_export" | "artifact" | "billing_command" | "retention" | "audit_event" | "project";
+        ScopedAuditRetention: {
+            /** @default 90 */
+            event_days: number;
+            /** @default 7 */
+            trace_days: number;
+            /** @default 24 */
+            content_hours: number;
+        };
         StatusAffectedComponents: components["schemas"]["StatusComponentID"][];
         StatusComponent: {
             id: components["schemas"]["StatusComponentID"];
@@ -3476,6 +3667,29 @@ export interface components {
                 "application/json": components["schemas"]["IdentityError"];
             };
         };
+        /** @description Scoped audit error */
+        ScopedAuditError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Effective policy */
+        ScopedAuditPolicy: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: components["schemas"]["ScopedAuditRetention"];
+                };
+            };
+        };
         /** @description Request failed */
         StatusError: {
             headers: {
@@ -3548,8 +3762,10 @@ export interface components {
         ImageArtifactID: string;
         ImageTaskID: string;
         ImageTaskTicketHeader: string;
+        PaymentAdjustmentID: string;
         PlaygroundRunID: string;
         RequestsID: string;
+        ScopedAuditEventID: components["schemas"]["IdentityID"];
         StatusIfModifiedSince: string;
         StatusIfNoneMatch: string;
         StatusIncidentID: string;
@@ -5301,6 +5517,175 @@ export interface operations {
             };
         };
     };
+    listScopedAuditEvents: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower bound */
+                from?: string;
+                /** @description Exclusive upper bound */
+                to?: string;
+                action?: components["schemas"]["ScopedAuditAction"];
+                resource?: components["schemas"]["ScopedAuditResource"];
+                /** @description Opaque resource reference from an audit event */
+                resource_id?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Audit page under current grants */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: {
+                            items: components["schemas"]["ScopedAuditEvent"][];
+                            /** Format: date-time */
+                            as_of: string;
+                            next_cursor: string | null;
+                        };
+                    };
+                };
+            };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    getScopedAuditEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redacted event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["ScopedAuditEvent"];
+                    };
+                };
+            };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    exportScopedAuditEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Ready export operation */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["IdentityOperation"];
+                    };
+                };
+            };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    downloadScopedAuditEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ScopedAuditEventID"];
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description JSON attachment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScopedAuditEvent"];
+                };
+            };
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    getScopedAuditRetention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["ScopedAuditPolicy"];
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
+    setScopedAuditRetention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScopedAuditRetention"];
+            };
+        };
+        responses: {
+            200: components["responses"]["ScopedAuditPolicy"];
+            default: components["responses"]["ScopedAuditError"];
+        };
+    };
     projectCostActivity: {
         parameters: {
             query: {
@@ -5382,6 +5767,79 @@ export interface operations {
                         data: components["schemas"]["CostAdjustment"];
                     };
                 };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    listPaymentAdjustmentEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PaymentAdjustmentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project financial evidence with personal references visible to the payer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            items: components["schemas"]["PaymentAdjustmentEvidence"][];
+                        };
+                    };
+                };
+            };
+            /** @description Scoped management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    linkPaymentAdjustmentEvidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["PaymentAdjustmentID"];
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link exists */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Scoped management error */
             default: {

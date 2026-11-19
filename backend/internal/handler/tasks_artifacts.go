@@ -3,7 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
-	"errors"
+
 	"io"
 	"net/http"
 	"net/url"
@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
@@ -22,18 +22,11 @@ type ImageTaskArtifacts struct {
 	Objects  service.BackupObjectStore
 	Batches  *service.BatchImageDownloadService
 	Commands *service.BatchImagePublicService
-	delivery *http.Client
+	delivery *service.ControlledEgress
 }
 
 func NewImageTaskArtifacts(o service.BackupObjectStore, b *service.BatchImageDownloadService, c *service.BatchImagePublicService) *ImageTaskArtifacts {
-	client := &http.Client{Transport: httpclient.NewPublicTransport(&http.Transport{}), Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, prior []*http.Request) error {
-			if len(prior) >= 3 || req.URL.Scheme != "https" || req.URL.User != nil {
-				return errors.New("invalid image delivery redirect")
-			}
-			return nil
-		}}
-	return &ImageTaskArtifacts{o, b, c, client}
+	return &ImageTaskArtifacts{o, b, c, service.NewArtifactEgress()}
 }
 func (r *ImageTaskArtifacts) CancelBatch(ctx context.Context, user, key int64, id string) error {
 	if r.Commands == nil {

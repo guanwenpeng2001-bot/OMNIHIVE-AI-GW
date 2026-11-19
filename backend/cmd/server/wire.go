@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
@@ -28,6 +29,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	auditstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
@@ -83,6 +85,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		statusHandlerProvider,
 		byokStoreProvider,
 		byokHandlerProvider,
+		auditStoreProvider,
+		auditObserverProvider,
+		auditHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -135,6 +140,16 @@ func playgroundHandlerProvider(
 	}, cfg.TrustForwardedIPForAPIKeyACL())
 }
 
+func auditStoreProvider(db *sql.DB, access *identitypostgres.Store) *auditstore.Store {
+	return auditstore.New(db, access)
+}
+
+func auditObserverProvider() *auditstore.Observer { return auditstore.NewObserver() }
+
+func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config) *audithttp.Handler {
+	return audithttp.New(store, observer, cfg)
+}
+
 func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identitymod.AccessEvaluator, cfg *config.Config) *byokdomain.Store {
 	return byokdomain.New(db, enc, probe, access, []byte(cfg.JWT.Secret))
 }
@@ -151,8 +166,8 @@ func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *ser
 	return handler.ProvideCostWorkbench(db, store, totp, cfg)
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok}}
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
