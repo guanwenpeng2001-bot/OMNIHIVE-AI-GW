@@ -1,0 +1,20 @@
+{
+  "request_id": "c7bfe1e7-fdea-4958-b550-225658c8dc26",
+  "scope": {
+    "workspace_id": "101",
+    "project_id": "102",
+    "actor_id": "103",
+    "api_key_id": "104",
+    "key_owner_id": "105",
+    "funding_user_id": "105",
+    "authorization_version": "7"
+  },
+  "attempt_budget": 2,
+  "deadline": "2026-11-19T10:01:00Z",
+  "versions": {
+    "model": "catalog_4",
+    "price": "tariff_2",
+    "pricing_at": "2026-11-19T10:00:00Z"
+  },
+  "reservation_ref": "c7bfe1e7-fdea-4958-b550-225658c8dc26"
+}

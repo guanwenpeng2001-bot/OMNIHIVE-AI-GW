@@ -2,12 +2,15 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -52,6 +55,35 @@ func BenchmarkRegistration(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
+		})
+	}
+}
+
+func TestExecutionAPIContracts(t *testing.T) {
+	admittedAt := time.Date(2026, 11, 19, 10, 0, 0, 0, time.UTC)
+	const requestID = "c7bfe1e7-fdea-4958-b550-225658c8dc26"
+	execution := AdmittedExecution{
+		RequestID: requestID,
+		Scope: scope.Authorized{
+			WorkspaceID: 101, ProjectID: 102, ActorID: 103, KeyID: 104,
+			KeyOwnerID: 105, FundingUserID: 105, Version: 7,
+		},
+		AttemptBudget:  2,
+		Deadline:       admittedAt.Add(time.Minute),
+		Versions:       Versions{Model: "catalog_4", Price: "tariff_2", PricingAt: admittedAt},
+		ReservationRef: requestID,
+	}
+	dispatched := Attempt{
+		ID: "c598774f-29e3-4caf-87fa-62db35572276", RequestID: requestID,
+		Number: 1, AccountID: 106, Acceptance: attempt.Unknown, Outcome: "dispatching",
+	}
+	for name, value := range map[string]any{"admitted-execution": execution, "attempt": dispatched} {
+		t.Run(name, func(t *testing.T) {
+			fixture, err := os.ReadFile("../../../../../contracts/api/BE-06/" + name + ".json")
+			require.NoError(t, err)
+			encoded, err := json.Marshal(value)
+			require.NoError(t, err)
+			require.JSONEq(t, string(fixture), string(encoded))
 		})
 	}
 }

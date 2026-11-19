@@ -356,10 +356,11 @@ func TestQueuedCredentialReauthorization(t *testing.T) {
 	e, err := plan.AdmittedExecution()
 	require.NoError(t, err)
 	require.NoError(t, journal.Authorize(ctx, a, "m"))
-	require.NoError(t, rc.RPush(ctx, "execution_queue", e.RequestID).Err())
+	queue := []string{"execution_queue"}
+	require.NoError(t, rc.Eval(ctx, "return redis.call('RPUSH', KEYS[1], ARGV[1])", queue, e.RequestID).Err())
 	_, err = db.Exec("UPDATE api_key_credentials SET revoked_at=now() WHERE api_key_id=$1", a.KeyID)
 	require.NoError(t, err)
-	queued, err := rc.LPop(ctx, "execution_queue").Result()
+	queued, err := rc.Eval(ctx, "return redis.call('LPOP', KEYS[1])", queue).Text()
 	require.NoError(t, err)
 	require.Equal(t, e.RequestID, queued)
 	_, err = service.BeginGenerationAttempt(ctx, account)

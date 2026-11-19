@@ -4,7 +4,14 @@ set -euo pipefail
 if [[ -z ${SMOKE_BASE_URL:-} ]]; then
   : "${UPSTREAM_JOB_TEST_DSN:?Set the dedicated job_test PostgreSQL URI}"
   : "${AFFINITY_REDIS_TEST_ADDR:?Set the isolated Redis host and port}"
-  cd "$(dirname "$0")/../../../backend"
+  backend=$(cd "$(dirname "$0")/../../../backend" && pwd)
+  if [[ -n ${BE06_TEST_BIN_DIR:-} ]]; then
+    bins=$(cd "$BE06_TEST_BIN_DIR" && pwd)
+    (cd "$backend/internal/gateway/execution/journal" && "$bins/journal" -test.count=1)
+    cd "$backend/internal/handler"
+    exec "$bins/handler" -test.count=1 -test.run='^TestJournal'
+  fi
+  cd "$backend"
   go test -tags=integration -count=1 ./internal/gateway/execution/journal
   exec go test -tags='integration unit' -count=1 -run '^TestJournal' ./internal/handler
 fi

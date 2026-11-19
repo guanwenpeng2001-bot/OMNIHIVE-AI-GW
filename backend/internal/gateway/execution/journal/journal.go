@@ -24,17 +24,37 @@ var (
 )
 
 type Versions struct {
-	Model, Price string
-	PricingAt    time.Time
+	Model     string    `json:"model"`
+	Price     string    `json:"price"`
+	PricingAt time.Time `json:"pricing_at"`
 }
 
 type AdmittedExecution struct {
-	RequestID      string
-	Scope          scope.Authorized
-	AttemptBudget  int
-	Deadline       time.Time
-	Versions       Versions
-	ReservationRef string
+	RequestID      string           `json:"request_id"`
+	Scope          scope.Authorized `json:"-"`
+	AttemptBudget  int              `json:"attempt_budget"`
+	Deadline       time.Time        `json:"deadline"`
+	Versions       Versions         `json:"versions"`
+	ReservationRef string           `json:"reservation_ref"`
+}
+
+// MarshalJSON projects server-resolved identities as opaque decimal strings.
+func (e AdmittedExecution) MarshalJSON() ([]byte, error) {
+	type fields AdmittedExecution
+	type frozenScope struct {
+		WorkspaceID   int64 `json:"workspace_id,string"`
+		ProjectID     int64 `json:"project_id,string"`
+		ActorID       int64 `json:"actor_id,string"`
+		KeyID         int64 `json:"api_key_id,string"`
+		KeyOwnerID    int64 `json:"key_owner_id,string"`
+		FundingUserID int64 `json:"funding_user_id,string"`
+		Version       int64 `json:"authorization_version,string"`
+	}
+	s := e.Scope
+	return json.Marshal(struct {
+		fields
+		Scope frozenScope `json:"scope"`
+	}{fields(e), frozenScope{s.WorkspaceID, s.ProjectID, s.ActorID, s.KeyID, s.KeyOwnerID, s.FundingUserID, s.Version}})
 }
 
 type Admission struct {
@@ -109,11 +129,12 @@ func decodeValue(dec *json.Decoder) (any, error) {
 }
 
 type Attempt struct {
-	ID, RequestID string
-	Number        int
-	AccountID     int64
-	Acceptance    attempt.Acceptance
-	Outcome       string
+	ID         string             `json:"id"`
+	RequestID  string             `json:"request_id"`
+	Number     int                `json:"ordinal"`
+	AccountID  int64              `json:"account_id,string,omitempty"`
+	Acceptance attempt.Acceptance `json:"acceptance"`
+	Outcome    string             `json:"outcome"`
 }
 
 type Store interface {

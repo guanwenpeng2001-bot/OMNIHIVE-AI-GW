@@ -15,6 +15,8 @@ This enables GET and POST on `/v1/responses`, `/responses`, and `/backend-api/co
 
 Install the journal on every gateway serving these paths before advertising key-based duplicate suppression. Legacy gateway instances accept requests through their original paths. For a binary rollback, drain the admitted requests and workers, route fresh traffic to the previous binary, and retain migration 295. Historical mappings and outstanding holds remain readable. The coordinator owns registration and post-merge live smoke.
 
+Compose `backend/api/v2/fragments/BE-06.yaml` with the other fragments during aggregate integration. Its internal component schemas describe admission and attempt metadata. The package adds zero v2 routes. The fixtures in `contracts/api/BE-06/` are checked against actual Go serialization in `TestExecutionAPIContracts`.
+
 ## Internal contracts
 
 Both gateway services use one factory for scope, existing attempt allowance, immutable catalog/pricing evidence, settlement dependency and admission. A WS turn gets a fresh request UUID and its own BE-03 response state. An async image task detaches from the submission context with its own deadline and identity. Later turns and job retries must retain their original allowance within each logical execution.
@@ -66,7 +68,7 @@ All paths below are relative to `backend/`. Owned factory and protocol files are
 
 ## Verification
 
-From the worktree root, provide a disposable `job_test` PostgreSQL URI in `UPSTREAM_JOB_TEST_DSN` and local Redis address in `AFFINITY_REDIS_TEST_ADDR`, then run `contracts/migrations/BE-06/smoke.sh`. It exercises real SQL, child-process kills and Redis queue revocation, followed by native HTTP and WS handlers on all three Responses paths. The test upstream is local.
+From the worktree root, provide a disposable `job_test` PostgreSQL URI in `UPSTREAM_JOB_TEST_DSN` and local Redis address in `AFFINITY_REDIS_TEST_ADDR`, then run `contracts/migrations/BE-06/smoke.sh`. It exercises real SQL, child-process kills and Redis queue revocation, followed by native HTTP and WS handlers on all three Responses paths. The test upstream is local. On a memory-constrained database host, set `BE06_TEST_BIN_DIR` to a directory containing the `journal` and `handler` Go test binaries built from this commit with tags `integration` and `integration unit`, respectively. The smoke executes the same test selection against that host’s PostgreSQL and Redis.
 
 After aggregate wiring, run the same script with `SMOKE_BASE_URL`, `SMOKE_API_KEY` and `SMOKE_MODEL` set for an isolated funded test installation. It submits one generation and verifies the original ID, matching replay and conflicting input. Set `SMOKE_EXPECT_STATUS=503` when deliberately exercising admission on an installation without an eligible upstream.
 
@@ -79,13 +81,13 @@ go test -tags=integration -run '^$' -bench 'Benchmark(GatewayJournal|Registratio
 
 `BenchmarkGatewayJournal` includes plan creation, existing TPM, SQL credential reauthorization, dispatch, outcome persistence and finalization. The comparison uses the same constructed gateway with journal installation omitted.
 
-Linux/amd64, Go 1.27.4, PostgreSQL 18.6 on loopback, one Go CPU. Medians of three one-second samples taken while other worktrees were testing on the same host.
+The table reports medians of three one-second samples on Linux/amd64 with Go 1.27.4 and one Go CPU. The isolated Docker harness ran PostgreSQL 16 and Redis 7. PostgreSQL used tmpfs with `fsync=off` and `synchronous_commit=off`.
 
 | Operation | Median time | Median bytes | Median allocations |
 | --- | ---: | ---: | ---: |
-| Unkeyed registration | 32.59 ns | 0 | 0 |
-| Keyed JSON registration | 20.62 µs | 1,840 | 44 |
-| Existing plan and send | 13.65 ms | 8,133 | 144 |
-| Journaled plan and send | 66.70 ms | 23,030 | 358 |
+| Unkeyed registration | 2.818 ns | 0 | 0 |
+| Keyed JSON registration | 7.605 µs | 1,840 | 44 |
+| Existing plan and send | 3.896 ms | 8,122 | 144 |
+| Journaled plan and send | 15.947 ms | 22,998 | 358 |
 
-The journaled samples ranged from 46.05 to 77.86 ms. These timings include synchronous PostgreSQL commits and host contention.
+The journaled samples ranged from 15.396 to 16.395 ms. The benchmark measures SQL execution under these settings. Separate process-kill tests exercise gateway crash recovery. Power-loss durability and production disk latency require separate measurements.
