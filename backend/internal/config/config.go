@@ -1832,6 +1832,11 @@ func LoadForBootstrap() (*Config, error) {
 	return load(true)
 }
 
+const (
+	DefaultDatabaseName = "omnihive"
+	legacyDatabaseName  = "sub2api"
+)
+
 func load(allowMissingJWTSecret bool) (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -1851,13 +1856,16 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 默认值
 	setDefaults()
 
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("read config error: %w", err)
+	configErr := viper.ReadInConfig()
+	if configErr != nil {
+		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("read config error: %w", configErr)
 		}
-		// 配置文件不存在时使用默认值
 	} else {
 		warnLegacyConfig(viper.ConfigFileUsed())
+	}
+	if configErr == nil || runtimeenv.HasInstallLock() || runtimeenv.SkipSetupEnabled() {
+		viper.SetDefault("database.dbname", legacyDatabaseName)
 	}
 	trustedProxiesEnv, trustedProxiesEnvConfigured := os.LookupEnv("SERVER_TRUSTED_PROXIES")
 	forwardedClientIPHeadersEnv, forwardedClientIPHeadersEnvConfigured := os.LookupEnv("SECURITY_FORWARDED_CLIENT_IP_HEADERS")
@@ -2231,7 +2239,7 @@ func setDefaults() {
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("database.user", "postgres")
 	viper.SetDefault("database.password", "postgres")
-	viper.SetDefault("database.dbname", "sub2api")
+	viper.SetDefault("database.dbname", DefaultDatabaseName)
 	viper.SetDefault("database.sslmode", "prefer")
 	viper.SetDefault("database.max_open_conns", 256)
 	viper.SetDefault("database.max_idle_conns", 128)

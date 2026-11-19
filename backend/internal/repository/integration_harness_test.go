@@ -15,6 +15,7 @@ import (
 
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
@@ -176,15 +177,15 @@ func dockerIsAvailable(ctx context.Context) bool {
 
 // selectDockerImage resolves the container image for the harness.
 //
-// SUB2API_TEST_POSTGRES_IMAGE overrides the PostgreSQL image so the suite can be
+// OMNIHIVE_TEST_POSTGRES_IMAGE overrides the PostgreSQL image so the suite can be
 // run against the oldest documented-supported server, not just the newest. That
 // matters for SQL that behaves differently across major versions: jsonpath
 // .datetime() only accepts the ISO-8601 "Z" designator from PostgreSQL 17 on, so
 // a suite pinned to 18 cannot observe breakage on 14-16.
 //
-//	SUB2API_TEST_POSTGRES_IMAGE=postgres:15-alpine go test -tags integration ./internal/repository/
+//	OMNIHIVE_TEST_POSTGRES_IMAGE=postgres:15-alpine go test -tags integration ./internal/repository/
 func selectDockerImage(ctx context.Context, preferred string) string {
-	if override := strings.TrimSpace(os.Getenv("SUB2API_TEST_POSTGRES_IMAGE")); override != "" &&
+	if override := strings.TrimSpace(runtimeenv.Get("OMNIHIVE_TEST_POSTGRES_IMAGE", "SUB2API_TEST_POSTGRES_IMAGE")); override != "" &&
 		strings.HasPrefix(preferred, "postgres:") {
 		return override
 	}

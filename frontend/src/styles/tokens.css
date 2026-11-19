@@ -12,7 +12,7 @@
   /* Foregrounds */
   --oh-fg-primary: #141519;
   --oh-fg-secondary: #4b505c;
-  --oh-fg-muted: #6e7482;
+  --oh-fg-muted: #666c79;
   --oh-fg-disabled: #9ca3af;
 
   /* Structural Borders */
@@ -23,7 +23,7 @@
   /* Single Brand Accent — Amber */
   --oh-accent: #f59e0b;
   --oh-accent-hover: #d97706;
-  --oh-accent-active: #b45309;
+  --oh-accent-active: #c56207;
   --oh-accent-ink: #141008;
   --oh-accent-text: #b45309;
   --oh-accent-subtle: #fff8eb;
@@ -51,7 +51,7 @@
   --oh-neutral-bg: #f1f3f6;
   --oh-neutral-border: #dde0e6;
 
-  --oh-unknown-fg: #6e7482;
+  --oh-unknown-fg: #666c79;
   --oh-unknown-bg: #f7f8fa;
   --oh-unknown-border: #c4c9d4;
 
@@ -118,7 +118,7 @@
   /* Foregrounds */
   --oh-fg-primary: #f3f4f6;
   --oh-fg-secondary: #a6aebc;
-  --oh-fg-muted: #7a8394;
+  --oh-fg-muted: #828ba0;
   --oh-fg-disabled: #4e5564;
 
   /* Structural Borders */

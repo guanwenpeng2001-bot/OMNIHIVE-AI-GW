@@ -29,6 +29,22 @@ func TestEvaluatePluginCompatibility(t *testing.T) {
 	assert.Equal(t, "incompatible", result.Status)
 }
 
+func TestEvaluatePluginCompatibilityPrefersOmniHiveManifestVersion(t *testing.T) {
+	manifest := testPluginManifest(nil)
+	manifest.Requires.OmniHive = ">=0.2.0 <0.3.0"
+	manifest.Requires.RecommendedOmniHiveVersion = "0.2.1"
+	manifest.Requires.TestedOmniHiveVersions = []string{"0.2.1"}
+	require.NoError(t, manifest.Validate())
+
+	require.False(t, EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.1.179"}).Compatible)
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "0.2.1"})
+	require.True(t, result.Compatible)
+	require.True(t, result.Tested)
+	require.Equal(t, manifest.Requires.OmniHive, result.RequiredOmniHive)
+	require.Equal(t, result.RequiredOmniHive, result.RequiredSub2API)
+	require.Equal(t, "0.2.1", result.RecommendedOmniHive)
+}
+
 func TestEvaluatePluginCompatibilityRejectsProtocolMismatch(t *testing.T) {
 	manifest := testPluginManifest(nil)
 	manifest.Requires.PluginProtocol = pluginv1.ProtocolVersion + 1

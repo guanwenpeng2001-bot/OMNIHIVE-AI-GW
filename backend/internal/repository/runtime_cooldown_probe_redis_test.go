@@ -18,7 +18,7 @@ import (
 // container, and only touches keys inside this invocation's random namespace.
 // Run it with an isolated endpoint, never the default port:
 //
-//	AFFINITY_REDIS_TEST_ADDR=127.0.0.1:6380 SUB2API_TEST_EXTERNAL_SERVICES=1 \
+//	AFFINITY_REDIS_TEST_ADDR=127.0.0.1:6380 OMNIHIVE_TEST_EXTERNAL_SERVICES=1 \
 //	  go test -count=1 -run TestRuntimeCooldownRecoverySingleProbeOnRealRedis -v ./internal/repository/
 func TestRuntimeCooldownRecoverySingleProbeOnRealRedis(t *testing.T) {
 	address := os.Getenv("AFFINITY_REDIS_TEST_ADDR")

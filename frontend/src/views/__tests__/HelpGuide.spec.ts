@@ -17,7 +17,7 @@ const { authStore, enabledFlags, copyToClipboard } = vi.hoisted(() => ({
   copyToClipboard: vi.fn().mockResolvedValue(true)
 }))
 const appStore = vi.hoisted(() => ({
-  siteName: 'Sub2API', siteLogo: '', publicSettingsLoaded: true, cachedPublicSettings: { custom_menu_items: [] },
+  siteName: 'OmniHive', siteLogo: '', publicSettingsLoaded: true, cachedPublicSettings: { custom_menu_items: [] },
   sidebarCollapsed: false, sidebarScrollTop: 0, backendModeEnabled: false, mobileOpen: false,
   apiBaseUrl: 'https://gateway.example/v1'
 }))
@@ -200,14 +200,16 @@ describe('configuration manual', () => {
 
   it('renders prefixed Bash and PowerShell quickstarts and formal protocol/media examples', async () => {
     const configured = appStore.apiBaseUrl
+    const previousSiteName = appStore.siteName
     appStore.apiBaseUrl = 'https://gateway.example/proxy/v1beta'
+    appStore.siteName = 'Example Gateway'
     try {
       const { wrapper } = mountGuide('en')
       await flushPromises()
       const quick = wrapper.get('#quick').text()
       expect(quick).toContain('https://gateway.example/proxy/v1/chat/completions')
       const powershell = wrapper.findAll('#quick pre').find(block => block.text().includes('Invoke-RestMethod'))!
-      expect(powershell.text()).toContain("$env:SUB2API_BASE_URL = 'https://gateway.example/proxy/v1'")
+      expect(powershell.text()).toContain("$env:OMNIHIVE_BASE_URL = 'https://gateway.example/proxy/v1'")
       expect(powershell.text()).not.toMatch(/\\\r?\n/)
       expect(wrapper.get('#gemini').text()).toContain('https://gateway.example/proxy/v1beta/models/GOOGLE_MODEL_ID_FROM_LIST:generateContent')
       expect(wrapper.get('#gemini').text()).toContain('/v1beta/models/{model}:generateContent')
@@ -217,12 +219,14 @@ describe('configuration manual', () => {
         expect(wrapper.findAll(`#${id} table`)).toHaveLength(2)
         expect(wrapper.findAll(`#${id} pre`).length).toBeGreaterThan(0)
       }
+      expect(wrapper.get('#clients').text()).toContain('name = "Example Gateway"')
       expect(wrapper.text()).not.toContain('Sub2API')
       expect(wrapper.get('#cc-switch').text()).toContain('optional')
       expect(wrapper.get('#clients').text()).toContain('Windsurf')
       for (const client of ['Claude Code', 'Codex', 'OpenCode', 'DeepSeek Harness', 'Pi']) expect(wrapper.get('#clients').text()).toContain(client)
     } finally {
       appStore.apiBaseUrl = configured
+      appStore.siteName = previousSiteName
     }
   })
   it('renders complete translated structures and updates them when the locale changes', async () => {

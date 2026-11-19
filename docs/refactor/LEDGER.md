@@ -10,13 +10,13 @@ Status legend: todo / doing / review / merged / blocked
 | BE-01 | Identity, projects and access | gpt-6.2-astra | codex/be-01-identity | merged | 43daedeb8; integrated 66510a70b (smoke pass) |
 | INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | idle | BE-01, BE-04 integrated |
 | BE-04 | Connections, credentials and pools | gpt-6.2-astra | codex/be-04-connections | merged | b58c783e7 → fd601fcb6; integrated c7c7d0961 (smoke pass) |
-| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | doing | based on integrated BE-04 tip |
+| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | merged | c6270bee6 merged (module + tests pass); composition/wire/openapi integration in progress on same branch |
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
 | BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 (resumed after interruption) |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | doing | based on 1e5012626 |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
 | ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | doing | RV-1 P0/P1 outside WP1 |
-| DS-A11Y | Design-system contrast and IconButton a11y fixes | gemini-3.8-flash | codex/ds-a11y | doing | RV-1 P1 #6 |
+| DS-A11Y | Design-system contrast and IconButton a11y fixes | gemini-3.8-flash | codex/ds-a11y | merged | 20c2875c8; tokens AA-verified by tokens-contrast.spec.ts; IconButton ariaLabel now required |
 | QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | doing | scripts/quality-gate.sh, QUALITY_GATE.md |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |

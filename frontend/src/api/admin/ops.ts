@@ -457,7 +457,7 @@ export async function getRealtimeTrafficSummary(
  *
  * Note: browsers cannot set Authorization headers for WebSockets.
  * We authenticate via Sec-WebSocket-Protocol using a prefixed token item:
- *   ["sub2api-admin", "ticket.<one-time-ticket>"]
+ *   ["omnihive-admin", "sub2api-admin", "ticket.<one-time-ticket>"]
  */
 export interface SubscribeQPSOptions {
   token?: string | null
@@ -503,7 +503,7 @@ export const OPS_WS_CLOSE_CODES = {
   REALTIME_DISABLED: 4001
 } as const
 
-const OPS_WS_BASE_PROTOCOL = 'sub2api-admin'
+const OPS_WS_PROTOCOLS = ['omnihive-admin', 'sub2api-admin']
 
 export function subscribeQPS(onMessage: (data: unknown) => void, options: SubscribeQPSOptions = {}): () => void {
   let ws: WebSocket | null = null
@@ -609,7 +609,7 @@ export function subscribeQPS(onMessage: (data: unknown) => void, options: Subscr
       return
     }
     if (!shouldReconnect) { isConnecting = false; return }
-    ws = new WebSocket(wsURL.toString(), [OPS_WS_BASE_PROTOCOL, `ticket.${ticket}`])
+    ws = new WebSocket(wsURL.toString(), [...OPS_WS_PROTOCOLS, `ticket.${ticket}`])
 
     ws.onopen = () => {
       reconnectAttempts = 0

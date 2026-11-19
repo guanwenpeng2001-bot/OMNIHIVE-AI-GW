@@ -45,12 +45,22 @@ type PluginManifest struct {
 }
 
 type PluginRequirements struct {
-	Sub2API                   string   `json:"sub2api"`
-	RecommendedSub2APIVersion string   `json:"recommended_sub2api_version,omitempty"`
-	TestedSub2APIVersions     []string `json:"tested_sub2api_versions,omitempty"`
-	PluginProtocol            int      `json:"plugin_protocol"`
-	TransportAPI              int      `json:"transport_api"`
-	UIBridge                  int      `json:"ui_bridge"`
+	OmniHive                   string   `json:"omnihive,omitempty"`
+	RecommendedOmniHiveVersion string   `json:"recommended_omnihive_version,omitempty"`
+	TestedOmniHiveVersions     []string `json:"tested_omnihive_versions,omitempty"`
+	Sub2API                    string   `json:"sub2api,omitempty"`
+	RecommendedSub2APIVersion  string   `json:"recommended_sub2api_version,omitempty"`
+	TestedSub2APIVersions      []string `json:"tested_sub2api_versions,omitempty"`
+	PluginProtocol             int      `json:"plugin_protocol"`
+	TransportAPI               int      `json:"transport_api"`
+	UIBridge                   int      `json:"ui_bridge"`
+}
+
+func (r PluginRequirements) hostVersions() (required string, recommended string, tested []string) {
+	if r.OmniHive != "" {
+		return r.OmniHive, r.RecommendedOmniHiveVersion, r.TestedOmniHiveVersions
+	}
+	return r.Sub2API, r.RecommendedSub2APIVersion, r.TestedSub2APIVersions
 }
 
 type PluginCapability struct {
@@ -75,16 +85,19 @@ type PluginSignature struct {
 
 // PluginCompatibility 是管理页面展示和启用门禁共同使用的兼容性结论。
 type PluginCompatibility struct {
-	Compatible         bool   `json:"compatible"`
-	Tested             bool   `json:"tested"`
-	Status             string `json:"status"`
-	Message            string `json:"message"`
-	CurrentSub2API     string `json:"current_sub2api_version"`
-	RequiredSub2API    string `json:"required_sub2api_version"`
-	RecommendedSub2API string `json:"recommended_sub2api_version"`
-	PluginProtocol     int    `json:"plugin_protocol"`
-	TransportAPI       int    `json:"transport_api"`
-	UIBridge           int    `json:"ui_bridge"`
+	Compatible          bool   `json:"compatible"`
+	Tested              bool   `json:"tested"`
+	Status              string `json:"status"`
+	Message             string `json:"message"`
+	CurrentOmniHive     string `json:"current_omnihive_version"`
+	RequiredOmniHive    string `json:"required_omnihive_version"`
+	RecommendedOmniHive string `json:"recommended_omnihive_version"`
+	CurrentSub2API      string `json:"current_sub2api_version"`
+	RequiredSub2API     string `json:"required_sub2api_version"`
+	RecommendedSub2API  string `json:"recommended_sub2api_version"`
+	PluginProtocol      int    `json:"plugin_protocol"`
+	TransportAPI        int    `json:"transport_api"`
+	UIBridge            int    `json:"ui_bridge"`
 }
 
 type PluginInstallation struct {
@@ -157,8 +170,9 @@ func (m PluginManifest) Validate() error {
 	if normalizeSemver(m.Version) == "" {
 		return errors.New("插件版本必须是有效的语义化版本")
 	}
-	if strings.TrimSpace(m.Requires.Sub2API) == "" {
-		return errors.New("插件必须声明 requires.sub2api")
+	required, _, _ := m.Requires.hostVersions()
+	if strings.TrimSpace(required) == "" {
+		return errors.New("插件必须声明 requires.omnihive")
 	}
 	if m.Requires.PluginProtocol != pluginv1.ProtocolVersion ||
 		m.Requires.TransportAPI != pluginv1.TransportAPIVersion ||

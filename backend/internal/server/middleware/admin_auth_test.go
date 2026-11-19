@@ -96,7 +96,7 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/t", nil)
 		req.Header.Set("Upgrade", "websocket")
 		req.Header.Set("Connection", "Upgrade")
-		req.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin, jwt."+token)
+		req.Header.Set("Sec-WebSocket-Protocol", "omnihive-admin, jwt."+token)
 		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusUnauthorized, w.Code)
@@ -122,6 +122,54 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 		require.Contains(t, w.Body.String(), "INVALID_WS_TICKET")
 	})
+}
+
+func TestAdminWebSocketProtocolNegotiation(t *testing.T) {
+	const protocolHeader = "Sec-WebSocket-Protocol"
+	for _, test := range []struct {
+		name    string
+		offered []string
+		want    string
+	}{
+		{name: "preferred", offered: []string{"omnihive-admin, ticket.one-time-ticket"}, want: "omnihive-admin"},
+		{name: "legacy", offered: []string{"sub2api-admin, ticket.one-time-ticket"}, want: "sub2api-admin"},
+		{name: "both", offered: []string{"sub2api-admin, ticket.one-time-ticket", "omnihive-admin"}, want: "omnihive-admin"},
+		{name: "neither", offered: []string{"other, ticket.one-time-ticket"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			header := make(http.Header)
+			for _, line := range test.offered {
+				header.Add(protocolHeader, line)
+			}
+			protocol, ticket := sanitizeAdminWebSocketProtocol(header)
+			require.Equal(t, test.want, protocol)
+			require.Equal(t, "one-time-ticket", ticket)
+			if test.want == "" {
+				require.Empty(t, header.Values(protocolHeader))
+			} else {
+				require.Equal(t, []string{test.want}, header.Values(protocolHeader))
+			}
+		})
+	}
+}
+
+func TestAdminWebSocketProtocolRequired(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/ws", adminAuth(nil, nil, nil, nil), func(c *gin.Context) {
+		t.Error("unsupported subprotocol reached the handler")
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	request.Header.Set("Upgrade", "websocket")
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Sec-WebSocket-Protocol", "other, ticket.one-time-ticket")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "INVALID_WS_PROTOCOL")
+	require.Empty(t, request.Header.Get("Sec-WebSocket-Protocol"))
 }
 
 type stubUserRepo struct {

@@ -1,0 +1,13 @@
+{
+  "model_ids": [
+    "m_999fff7ac750942004e8fc300d1b1259"
+  ],
+  "protocol": "openai_chat",
+  "action": "text.chat",
+  "scenario": {
+    "input_tokens": "1000",
+    "output_tokens": "100",
+    "cached_input_tokens": "0",
+    "requests": "1"
+  }
+}

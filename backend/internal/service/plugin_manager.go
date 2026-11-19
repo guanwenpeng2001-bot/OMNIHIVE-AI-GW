@@ -25,11 +25,12 @@ import (
 )
 
 const (
-	pluginConfigMaxBytes  = 4 * 1024 * 1024
-	pluginUIAssetMaxBytes = 32 * 1024 * 1024
-	pluginReconcilePeriod = time.Second
-	pluginHealthTimeout   = 5 * time.Second
-	pluginUITokenPrefix   = "sub2api:plugin-ui:v1:"
+	pluginConfigMaxBytes      = 4 * 1024 * 1024
+	pluginUIAssetMaxBytes     = 32 * 1024 * 1024
+	pluginReconcilePeriod     = time.Second
+	pluginHealthTimeout       = 5 * time.Second
+	pluginUITokenPrefix       = "omnihive:plugin-ui:v1:"
+	legacyPluginUITokenPrefix = "sub2api:plugin-ui:v1:"
 )
 
 type pluginRoute struct {
@@ -827,7 +828,8 @@ func (m *PluginManager) CreateUIAssetToken(ctx context.Context, id int64, ttl ti
 	if ttl <= 0 || ttl > time.Hour {
 		return "", time.Time{}, errors.New("插件 UI 会话有效期无效")
 	}
-	if _, err := m.repo.GetByID(ctx, id); err != nil {
+	plugin, err := m.repo.GetByID(ctx, id)
+	if err != nil {
 		return "", time.Time{}, err
 	}
 	expires := time.Now().Add(ttl)
@@ -836,7 +838,11 @@ func (m *PluginManager) CreateUIAssetToken(ctx context.Context, id int64, ttl ti
 		return "", time.Time{}, err
 	}
 	// 加用途前缀，避免复用同一 AES-GCM 密钥的其他密文被当作 UI 能力令牌。
-	encrypted, err := m.encryptor.Encrypt(pluginUITokenPrefix + string(raw))
+	prefix := pluginUITokenPrefix
+	if plugin.Manifest.Requires.OmniHive == "" || plugin.Manifest.Requires.Sub2API != "" {
+		prefix = legacyPluginUITokenPrefix
+	}
+	encrypted, err := m.encryptor.Encrypt(prefix + string(raw))
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("加密插件 UI 会话: %w", err)
 	}
@@ -856,6 +862,9 @@ func (m *PluginManager) ResolveUIAssetToken(token string) (int64, error) {
 		return 0, errors.New("插件 UI 会话无效")
 	}
 	plaintext, ok := strings.CutPrefix(plaintext, pluginUITokenPrefix)
+	if !ok {
+		plaintext, ok = strings.CutPrefix(plaintext, legacyPluginUITokenPrefix)
+	}
 	if !ok {
 		return 0, errors.New("插件 UI 会话无效")
 	}

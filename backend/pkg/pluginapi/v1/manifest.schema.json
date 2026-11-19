@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sub2api.local/schemas/plugin-manifest-v1.json",
-  "title": "Sub2API Plugin Manifest v1",
+  "title": "OmniHive Plugin Manifest v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "id", "name", "version", "requires", "capabilities", "runtimes", "ui", "files"],
@@ -15,8 +15,12 @@
     "requires": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sub2api", "plugin_protocol", "transport_api", "ui_bridge"],
+      "required": ["plugin_protocol", "transport_api", "ui_bridge"],
+      "anyOf": [{ "required": ["omnihive"] }, { "required": ["sub2api"] }],
       "properties": {
+        "omnihive": { "type": "string", "minLength": 1 },
+        "recommended_omnihive_version": { "type": "string" },
+        "tested_omnihive_versions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "sub2api": { "type": "string", "minLength": 1 },
         "recommended_sub2api_version": { "type": "string" },
         "tested_sub2api_versions": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
