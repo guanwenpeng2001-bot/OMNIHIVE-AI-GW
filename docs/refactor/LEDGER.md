@@ -27,8 +27,11 @@ Status legend: todo / doing / review / merged / blocked
 | BE-18 | Public status and incident lifecycle | gpt-6.2-sol | codex/be-18-status | merged | a8e1c29dd + routes/collector integrated 191613128 |
 | BE-17 | Tenant BYOK pilot and funding fallback | gpt-6.2-astra | codex/be-17-byok | merged | e9689ecdd + routes/op-reader integrated baa10198a |
 | BE-13 | Authenticated streaming Playground | gpt-6.2-astra | codex/be-13-playground | merged | ba83c16a6 merged; production wiring in progress |
-| BE-19 | Payments, entitlements and remaining financial writers | gpt-6.2-astra | codex/be-19-payments | merged | 24c844396 merged; webhook HandleVerified + v2 evidence routes wiring pending |
+| BE-19 | Payments wiring (HandleVerified + evidence routes) | gpt-6.2-sol | codex/refactor | merged | b6329106d; legacy webhook cutover remains with BE-22 |
 | BE-21 | Scoped audit, retention, controlled egress and observability | gpt-6.2-astra | codex/be-21-audit | merged | c1851422c + routes/op-reader b33051c74; observer/retention lifecycle to BE-22 |
+| BE-22 | Runtime modes and lifecycle | gpt-6.2-astra | codex/be-22-runtime | doing | commits c3dd52740+ |
+| BE-24 | Release verification | gpt-6.2-astra | codex/be-24-release | doing | de1f2741a: GA HOLD — Playground J03 404/403 and embeddings passthrough; fix branch codex/be-24-fix |
+| WP1 | Shell, brand, IA, D08, auth/setup | gemini | codex/fe-wp1-shell | merged | c7a91b892; typecheck/lint/i18n/5295 tests/build pass |
 | RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | merged | b33cecb5a; 1×P1 (BE-05 pricing) fixed, FE-WP1 P1s in flight |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
