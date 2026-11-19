@@ -52,3 +52,9 @@ bash contracts/release/backend/verify.sh
 
 Heavy builds run locally with `oh-remote local -- <cmd>`; integration tests use
 `oh-remote run <worktree> -- bash -c '...'` (scheduler across laptop/codespace).
+
+## Delivery
+
+- Integration branch: `codex/refactor` (pushed).
+- Pull request: https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/pull/6 → `dev`.
+- Final visual evidence: `docs/refactor/design/screens/final2/` (102 captures, 17 routes × light/dark × 360/768/1440).
