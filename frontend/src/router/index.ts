@@ -269,6 +269,72 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/requests',
+    name: 'ProjectRequests',
+    component: () => import('@/features/requests/RequestListView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Requests',
+      titleKey: 'wp6.requests.title'
+    }
+  },
+  {
+    path: '/requests/:id',
+    name: 'ProjectRequest',
+    component: () => import('@/features/requests/RequestDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Request Detail',
+      titleKey: 'wp6.requests.detail'
+    }
+  },
+  {
+    path: '/admin/requests',
+    name: 'AdminRequests',
+    component: () => import('@/features/requests/RequestListView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Requests',
+      titleKey: 'wp6.requests.title'
+    }
+  },
+  {
+    path: '/admin/requests/:id',
+    name: 'AdminRequest',
+    component: () => import('@/features/requests/RequestDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Request Detail',
+      titleKey: 'wp6.requests.detail'
+    }
+  },
+  {
+    path: '/billing',
+    name: 'ProjectBilling',
+    component: () => import('@/features/billing/UserCostsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Costs & Quota',
+      titleKey: 'wp6.billing.title'
+    }
+  },
+  {
+    path: '/admin/billing',
+    name: 'AdminBilling',
+    component: () => import('@/features/billing/ReconciliationView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Reconciliation',
+      titleKey: 'wp6.reconciliation.title'
+    }
+  },
+  {
     path: '/usage',
     name: 'Usage',
     component: () => import('@/views/user/UsageView.vue'),

@@ -10,11 +10,13 @@ import misc from './misc'
 import workspaces from './workspaces'
 import modelAccess from './modelAccess'
 import routing from './routing'
+import wp6 from './wp6'
 
 export default {
   workspaces,
   modelAccess,
   routing,
+  wp6,
   ...capabilities,
   helpGuide,
   ...landing,
