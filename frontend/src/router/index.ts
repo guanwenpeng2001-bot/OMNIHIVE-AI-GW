@@ -615,6 +615,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/audit',
+    name: 'AdminScopedAudit',
+    component: () => import('@/features/operations/ScopedAuditView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Scoped Audit',
+      titleKey: 'admin.audit.title',
+      descriptionKey: 'admin.audit.description'
+    }
+  },
+  {
     path: '/admin/users',
     name: 'AdminUsers',
     component: () => import('@/views/admin/UsersView.vue'),
