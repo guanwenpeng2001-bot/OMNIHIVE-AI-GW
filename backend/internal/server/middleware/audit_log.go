@@ -59,6 +59,9 @@ var auditExtraAllowedKeys = map[string]struct{}{
 	"http_status": {}, "latency_ms": {}, "token_applied": {}, "retryable": {},
 	"event_id": {}, "requested_count": {}, "deleted_events": {}, "deleted_jobs": {},
 	"matched_count": {}, "snapshot_max_id": {}, "filter_hash": {}, "confirm": {},
+	"workspace_id": {}, "project_id": {}, "run_id": {}, "run_request_id": {},
+	"admission": {}, "outcome": {}, "settlement_state": {}, "raw_events_requested": {},
+	"text_preview_requested": {}, "text_preview_served": {},
 }
 
 // SetAuditExtra adds allowlisted, scalar details to the current audit entry.
@@ -156,9 +159,23 @@ var auditActionOverrides = map[string]string{
 	"POST /api/v1/admin/prompt-audit/events/delete-by-filter": "admin.prompt_audit.events.filter_delete",
 }
 
-// auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
-// 这类 body 的凭证内嵌在普通字符串值里，键级脱敏无法覆盖，整体不入库。
+const playgroundAuditPrefix = "/api/v2/workspaces/:workspace_id/projects/:project_id"
+
+// Playground audits accept server-derived metadata only.
+var playgroundAuditActions = map[string]string{
+	"POST " + playgroundAuditPrefix + "/playground/runs":                   "playground.run",
+	"POST " + playgroundAuditPrefix + "/requests/:id/replay":               "requests.replay",
+	"POST " + playgroundAuditPrefix + "/playground/runs/:id/cancel":        "playground.cancel",
+	"GET " + playgroundAuditPrefix + "/playground/runs/:id":                "playground.read",
+	"GET " + playgroundAuditPrefix + "/playground/runs/by-idempotency-key": "playground.read_by_idempotency_key",
+}
+
+// auditBodyOmittedRoutes contains routes with secrets or private content that
+// cannot be safely redacted by JSON field name.
 var auditBodyOmittedRoutes = map[string]struct{}{
+	"POST " + playgroundAuditPrefix + "/playground/runs":                                     {},
+	"POST " + playgroundAuditPrefix + "/requests/:id/replay":                                 {},
+	"POST " + playgroundAuditPrefix + "/playground/runs/:id/cancel":                          {},
 	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":                       {},
 	"POST /api/v2/workspaces/:workspace_id/byok":                                             {},
 	"POST /api/v2/workspaces/:workspace_id/byok/:id/rotate":                                  {},
@@ -196,18 +213,15 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 	return AuditLogMiddleware(func(c *gin.Context) {
 		routeKey := c.Request.Method + " " + c.FullPath()
 
-		record := false
-		action := ""
-		switch c.Request.Method {
-		case "POST", "PUT", "PATCH", "DELETE":
-			record = true
-			if v, ok := auditActionOverrides[routeKey]; ok {
-				action = v
-			}
-		case "GET":
-			if v, ok := auditSensitiveReads[routeKey]; ok {
+		action, playground := playgroundAuditActions[routeKey]
+		record := playground
+		if !playground {
+			switch c.Request.Method {
+			case "POST", "PUT", "PATCH", "DELETE":
 				record = true
-				action = v
+				action = auditActionOverrides[routeKey]
+			case "GET":
+				action, record = auditSensitiveReads[routeKey]
 			}
 		}
 		if !record {
@@ -222,6 +236,9 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 		var submittedDiff []service.ConfigurationFieldDiff
 		if _, omit := auditBodyOmittedRoutes[routeKey]; omit {
 			bodyRedacted = "<credential-bearing body omitted>"
+			if playground {
+				bodyRedacted = "<private body omitted>"
+			}
 		} else if c.Request.Body != nil && c.Request.Method != "GET" {
 			orig := c.Request.Body
 			raw, err := io.ReadAll(io.LimitReader(orig, service.AuditRequestBodyCaptureLimit+1))
@@ -324,15 +341,20 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 				}
 			}
 		}
-		if len(c.Params) > 0 {
+		if playground {
+			entry.UserAgent = ""
+			entry.CredentialMasked = ""
+		} else if len(c.Params) > 0 {
 			params := make(map[string]string, len(c.Params))
 			for _, p := range c.Params {
 				params[p.Key] = p.Value
 			}
 			extra["params"] = params
 		}
-		if q := service.RedactAuditQuery(c.Request.URL.RawQuery); q != "" {
-			extra["query"] = q
+		if !playground {
+			if q := service.RedactAuditQuery(c.Request.URL.RawQuery); q != "" {
+				extra["query"] = q
+			}
 		}
 		if len(extra) > 0 {
 			entry.Extra = extra

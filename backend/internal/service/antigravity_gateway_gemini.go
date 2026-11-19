@@ -355,7 +355,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 
 		// 精确匹配服务端配置类 400 错误，触发同账号重试 + failover
 		if resp.StatusCode == http.StatusBadRequest && isGoogleProjectConfigError(strings.ToLower(upstreamMsg)) {
-			log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
+			if !privateGatewayContent(c) {
+				log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
 				ProxyName:          opsUpstreamProxyName(account),
@@ -401,7 +403,9 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		// Log only the redacted diagnostic; the original upstream body can carry
 		// credentials or account identity and was previously logged regardless
 		// of the optional upstream-error-body setting.
-		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] upstream error status=%d message=%s", resp.StatusCode, truncateForLog([]byte(sanitizeAntigravityErrorText(upstreamMsg)), 500))
+		if !privateGatewayContent(c) {
+			logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] upstream error status=%d message=%s", resp.StatusCode, truncateForLog([]byte(sanitizeAntigravityErrorText(upstreamMsg)), 500))
+		}
 		MarkResponseCommitted(c)
 		// 原始上游错误体仅保留在 ops 日志中；返回客户端的错误体需脱敏，避免泄露账号池身份（项目号/服务账号等）
 		c.Data(resp.StatusCode, "application/json", buildAntigravityClientErrorBody(resp.StatusCode, unwrappedForOps))

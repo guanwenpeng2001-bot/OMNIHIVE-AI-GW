@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
@@ -262,7 +263,9 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 					if retryResp.Request != nil && retryResp.Request.URL != nil {
 						retryBaseURL = retryResp.Request.URL.Scheme + "://" + retryResp.Request.URL.Host
 					}
-					logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 rate_limited base_url=%s retry_stage=%s body=%s", prefix, retryBaseURL, stage.name, truncateForLog(retryBody, 200))
+					if !ctxkey.PrivateGatewayContent(ctx) {
+						logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 rate_limited base_url=%s retry_stage=%s body=%s", prefix, retryBaseURL, stage.name, truncateForLog(retryBody, 200))
+					}
 				}
 				kind := "signature_retry"
 				if strings.TrimSpace(stage.name) != "" {
@@ -392,7 +395,7 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 				upstreamDetail := s.getUpstreamErrorDetail(respBody)
 				logBody, maxBytes := s.getLogConfig()
-				if logBody {
+				if logBody && !ctxkey.PrivateGatewayContent(ctx) {
 					logger.LegacyPrintf("service.antigravity_gateway", "%s status=400 prompt_too_long=true upstream_message=%q request_id=%s body=%s", prefix, upstreamMsg, resp.Header.Get("x-request-id"), truncateForLog(respBody, maxBytes))
 				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -422,7 +425,9 @@ func (s *AntigravityGatewayService) Forward(ctx context.Context, c *gin.Context,
 				if isGoogleProjectConfigError(msg) {
 					upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
 					upstreamDetail := s.getUpstreamErrorDetail(respBody)
-					log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
+					if !ctxkey.PrivateGatewayContent(ctx) {
+						log.Printf("%s status=400 google_config_error failover=true upstream_message=%q account=%d", prefix, upstreamMsg, account.ID)
+					}
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 						ProxyID:            opsUpstreamProxyID(account),
 						ProxyName:          opsUpstreamProxyName(account),

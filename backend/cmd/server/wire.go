@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
@@ -18,6 +19,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
@@ -27,15 +29,18 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
 	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/google/wire"
@@ -73,6 +78,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		requestsHandlerProvider,
 		handler.ProvideImageTaskCenter,
 		policieshttp.ProviderSet,
+		playgroundHandlerProvider,
 		billingHandlerProvider,
 		statusHandlerProvider,
 		byokStoreProvider,
@@ -102,6 +108,31 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config) *requestshttp.Handler {
 	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func playgroundHandlerProvider(
+	db *sql.DB,
+	access identity.AccessEvaluator,
+	scopes identity.GatewayScopes,
+	keys *service.APIKeyService,
+	subscriptions *service.SubscriptionService,
+	catalogReader catalog.CatalogReader,
+	policies *policy.Store,
+	gateway *service.GatewayService,
+	handlers *handler.Handlers,
+	composite *service.CompositeRouteResolver,
+	cfg *config.Config,
+) *playgroundhttp.Handler {
+	dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
+	common := []gin.HandlerFunc{middleware.GatewayProtocol(), handler.InboundEndpointMiddleware()}
+	if handlers.MCP != nil {
+		common = append(common, handlers.MCP.GatewayExtensionMiddleware())
+	}
+	native := playgroundhttp.NativeRoutes(dispatch, composite, handlers.Gateway.ActionRequirement, common...)
+	return playgroundhttp.New(&playgroundhttp.Gateway{
+		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
+		Catalog: catalogReader, Policies: policies, Plans: gateway, Routes: native,
+	}, cfg.TrustForwardedIPForAPIKeyACL())
 }
 
 func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identitymod.AccessEvaluator, cfg *config.Config) *byokdomain.Store {

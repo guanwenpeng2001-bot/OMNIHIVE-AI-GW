@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
 
@@ -81,6 +82,20 @@ func TestCoordinatorDoesNotMutateRequestBody(t *testing.T) {
 	decision := NewCoordinator(&fakeLegacyEngine{}, prompt).Check(context.Background(), Request{Body: body})
 	require.True(t, decision.AllowNextStage)
 	require.Equal(t, original, body)
+}
+
+func TestPrivateGatewayContentStillUsesBlockingChecks(t *testing.T) {
+	ctx := ctxkey.WithPrivateGatewayContent(t.Context())
+	body := Request{Body: []byte(`{"messages":[{"role":"user","content":"private"}]}`)}
+	legacy := &fakeLegacyEngine{decision: &LegacyDecision{Blocked: true}}
+	prompt := &fakePromptEngine{mode: ModeAsync}
+	require.Equal(t, DecisionBlock, NewCoordinator(legacy, prompt).Check(ctx, body).Kind)
+	require.Zero(t, prompt.enqueues.Load())
+	require.EqualValues(t, 1, legacy.calls.Load())
+
+	prompt = &fakePromptEngine{mode: ModeBlocking, decision: &PromptDecision{Kind: DecisionBlock}}
+	require.Equal(t, DecisionBlock, NewCoordinator(&fakeLegacyEngine{}, prompt).Check(ctx, body).Kind)
+	require.EqualValues(t, 1, prompt.evaluates.Load())
 }
 
 func TestCoordinatorBlockingPriorityCoversBothEngineDecisionMatrix(t *testing.T) {

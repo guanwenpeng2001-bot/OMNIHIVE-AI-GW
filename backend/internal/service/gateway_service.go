@@ -22,6 +22,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
@@ -323,7 +324,7 @@ func extractSystemPreviewFromBody(body []byte) string {
 }
 
 func buildClaudeMimicDebugLine(req *http.Request, body []byte, account *Account, tokenType string, mimicClaudeCode bool) string {
-	if req == nil {
+	if req == nil || ctxkey.PrivateGatewayContent(req.Context()) {
 		return ""
 	}
 
@@ -1796,9 +1797,9 @@ func (s *GatewayService) initDebugGatewayBodyFile(path string) {
 //	OMNIHIVE_DEBUG_GATEWAY_BODY=/tmp/gateway_debug.log     # 写入指定路径
 //
 // tag: "CLIENT_ORIGINAL" 或 "UPSTREAM_FORWARD"
-func (s *GatewayService) debugLogGatewaySnapshot(tag string, headers http.Header, body []byte, extra map[string]string) {
+func (s *GatewayService) debugLogGatewaySnapshot(ctx context.Context, tag string, headers http.Header, body []byte, extra map[string]string) {
 	f := s.debugGatewayBodyFile.Load()
-	if f == nil {
+	if f == nil || ctxkey.PrivateGatewayContent(ctx) {
 		return
 	}
 

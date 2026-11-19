@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
@@ -224,12 +225,16 @@ func (s *AntigravityGatewayService) handleCreditsRetryFailure(
 
 	if shouldMarkCreditsExhausted(creditsResp, creditsRespBody, reqErr) && account != nil {
 		s.setCreditsExhausted(ctx, account)
-		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=true status=%d body=%s",
-			prefix, modelKey, account.ID, creditsStatusCode, truncateForLog(creditsRespBody, 200))
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=true status=%d body=%s",
+				prefix, modelKey, account.ID, creditsStatusCode, truncateForLog(creditsRespBody, 200))
+		}
 		return
 	}
 	if account != nil {
-		logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=false status=%d err=%v body=%s",
-			prefix, modelKey, account.ID, creditsStatusCode, reqErr, truncateForLog(creditsRespBody, 200))
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			logger.LegacyPrintf("service.antigravity_gateway", "%s credit_overages_failed model=%s account=%d marked_exhausted=false status=%d err=%v body=%s",
+				prefix, modelKey, account.ID, creditsStatusCode, reqErr, truncateForLog(creditsRespBody, 200))
+		}
 	}
 }

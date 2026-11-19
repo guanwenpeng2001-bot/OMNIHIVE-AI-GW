@@ -68,6 +68,7 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 		}
 		r, err := h.store().Cancel(c.Request.Context(), a, c.Param("id"))
 		if err == nil {
+			auditRun(c, r)
 			success(c, 202, r)
 		}
 		return err
@@ -88,6 +89,9 @@ func (h *Handler) route(action string, fn func(*gin.Context, identity.Access) er
 			return
 		}
 		a, err := h.Gateway.Access.Evaluate(c.Request.Context(), sub.UserID, w, p, action)
+		if err == nil || errors.Is(err, fault.Forbidden) {
+			middleware.SetAuditExtra(c, map[string]any{"workspace_id": a.WorkspaceID, "project_id": a.ProjectID})
+		}
 		if err == nil {
 			err = fn(c, a)
 		}
@@ -108,22 +112,23 @@ func fail(c *gin.Context, err error, r *pg.Summary) {
 	if !errors.As(err, &f) {
 		f = pg.Unavailable
 	}
-	category, retry := "validation", "never"
+	category, retry, result := "validation", "never", "validation_failed"
 	switch f.Status {
 	case 401, 403, 404:
-		category = "access"
+		category, result = "access", "access_denied"
 	case 402, 429:
-		category = "funding"
+		category, result = "funding", "funding_denied"
 	case 409:
-		category = "conflict"
+		category, result = "conflict", "conflict"
 	case 503:
-		category, retry = "dependency", "retry_later"
+		category, retry, result = "dependency", "retry_later", "dependency_failed"
 	}
 	var url any
 	if r != nil {
 		url = r.StatusURL
 		retry = "query_status"
 	}
+	middleware.SetAuditExtra(c, map[string]any{"result": result})
 	fields := []gin.H{}
 	if f.Field != "" {
 		fields = append(fields, gin.H{"path": f.Field, "reason": f.Reason})
@@ -140,7 +145,15 @@ func (h *Handler) summary(c *gin.Context, a identity.Access, r pg.Summary) {
 			}
 		}
 	}
+	auditRun(c, r)
+	middleware.SetAuditExtra(c, map[string]any{"text_preview_served": r.Retained})
 	success(c, 200, r)
+}
+
+func auditRun(c *gin.Context, r pg.Summary) {
+	middleware.SetAuditExtra(c, map[string]any{
+		"run_id": r.Run, "run_request_id": r.Request, "outcome": r.State, "settlement_state": r.Settlement,
+	})
 }
 
 type preview struct {
@@ -175,11 +188,15 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	if err != nil {
 		return err
 	}
+	middleware.SetAuditExtra(c, map[string]any{
+		"raw_events_requested": in.Options.Raw, "text_preview_requested": in.Options.Retain,
+	})
 	if in.Options.Raw && a.Require("playground.raw") != nil || in.Options.Retain && a.Require("requests.content.read") != nil {
 		return fault.Forbidden
 	}
 	r, err := h.store().ByKey(ctx, a, key, fp[:])
 	if err == nil {
+		middleware.SetAuditExtra(c, map[string]any{"admission": "idempotent_replay"})
 		h.summary(c, a, r)
 		return nil
 	}
@@ -215,14 +232,17 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	defer cancel()
 	p, err := h.Gateway.prepare(runctx, a, in, ip.GetSecurityClientIP(c, h.TrustForwarded), parent != "")
 	if err != nil {
+		middleware.SetAuditExtra(c, map[string]any{"admission": "rejected"})
 		return err
 	}
 	deadline, _ := runctx.Deadline()
 	r, won, err := h.store().Claim(ctx, a, in, p.frozen.FundingUserID, key, parent, fp, deadline)
 	if err != nil {
+		middleware.SetAuditExtra(c, map[string]any{"admission": "rejected"})
 		return err
 	}
 	if !won {
+		middleware.SetAuditExtra(c, map[string]any{"admission": "idempotent_replay"})
 		h.summary(c, a, r)
 		return nil
 	}
@@ -233,11 +253,18 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	if err != nil {
 		final, stop := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer stop()
-		_, _ = h.store().Finish(final, r, false, false, runctx.Err() != nil, 0)
+		state, finishErr := h.store().Finish(final, r, false, false, runctx.Err() != nil, 0)
+		if finishErr != nil {
+			state = "unknown"
+		}
+		r.State = state
+		auditRun(c, r)
+		middleware.SetAuditExtra(c, map[string]any{"admission": "rejected"})
 		fail(c, err, &r)
 		return nil
 	}
 	defer closePlan()
+	middleware.SetAuditExtra(c, map[string]any{"admission": "admitted"})
 	c.Header("X-Request-ID", r.Request)
 	var seq int64
 	var preview bytes.Buffer
@@ -312,6 +339,8 @@ func (h *Handler) submit(c *gin.Context, a identity.Access) error {
 	if latest, e := h.store().Detail(final, a, r.Run); e == nil {
 		r = latest
 	}
+	r.State = state
+	auditRun(c, r)
 	data := map[string]any{"outcome": state, "settlement_state": r.Settlement, "status_url": r.StatusURL, "detail_url": r.DetailURL}
 	name := "finished"
 	if state != "succeeded" {

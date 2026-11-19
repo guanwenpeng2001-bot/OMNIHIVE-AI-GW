@@ -20,6 +20,9 @@ func Logger() gin.HandlerFunc {
 
 		// 请求路径
 		path := redactPluginUIPath(c.Request.URL.Path)
+		if _, private := playgroundAuditActions[c.Request.Method+" "+c.FullPath()]; private {
+			path = c.FullPath()
+		}
 
 		// 处理请求
 		c.Next()

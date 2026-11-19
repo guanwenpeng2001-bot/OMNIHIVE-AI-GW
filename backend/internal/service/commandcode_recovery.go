@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/tidwall/gjson"
 )
 
@@ -36,7 +37,11 @@ func isCommandCodeInvalidCredential(status int, body []byte) bool {
 // This runs after pool/custom-code gates and explicit temporary rules.
 func (s *RateLimitService) handleCommandCodeError(ctx context.Context, account *Account, status int, body []byte) (handled, disable bool) {
 	if isCommandCodeInvalidCredential(status, body) {
-		s.handleAuthError(ctx, account, "Command Code authentication failed: "+extractUpstreamErrorMessage(body))
+		message := "Command Code authentication failed"
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			message += ": " + extractUpstreamErrorMessage(body)
+		}
+		s.handleAuthError(ctx, account, message)
 		return true, true
 	}
 	switch status {

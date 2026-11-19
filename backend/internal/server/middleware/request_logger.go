@@ -21,8 +21,9 @@ func RequestLogger() gin.HandlerFunc {
 			return
 		}
 
+		_, playground := playgroundAuditActions[c.Request.Method+" "+c.FullPath()]
 		requestID, validRequestID := normalizeCorrelationID(c.GetHeader(requestIDHeader))
-		if !validRequestID {
+		if !validRequestID || playground {
 			requestID = uuid.NewString()
 		}
 		c.Header(requestIDHeader, requestID)
@@ -31,11 +32,15 @@ func RequestLogger() gin.HandlerFunc {
 		clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string)
 		clientRequestID, _ = normalizeCorrelationID(clientRequestID)
 
+		path := redactPluginUIPath(c.Request.URL.Path)
+		if playground {
+			path = c.FullPath()
+		}
 		requestLogger := logger.With(
 			zap.String("component", "http"),
 			zap.String("request_id", requestID),
 			zap.String("client_request_id", strings.TrimSpace(clientRequestID)),
-			zap.String("path", redactPluginUIPath(c.Request.URL.Path)),
+			zap.String("path", path),
 			zap.String("method", c.Request.Method),
 		)
 

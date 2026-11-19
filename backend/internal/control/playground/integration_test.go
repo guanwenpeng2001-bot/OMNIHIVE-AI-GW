@@ -24,6 +24,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -91,6 +92,11 @@ func TestPaidPlayground(t *testing.T) {
 		return err
 	}
 	native := func(c *gin.Context) {
+		if !ctxkey.PrivateGatewayContent(c.Request.Context()) {
+			t.Error("native Playground request is missing its private content marker")
+			c.AbortWithStatus(500)
+			return
+		}
 		b, _ := io.ReadAll(c.Request.Body)
 		plan := service.GatewayRequestPlanFromContext(c.Request.Context())
 		if !plan.BudgetAdmitted() {
@@ -136,6 +142,9 @@ func TestPaidPlayground(t *testing.T) {
 	}
 	descriptor := domain.PlatformAction(domain.ActionIdentity{Platform: "openai"}, "chat")
 	routes := NativeRoutes(service.NewGatewayActionDispatch(service.GatewayActionHandlers{descriptor.Adapter: native}), nil, func(c *gin.Context) { c.Next() })
+	direct := httptest.NewRecorder()
+	routes.ServeHTTP(direct, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader("{}")))
+	require.Equal(t, 403, direct.Code)
 	ids := postgres.New(db)
 	h := New(&Gateway{DB: db, Access: ids, Scopes: ids, Keys: keys, Catalog: c, Policies: policy.NewStore(db, []byte("fixture")), Plans: plans, Routes: routes}, false)
 	router := gin.New()

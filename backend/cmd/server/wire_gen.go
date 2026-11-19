@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
@@ -16,6 +17,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
@@ -31,11 +33,13 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/redis/go-redis/v9"
 	"log"
@@ -388,6 +392,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	restoreHandler := restore.New(runtime)
 	policyStore := policies.NewStore(db, configConfig)
 	policiesHandler := policies.New(policyStore, store)
+	playgroundHandler := playgroundHandlerProvider(db, store, store, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, configConfig)
 	statusHandler := statusHandlerProvider(db, store, configConfig, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	tasksHandler := handler.ProvideImageTaskCenter(db, configConfig, store, store, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
@@ -397,7 +402,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, statusHandler, byokHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, statusHandler, byokHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -447,6 +452,30 @@ type Application struct {
 
 func requestsHandlerProvider(db *sql.DB, store *postgres.Store, cfg *config.Config) *requests.Handler {
 	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func playgroundHandlerProvider(
+	db *sql.DB,
+	access identity2.AccessEvaluator,
+	scopes identity2.GatewayScopes,
+	keys *service.APIKeyService,
+	subscriptions *service.SubscriptionService,
+	catalogReader catalog.CatalogReader, policies2 *policy.Store,
+	gateway *service.GatewayService,
+	handlers *handler.Handlers,
+	composite *service.CompositeRouteResolver,
+	cfg *config.Config,
+) *playground.Handler {
+	dispatch := service.NewGatewayActionDispatch(routes.GatewayActionHandlers(handlers))
+	common := []gin.HandlerFunc{middleware.GatewayProtocol(), handler.InboundEndpointMiddleware()}
+	if handlers.MCP != nil {
+		common = append(common, handlers.MCP.GatewayExtensionMiddleware())
+	}
+	native := playground.NativeRoutes(dispatch, composite, handlers.Gateway.ActionRequirement, common...)
+	return playground.New(&playground.Gateway{
+		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
+		Catalog: catalogReader, Policies: policies2, Plans: gateway, Routes: native,
+	}, cfg.TrustForwardedIPForAPIKeyACL())
 }
 
 func byokStoreProvider(db *sql.DB, enc service.SecretEncryptor, probe *service.AccountTestService, access identity2.AccessEvaluator, cfg *config.Config) *byok.Store {

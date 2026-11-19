@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -147,6 +148,51 @@ func TestPromptAuditMutationAuditRoutesHaveStableActionsAndOmitBodies(t *testing
 		require.Equal(t, action, auditActionOverrides[route])
 		_, omitted := auditBodyOmittedRoutes[route]
 		require.Truef(t, omitted, "%s must not persist its credential or confirmation-bearing body", route)
+	}
+}
+
+func TestPlaygroundAuditOmitsContent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	const (
+		input  = `{"input":{"prompt":"private prompt"}}`
+		prefix = "/api/v2/workspaces/1/projects/2"
+	)
+	routes := []struct {
+		suffix, path string
+	}{
+		{"/playground/runs", "/playground/runs"},
+		{"/requests/:id/replay", "/requests/private-path-value/replay"},
+	}
+	for _, route := range routes {
+		router.POST(playgroundAuditPrefix+route.suffix, func(c *gin.Context) {
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.JSONEq(t, input, string(body))
+			SetAuditExtra(c, map[string]any{"project_id": int64(2), "result": "validation_failed"})
+			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "private error"})
+		})
+	}
+	for _, route := range routes {
+		req := httptest.NewRequest(http.MethodPost, prefix+route.path+"?text=private-query-value", bytes.NewBufferString(input))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "private-user-agent")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusUnprocessableEntity, recorder.Code)
+	}
+	auditService.Stop()
+	require.Len(t, repository.logs, 2)
+	require.Equal(t, "playground.run", repository.logs[0].Action)
+	require.Equal(t, "requests.replay", repository.logs[1].Action)
+	for _, entry := range repository.logs {
+		require.Equal(t, "<private body omitted>", entry.RequestBody)
+		require.Empty(t, entry.UserAgent)
+		require.Equal(t, map[string]any{"project_id": int64(2), "result": "validation_failed"}, entry.Extra)
 	}
 }
 

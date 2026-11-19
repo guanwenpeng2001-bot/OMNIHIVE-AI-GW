@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 
@@ -221,7 +222,7 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
 		// 记录上游错误摘要便于排障（不回显请求内容）
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !ctxkey.PrivateGatewayContent(ctx) {
 			logger.LegacyPrintf("service.gateway",
 				"count_tokens upstream error %d (account=%d platform=%s type=%s): %s",
 				resp.StatusCode,

@@ -27,8 +27,8 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-		middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
 		nil, nil, nil, settings, nil, cfg, nil, nil)
@@ -45,6 +45,16 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 	require.Contains(t, registered, "GET "+taskPath)
 	require.Contains(t, registered, "POST "+taskPath)
 	require.Contains(t, registered, "POST "+taskPath+"/:id/retry")
+	const projectPath = "/api/v2/workspaces/:workspace_id/projects/:project_id"
+	for _, route := range []string{
+		"POST " + projectPath + "/playground/runs",
+		"GET " + projectPath + "/playground/runs/by-idempotency-key",
+		"GET " + projectPath + "/playground/runs/:id",
+		"POST " + projectPath + "/playground/runs/:id/cancel",
+		"POST " + projectPath + "/requests/:id/replay",
+	} {
+		require.Contains(t, registered, route)
+	}
 	require.Contains(t, registered, "GET /api/v2/admin/extensions")
 	extension := httptest.NewRecorder()
 	router.ServeHTTP(extension, httptest.NewRequest(http.MethodGet, "/api/v2/admin/extensions", nil))
@@ -87,6 +97,8 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		{"POST", "/audio/speech"}, {"POST", "/v1/messages"},
 		{"GET", "/backend-api/codex/unknown"},
 		{"GET", "/v1/usage"}, {"GET", "/antigravity/v1/usage"},
+		{"POST", "/api/v2/workspaces/1/projects/1/playground/runs"},
+		{"POST", "/api/v2/workspaces/1/projects/1/requests/request-id/replay"},
 	} {
 		t.Run("registered "+route.path, func(t *testing.T) {
 			response := httptest.NewRecorder()

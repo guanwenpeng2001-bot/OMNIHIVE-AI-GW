@@ -26,8 +26,10 @@ import (
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"go.uber.org/zap"
 )
 
 // NativeRoutes is a private router over the same adapters and action middleware
@@ -38,6 +40,8 @@ type credential struct {
 }
 type credentialTag struct{}
 
+var privateNativeLogger = zap.NewNop()
+
 func NativeRoutes(dispatch *service.GatewayActionDispatch, composite *service.CompositeRouteResolver, action gin.HandlerFunc, common ...gin.HandlerFunc) http.Handler {
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
@@ -46,6 +50,9 @@ func NativeRoutes(dispatch *service.GatewayActionDispatch, composite *service.Co
 			c.AbortWithStatus(403)
 			return
 		}
+		ctx := ctxkey.WithPrivateGatewayContent(c.Request.Context())
+		// Shared handlers use request loggers for parse errors and provider diagnostics.
+		c.Request = c.Request.WithContext(logger.IntoContext(ctx, privateNativeLogger))
 		c.Set(string(middleware.ContextKeyAPIKey), v.key)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: v.key.UserID, Concurrency: v.key.User.Concurrency})
 		c.Set(string(middleware.ContextKeyUserRole), v.key.User.Role)
