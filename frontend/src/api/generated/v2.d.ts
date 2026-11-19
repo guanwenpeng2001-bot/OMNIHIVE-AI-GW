@@ -1849,6 +1849,20 @@ export interface components {
             };
             reservation_ref: string;
         };
+        /** @description Synchronous Qwen speech with the Cherry voice. The native tariff uses provider-reported characters. Output is a private PCM WAV up to 120 seconds and 32 MiB. Cancellation is unavailable after dispatch. */
+        AudioTaskCreate: {
+            /** @constant */
+            kind: "audio";
+            model_id: string;
+            api_key_id: string;
+            /** @constant */
+            funding_acknowledged: true;
+            input: {
+                prompt: string;
+                /** @constant */
+                format: "wav";
+            };
+        };
         ByokCreate: {
             provider: string;
             /** @constant */
@@ -2718,8 +2732,7 @@ export interface components {
         };
         ImageTaskDetail: {
             id: string;
-            /** @constant */
-            kind: "image";
+            kind: components["schemas"]["TaskCenterKind"];
             /** @enum {string} */
             state: "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
             stage: string;
@@ -2796,8 +2809,7 @@ export interface components {
         };
         ImageTaskSummary: {
             id: string;
-            /** @constant */
-            kind: "image";
+            kind: components["schemas"]["TaskCenterKind"];
             /** @enum {string} */
             state: "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
             stage: string;
@@ -3540,6 +3552,27 @@ export interface components {
             incidents: components["schemas"]["StatusIncidentSummary"][];
             active_incident_count: components["schemas"]["StatusCount"];
             definitions: components["schemas"]["StatusDefinitions"];
+        };
+        TaskCenterCreate: components["schemas"]["ImageTaskCreate"] | components["schemas"]["AudioTaskCreate"] | components["schemas"]["VideoTaskCreate"];
+        /** @enum {string} */
+        TaskCenterKind: "image" | "audio" | "video";
+        /** @description Wan 2.6 text-to-video with one five-second 720p MP4 up to 256 MiB. The native tariff uses reported duration and the admitted resolution. A verified queued job can request cancellation. Polling confirms its terminal state. */
+        VideoTaskCreate: {
+            /** @constant */
+            kind: "video";
+            model_id: string;
+            api_key_id: string;
+            /** @constant */
+            funding_acknowledged: true;
+            input: {
+                prompt: string;
+                /** @constant */
+                format: "mp4";
+                /** @constant */
+                size: "1280x720";
+                /** @constant */
+                duration_seconds: 5;
+            };
         };
     };
     responses: {
@@ -6872,7 +6905,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ImageTaskCreate"];
+                "application/json": components["schemas"]["TaskCenterCreate"];
             };
         };
         responses: {
