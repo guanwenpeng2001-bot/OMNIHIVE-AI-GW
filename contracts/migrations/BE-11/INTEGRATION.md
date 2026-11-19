@@ -20,9 +20,10 @@ The scoped reader consumes BE-06 journal views. An expired dispatched attempt wi
 Point `UPSTREAM_JOB_TEST_DSN` at a disposable PostgreSQL database named `job_test` and run from `backend/`:
 
 ```sh
-go test -tags='unit integration' -count=1 \
-  -run 'Test(BillingWalletPostgres|UsageSettlementReceiptPostgres|KeyBudgetReservationPostgres|Settlement)' \
-  ./internal/modules/billing/settlement ./internal/repository ./internal/service
+go test -tags=integration -count=1 -run '^TestBillingWalletPostgres$' ./internal/modules/billing/settlement
+go test -tags=unit -count=1 \
+  -run 'Test(UsageSettlementReceiptPostgres|KeyBudgetReservationPostgres|Settlement)' \
+  ./internal/repository ./internal/service
 ```
 
 Set `AFFINITY_REDIS_TEST_ADDR` to a disposable Redis instance to also run the BE-06 smoke script from the worktree root.
