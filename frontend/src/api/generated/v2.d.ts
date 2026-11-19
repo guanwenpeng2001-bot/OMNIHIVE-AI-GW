@@ -752,6 +752,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/observability/destinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register an immutable HTTPS collector under ops.export.configure */
+        post: operations["registerTelemetryExportDestination"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/observability/destinations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["TelemetryExportID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a collector and purge the queued samples for its active exports */
+        delete: operations["revokeTelemetryExportDestination"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/observability/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a scoped export and queue destination validation */
+        post: operations["createTelemetryExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/observability/exports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["TelemetryExportID"];
+            };
+            cookie?: never;
+        };
+        /** Read the configured policy and safe delivery status */
+        get: operations["getTelemetryExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Disable, reconfigure, or enable a current export version under ops.export.configure
+         * @description Reconfiguration purges the previous version and enabled versions validate their collector again.
+         */
+        patch: operations["changeTelemetryExport"];
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/operations/{id}": {
         parameters: {
             query?: never;
@@ -3769,6 +3851,72 @@ export interface components {
         TaskCenterCreate: components["schemas"]["ImageTaskCreate"] | components["schemas"]["AudioTaskCreate"] | components["schemas"]["VideoTaskCreate"];
         /** @enum {string} */
         TaskCenterKind: "image" | "audio" | "video";
+        TelemetryDataClasses: "timings"[];
+        TelemetryDestination: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "registered" | "revoked";
+            version: components["schemas"]["IdentityID"];
+        };
+        TelemetryDestinationInput: {
+            /**
+             * Format: uri
+             * @description Public HTTPS endpoint without URL credentials, query, or fragment.
+             */
+            endpoint: string;
+        };
+        TelemetryExportConfig: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "validating" | "active" | "failed" | "disabled";
+            version: components["schemas"]["IdentityID"];
+            /** Format: uuid */
+            destination_id: string;
+        };
+        TelemetryExportDetail: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "validating" | "active" | "failed" | "disabled";
+            version: components["schemas"]["IdentityID"];
+            /** Format: uuid */
+            destination_id: string;
+            data_classes: components["schemas"]["TelemetryDataClasses"];
+            sample_rate: components["schemas"]["TelemetrySampleRate"];
+            retention_days: number;
+            /** Format: date-time */
+            last_success_at: string | null;
+            /** @enum {unknown} */
+            last_error_reason: "DESTINATION_UNAVAILABLE" | "DESTINATION_REJECTED" | "RETRY_EXHAUSTED" | "DESTINATION_REVOKED" | "APPROVAL_REVOKED" | null;
+            /** @description Unexpired samples awaiting delivery, including leased and retrying samples. */
+            queue_depth: string;
+        };
+        TelemetryExportInput: {
+            /** Format: uuid */
+            destination_id: string;
+            data_classes: components["schemas"]["TelemetryDataClasses"];
+            sample_rate: components["schemas"]["TelemetrySampleRate"];
+            retention_days: number;
+        };
+        TelemetryExportPatch: {
+            /** Format: uuid */
+            destination_id?: string;
+            data_classes?: components["schemas"]["TelemetryDataClasses"];
+            sample_rate?: components["schemas"]["TelemetrySampleRate"];
+            retention_days?: number;
+            /** @description Explicitly enable a failed or disabled version using a registered destination. */
+            enabled?: boolean;
+        };
+        /** @description Fraction of eligible observations from zero to one. */
+        TelemetrySampleRate: string;
+        TelemetryTimingSample: {
+            /** @enum {string} */
+            operation: "scope.read" | "scope.write";
+            success: boolean;
+            latency_ms: number;
+        };
         /** @description Wan 2.6 text-to-video with one five-second 720p MP4 up to 256 MiB. The native tariff uses reported duration and the admitted resolution. A verified queued job can request cancellation. Polling confirms its terminal state. */
         VideoTaskCreate: {
             /** @constant */
@@ -3996,6 +4144,43 @@ export interface components {
                 };
             };
         };
+        /** @description Scoped collector metadata */
+        TelemetryDestinationResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: components["schemas"]["TelemetryDestination"];
+                };
+            };
+        };
+        /** @description Redacted export error */
+        TelemetryExportError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Scoped export configuration */
+        TelemetryExportResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: components["schemas"]["TelemetryExportConfig"];
+                };
+            };
+        };
     };
     parameters: {
         CatalogModelID: string;
@@ -4043,6 +4228,8 @@ export interface components {
         StatusIfModifiedSince: string;
         StatusIfNoneMatch: string;
         StatusIncidentID: string;
+        TelemetryExportID: string;
+        TelemetryExportIdempotency: string;
     };
     requestBodies: never;
     headers: {
@@ -5599,6 +5786,117 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    registerTelemetryExportDestination: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["TelemetryExportIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TelemetryDestinationInput"];
+            };
+        };
+        responses: {
+            201: components["responses"]["TelemetryDestinationResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    revokeTelemetryExportDestination: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["TelemetryExportID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["TelemetryDestinationResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    createTelemetryExport: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["TelemetryExportIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TelemetryExportInput"];
+            };
+        };
+        responses: {
+            201: components["responses"]["TelemetryExportResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    getTelemetryExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["TelemetryExportID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scoped configuration and delivery status under ops.export.configure */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        message: string;
+                        data: components["schemas"]["TelemetryExportDetail"];
+                    };
+                };
+            };
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    changeTelemetryExport: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: components["parameters"]["TelemetryExportID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TelemetryExportPatch"];
+            };
+        };
+        responses: {
+            200: components["responses"]["TelemetryExportResponse"];
+            default: components["responses"]["TelemetryExportError"];
         };
     };
     identityOperation: {

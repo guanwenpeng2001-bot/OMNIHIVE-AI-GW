@@ -14,6 +14,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
 	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
@@ -50,6 +51,7 @@ func SetupRouter(
 	statusHandler *statushttp.Handler,
 	byokHandler *byokhttp.Handler,
 	auditHandler *audithttp.Handler,
+	observabilityHandler *observabilityhttp.Handler,
 	imageTaskCenter *taskhttp.Handler,
 	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
@@ -133,7 +135,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -154,6 +156,7 @@ func registerRoutes(
 	statusHandler *statushttp.Handler,
 	byokHandler *byokhttp.Handler,
 	auditHandler *audithttp.Handler,
+	observabilityHandler *observabilityhttp.Handler,
 	imageTaskCenter *taskhttp.Handler,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
@@ -206,6 +209,8 @@ func registerRoutes(
 	billinghttp.Register(v2, billingHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
 	paymentshttp.Register(v2, paymentEvidenceHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	observabilityhttp.Register(v2, observabilityHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	audithttp.Register(v2, auditHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))

@@ -21,6 +21,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
 	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
@@ -38,6 +39,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	exportstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/export"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
@@ -95,6 +97,8 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		auditStoreProvider,
 		auditObserverProvider,
 		auditHandlerProvider,
+		observabilityStoreProvider,
+		observabilityHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -146,6 +150,28 @@ func playgroundHandlerProvider(
 		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
 		Catalog: catalogReader, Policies: policies, Plans: gateway, Routes: native,
 	}, cfg.TrustForwardedIPForAPIKeyACL())
+}
+
+func observabilityStoreProvider(supervisor *process.Supervisor, cfg *config.Config) (*exportstore.Store, error) {
+	store, cleanup, err := observabilityhttp.ProvideStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	supervisor.Add(func(ctx context.Context) {
+		<-ctx.Done()
+		cleanup()
+	})
+	if supervisor.Mode.Serving() {
+		supervisor.Add(func(ctx context.Context) { store.RunIngest(ctx, func() {}) })
+	}
+	if supervisor.Mode.Workers() {
+		supervisor.Add(func(ctx context.Context) { store.RunDelivery(ctx, func() {}) })
+	}
+	return store, nil
+}
+
+func observabilityHandlerProvider(store *exportstore.Store) *observabilityhttp.Handler {
+	return observabilityhttp.New(store)
 }
 
 func auditStoreProvider(db *sql.DB, access *identitypostgres.Store) *auditstore.Store {

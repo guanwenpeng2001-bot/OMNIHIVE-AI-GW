@@ -28,7 +28,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
 		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),

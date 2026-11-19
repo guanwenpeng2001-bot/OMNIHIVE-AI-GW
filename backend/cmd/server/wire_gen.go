@@ -20,6 +20,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
 	payments2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
@@ -38,6 +39,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/export"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/runtime"
@@ -403,6 +405,11 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
 	auditHandler := auditHandlerProvider(auditStore, observer, cfg)
+	exportStore, err := observabilityStoreProvider(supervisor, cfg)
+	if err != nil {
+		return nil, err
+	}
+	observabilityHandler := observabilityHandlerProvider(exportStore)
 	tasksHandler := handler.ProvideImageTaskCenter(db, cfg, store2, store2, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
@@ -410,7 +417,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(cfg, engine)
 	opsMetricsCollector := provideOpsMetricsCollector(supervisor, opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, cfg)
 	opsAggregationService := provideOpsAggregationService(supervisor, opsRepository, settingRepository, db, redisClient, cfg)
@@ -492,6 +499,28 @@ func playgroundHandlerProvider(
 		DB: db, Access: access, Scopes: scopes, Keys: keys, Subscriptions: subscriptions,
 		Catalog: catalogReader, Policies: policies2, Plans: gateway, Routes: native,
 	}, cfg.TrustForwardedIPForAPIKeyACL())
+}
+
+func observabilityStoreProvider(supervisor *runtime.Supervisor, cfg *config.Config) (*export.Store, error) {
+	store, cleanup, err := observability.ProvideStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	supervisor.Add(func(ctx context.Context) {
+		<-ctx.Done()
+		cleanup()
+	})
+	if supervisor.Mode.Serving() {
+		supervisor.Add(func(ctx context.Context) { store.RunIngest(ctx, func() {}) })
+	}
+	if supervisor.Mode.Workers() {
+		supervisor.Add(func(ctx context.Context) { store.RunDelivery(ctx, func() {}) })
+	}
+	return store, nil
+}
+
+func observabilityHandlerProvider(store *export.Store) *observability.Handler {
+	return observability.New(store)
 }
 
 func auditStoreProvider(db *sql.DB, access *postgres2.Store) *audit2.Store {
