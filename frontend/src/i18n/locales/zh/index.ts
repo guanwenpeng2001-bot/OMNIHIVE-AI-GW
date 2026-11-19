@@ -9,10 +9,12 @@ import admin from './admin'
 import misc from './misc'
 import workspaces from './workspaces'
 import modelAccess from './modelAccess'
+import routing from './routing'
 
 export default {
   workspaces,
   modelAccess,
+  routing,
   ...capabilities,
   helpGuide,
   ...landing,
