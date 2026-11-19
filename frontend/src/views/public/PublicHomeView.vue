@@ -64,7 +64,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             <RouterLink :to="ctaTarget()" class="oh-focus-ring inline-flex h-10 items-center rounded-oh-md bg-oh-accent px-4 text-sm font-semibold text-oh-accent-ink hover:bg-oh-accent-hover active:bg-oh-accent-active">
               Get started
             </RouterLink>
-            <RouterLink to="/models" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-10">Browse models</RouterLink>
+            <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-10">Browse models</RouterLink>
           </div>
           <dl class="mt-10 flex flex-wrap gap-8 font-mono text-sm">
             <div>
@@ -119,7 +119,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
           <h2 class="text-2xl font-semibold text-oh-primary">Start in three steps</h2>
           <p class="mt-2 text-sm text-oh-secondary">Create a key, call the standard endpoint, then watch the request and its receipt.</p>
         </div>
-        <RouterLink to="/models" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-9">See all models</RouterLink>
+        <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-9">See all models</RouterLink>
       </div>
       <ol class="mt-8 grid gap-4 sm:grid-cols-3">
         <li v-for="(step, index) in ['Create a restricted API key', 'Call any supported model', 'Inspect request, route and cost']"

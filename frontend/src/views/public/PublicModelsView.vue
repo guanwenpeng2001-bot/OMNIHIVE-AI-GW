@@ -183,7 +183,7 @@ onMounted(() => void load())
           <tbody>
             <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
               <td class="max-w-[14rem] break-all px-4 py-3">
-                <RouterLink :to="`/models/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
+                <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                   {{ model.model }}
                 </RouterLink>
                 <div class="font-mono text-[11px] text-oh-muted">{{ model.id }}</div>
@@ -202,7 +202,7 @@ onMounted(() => void load())
         <RouterLink
           v-for="model in models"
           :key="model.id"
-          :to="`/models/${encodeURIComponent(model.id)}`"
+          :to="`/model-plaza/${encodeURIComponent(model.id)}`"
           class="oh-focus-ring group min-w-0 border border-oh-default p-4 transition-colors hover:border-oh-strong"
         >
           <div class="flex items-start justify-between gap-3">

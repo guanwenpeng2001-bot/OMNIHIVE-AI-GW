@@ -59,7 +59,7 @@ onMounted(() => {
       <div class="flex min-w-0 items-center gap-5">
         <router-link
           to="/home"
-          class="oh-focus-ring inline-flex min-w-0 items-center rounded-oh-sm py-1"
+          class="oh-focus-ring inline-flex shrink-0 items-center rounded-oh-sm py-1"
           :aria-label="`${brand.siteName} Home`"
         >
           <BrandMark
@@ -78,8 +78,8 @@ onMounted(() => {
             v-if="modelPlazaEnabled"
             to="/model-plaza"
             :class="[
-              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
-              route.path.startsWith('/model-plaza') || route.path.startsWith('/models')
+              'oh-focus-ring whitespace-nowrap rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              route.path.startsWith('/model-plaza')
                 ? 'bg-oh-selected text-oh-accent-text'
                 : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
             ]"
@@ -89,8 +89,9 @@ onMounted(() => {
 
           <router-link
             to="/key-usage"
+            class="hidden xl:inline-flex"
             :class="[
-              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              'oh-focus-ring whitespace-nowrap rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
               route.path.startsWith('/key-usage')
                 ? 'bg-oh-selected text-oh-accent-text'
                 : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
@@ -102,7 +103,7 @@ onMounted(() => {
           <router-link
             to="/pricing"
             :class="[
-              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              'oh-focus-ring whitespace-nowrap rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
               route.path.startsWith('/pricing')
                 ? 'bg-oh-selected text-oh-accent-text'
                 : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
@@ -114,7 +115,7 @@ onMounted(() => {
           <router-link
             to="/status"
             :class="[
-              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              'oh-focus-ring whitespace-nowrap rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
               route.path.startsWith('/status')
                 ? 'bg-oh-selected text-oh-accent-text'
                 : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
@@ -136,7 +137,7 @@ onMounted(() => {
             v-else
             to="/help"
             :class="[
-              'oh-focus-ring rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
+              'oh-focus-ring whitespace-nowrap rounded-oh-sm px-2.5 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider transition-colors',
               route.path.startsWith('/help') || route.path.startsWith('/docs')
                 ? 'bg-oh-selected text-oh-accent-text'
                 : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'

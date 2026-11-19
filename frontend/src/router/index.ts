@@ -210,7 +210,6 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/model-plaza',
     name: 'ModelPlaza',
-    alias: ['/models'],
     component: () => import('@/views/public/PublicModelsView.vue'),
     meta: {
       requiresAuth: false,
@@ -219,7 +218,7 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/models/compare',
+    path: '/model-plaza/compare',
     name: 'ModelCompare',
     component: () => import('@/views/public/PublicCompareView.vue'),
     meta: {
@@ -228,7 +227,7 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/models/:id',
+    path: '/model-plaza/:id',
     name: 'PublicModelDetail',
     component: () => import('@/views/public/PublicModelDetailView.vue'),
     meta: {

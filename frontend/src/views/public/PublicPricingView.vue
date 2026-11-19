@@ -54,7 +54,7 @@ onMounted(load)
         <tbody>
           <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0">
             <td class="break-all px-2 py-3 sm:px-4">
-              <RouterLink :to="`/models/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs text-oh-primary hover:text-oh-accent-text">
+              <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs text-oh-primary hover:text-oh-accent-text">
                 {{ model.model }}
               </RouterLink>
               <span class="block font-mono text-[11px] text-oh-muted">{{ publicValue(model.provider) }}</span>

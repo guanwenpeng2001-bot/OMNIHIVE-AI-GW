@@ -54,7 +54,7 @@ onMounted(() => void load())
 <template>
   <PublicShell>
     <div class="mb-6 flex items-center gap-2 text-xs text-oh-muted">
-      <RouterLink to="/models" class="oh-focus-ring shrink-0 rounded-oh-xs hover:text-oh-primary">Models</RouterLink>
+      <RouterLink to="/model-plaza" class="oh-focus-ring shrink-0 rounded-oh-xs hover:text-oh-primary">Models</RouterLink>
       <span>/</span>
       <span class="min-w-0 break-all font-mono">{{ modelId }}</span>
     </div>
@@ -75,7 +75,7 @@ onMounted(() => void load())
         <div class="flex items-center gap-2">
           <Badge tone="neutral" variant="subtle">{{ publicValue(model.route_state) }}</Badge>
           <RouterLink
-            :to="{ path: '/models/compare', query: { ids: model.id } }"
+            :to="{ path: '/model-plaza/compare', query: { ids: model.id } }"
             class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-[13px] font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
           >Compare</RouterLink>
         </div>
