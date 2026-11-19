@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="w-full space-y-6">
       <div v-if="loading" class="flex items-center justify-center py-20">
         <LoadingSpinner size="md" color="primary" />
@@ -278,6 +279,7 @@ import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
 import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import { METHOD_ORDER, getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'

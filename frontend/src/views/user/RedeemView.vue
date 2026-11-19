@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="w-full space-y-6">
       <!--  Hive Aura 账户余额与并发水位概览卡 -->
       <div class="card oh-redeem-hero relative overflow-hidden p-6">
@@ -409,6 +410,7 @@ import { useAppStore } from '@/stores/app'
 import { useSubscriptionStore } from '@/stores/subscriptions'
 import { redeemAPI, authAPI, type RedeemHistoryItem } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
 

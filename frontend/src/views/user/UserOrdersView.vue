@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="space-y-4">
       <!-- 界面风格高质感紧凑筛选工具条 + 订单状态概览微标 -->
       <div class="card oh-orders-toolbar p-4 sm:px-5 sm:py-3.5">
@@ -136,6 +137,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import type { PaymentOrder } from '@/types/payment'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'

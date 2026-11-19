@@ -9,10 +9,12 @@ import admin from './admin'
 import misc from './misc'
 import workspaces from './workspaces'
 import modelAccess from './modelAccess'
+import wp6 from './wp6'
 
 export default {
   workspaces,
   modelAccess,
+  wp6,
   ...capabilities,
   helpGuide,
   ...landing,
