@@ -101,3 +101,11 @@ After merging BE-06 (146fc5cdb), BE-09 (988c4f942) and the C5 release scaffold (
 | `cd backend && go test ./...` | Pass (EXIT=0, 71 packages ok) |
 | `go run ./api/v2/compose` then `git diff` | No drift |
 | `contracts/release/backend/verify.sh` | exit 0 — OpenAPI pass, J01–J06 pass; HTTP/MATRIX/FINANCE/ACCESS/MIGRATION/LOAD marked pending |
+
+## Frontend gate at 5ed388cbd
+
+| Check | Result |
+| --- | --- |
+| `pnpm run typecheck` | Pass (TC=0) |
+| `pnpm run test:run` | Pass (TEST=0) |
+| `pnpm run build` | Pass (BUILD=0) |
