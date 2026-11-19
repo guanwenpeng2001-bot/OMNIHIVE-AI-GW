@@ -15,8 +15,10 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
@@ -31,6 +33,7 @@ import (
 )
 
 type Application struct {
+	Restores      *legacyrestore.Runtime
 	OpsMetrics    *service.OpsMetricsCollector
 	UpstreamJobs  *service.UpstreamJobService
 	Server        *http.Server
@@ -54,6 +57,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		identityhttp.ProviderSet,
 		connectionshttp.ProviderSet,
 		modelshttp.ProviderSet,
+		restorehttp.ProviderSet,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -72,13 +76,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores"),
 	)
 	return nil, nil
 }
 
-func provideIdentityOperations(store *connections.Store) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store}}
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

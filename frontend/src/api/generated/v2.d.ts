@@ -24,6 +24,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/admin/restores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Queue the specified target. Production requires a verified isolated operation, a subsequent production preview and a current TOTP session grant. Requires ops.restore.execute. */
+        post: operations["executeRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/restores/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read the journaled operation. Requires ops.restore.execute. */
+        get: operations["getRestore"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/restores/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Verify the requested archive digest and inspect its contents. Requires ops.restore.preview. */
+        post: operations["previewRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/me/scopes": {
         parameters: {
             query?: never;
@@ -499,6 +550,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery. */
+        AdmittedExecution: {
+            /** Format: uuid */
+            request_id: string;
+            scope: components["schemas"]["ExecutionAuthorizedScope"];
+            attempt_budget: number;
+            /** Format: date-time */
+            deadline: string;
+            versions: {
+                model: string;
+                price: string;
+                /** Format: date-time */
+                pricing_at: string;
+            };
+            reservation_ref: string;
+        };
         CatalogBenchmark: {
             benchmark_id: string;
             unit: string;
@@ -894,6 +961,28 @@ export interface components {
             credential_version: string;
         };
         ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
+        ExecutionAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            request_id: string;
+            ordinal: number;
+            account_id?: components["schemas"]["ExecutionIdentityNumber"];
+            /** @enum {string} */
+            acceptance: "not_sent" | "accepted" | "unknown";
+            /** @enum {string} */
+            outcome: "intent" | "dispatching" | "not_sent" | "rejected" | "transport_response" | "unknown";
+        };
+        ExecutionAuthorizedScope: {
+            workspace_id: components["schemas"]["ExecutionIdentityNumber"];
+            project_id: components["schemas"]["ExecutionIdentityNumber"];
+            actor_id: components["schemas"]["ExecutionIdentityNumber"];
+            api_key_id: components["schemas"]["ExecutionIdentityNumber"];
+            key_owner_id: components["schemas"]["ExecutionIdentityNumber"];
+            funding_user_id: components["schemas"]["ExecutionIdentityNumber"];
+            authorization_version: components["schemas"]["ExecutionIdentityNumber"];
+        };
+        ExecutionIdentityNumber: string;
         IdentityAccess: {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
@@ -1029,6 +1118,53 @@ export interface components {
             evidence_state: "fresh" | "stale" | "unknown";
             effective_scope?: components["schemas"]["CatalogScope"];
         };
+        RestoreExecuteInput: {
+            preview_id: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            rehearsal_id?: string | null;
+        };
+        RestoreOperation: {
+            id: string;
+            generation: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            /** @enum {unknown} */
+            state: "queued" | "running" | "succeeded" | "failed" | "unknown";
+            /** @enum {unknown} */
+            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "verified";
+            report: null | components["schemas"]["RestoreReport"];
+        };
+        RestorePreview: {
+            id: string;
+            verified: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            impact: {
+                databases: string;
+                source_digest: string;
+                users: string;
+                api_keys: string;
+                billing_usage_entries: string;
+                upstream_jobs: string;
+            };
+        };
+        RestorePreviewInput: {
+            backup_id: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            expected_digest?: string;
+        };
+        RestoreReport: {
+            source_digest?: string;
+            counts?: {
+                users?: string;
+                api_keys?: string;
+                billing_usage_entries?: string;
+                upstream_jobs?: string;
+            };
+            reason?: string;
+        };
     };
     responses: never;
     parameters: {
@@ -1044,7 +1180,12 @@ export interface components {
         IdentityWorkspaceID: components["schemas"]["IdentityID"];
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Server-generated identity of the admitted execution, including a matching idempotent resubmission. */
+        GatewayExecutionID: string;
+        /** @description Present on a matching keyed Responses resubmission with its original execution ID and an empty 204 body. */
+        GatewayExecutionReplayed: "true";
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -1080,6 +1221,125 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["ConnectionWriteResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    executeRestore: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreExecuteInput"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["RestoreOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RestoreOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    previewRestore: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestorePreviewInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RestorePreview"];
                     };
                 };
             };
