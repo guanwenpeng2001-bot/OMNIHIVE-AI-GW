@@ -1,0 +1,101 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/quotes:
+    parameters:
+    - $ref: '#/components/parameters/IdentityWorkspaceID'
+    - $ref: '#/components/parameters/IdentityProjectID'
+    post:
+      operationId: quoteProjectModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExactQuoteInput'
+      responses:
+        '200':
+          description: Estimate at the authorized price version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: { const: 0 }
+                  message: { const: success }
+                  data:
+                    $ref: '#/components/schemas/ExactQuote'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+components:
+  schemas:
+    ExactQuoteInput:
+      type: object
+      additionalProperties: false
+      required: [model_id, protocol, action, scenario]
+      properties:
+        model_id: { type: string, pattern: '^m_[a-f0-9]{32}$' }
+        api_key_id: { type: [string, 'null'], pattern: '^[1-9][0-9]{0,18}$' }
+        protocol: { type: string, minLength: 1, maxLength: 80 }
+        action: { type: string, minLength: 1, maxLength: 80 }
+        scenario:
+          $ref: '#/components/schemas/ExactPriceScenario'
+    ExactCount:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,19})$'
+    ExactDuration:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,19})(\.[0-9]{1,10})?$'
+    ExactPriceScenario:
+      type: object
+      additionalProperties: false
+      description: Quantities per request. Cached input is included in input; other dimensions are disjoint. Missing usage fields default to zero and requests defaults to one.
+      properties:
+        input_tokens: { $ref: '#/components/schemas/ExactCount' }
+        cached_input_tokens: { $ref: '#/components/schemas/ExactCount' }
+        output_tokens: { $ref: '#/components/schemas/ExactCount' }
+        requests: { type: string, pattern: '^[1-9][0-9]{0,19}$', default: '1' }
+        cache_write_tokens: { $ref: '#/components/schemas/ExactCount' }
+        cache_write_1h_tokens: { $ref: '#/components/schemas/ExactCount' }
+        reasoning_tokens: { $ref: '#/components/schemas/ExactCount' }
+        images: { $ref: '#/components/schemas/ExactCount' }
+        image_input_tokens: { $ref: '#/components/schemas/ExactCount' }
+        image_output_tokens: { $ref: '#/components/schemas/ExactCount' }
+        search_calls: { $ref: '#/components/schemas/ExactCount' }
+        audio_seconds: { $ref: '#/components/schemas/ExactDuration' }
+        video_seconds: { $ref: '#/components/schemas/ExactDuration' }
+        size_tier: { type: string, maxLength: 80 }
+    ExactQuoteLine:
+      type: object
+      required: [kind, quantity, raw_amount, numerator, denominator]
+      properties:
+        kind: { type: string }
+        quantity: { $ref: '#/components/schemas/ExactDuration' }
+        raw_amount: { type: string }
+        numerator: { type: string }
+        denominator: { type: string }
+    ExactQuote:
+      type: object
+      required: [state, price_version, source, estimated_charge, components, rounding_adjustment, effective_scope]
+      properties:
+        state: { type: string, enum: [estimated, free, unpriced] }
+        price_version: { type: [string, 'null'] }
+        source: { type: [string, 'null'] }
+        estimated_charge:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogMoney'
+          - type: 'null'
+        components:
+          type: array
+          items: { $ref: '#/components/schemas/ExactQuoteLine' }
+        rounding_adjustment: { type: [string, 'null'] }
+        effective_scope:
+          type: object
+          required: [workspace_id, project_id, scope_version]
+          properties:
+            workspace_id: { type: string }
+            project_id: { type: string }
+            scope_version: { type: string }

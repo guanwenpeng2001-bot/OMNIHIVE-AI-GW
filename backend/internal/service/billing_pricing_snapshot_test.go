@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"math"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -173,4 +174,39 @@ func TestFrozenPricingGPTImagePreflightHasNoOutboundOnMissingPrice(t *testing.T)
 	cost := service.calculateOpenAIImageCost(context.Request.Context(), "gpt-image-1", key, &OpenAIForwardResult{ImageCount: 1, ImageSize: "1K"}, 1)
 	require.Equal(t, PricingStateUnpriced, cost.PricingState)
 
+}
+
+func TestBE07ExactLegacyGolden(t *testing.T) {
+	const snapshot = `{"model":"fixture","mode":"per_request","source":"group","unit_price":0.000078125,"units":1,"rate_multiplier":1,"time_multiplier":1,"reasoning_multiplier":1}`
+	legacy, err := RecalculatePricingSnapshot(snapshot)
+	require.NoError(t, err)
+	exact, err := ReplayExactPricing(snapshot)
+	require.NoError(t, err)
+	require.InDelta(t, 0.000078125, legacy.ActualCost, 1e-16)
+	require.Equal(t, "0.00007813", exact.Charge.Amount().String())
+}
+
+func TestBE07HistoricalReplay(t *testing.T) {
+	raw, err := os.ReadFile("../../../contracts/migrations/BE-02/v1-replay.json")
+	require.NoError(t, err)
+	var fixtures []struct {
+		Name   string
+		Frozen json.RawMessage `json:"frozen_snapshot"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &fixtures))
+	expected := map[string]string{"half-tie": "0.00007813", "float-tail": "0.30000000", "free": "0.00000000"}
+	for _, fixture := range fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			legacy, err := RecalculatePricingSnapshot(string(fixture.Frozen))
+			require.NoError(t, err)
+			require.NotNil(t, legacy)
+			exact, err := ReplayExactPricing(string(fixture.Frozen))
+			if fixture.Name == "quantized-quote" {
+				require.ErrorIs(t, err, ErrModelPricingUnavailable)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, expected[fixture.Name], exact.Charge.String())
+		})
+	}
 }

@@ -905,3 +905,31 @@ func TestCalculateCostUnified_UsesContinuousMediaUnits(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 0.12, cost.TotalCost, 1e-12)
 }
+
+func TestBE07FreezeExactGroupChannelPrecedence(t *testing.T) {
+	groupID := int64(777)
+	const model = "gpt-5.6-luna"
+	channel := newChannelServiceWithPricings(groupID, []ChannelModelPricing{tokenPricingForModels([]string{model}, 0.4)})
+	billing := &BillingService{}
+	resolver := NewModelPricingResolver(channel, billing)
+	for _, tc := range []struct {
+		name  string
+		cards []ChannelModelPricing
+		want  string
+	}{
+		{"channel", nil, "0.40000000"},
+		{"group", []ChannelModelPricing{tokenPricingForModels([]string{model}, 0.6)}, "0.60000000"},
+		{"explicit group zero", []ChannelModelPricing{tokenPricingForModels([]string{model}, 0)}, "0.00000000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			group := &Group{ID: groupID, Platform: PlatformOpenAI, ModelPricing: tc.cards}
+			frozen, err := billing.FreezeExactCost(CostInput{Ctx: context.Background(), Mode: BillingModeToken, Model: model, GroupID: &groupID, Group: group,
+				Tokens: UsageTokens{InputTokens: 1_000_000}, RateMultiplier: 1, Resolver: resolver})
+			require.NoError(t, err)
+			actual, err := frozen.Calculate()
+			require.NoError(t, err)
+			require.NotNil(t, actual.Charge)
+			require.Equal(t, tc.want, actual.Charge.String())
+		})
+	}
+}
