@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,7 @@ func SetupRouter(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	db *sql.DB,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -82,6 +84,7 @@ func SetupRouter(
 	r.Use(middleware2.GatewayUnknownRouteProtocol())
 	// Gin captures middleware when routes are registered.
 	r.Use(middleware2.InstallProjectScopes(gatewayScopes, cfg))
+	r.Use(handler.InstallExecutionJournal(db, gatewayScopes))
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {

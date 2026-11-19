@@ -30,7 +30,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		nil, nil, nil, nil, middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
-		nil, nil, nil, settings, nil, cfg, nil)
+		nil, nil, nil, settings, nil, cfg, nil, nil)
 	registered := make(map[string]bool)
 	for _, route := range router.Routes() {
 		registered[route.Method+" "+route.Path] = true
