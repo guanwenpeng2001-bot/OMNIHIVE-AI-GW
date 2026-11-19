@@ -207,7 +207,17 @@ func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSe
 	}()
 	result, err = s.repo.Settle(ctx, key, fingerprint)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil || errors.Is(err, ErrUsageBillingRequestConflict) || errors.Is(err, ErrUsageSettlementNeedsReview) {
+			return nil, err
+		}
+		// A committed receipt disappears from ListPending even when the worker
+		// loses the commit acknowledgement. Read back its identity so this worker
+		// can still invalidate cached balances without replaying callbacks.
+		stored, lookupErr := s.repo.Get(ctx, key)
+		if lookupErr != nil || stored == nil || stored.State != UsageSettlementSettled {
+			return nil, err
+		}
+		result = &UsageSettlementResult{Receipt: stored, Billing: &UsageBillingApplyResult{}}
 	}
 	if result == nil || result.Receipt == nil || result.Billing == nil {
 		return nil, fmt.Errorf("settlement acknowledgement is incomplete")
@@ -220,7 +230,11 @@ func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSe
 	// snapshots here, including replay after a lost settlement acknowledgement.
 	if s.authCacheInvalidator != nil && receipt.Command.APIKeyQuotaCost > 0 &&
 		(result.Billing.APIKeyQuotaExhausted || !result.Billing.Applied) {
-		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, receipt.Key.UserID)
+		if byID, ok := s.authCacheInvalidator.(apiKeyAuthCacheInvalidatorByAPIKeyID); ok {
+			byID.InvalidateAuthCacheByAPIKeyID(ctx, receipt.Key.APIKeyID)
+		} else {
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, receipt.Key.UserID)
+		}
 	}
 	// Invalidate views on replay too; never replay additive cache updates.
 	if s.cache != nil {
