@@ -1177,7 +1177,7 @@ func TestRecoverStaleRecords(t *testing.T) {
 	require.Contains(t, r1.ErrorMsg, "server restart")
 
 	r2, _ := svc.GetBackupRecord(context.Background(), "stale-2")
-	require.Equal(t, "failed", r2.RestoreStatus)
+	require.Equal(t, "review_required", r2.RestoreStatus)
 	require.Contains(t, r2.RestoreError, "server restart")
 }
 
