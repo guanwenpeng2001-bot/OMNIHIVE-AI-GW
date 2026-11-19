@@ -109,3 +109,14 @@ After merging BE-06 (146fc5cdb), BE-09 (988c4f942) and the C5 release scaffold (
 | `pnpm run typecheck` | Pass (TC=0) |
 | `pnpm run test:run` | Pass (TEST=0) |
 | `pnpm run build` | Pass (BUILD=0) |
+
+## Gate after C1–C4 + BE-23 prep (2bff07381 → 55b4bbf1e)
+
+| Check | Result |
+| --- | --- |
+| `cd backend && go test ./...` | Pass (EXIT=0) |
+| BE-07 pricing tests (`modules/pricing`, compare, quotes) | Pass |
+| BE-11 settlement/usage service tests | Pass |
+| BE-08 planner/scheduler tests | Pass |
+| BE-12 apicompat/providers tests | Pass |
+| BE-23 CLI tests | Pass |
