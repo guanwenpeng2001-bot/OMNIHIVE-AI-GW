@@ -273,8 +273,12 @@ function getThresholdColorClass(level: ThresholdLevel): string {
 
 // --- Realtime / Overview labels ---
 
-const totalRequestsLabel = computed(() => formatNumber(overview.value?.request_count_total ?? 0))
-const totalTokensLabel = computed(() => formatNumber(overview.value?.token_consumed ?? 0))
+const totalRequestsLabel = computed(() =>
+  overview.value?.request_count_total == null ? '—' : formatNumber(overview.value.request_count_total)
+)
+const totalTokensLabel = computed(() =>
+  overview.value?.token_consumed == null ? '—' : formatNumber(overview.value.token_consumed)
+)
 
 const realtimeTrafficSummary = ref<OpsRealtimeTrafficSummary | null>(null)
 const realtimeTrafficLoading = ref(false)
@@ -347,30 +351,30 @@ const displayRealTimeTps = computed(() => {
 
 const realtimeQpsPeakLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.qps?.peak
-  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '-'
+  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '—'
 })
 const realtimeTpsPeakLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.tps?.peak
-  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '-'
+  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '—'
 })
 const realtimeQpsAvgLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.qps?.avg
-  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '-'
+  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '—'
 })
 const realtimeTpsAvgLabel = computed(() => {
   const v = realtimeTrafficSummary.value?.tps?.avg
-  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '-'
+  return typeof v === 'number' && Number.isFinite(v) ? v.toFixed(1) : '—'
 })
 
 const qpsAvgLabel = computed(() => {
   const v = overview.value?.qps?.avg
-  if (typeof v !== 'number') return '-'
+  if (typeof v !== 'number') return '—'
   return v.toFixed(1)
 })
 
 const tpsAvgLabel = computed(() => {
   const v = overview.value?.tps?.avg
-  if (typeof v !== 'number') return '-'
+  if (typeof v !== 'number') return '—'
   return v.toFixed(1)
 })
 
@@ -624,9 +628,9 @@ const diagnosisReport = computed<DiagnosisItem[]>(() => {
 // --- System health (secondary) ---
 
 function formatTimeShort(ts?: string | null): string {
-  if (!ts) return '-'
+  if (!ts) return '—'
   const d = new Date(ts)
-  if (Number.isNaN(d.getTime())) return '-'
+  if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleTimeString()
 }
 
@@ -937,7 +941,7 @@ function handleToolbarRefresh() {
         <button
           v-if="!props.fullscreen"
           type="button"
-          class="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--surface-2)] px-3 text-xs font-bold text-[var(--brand-text)] transition-colors hover:bg-[var(--brand)]"
+          class="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--surface-2)] px-3 text-xs font-bold text-[var(--brand-text)] transition-colors hover:bg-[var(--oh-bg-hover)]"
           :title="t('admin.ops.alertRules.title')"
           @click="emit('openAlertRules')"
         >
@@ -1243,7 +1247,7 @@ function handleToolbarRefresh() {
             </button>
           </div>
           <div class="mt-2 text-3xl font-semibold" :class="getThresholdColorClass(getSLAThresholdLevel(slaPercent))">
-            {{ slaPercent == null ? '-' : `${slaPercent.toFixed(3)}%` }}
+            {{ slaPercent == null ? '—' : `${slaPercent.toFixed(3)}%` }}
           </div>
           <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
             <div class="h-full transition-all" :class="getSLAThresholdLevel(slaPercent) === 'critical' ? 'bg-red-500' : getSLAThresholdLevel(slaPercent) === 'warning' ? 'bg-yellow-500' : 'bg-green-500'" :style="{ width: `${Math.max((slaPercent ?? 0) - 90, 0) * 10}%` }"></div>
@@ -1274,34 +1278,34 @@ function handleToolbarRefresh() {
           </div>
           <div class="mt-2 flex items-baseline gap-2">
             <div class="text-3xl font-semibold text-[var(--foreground)]">
-              {{ durationP99Ms ?? '-' }}
+              {{ durationP99Ms ?? '—' }}
             </div>
             <span class="text-xs font-bold text-[var(--muted-foreground)]">ms (P99)</span>
           </div>
           <div class="mt-3 grid grid-cols-1 gap-x-3 gap-y-1 text-xs 2xl:grid-cols-2">
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P95:</span>
-              <span class="font-bold text-[var(--foreground)]">{{ durationP95Ms ?? '-' }}</span>
+              <span class="font-bold text-[var(--foreground)]">{{ durationP95Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P90:</span>
-              <span class="font-bold text-[var(--foreground)]">{{ durationP90Ms ?? '-' }}</span>
+              <span class="font-bold text-[var(--foreground)]">{{ durationP90Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P50:</span>
-              <span class="font-bold text-[var(--foreground)]">{{ durationP50Ms ?? '-' }}</span>
+              <span class="font-bold text-[var(--foreground)]">{{ durationP50Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">Avg:</span>
-              <span class="font-bold text-[var(--foreground)]">{{ durationAvgMs ?? '-' }}</span>
+              <span class="font-bold text-[var(--foreground)]">{{ durationAvgMs ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">Max:</span>
-              <span class="font-bold text-[var(--foreground)]">{{ durationMaxMs ?? '-' }}</span>
+              <span class="font-bold text-[var(--foreground)]">{{ durationMaxMs ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
           </div>
@@ -1325,34 +1329,34 @@ function handleToolbarRefresh() {
           </div>
           <div class="mt-2 flex items-baseline gap-2">
             <div class="text-3xl font-semibold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP99Ms))">
-              {{ ttftP99Ms ?? '-' }}
+              {{ ttftP99Ms ?? '—' }}
             </div>
             <span class="text-xs font-bold text-[var(--muted-foreground)]">ms (P99)</span>
           </div>
           <div class="mt-3 grid grid-cols-1 gap-x-3 gap-y-1 text-xs 2xl:grid-cols-2">
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P95:</span>
-              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP95Ms))">{{ ttftP95Ms ?? '-' }}</span>
+              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP95Ms))">{{ ttftP95Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P90:</span>
-              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP90Ms))">{{ ttftP90Ms ?? '-' }}</span>
+              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP90Ms))">{{ ttftP90Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">P50:</span>
-              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP50Ms))">{{ ttftP50Ms ?? '-' }}</span>
+              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftP50Ms))">{{ ttftP50Ms ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">Avg:</span>
-              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftAvgMs))">{{ ttftAvgMs ?? '-' }}</span>
+              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftAvgMs))">{{ ttftAvgMs ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
             <div class="flex items-baseline gap-1 whitespace-nowrap">
               <span class="text-[var(--muted-foreground)]">Max:</span>
-              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftMaxMs))">{{ ttftMaxMs ?? '-' }}</span>
+              <span class="font-bold" :class="getThresholdColorClass(getTTFTThresholdLevel(ttftMaxMs))">{{ ttftMaxMs ?? '—' }}</span>
               <span class="text-[var(--muted-foreground)]">ms</span>
             </div>
           </div>
@@ -1370,7 +1374,7 @@ function handleToolbarRefresh() {
             </button>
           </div>
           <div class="mt-2 text-3xl font-semibold" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(errorRatePercent))">
-            {{ errorRatePercent == null ? '-' : `${errorRatePercent.toFixed(2)}%` }}
+            {{ errorRatePercent == null ? '—' : `${errorRatePercent.toFixed(2)}%` }}
           </div>
           <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between">
@@ -1396,7 +1400,7 @@ function handleToolbarRefresh() {
             </button>
           </div>
           <div class="mt-2 text-3xl font-semibold" :class="getThresholdColorClass(getUpstreamErrorRateThresholdLevel(upstreamErrorRatePercent))">
-            {{ upstreamErrorRatePercent == null ? '-' : `${upstreamErrorRatePercent.toFixed(2)}%` }}
+            {{ upstreamErrorRatePercent == null ? '—' : `${upstreamErrorRatePercent.toFixed(2)}%` }}
           </div>
           <div class="mt-3 space-y-1 text-xs">
             <div class="flex justify-between">
@@ -1422,7 +1426,7 @@ function handleToolbarRefresh() {
             <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.cpu')" />
           </div>
           <div class="mt-1 text-lg font-semibold" :class="cpuPercentClass">
-            {{ cpuPercentValue == null ? '-' : `${cpuPercentValue.toFixed(1)}%` }}
+            {{ cpuPercentValue == null ? '—' : `${cpuPercentValue.toFixed(1)}%` }}
           </div>
           <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-[var(--muted-foreground)]">
             {{ t('common.warning') }} 80% · {{ t('common.critical') }} 95%
@@ -1436,12 +1440,12 @@ function handleToolbarRefresh() {
             <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.memory')" />
           </div>
           <div class="mt-1 text-lg font-semibold" :class="memPercentClass">
-            {{ memPercentValue == null ? '-' : `${memPercentValue.toFixed(1)}%` }}
+            {{ memPercentValue == null ? '—' : `${memPercentValue.toFixed(1)}%` }}
           </div>
           <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-[var(--muted-foreground)]">
             {{
               systemMetrics?.memory_used_mb == null || systemMetrics?.memory_total_mb == null
-                ? '-'
+                ? '—'
                 : `${formatMemorySizeMB(systemMetrics.memory_used_mb)} / ${formatMemorySizeMB(systemMetrics.memory_total_mb)}`
             }}
           </div>
@@ -1457,9 +1461,9 @@ function handleToolbarRefresh() {
             {{ dbMiddleLabel }}
           </div>
           <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-[var(--muted-foreground)]">
-            {{ t('admin.ops.conns') }} {{ dbConnOpenValue ?? '-' }} / {{ dbMaxOpenConnsValue ?? '-' }}
-            · {{ t('admin.ops.active') }} {{ dbConnActiveValue ?? '-' }}
-            · {{ t('admin.ops.idle') }} {{ dbConnIdleValue ?? '-' }}
+            {{ t('admin.ops.conns') }} {{ dbConnOpenValue ?? '—' }} / {{ dbMaxOpenConnsValue ?? '—' }}
+            · {{ t('admin.ops.active') }} {{ dbConnActiveValue ?? '—' }}
+            · {{ t('admin.ops.idle') }} {{ dbConnIdleValue ?? '—' }}
             <span v-if="dbConnWaitingValue != null"> · {{ t('admin.ops.waiting') }} {{ dbConnWaitingValue }} </span>
           </div>
         </div>
@@ -1474,7 +1478,7 @@ function handleToolbarRefresh() {
             {{ redisMiddleLabel }}
           </div>
           <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-[var(--muted-foreground)]">
-            {{ t('admin.ops.conns') }} {{ redisConnTotalValue ?? '-' }} / {{ redisPoolSizeValue ?? '-' }}
+            {{ t('admin.ops.conns') }} {{ redisConnTotalValue ?? '—' }} / {{ redisPoolSizeValue ?? '—' }}
             <span v-if="redisConnActiveValue != null"> · {{ t('admin.ops.active') }} {{ redisConnActiveValue }} </span>
             <span v-if="redisConnIdleValue != null"> · {{ t('admin.ops.idle') }} {{ redisConnIdleValue }} </span>
           </div>
@@ -1490,7 +1494,7 @@ function handleToolbarRefresh() {
             {{ goroutineStatusLabel }}
           </div>
           <div v-if="!props.fullscreen" class="mt-1 text-[10px] text-[var(--muted-foreground)]">
-            {{ t('admin.ops.current') }} <span class="font-mono">{{ goroutineCountValue ?? '-' }}</span>
+            {{ t('admin.ops.current') }} <span class="font-mono">{{ goroutineCountValue ?? '—' }}</span>
             · {{ t('common.warning') }} <span class="font-mono">{{ goroutinesWarnThreshold }}</span>
             · {{ t('common.critical') }} <span class="font-mono">{{ goroutinesCriticalThreshold }}</span>
             <span v-if="systemMetrics?.concurrency_queue_depth != null">
@@ -1549,7 +1553,7 @@ function handleToolbarRefresh() {
               {{ t('admin.ops.lastError') }} <span class="font-mono">{{ formatTimeShort(hb.last_error_at) }}</span>
             </div>
             <div>
-              {{ t('admin.ops.result') }} <span class="font-mono">{{ hb.last_result || '-' }}</span>
+              {{ t('admin.ops.result') }} <span class="font-mono">{{ hb.last_result || '—' }}</span>
             </div>
           </div>
 
@@ -1606,3 +1610,10 @@ function handleToolbarRefresh() {
     </BaseDialog>
   </div>
 </template>
+
+<style scoped>
+button:focus-visible {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+}
+</style>

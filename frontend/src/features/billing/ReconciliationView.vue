@@ -343,7 +343,7 @@ function openPostedLedger() {
           <p v-if="access.data.value && !can('billing.ledger.read') && !access.loading.value" role="status" class="rounded-oh-lg border border-oh-default bg-oh-surface p-4 text-sm text-oh-secondary">{{ t('wp6.state.requiredGrant', { grant: 'billing.ledger.read' }) }}</p>
           <template v-if="can('billing.ledger.read')">
             <Card padding="md">
-              <form class="grid grid-cols-2 items-end gap-3 md:grid-cols-5" @submit.prevent="applyLedger">
+              <form class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 md:grid-cols-5" @submit.prevent="applyLedger">
                 <DateRangeFields v-model:from="ledgerDraft.from" v-model:to="ledgerDraft.to" v-model:timezone="ledgerDraft.timezone" required />
                 <Input v-model="ledgerDraft.currency" :label="t('wp6.billing.currency')" placeholder="USD" :maxlength="3" mono />
                 <Button type="submit" variant="primary" :disabled="!draftLedgerWindow">{{ t('wp6.filters.apply') }}</Button>

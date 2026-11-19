@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <section class="oh-dashboard w-full space-y-5">
+    <section class="oh-dashboard w-full min-w-0 space-y-5">
       <ConsoleScopeBar
         v-if="scope.scopes.value.length > 0"
         :workspaces="scope.scopes.value"
@@ -62,7 +62,7 @@
           <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
             {{ isZh ? '今日实际花费' : 'Today Actual Spend' }}
           </p>
-          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
             {{ stats ? money(stats.today_actual_cost) : '—' }}
           </p>
           <p class="mt-0.5 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">

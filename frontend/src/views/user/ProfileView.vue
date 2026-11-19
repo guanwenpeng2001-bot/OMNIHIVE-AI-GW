@@ -2,7 +2,7 @@
   <AppLayout>
     <div
       data-testid="profile-shell"
-      class="w-full space-y-6"
+      class="w-full min-w-0 space-y-6"
     >
       <!-- 界面风格「账户与安全中心」工作台概览横幅 -->
       <section
@@ -71,14 +71,14 @@
             <div>
               <div class="text-[11px] text-[var(--muted-foreground)]">当前可用余额</div>
               <div class="font-mono text-lg font-bold tabular-nums text-[var(--foreground)]">
-                ${{ (user.balance ?? 0).toFixed(2) }}
+                {{ typeof user.balance === 'number' && Number.isFinite(user.balance) ? `$${user.balance.toFixed(2)}` : '—' }}
               </div>
             </div>
-            <div class="h-7 w-px bg-[var(--surface-2)]" aria-hidden="true" />
+            <div class="h-7 w-px bg-[var(--border)]" aria-hidden="true" />
             <div>
               <div class="text-[11px] text-[var(--muted-foreground)]">并发配额</div>
               <div class="font-mono text-sm font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-                {{ user.concurrency ?? 0 }} 路
+                {{ typeof user.concurrency === 'number' && Number.isFinite(user.concurrency) ? `${user.concurrency} 路` : '—' }}
               </div>
             </div>
           </div>
@@ -96,7 +96,7 @@
             v-for="anchor in sectionAnchors"
             :key="anchor.id"
             :href="`#${anchor.id}`"
-            class="oh-anchor-pill"
+            class="oh-anchor-pill oh-focus-ring"
           >
             <span class="font-mono text-[10px] opacity-60">#</span>
             <span>{{ anchor.label }}</span>

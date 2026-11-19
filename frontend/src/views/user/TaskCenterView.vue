@@ -460,7 +460,7 @@ onMounted(() => {
           <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
             {{ isZh ? '排队 / 执行中' : 'Queued / Running' }}
           </p>
-          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
             {{ loading ? EM_DASH : formatNullableInteger(summaryCounts.active) }}
           </p>
         </div>
@@ -727,3 +727,13 @@ onMounted(() => {
     />
   </AppLayout>
 </template>
+
+<style scoped>
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+}
+</style>

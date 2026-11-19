@@ -219,9 +219,9 @@ onBeforeUnmount(() => {
     class="sticky top-0 z-40 h-14 w-full border-b border-oh-default bg-oh-canvas text-oh-primary"
     @keydown.esc="closeMenus"
   >
-    <div class="flex h-full items-center justify-between gap-2 px-2.5 sm:px-4 lg:px-5">
+    <div class="flex h-full items-center justify-between gap-1.5 px-2 sm:gap-2 sm:px-4 lg:px-5">
       <!-- Left Rail: Mobile Drawer + Collapse + Brand + ScopeSwitcher + Breadcrumb -->
-      <div class="flex min-w-0 flex-1 items-center gap-2 sm:gap-2.5">
+      <div class="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2.5">
         <button
           type="button"
           data-testid="mobile-sidebar-toggle"
@@ -286,12 +286,12 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Right Controls: ⌘K + Tier Switch + Model Plaza + Docs + Telemetry + Appearance + User -->
-      <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+      <div class="flex shrink-0 items-center gap-1 sm:gap-2">
         <button
           type="button"
           data-testid="console-cmdk-trigger"
           :aria-label="isZh ? '搜索模型和页面 (⌘K)' : 'Search models and routes (⌘K)'"
-          class="oh-focus-ring inline-flex h-8 items-center gap-2 rounded-oh-md border border-oh-default bg-oh-surface px-2.5 text-xs text-oh-muted transition-colors hover:border-oh-strong hover:text-oh-primary"
+          class="oh-focus-ring inline-flex h-8 w-8 items-center justify-center gap-2 rounded-oh-md border border-oh-default bg-oh-surface px-0 text-xs text-oh-muted transition-colors hover:border-oh-strong hover:text-oh-primary sm:w-auto sm:px-2.5"
           @click="handleOpenCommandPalette"
         >
           <svg
@@ -336,7 +336,7 @@ onBeforeUnmount(() => {
           to="/model-plaza"
           :aria-label="t('nav.modelPlaza')"
           :title="t('nav.modelPlaza')"
-          class="oh-focus-ring flex h-8 items-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-2 text-xs font-medium text-oh-secondary transition-colors hover:border-oh-strong hover:text-oh-primary sm:px-2.5"
+          class="oh-focus-ring flex h-8 w-8 items-center justify-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-0 text-xs font-medium text-oh-secondary transition-colors hover:border-oh-strong hover:text-oh-primary sm:w-auto sm:px-2.5"
         >
           <Icon name="grid" size="sm" />
           <span class="hidden xl:inline">{{ t('nav.modelPlaza') }}</span>
@@ -355,7 +355,9 @@ onBeforeUnmount(() => {
           <span class="hidden xl:inline">{{ t('nav.docs') }}</span>
         </a>
 
-        <SubscriptionProgressMini v-if="user && subscriptionFeatureEnabled && !authStore.isSimpleMode" />
+        <div v-if="user && subscriptionFeatureEnabled && !authStore.isSimpleMode" class="hidden xl:block [&>div>p]:hidden">
+          <SubscriptionProgressMini />
+        </div>
 
         <router-link
           v-if="user && !authStore.isSimpleMode"
@@ -368,9 +370,13 @@ onBeforeUnmount(() => {
           <span class="font-semibold">{{ formatMoneyValue(hasNumericBalance ? Number(rawBalance) : null) }}</span>
         </router-link>
 
-        <AnnouncementBell v-if="user" />
+        <div v-if="user" class="hidden sm:block">
+          <AnnouncementBell />
+        </div>
 
-        <LocaleSwitcher v-if="locale" />
+        <div v-if="locale" class="hidden sm:block">
+          <LocaleSwitcher />
+        </div>
 
         <!-- Appearance Popover (Light / Dark / System + Comfort / Compact) -->
         <div ref="appearanceRef" class="relative">
@@ -441,7 +447,7 @@ onBeforeUnmount(() => {
             data-testid="user-menu-trigger"
             :aria-expanded="dropdownOpen"
             aria-haspopup="menu"
-            class="oh-focus-ring inline-flex h-8 items-center gap-2 rounded-oh-md border border-oh-default bg-oh-surface px-2 text-xs font-medium text-oh-primary transition-colors hover:border-oh-strong"
+            class="oh-focus-ring inline-flex h-8 items-center gap-2 rounded-oh-md border border-oh-default bg-oh-surface px-1.5 text-xs font-medium text-oh-primary transition-colors hover:border-oh-strong sm:px-2"
             @click="dropdownOpen = !dropdownOpen; appearanceOpen = false"
           >
             <img

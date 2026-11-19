@@ -141,7 +141,7 @@ function handleClose(): void {
               </dt>
               <dd
                 data-testid="estimate-max-cost"
-                class="font-mono text-sm font-bold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]"
+                class="font-mono text-sm font-bold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]"
               >
                 {{
                   item.rateKnown && item.maxTotalCost !== null

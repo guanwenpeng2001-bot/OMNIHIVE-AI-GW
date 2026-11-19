@@ -303,17 +303,17 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="isSignedIn" ref="rootRef" class="relative shrink-0">
+  <div v-if="isSignedIn" ref="rootRef" class="relative min-w-0 shrink sm:shrink-0">
     <div
       v-if="scopesLoading && !appStore.scopesLoaded"
-      class="inline-flex h-8 items-center gap-2 rounded-oh-md border border-oh-subtle bg-oh-subtle px-2.5"
+      class="inline-flex h-8 max-w-full min-w-0 items-center gap-2 rounded-oh-md border border-oh-subtle bg-oh-subtle px-2 sm:px-2.5"
       aria-busy="true"
       :aria-label="isZh ? '正在加载工作空间作用域' : 'Loading workspace scopes'"
     >
-      <span class="font-mono text-[10px] font-semibold uppercase tracking-wider text-oh-muted">
+      <span class="hidden font-mono text-[10px] font-semibold uppercase tracking-wider text-oh-muted sm:inline">
         {{ tierBadgeLabel }}
       </span>
-      <Skeleton width="88px" height="14px" rounded="sm" />
+      <Skeleton width="64px" height="14px" rounded="sm" />
     </div>
 
     <button
@@ -324,13 +324,13 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       aria-haspopup="dialog"
       :aria-label="isZh ? '切换工作空间与项目作用域' : 'Switch workspace and project scope'"
-      class="oh-focus-ring inline-flex h-8 max-w-[240px] items-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-2.5 text-left text-[13px] transition-colors hover:border-oh-strong hover:bg-oh-hover sm:max-w-[300px]"
+      class="oh-focus-ring inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-oh-md border border-oh-default bg-oh-surface px-1.5 text-left text-[13px] transition-colors hover:border-oh-strong hover:bg-oh-hover sm:gap-1.5 sm:max-w-[300px] sm:px-2.5"
       @click="togglePopover"
       @keydown.esc="closePopover(true)"
     >
       <span
         :class="[
-          'shrink-0 rounded-oh-xs border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider',
+          'hidden shrink-0 rounded-oh-xs border px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider sm:inline-flex',
           isAdminRoute
             ? 'border-oh-accent bg-oh-accent-subtle text-oh-accent-text'
             : 'border-oh-subtle bg-oh-subtle text-oh-muted'
@@ -373,7 +373,7 @@ onBeforeUnmount(() => {
       role="dialog"
       data-testid="scope-switcher-popover"
       :aria-label="isZh ? '选择工作空间与项目' : 'Select workspace and project'"
-      class="absolute left-0 top-full z-50 mt-1.5 w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-oh-lg border border-oh-default bg-oh-elevated text-oh-primary shadow-oh-md"
+      class="max-sm:fixed max-sm:left-3 max-sm:right-3 max-sm:top-14 max-sm:w-auto sm:absolute sm:left-0 sm:top-full z-50 mt-1.5 sm:w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-oh-lg border border-oh-default bg-oh-elevated text-oh-primary shadow-oh-md"
       @keydown="handleKeydown"
     >
       <div class="flex items-center gap-2 border-b border-oh-subtle px-3 py-2">

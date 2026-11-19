@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import { Button, Card, Drawer, Input, PageHeader, Select } from '@/components/ui'
+import { Button, Card, CopyButton, Drawer, Input, PageHeader, Select } from '@/components/ui'
 import ScopePicker from '@/features/requests/components/ScopePicker.vue'
 import CursorButtons from '@/features/requests/components/CursorButtons.vue'
 import { useProjectScope } from '@/features/requests/useProjectScope'
@@ -19,6 +19,11 @@ const path = computed(() => scope.value ? `/workspaces/${scope.value.workspaceId
 const actionOptions = ['requests.export', 'tasks.artifacts.revoke', 'billing.adjust', 'billing.reconcile', 'audit.retention.set', 'audit.retention.purge', 'audit.export', 'scope.read', 'scope.write']
 const resourceOptions = ['request_export', 'artifact', 'billing_command', 'retention', 'audit_event', 'project']
 const options = (values: string[]) => [{ value: '', label: '全部' }, ...values.map(value => ({ value, label: value }))]
+function formatAuditTime(value?: string | null): string {
+  if (!value) return '—'
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '—'
+}
 const action = ref('')
 const resource = ref('')
 const resourceId = ref('')
@@ -129,8 +134,8 @@ async function exportEvent() {
 </script>
 
 <template>
-  <AppLayout>
-    <div class="space-y-4">
+  <AppLayout contained>
+    <div class="min-w-0 space-y-4">
       <PageHeader title="项目审计" description="查看所选项目的审计事件。">
         <template #actions><ScopePicker :scope="scope" @change="choose" /></template>
       </PageHeader>
@@ -140,13 +145,13 @@ async function exportEvent() {
           <Select v-model="action" label="动作" :options="options(actionOptions)" />
           <Select v-model="resource" label="资源" :options="options(resourceOptions)" />
           <Input v-model="resourceId" label="资源标识" />
-          <label class="grid gap-1 text-sm">开始时间（含）
-            <input v-model="from" type="datetime-local" class="input min-w-0" />
+          <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">开始时间（含）
+            <input v-model="from" type="datetime-local" class="input oh-focus-ring w-full min-w-0" />
           </label>
-          <label class="grid gap-1 text-sm">结束时间（不含）
-            <input v-model="to" type="datetime-local" class="input min-w-0" />
+          <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">结束时间（不含）
+            <input v-model="to" type="datetime-local" class="input oh-focus-ring w-full min-w-0" />
           </label>
-          <div class="flex items-end gap-2">
+          <div class="flex flex-wrap items-end gap-2">
             <Button type="submit">筛选</Button>
             <Button variant="secondary" :disabled="page.loading.value" @click="page.refresh">刷新</Button>
           </div>
@@ -159,9 +164,9 @@ async function exportEvent() {
               <thead><tr><th class="p-2">时间</th><th class="p-2">动作</th><th class="p-2">资源</th><th class="p-2">结果</th></tr></thead>
               <tbody>
                 <tr v-for="event in page.data.value.items" :key="event.audit_event_id" class="border-t border-oh-subtle">
-                  <td class="p-2 whitespace-nowrap">{{ new Date(event.at).toLocaleString() }}</td>
-                  <td class="p-2"><Button size="sm" variant="ghost" @click="selected = event.audit_event_id">{{ event.action }}</Button></td>
-                  <td class="p-2">{{ event.resource }}</td><td class="p-2">{{ event.effect }}</td>
+                  <td class="p-2 font-mono text-xs tabular-nums whitespace-nowrap">{{ formatAuditTime(event.at) }}</td>
+                  <td class="p-2"><Button size="sm" variant="ghost" @click="selected = event.audit_event_id">{{ event.action || '—' }}</Button></td>
+                  <td class="p-2">{{ event.resource || '—' }}</td><td class="p-2">{{ event.effect || '—' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -177,12 +182,16 @@ async function exportEvent() {
           :message="detail.error.value.status === 410 ? '事件已超出保留期限。' : undefined" />
         <div v-else-if="detail.data.value" class="space-y-3">
           <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 break-all text-sm">
-            <dt>事件</dt><dd>{{ detail.data.value.audit_event_id }}</dd>
+            <dt>事件</dt>
+            <dd class="flex flex-wrap items-center gap-1.5 font-mono text-xs">
+              <span>{{ detail.data.value.audit_event_id || '—' }}</span>
+              <CopyButton v-if="detail.data.value.audit_event_id" :value="detail.data.value.audit_event_id" size="xs" />
+            </dd>
             <dt>操作者</dt><dd>{{ detail.data.value.actor_id ?? '—' }}</dd>
-            <dt>时间</dt><dd>{{ new Date(detail.data.value.at).toLocaleString() }}</dd>
-            <dt>动作</dt><dd>{{ detail.data.value.action }}</dd>
-            <dt>资源</dt><dd>{{ detail.data.value.resource }} · {{ redactSensitiveText(detail.data.value.resource_id) }}</dd>
-            <dt>结果</dt><dd>{{ detail.data.value.effect }}</dd>
+            <dt>时间</dt><dd class="font-mono text-xs tabular-nums">{{ formatAuditTime(detail.data.value.at) }}</dd>
+            <dt>动作</dt><dd>{{ detail.data.value.action || '—' }}</dd>
+            <dt>资源</dt><dd>{{ detail.data.value.resource || '—' }} · {{ redactSensitiveText(detail.data.value.resource_id) || '—' }}</dd>
+            <dt>结果</dt><dd>{{ detail.data.value.effect || '—' }}</dd>
             <dt v-if="detail.data.value.affected">影响数量</dt><dd v-if="detail.data.value.affected">{{ detail.data.value.affected }}</dd>
           </dl>
           <Button :loading="exportBusy" @click="exportEvent">导出事件</Button>

@@ -150,7 +150,7 @@ async function refresh() {
         </p>
         <template v-if="can('billing.read')">
           <Card padding="md">
-            <form class="grid grid-cols-2 items-end gap-3 md:grid-cols-4 2xl:grid-cols-8" @submit.prevent="apply">
+            <form class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 md:grid-cols-4 2xl:grid-cols-8" @submit.prevent="apply">
               <DateRangeFields v-model:from="draft.from" v-model:to="draft.to" v-model:timezone="draft.timezone" required />
               <Input v-model="draft.currency" :label="t('wp6.billing.currency')" placeholder="USD" :maxlength="3" mono />
               <Input v-model="draft.model_id" :label="t('wp6.filters.model')" :placeholder="t('wp6.filters.anyModel')" :maxlength="255" mono />
