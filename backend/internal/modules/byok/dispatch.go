@@ -62,6 +62,7 @@ type Funding struct {
 // attempts resolve their own authorized native account through the usual gateway.
 type Transport func(context.Context, Funding, map[string]any) error
 type check struct {
+	membership     int64
 	consent        bool
 	approvedWallet []string
 	credential     Credential
@@ -105,6 +106,9 @@ func (g Gateway) inspect(ctx context.Context, tx *sql.Tx, a scope.Authorized, d 
 	}
 	c, e := eligibleOne(ctx, tx, a, d.Scenario.Model, d.CredentialID)
 	if e != nil {
+		return v, e
+	}
+	if e = tx.QueryRowContext(ctx, "SELECT id FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", a.WorkspaceID, a.ActorID).Scan(&v.membership); e != nil {
 		return v, e
 	}
 	if c.Version != d.Version {
@@ -341,6 +345,9 @@ func (g Gateway) commitSend(ctx context.Context, tx *sql.Tx, a scope.Authorized,
 	if e != nil {
 		return e
 	}
+	if _, e = tx.ExecContext(ctx, "SELECT set_config('omnihive.byok_writer','28',true)"); e != nil {
+		return e
+	}
 	_, e = tx.ExecContext(ctx, `INSERT INTO byok_attempt_funding(attempt_id,workspace_id,credential_id,grant_version,secret_version,source,snapshot_id,price_version,reservation_id,byok_external_estimate,platform_service_fee,platform_estimate,frozen_price,include_external_in_budget,request_fallback_consent,approved_wallet_candidates)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,nullif($9::bigint,0),$10,$11,$12,$13,$14,$15,$16)`, at.ID, a.WorkspaceID, d.CredentialID, d.Version, v.credential.SecretVersion, d.Source, v.snapshot, v.cost.PriceVersion, hold, v.cost.External, v.cost.Fee, v.cost.Platform, string(frozen), v.cost.IncludeExternal, v.consent, pq.Array(v.approvedWallet))
 	if e != nil {
@@ -353,9 +360,15 @@ func (g Gateway) commitSend(ctx context.Context, tx *sql.Tx, a scope.Authorized,
 	transport, stop := context.WithCancel(ctx)
 	defer stop()
 	checkRevoked := func() bool {
-		var forced bool
-		err := g.Store.db.QueryRowContext(transport, `SELECT force_revoked_at IS NOT NULL FROM byok_credentials WHERE workspace_id=$1 AND id=$2`, a.WorkspaceID, d.CredentialID).Scan(&forced)
-		return err != nil || forced
+		// Keep the original membership instance fenced across exit/rejoin.
+		// A committed old secret version drains across rotation and drain revoke.
+		var permitted bool
+		probeCtx, cancel := context.WithTimeout(transport, 2*time.Second)
+		defer cancel()
+		err := g.Store.db.QueryRowContext(probeCtx, `SELECT EXISTS(SELECT 1`+keyProject+principal+`
+           AND m.id=$5 AND c.id=$7 AND c.force_revoked_at IS NULL AND ($8<>'wallet' OR c.allow_platform_fallback))`,
+			a.WorkspaceID, a.ProjectID, a.ActorID, a.KeyID, v.membership, d.Scenario.Model, d.CredentialID, d.Source).Scan(&permitted)
+		return err != nil || !permitted
 	}
 	if checkRevoked() {
 		// This process has not entered transport. The recorded permit is safe

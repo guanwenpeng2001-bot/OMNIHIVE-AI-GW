@@ -34,6 +34,12 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	w := parent.Group("/workspaces/:workspace_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	p := w.Group("/projects/:project_id/byok/credentials")
 	for _, r := range []*gin.RouterGroup{w.Group("/byok"), p} {
+		r.GET("/provider-classes", h.serve("classes", 200))
+		r.GET("/:id", h.serve("get", 200))
+		r.PATCH("/:id", h.serve("patch", 200))
+		r.DELETE("/:id", h.serve("delete", 202))
+		r.GET("/:id/events", h.serve("events", 200))
+		r.GET("/:id/estimate", h.serve("estimate", 200))
 		r.GET("", h.serve("list", 200))
 		r.POST("", h.serve("create", 201))
 		r.PUT("/:id/policy", h.serve("policy", 200))
@@ -41,7 +47,9 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 			r.POST("/:id/"+action, h.serve(action, 202))
 		}
 	}
-	p.GET("/:id/estimate", h.serve("estimate", 200))
+	p.PUT("/service-accounts/:key_id", h.serve("register", 200))
+	p.DELETE("/service-accounts/:key_id", h.serve("retire", 200))
+	p.GET("/service-accounts/:key_id", h.serve("service_status", 200))
 }
 func target(c *gin.Context) (domain.Target, error) {
 	who, ok := middleware.GetAuthSubjectFromContext(c)
@@ -108,18 +116,35 @@ func (h *Handler) serve(action string, status int) gin.HandlerFunc {
 func (h *Handler) run(c *gin.Context, t domain.Target, action string) (any, error) {
 	ctx := c.Request.Context()
 	switch action {
-	case "list":
+	case "classes":
+		items, e := h.store.Classes(ctx, t)
+		return gin.H{"items": items}, e
+	case "register", "retire", "service_status":
+		key, e := connections.ID(c.Param("key_id"))
+		if e != nil {
+			return nil, fault.NotFound
+		}
+		return h.store.ServiceAccount(ctx, t, key, action)
+	case "get":
+		result, e := h.store.Get(ctx, t)
+		if e == nil {
+			c.Header("ETag", strconv.Quote(strconv.FormatInt(result.Version, 10)))
+		}
+		return result, e
+	case "list", "events":
+		limit, e := strconv.Atoi(c.DefaultQuery("limit", "25"))
+		if e != nil || limit < 1 || limit > 100 {
+			return nil, fault.Invalid("/limit")
+		}
+		if action == "events" {
+			return h.store.Events(ctx, t, c.Query("cursor"), limit)
+		}
 		after := int64(0)
-		var e error
 		if text := c.Query("cursor"); text != "" {
 			after, e = connections.ID(text)
 			if e != nil {
 				return nil, fault.Invalid("/cursor")
 			}
-		}
-		limit, e := strconv.Atoi(c.DefaultQuery("limit", "25"))
-		if e != nil || limit < 1 || limit > 100 {
-			return nil, fault.Invalid("/limit")
 		}
 		return h.store.List(ctx, t, after, limit)
 	case "estimate":
@@ -139,7 +164,15 @@ func (h *Handler) run(c *gin.Context, t domain.Target, action string) (any, erro
 		if e != nil || out < 0 {
 			return nil, fault.Invalid("/output_token_bound")
 		}
-		return h.store.Estimate(ctx, t, member, key, c.Query("model_id"), domain.Bounds{Input: in, Output: out})
+		bounds := domain.Bounds{Input: in, Output: out}
+		if t.Project == 0 {
+			project, err := connections.ID(c.Query("project_id"))
+			if err != nil {
+				return nil, fault.Invalid("/project_id")
+			}
+			return h.store.WorkspaceEstimate(ctx, t, project, member, key, c.Query("model_id"), bounds)
+		}
+		return h.store.Estimate(ctx, t, member, key, c.Query("model_id"), bounds)
 	}
 	if t.ID != 0 {
 		value := c.GetHeader("If-Match")
@@ -155,6 +188,11 @@ func (h *Handler) run(c *gin.Context, t domain.Target, action string) (any, erro
 	cmd := domain.Command{Target: t, Action: action, Key: c.GetHeader("Idempotency-Key")}
 	var e error
 	switch action {
+	case "patch":
+		cmd.Patch = &domain.Patch{}
+		e = decode(c, cmd.Patch)
+	case "delete":
+		cmd.Action, cmd.Mode = "revoke", "force"
 	case "create":
 		e = decode(c, &cmd.Create)
 	case "policy":

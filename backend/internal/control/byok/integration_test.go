@@ -26,6 +26,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
+	classes "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
@@ -43,10 +44,29 @@ import (
 type probe struct{}
 
 func (probe) ProbeConnection(_ context.Context, a *service.Account, _ string) service.ConnectionProbe {
+	switch a.Type {
+	case "apikey":
+		if a.GetCredential("api_key") == "" {
+			return service.ConnectionProbe{}
+		}
+	case "oauth", "setup-token":
+		if a.GetCredential("access_token") == "" {
+			return service.ConnectionProbe{}
+		}
+	default:
+		return service.ConnectionProbe{}
+	}
 	if a.Credentials["api_key"] == "bad" {
 		return service.ConnectionProbe{}
 	}
 	return service.ConnectionProbe{Network: "passed", Authorization: "passed", Discovery: "passed", Models: []string{"model"}}
+}
+func (probe) ProbeBYOKModels(_ context.Context, a *service.Account, models []string) service.ConnectionProbe {
+	field := map[string]string{"oauth": "access_token", "bedrock": "aws_secret_access_key", "service_account": "service_account_json"}[a.Type]
+	if field == "" || a.GetCredential(field) == "" {
+		return service.ConnectionProbe{}
+	}
+	return service.ConnectionProbe{Network: "passed", Authorization: "passed", Discovery: "passed", Models: models}
 }
 func TestPilot(t *testing.T) {
 	ctx := t.Context()
@@ -124,6 +144,8 @@ func TestPilot(t *testing.T) {
 	call("POST", path, in, 0, createKey, 409, nil)
 	require.Equal(t, int64(0), number("SELECT count(*) FROM credential_secrets WHERE account_id=$1", c.ID))
 	require.Equal(t, int64(1), number("SELECT count(*) FROM byok_secret_versions WHERE credential_id=$1 AND ciphertext IS NOT NULL AND position($2 in ciphertext)=0", c.ID, secret))
+	_, e = db.ExecContext(ctx, "UPDATE byok_credentials SET version=version+1 WHERE id=$1", c.ID)
+	require.ErrorContains(t, e, "BYOK writer upgrade required")
 	base := path + "/" + id(c.ID)
 	otherPath := fmt.Sprintf("/api/v2/workspaces/%d/byok", other)
 	var page byok.Page
@@ -143,6 +165,8 @@ func TestPilot(t *testing.T) {
 	params := url.Values{"member_id": {id(actor)}, "key_id": {id(k)}, "model_id": {"model"}, "input_token_bound": {"1"}, "output_token_bound": {"1"}}
 	estimate := base + "/estimate?" + params.Encode()
 	var cost byok.Estimate
+	workspaceEstimate := fmt.Sprintf("/api/v2/workspaces/%d/byok/%d/estimate?project_id=%d&%s", w, c.ID, p, params.Encode())
+	call("GET", workspaceEstimate, nil, 0, "", 200, &cost)
 	call("GET", estimate, nil, 0, "", 200, &cost)
 	require.Nil(t, cost.External)
 	require.Equal(t, "unknown", cost.ExternalState)
@@ -231,6 +255,12 @@ func TestPilot(t *testing.T) {
 	capture(c, c.ID)
 	unknown := dispatch(c, c.ID, "byok")
 	unknown.RequestID = admit("wallet-card")
+	foreign := a
+	foreign.WorkspaceID = other
+	foreign.ProjectID = number("SELECT id FROM projects WHERE workspace_id=$1 AND is_default", other)
+	foreign.Version = number("SELECT scope_version FROM workspaces WHERE id=$1", other)
+	foreignCtx := scope.With(ctx, foreign)
+	require.Error(t, g.Send(foreignCtx, unknown, rejected))
 	require.NoError(t, g.Send(ctx, unknown, func(ctx context.Context, f byok.Funding, _ map[string]any) error {
 		require.Nil(t, f.External)
 		require.Equal(t, "unknown", f.ExternalState)
@@ -384,5 +414,132 @@ func TestPilot(t *testing.T) {
 	require.ErrorIs(t, <-ended, context.Canceled)
 	require.Equal(t, "revoked", op.Result.State)
 	require.Equal(t, int64(0), number("SELECT count(*) FROM byok_secret_versions WHERE credential_id=$1 AND ciphertext IS NOT NULL", c.ID))
+	// Each recognized class travels through the same scoped registration, probe and dispatch eligibility.
+	var matrix struct{ Items []classes.Class }
+	call("GET", path+"/provider-classes", nil, 0, "", 200, &matrix)
+	require.NotEmpty(t, matrix.Items)
+	for _, class := range matrix.Items {
+		require.Equal(t, class.Provider == "openai" && class.Auth == "api_key", class.Enabled)
+		in := byok.CreateInput{Provider: class.Provider, Auth: class.Auth, Secret: secret, Policy: pol}
+		if class.Auth == "bedrock" {
+			in.Secret = `{"aws_access_key_id":"fixture-id","aws_secret_access_key":"fixture-secret","aws_region":"us-east-1"}`
+		}
+		if class.Auth == "service_account" {
+			in.Secret = `{"type":"service_account","project_id":"sample","client_email":"sa@example.test","private_key":"fixture"}`
+		}
+		if !class.Supported {
+			call("POST", path, in, 0, uuid.NewString(), 422, nil)
+			continue
+		}
+		exec("INSERT INTO byok_pilot_providers(workspace_id,provider) VALUES($1,$2) ON CONFLICT DO NOTHING", w, class.Provider)
+		exec("INSERT INTO byok_provider_classes(workspace_id,provider,auth_type,enabled) VALUES($1,$2,$3,true)", w, class.Provider, class.Auth)
+		var created byok.Credential
+		call("POST", path, in, 0, uuid.NewString(), 201, &created)
+		require.Equal(t, class.Auth, created.Auth)
+		uri := path + "/" + id(created.ID)
+		call("POST", uri+"/verify", struct{}{}, created.Version, uuid.NewString(), 202, &op)
+		require.Equal(t, "verified", op.Result.State)
+		items, err := store.Eligible(ctx, a, "model")
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		require.Equal(t, created.ID, items[0].ID)
+		call("GET", otherPath+"/"+id(created.ID), nil, 0, "", 404, nil)
+		call("GET", otherPath+"/"+id(created.ID)+"/events", nil, 0, "", 404, nil)
+		call("PATCH", otherPath+"/"+id(created.ID), map[string]any{"priority": 6}, op.Result.Version, "", 404, nil)
+		call("PATCH", uri, map[string]any{"allow_platform_fallback": false, "include_external_in_budget": false}, op.Result.Version, "", 200, &created)
+		call("PATCH", uri, map[string]any{"priority": 2}, op.Result.Version, "", 412, nil)
+		call("GET", uri, nil, 0, "", 200, &again)
+		require.Equal(t, created, again)
+		var events byok.EventPage
+		call("GET", uri+"/events?limit=2", nil, 0, "", 200, &events)
+		require.Len(t, events.Items, 2)
+		require.NotNil(t, events.Next)
+		call("GET", uri+"/events?cursor="+*events.Next, nil, 0, "", 200, &events)
+		require.Equal(t, "credential.patch", events.Items[0].Type)
+		exec("UPDATE byok_provider_classes SET enabled=false WHERE workspace_id=$1 AND provider=$2 AND auth_type=$3", w, class.Provider, class.Auth)
+		items, err = store.Eligible(ctx, a, "model")
+		require.NoError(t, err)
+		require.Empty(t, items)
+		call("DELETE", uri, nil, created.Version, uuid.NewString(), 202, &op)
+		require.Equal(t, "revoked", op.Result.State)
+	}
+	// A designated machine requires both its original membership and dedicated key.
+	machineKey := number("INSERT INTO api_keys(workspace_id,user_id,name) VALUES($1,$2,'machine') RETURNING id", w, actor)
+	exec("INSERT INTO project_key_policies(workspace_id,api_key_id,project_id,actions,model_mode,models,member_bound,issued_membership) SELECT $1,$2,$3,ARRAY['text.chat'],'inherit','{}',true,id FROM workspace_members WHERE workspace_id=$1 AND user_id=$4", w, machineKey, p, actor)
+	exec("INSERT INTO api_key_credentials(workspace_id,api_key_id,credential_digest,status) VALUES($1,$2,encode(sha256($3::bytea),'hex'),'project')", w, machineKey, uuid.NewString())
+	servicePath := path + "/service-accounts/" + id(machineKey)
+	var machine byok.ServiceAccount
+	call("PUT", servicePath, nil, 0, "", 200, &machine)
+	require.True(t, machine.Active)
+	call("GET", servicePath, nil, 0, "", 200, &machine)
+	exec("UPDATE byok_provider_classes SET enabled=true WHERE workspace_id=$1 AND provider='openai' AND auth_type='api_key'", w)
+	in.Policy = byok.Policy{Projects: []string{id(p)}, Models: []string{"model"}, Keys: []string{id(machineKey)}, Members: []string{id(actor)}}
+	in.Auth, in.Provider = "api_key", "openai"
+	call("POST", path, in, 0, uuid.NewString(), 403, nil)
+	in.ServiceAccounts = []string{id(machine.ID)}
+	in.Members = []string{}
+	call("POST", path, in, 0, uuid.NewString(), 201, &c)
+	machineCred := path + "/" + id(c.ID)
+	call("POST", machineCred+"/verify", struct{}{}, c.Version, uuid.NewString(), 202, &op)
+	machineScope := a
+	machineScope.KeyID = machineKey
+	items, e = store.Eligible(ctx, machineScope, "model")
+	require.NoError(t, e)
+	require.Len(t, items, 1)
+	call("DELETE", servicePath, nil, 0, "", 200, &machine)
+	require.False(t, machine.Active)
+	items, e = store.Eligible(ctx, machineScope, "model")
+	require.NoError(t, e)
+	require.Empty(t, items)
+	call("PUT", servicePath, nil, 0, "", 403, nil)
+	// A membership removal immediately followed by a rejoin cannot revive an old grant.
+	in.Policy = byok.Policy{Projects: []string{id(p)}, Models: []string{"model"}, Keys: []string{id(k)}, Members: []string{id(actor)}}
+	call("POST", path, in, 0, uuid.NewString(), 201, &c)
+	ownURI := path + "/" + id(c.ID)
+	call("POST", ownURI+"/verify", struct{}{}, c.Version, uuid.NewString(), 202, &op)
+	c = op.Result
+	capture(c, c.ID)
+	flight := dispatch(c, c.ID, "byok")
+	flight.RequestID = admit("wallet-card")
+	started = make(chan struct{})
+	ended = make(chan error, 1)
+	go func() {
+		ended <- g.Send(ctx, flight, func(transport context.Context, _ byok.Funding, _ map[string]any) error {
+			close(started)
+			select {
+			case <-transport.Done():
+				return transport.Err()
+			case <-time.After(5 * time.Second):
+				return fmt.Errorf("member exit did not cancel transport")
+			}
+		})
+	}()
+	select {
+	case <-started:
+	case err := <-ended:
+		t.Fatalf("start: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("transport did not start")
+	}
+	oldVersion := c.Version
+	call("POST", ownURI+"/rotate", map[string]any{"replacement": map[string]string{"secret": replacement}}, c.Version, uuid.NewString(), 202, &op)
+	c = op.Result
+	select {
+	case err := <-ended:
+		t.Fatalf("rotation aborted live transport: %v", err)
+	case <-time.After(400 * time.Millisecond):
+	}
+	stale := flight
+	stale.RequestID = admit("wallet-card")
+	stale.Version = oldVersion
+	require.Error(t, g.Send(ctx, stale, rejected))
+	exec("DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, actor)
+	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", w, actor)
+	require.ErrorIs(t, <-ended, context.Canceled)
+	a.Version = number("SELECT scope_version FROM workspaces WHERE id=$1", w)
+	call("PATCH", ownURI, map[string]any{"priority": 7}, c.Version, "", 200, &c)
+	items, e = store.Eligible(ctx, a, "model")
+	require.NoError(t, e)
+	require.Empty(t, items)
 	require.Equal(t, before, cache.DBSize(ctx).Val())
 }

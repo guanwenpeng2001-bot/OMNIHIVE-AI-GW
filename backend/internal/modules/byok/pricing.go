@@ -58,7 +58,7 @@ func price(ctx context.Context, tx *sql.Tx, c Credential, project, account int64
 		return estimate, f, e
 	}
 	if source == "byok" {
-		fee, e := enabled(ctx, tx, c.Workspace, c.Provider)
+		fee, e := enabled(ctx, tx, c.Workspace, c.Provider, c.Auth)
 		if e != nil {
 			return estimate, f, e
 		}

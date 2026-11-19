@@ -14,7 +14,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-04"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
+	classes "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
@@ -39,11 +39,13 @@ type Command struct {
 	Create       CreateInput
 	Policy       Policy
 	Secret, Mode string
+	Patch        *Patch `json:",omitempty"`
 }
 
 const metadata = `c.id,c.workspace_id,c.provider,c.version,c.secret_version,
  CASE WHEN c.state='verified' AND c.verified_until<=clock_timestamp() THEN 'expired' ELSE c.state END,
- c.fingerprint,c.verified_until,c.project_ids,c.member_ids,c.key_ids,c.model_ids,c.priority,c.allow_platform_fallback,c.include_external_in_budget`
+ c.fingerprint,c.verified_until,c.project_ids,c.member_ids,c.key_ids,c.model_ids,c.priority,c.allow_platform_fallback,c.include_external_in_budget,c.auth_type,c.service_account_ids,
+ ARRAY(SELECT model FROM unnest(c.model_ids) model WHERE c.state='verified' AND c.verified_until>clock_timestamp() AND model=ANY(c.verified_models))`
 const visible = `c.workspace_id=$1 AND ($2::bigint=0 OR c.project_ids=ARRAY[$2::bigint])`
 
 type scanner interface{ Scan(...any) error }
@@ -51,7 +53,7 @@ type scanner interface{ Scan(...any) error }
 func scanCredential(row scanner) (Credential, error) {
 	var c Credential
 	e := row.Scan(&c.ID, &c.Workspace, &c.Provider, &c.Version, &c.SecretVersion, &c.State, &c.Fingerprint, &c.VerifiedUntil,
-		pq.Array(&c.Scope.Projects), pq.Array(&c.Scope.Members), pq.Array(&c.Scope.Keys), pq.Array(&c.Scope.Models), &c.Priority, &c.Fallback, &c.Budget)
+		pq.Array(&c.Scope.Projects), pq.Array(&c.Scope.Members), pq.Array(&c.Scope.Keys), pq.Array(&c.Scope.Models), &c.Priority, &c.Fallback, &c.Budget, &c.Auth, pq.Array(&c.Scope.ServiceAccounts), pq.Array(&c.VerifiedModels))
 	if errors.Is(e, sql.ErrNoRows) {
 		e = fault.NotFound
 	}
@@ -109,7 +111,7 @@ func (s *Store) Change(ctx context.Context, cmd Command) (json.RawMessage, error
 	if e != nil {
 		return nil, e
 	}
-	if (cmd.Action != "policy" || cmd.Key != "") && !connections.ValidText(cmd.Key, 200) {
+	if ((cmd.Action != "policy" && cmd.Action != "patch") || cmd.Key != "") && !connections.ValidText(cmd.Key, 200) {
 		return nil, fault.Invalid("/Idempotency-Key")
 	}
 	tx, e := s.db.BeginTx(ctx, nil)
@@ -141,10 +143,22 @@ func (s *Store) Change(ctx context.Context, cmd Command) (json.RawMessage, error
 			return nil, e
 		}
 		result = cached
+		if result != nil {
+			result, e = completePilotResponse(result)
+			if e != nil {
+				return nil, e
+			}
+		}
 	}
 	if result == nil {
+		if _, e = tx.ExecContext(ctx, "SELECT set_config('omnihive.byok_writer','28',true)"); e != nil {
+			return nil, e
+		}
 		v, e := s.change(ctx, tx, cmd)
 		if e != nil {
+			return nil, e
+		}
+		if e = saveEvent(ctx, tx, cmd, v); e != nil {
 			return nil, e
 		}
 		result, e = json.Marshal(v)
@@ -158,20 +172,56 @@ func (s *Store) Change(ctx context.Context, cmd Command) (json.RawMessage, error
 			}
 		}
 	}
-	// Fence a grant change, including one which raced an upstream verification.
-	var ok bool
-	e = tx.QueryRowContext(ctx, `SELECT true FROM workspaces w JOIN users u ON u.id=$2 AND u.deleted_at IS NULL AND u.status='active'
-        WHERE w.id=$1 AND w.scope_version=$3 AND (u.role='admin' OR EXISTS(
-        SELECT FROM workspace_members m WHERE m.workspace_id=w.id AND m.user_id=u.id AND
-        (m.role='admin' OR EXISTS(SELECT FROM project_grants g WHERE g.workspace_id=w.id AND g.user_id=u.id AND g.project_id=$4 AND g.action=$5))))
-        FOR SHARE OF w,u`, cmd.Workspace, cmd.Actor, a.Version, cmd.Project, Manage).Scan(&ok)
-	if errors.Is(e, sql.ErrNoRows) {
-		return nil, fault.Forbidden
-	}
-	if e != nil {
+	if e = fenceManager(ctx, tx, cmd.Target, a.Version); e != nil {
 		return nil, e
 	}
 	return result, tx.Commit()
+}
+
+// Old idempotency and operation receipts preserve the metadata snapshot as it
+// existed at commit. Fill only the fields whose values were fixed in the pilot.
+func completePilotResponse(raw json.RawMessage) (json.RawMessage, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
+	}
+	candidate := raw
+	if envelope["result"] != nil {
+		candidate = envelope["result"]
+	}
+	var c Credential
+	if err := json.Unmarshal(candidate, &c); err != nil {
+		return nil, err
+	}
+	if c.Auth != "" || c.ID == 0 {
+		return raw, nil
+	}
+	c.Auth = "api_key"
+	c.Scope.ServiceAccounts = []string{}
+	c.VerifiedModels = []string{}
+	data, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	if envelope["result"] == nil {
+		return data, nil
+	}
+	envelope["result"] = data
+	return json.Marshal(envelope)
+}
+
+func fenceManager(ctx context.Context, tx *sql.Tx, t Target, version int64) error {
+	// Fence a grant change, including one which raced an upstream verification.
+	var ok bool
+	e := tx.QueryRowContext(ctx, `SELECT true FROM workspaces w JOIN users u ON u.id=$2 AND u.deleted_at IS NULL AND u.status='active'
+        WHERE w.id=$1 AND w.scope_version=$3 AND (u.role='admin' OR EXISTS(
+        SELECT FROM workspace_members m WHERE m.workspace_id=w.id AND m.user_id=u.id AND
+        (m.role='admin' OR EXISTS(SELECT FROM project_grants g WHERE g.workspace_id=w.id AND g.user_id=u.id AND g.project_id=$4 AND g.action=$5))))
+        FOR SHARE OF w,u`, t.Workspace, t.Actor, version, t.Project, Manage).Scan(&ok)
+	if errors.Is(e, sql.ErrNoRows) {
+		return fault.Forbidden
+	}
+	return e
 }
 
 const keyProject = ` FROM api_keys k JOIN projects d ON d.workspace_id=k.workspace_id AND d.is_default
@@ -190,25 +240,50 @@ func checkGrants(ctx context.Context, tx *sql.Tx, t Target, p Policy) ([]int64, 
 	var bindings []int64
 	e := tx.QueryRowContext(ctx, `SELECT
     (SELECT count(*) FROM projects WHERE workspace_id=$1 AND archived_at IS NULL AND id=ANY($2::bigint[]))=cardinality($2::bigint[])
-    AND (SELECT count(*) `+keyProject+` WHERE k.workspace_id=$1 AND k.id=ANY($4::bigint[]) AND p.id=ANY($2::bigint[]) AND k.user_id=ANY($3::bigint[]) AND `+keyActive+`)=cardinality($4::bigint[]),
+    AND (SELECT count(*) `+keyProject+` LEFT JOIN byok_service_accounts sa ON sa.api_key_id=k.id
+    JOIN workspace_members sponsor ON sponsor.workspace_id=k.workspace_id AND sponsor.user_id=k.user_id
+    WHERE k.workspace_id=$1 AND k.id=ANY($4::bigint[]) AND p.id=ANY($2::bigint[])
+    AND ((sa.id IS NULL AND k.user_id=ANY($3::bigint[])) OR
+        (sa.id=ANY($5::bigint[]) AND sa.revoked_at IS NULL AND sa.workspace_id=k.workspace_id AND sa.project_id=p.id AND sa.membership_id=sponsor.id))
+    AND `+keyActive+`)=cardinality($4::bigint[])
+    AND (SELECT count(*) FROM byok_service_accounts sa WHERE sa.workspace_id=$1 AND sa.project_id=ANY($2::bigint[]) AND sa.id=ANY($5::bigint[])
+        AND sa.api_key_id=ANY($4::bigint[]) AND sa.revoked_at IS NULL)=cardinality($5::bigint[]),
     ARRAY(SELECT m.id FROM workspace_members m JOIN users u ON u.id=m.user_id AND u.deleted_at IS NULL AND u.status='active' WHERE m.workspace_id=$1 AND m.user_id=ANY($3::bigint[]))`,
-		t.Workspace, pq.Array(p.Projects), pq.Array(p.Members), pq.Array(p.Keys)).Scan(&ok, pq.Array(&bindings))
+		t.Workspace, pq.Array(p.Projects), pq.Array(nonNil(p.Members)), pq.Array(p.Keys), pq.Array(nonNil(p.ServiceAccounts))).Scan(&ok, pq.Array(&bindings))
 	if e == nil && (!ok || len(bindings) != len(p.Members)) {
 		return nil, fault.Forbidden
 	}
 	return bindings, e
 }
 
-func enabled(ctx context.Context, tx *sql.Tx, w int64, provider string) (string, error) {
-	var fee string
-	e := tx.QueryRowContext(ctx, `SELECT service_fee_usd::text FROM byok_pilot_providers WHERE workspace_id=$1 AND provider=$2 AND enabled FOR SHARE`, w, provider).Scan(&fee)
-	if errors.Is(e, sql.ErrNoRows) {
-		e = fault.Forbidden
+func nonNil(v []string) []string {
+	if v == nil {
+		return []string{}
 	}
-	return fee, e
+	return v
 }
-func payload(secret string) (map[string]any, error) {
-	return (credentials.Change{Operation: "set", Type: "api_key", Secret: secret}).Payload("api_key")
+
+func enabled(ctx context.Context, tx *sql.Tx, w int64, provider, auth string) (string, error) {
+	var fee string
+	var pilot bool
+	e := tx.QueryRowContext(ctx, `SELECT service_fee_usd::text,enabled FROM byok_pilot_providers WHERE workspace_id=$1 AND provider=$2 FOR SHARE`, w, provider).Scan(&fee, &pilot)
+	if errors.Is(e, sql.ErrNoRows) {
+		return "", fault.Forbidden
+	}
+	if e != nil {
+		return "", e
+	}
+	var permit bool
+	e = tx.QueryRowContext(ctx, `SELECT enabled FROM byok_provider_classes WHERE workspace_id=$1 AND provider=$2 AND auth_type=$3`, w, provider, auth).Scan(&permit)
+	if errors.Is(e, sql.ErrNoRows) {
+		permit = pilot && auth == "api_key"
+	} else if e != nil {
+		return "", e
+	}
+	if !permit || !classes.Supported(provider, auth) {
+		return "", fault.Forbidden
+	}
+	return fee, nil
 }
 func (s *Store) protect(ctx context.Context, w, id, version int64, secret map[string]any) (ref, cipher, fp string, err error) {
 	ref = "byok:" + uuid.NewString()
@@ -241,13 +316,13 @@ func retire(ctx context.Context, tx *sql.Tx, c Credential) error {
 
 func (s *Store) create(ctx context.Context, tx *sql.Tx, t Target, in CreateInput) (Credential, error) {
 	var c Credential
-	if in.Auth != "api_key" || len(connections.Schemas(in.Provider, in.Auth)) == 0 || in.Provider == "" {
+	if !classes.Supported(in.Provider, in.Auth) {
 		return c, fault.Invalid("/provider")
 	}
-	if _, e := enabled(ctx, tx, t.Workspace, in.Provider); e != nil {
+	if _, e := enabled(ctx, tx, t.Workspace, in.Provider, in.Auth); e != nil {
 		return c, e
 	}
-	secret, e := payload(in.Secret)
+	secret, e := classes.Payload(in.Provider, in.Auth, in.Secret)
 	if e != nil {
 		return c, e
 	}
@@ -255,7 +330,7 @@ func (s *Store) create(ctx context.Context, tx *sql.Tx, t Target, in CreateInput
 	if e != nil {
 		return c, e
 	}
-	id, e := legacy.Create(ctx, tx, t.Workspace, "Tenant API key", in.Provider, in.Auth)
+	id, e := legacy.Create(ctx, tx, t.Workspace, "Tenant credential", in.Provider, in.Auth)
 	if e != nil {
 		return c, e
 	}
@@ -263,8 +338,8 @@ func (s *Store) create(ctx context.Context, tx *sql.Tx, t Target, in CreateInput
 	if e != nil {
 		return c, e
 	}
-	c, e = scanCredential(tx.QueryRowContext(ctx, `INSERT INTO byok_credentials AS c(id,workspace_id,provider,state,fingerprint,project_ids,member_ids,member_bindings,key_ids,model_ids,priority,allow_platform_fallback,include_external_in_budget)
-        VALUES($1,$2,$3,'unverified',$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING `+metadata, id, t.Workspace, in.Provider, fp, pq.Array(in.Projects), pq.Array(in.Members), pq.Array(bindings), pq.Array(in.Keys), pq.Array(in.Models), in.Priority, in.Fallback, in.Budget))
+	c, e = scanCredential(tx.QueryRowContext(ctx, `INSERT INTO byok_credentials AS c(id,workspace_id,provider,state,fingerprint,project_ids,member_ids,member_bindings,key_ids,model_ids,priority,allow_platform_fallback,include_external_in_budget,auth_type,service_account_ids,self_service)
+        VALUES($1,$2,$3,'unverified',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,true) RETURNING `+metadata, id, t.Workspace, in.Provider, fp, pq.Array(in.Projects), pq.Array(nonNil(in.Members)), pq.Array(bindings), pq.Array(in.Keys), pq.Array(in.Models), in.Priority, in.Fallback, in.Budget, in.Auth, pq.Array(nonNil(in.ServiceAccounts))))
 	if e != nil {
 		return c, e
 	}

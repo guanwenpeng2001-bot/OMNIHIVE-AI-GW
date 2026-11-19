@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-04"
+	classes "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
@@ -28,19 +30,30 @@ func (s *Store) change(ctx context.Context, tx *sql.Tx, cmd Command) (any, error
 		return nil, unavailable
 	}
 	if cmd.Action != "revoke" {
-		if _, e = enabled(ctx, tx, c.Workspace, c.Provider); e != nil {
+		if _, e = enabled(ctx, tx, c.Workspace, c.Provider, c.Auth); e != nil {
 			return nil, e
 		}
 	}
 	switch cmd.Action {
-	case "policy":
+	case "policy", "patch":
 		p := cmd.Policy
+		keepBindings := false
+		if cmd.Action == "patch" {
+			if cmd.Patch == nil {
+				return nil, fault.Invalid("/patch")
+			}
+			p, e = cmd.Patch.apply(c)
+			if e != nil {
+				return nil, e
+			}
+			keepBindings = cmd.Patch.Members == nil
+		}
 		bindings, e := checkGrants(ctx, tx, cmd.Target, p)
 		if e != nil {
 			return nil, e
 		}
-		return scanCredential(tx.QueryRowContext(ctx, `UPDATE byok_credentials AS c SET project_ids=$3,member_ids=$4,member_bindings=$5,key_ids=$6,model_ids=$7,
-        priority=$8,allow_platform_fallback=$9,include_external_in_budget=$10,version=version+1 WHERE workspace_id=$1 AND id=$2 RETURNING `+metadata, c.Workspace, c.ID, pq.Array(p.Projects), pq.Array(p.Members), pq.Array(bindings), pq.Array(p.Keys), pq.Array(p.Models), p.Priority, p.Fallback, p.Budget))
+		return scanCredential(tx.QueryRowContext(ctx, `UPDATE byok_credentials AS c SET project_ids=$3,member_ids=$4,member_bindings=CASE WHEN $12 THEN member_bindings ELSE $5 END,key_ids=$6,model_ids=$7,
+        priority=$8,allow_platform_fallback=$9,include_external_in_budget=$10,service_account_ids=$11,self_service=true,version=version+1 WHERE workspace_id=$1 AND id=$2 RETURNING `+metadata, c.Workspace, c.ID, pq.Array(p.Projects), pq.Array(nonNil(p.Members)), pq.Array(bindings), pq.Array(p.Keys), pq.Array(p.Models), p.Priority, p.Fallback, p.Budget, pq.Array(nonNil(p.ServiceAccounts)), keepBindings))
 	case "revoke":
 		if cmd.Mode != "force" && cmd.Mode != "drain" {
 			return nil, fault.Invalid("/mode")
@@ -52,18 +65,29 @@ func (s *Store) change(ctx context.Context, tx *sql.Tx, cmd Command) (any, error
 	case "verify", "rotate":
 		var secret map[string]any
 		if cmd.Action == "rotate" {
-			secret, e = payload(cmd.Secret)
+			secret, e = classes.Payload(c.Provider, c.Auth, cmd.Secret)
 		} else {
 			secret, e = s.resolve(ctx, tx, c)
 		}
 		if e != nil {
 			return nil, e
 		}
-		result := s.probe.ProbeConnection(ctx, &service.Account{ID: c.ID, WorkspaceID: c.Workspace, Platform: c.Provider, Type: legacy.AccountType("api_key"), Credentials: secret}, "")
+		account := &service.Account{ID: c.ID, WorkspaceID: c.Workspace, Platform: c.Provider, Type: legacy.AccountType(c.Auth), Credentials: secret}
+		var result service.ConnectionProbe
+		if c.Auth == "service_account" || c.Auth == "bedrock" || (c.Auth == "oauth" && (c.Provider == "cursor" || c.Provider == "antigravity")) {
+			if probe, ok := s.probe.(interface {
+				ProbeBYOKModels(context.Context, *service.Account, []string) service.ConnectionProbe
+			}); ok {
+				result = probe.ProbeBYOKModels(ctx, account, c.Scope.Models)
+			}
+		} else {
+			result = s.probe.ProbeConnection(ctx, account, "")
+		}
 		if _, e = current(ctx, tx, cmd.Target, true); e != nil {
 			return nil, e
 		}
-		if result.Network != "passed" || result.Authorization != "passed" || result.Discovery != "passed" || len(result.Models) == 0 {
+		expiry := classes.BearerExpiry(c.Auth, secret)
+		if (expiry != nil && !expiry.After(time.Now())) || result.Network != "passed" || result.Authorization != "passed" || result.Discovery != "passed" || len(result.Models) == 0 {
 			if cmd.Action == "rotate" {
 				return nil, unverified
 			}
@@ -87,7 +111,7 @@ func (s *Store) change(ctx context.Context, tx *sql.Tx, cmd Command) (any, error
 				return nil, e
 			}
 		}
-		c, e = scanCredential(tx.QueryRowContext(ctx, `UPDATE byok_credentials AS c SET state='verified',verified_until=clock_timestamp()+interval '24 hours',verified_models=$3,version=version+1,secret_version=$4,fingerprint=$5 WHERE workspace_id=$1 AND id=$2 RETURNING `+metadata, c.Workspace, c.ID, pq.Array(result.Models), c.SecretVersion, c.Fingerprint))
+		c, e = scanCredential(tx.QueryRowContext(ctx, `UPDATE byok_credentials AS c SET state='verified',verified_until=least(clock_timestamp()+interval '24 hours',$6::timestamptz),verified_models=$3,version=version+1,secret_version=$4,fingerprint=$5 WHERE workspace_id=$1 AND id=$2 RETURNING `+metadata, c.Workspace, c.ID, pq.Array(result.Models), c.SecretVersion, c.Fingerprint, expiry))
 	default:
 		return nil, fault.Invalid("/operation")
 	}
@@ -129,6 +153,10 @@ func (s *Store) ReadOperation(ctx context.Context, w, actor int64, id string) (i
 		return op, e
 	}
 	op.DelegatedAction = Manage
+	raw, e = completePilotResponse(raw)
+	if e != nil {
+		return op, e
+	}
 	e = json.Unmarshal(raw, &op)
 	return op, e
 }
