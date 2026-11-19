@@ -56,7 +56,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/home',
     name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
+    component: () => import('@/views/public/PublicHomeView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Home'
@@ -211,11 +211,47 @@ const routes: RouteRecordRaw[] = [
     path: '/model-plaza',
     name: 'ModelPlaza',
     alias: ['/models'],
-    component: () => import('@/views/ModelPlazaView.vue'),
+    component: () => import('@/views/public/PublicModelsView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Model Plaza',
       titleKey: 'modelPlaza.title'
+    }
+  },
+  {
+    path: '/models/compare',
+    name: 'ModelCompare',
+    component: () => import('@/views/public/PublicCompareView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Compare Models'
+    }
+  },
+  {
+    path: '/models/:id',
+    name: 'PublicModelDetail',
+    component: () => import('@/views/public/PublicModelDetailView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Model Detail'
+    }
+  },
+  {
+    path: '/pricing',
+    name: 'PublicPricing',
+    component: () => import('@/views/public/PublicPricingView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Pricing'
+    }
+  },
+  {
+    path: '/status',
+    name: 'PublicStatus',
+    component: () => import('@/views/public/PublicStatusView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Service Status'
     }
   },
 
