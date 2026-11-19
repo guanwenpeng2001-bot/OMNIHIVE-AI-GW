@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
@@ -62,6 +63,7 @@ type AttemptBudget struct {
 	limit       int
 	response    *lifecycle.Response
 	pendingWS   *AttemptRecord
+	observeWS   func(string)
 	interrupted *AttemptRecord
 	// replayFrom identifies the sole abandoned attempt whose replacement is authorized.
 	replayFrom     *AttemptRecord
@@ -105,6 +107,7 @@ func BeginAttemptStreamTurn(ctx context.Context, turn int) {
 		b.attempts = nil
 		b.response = new(lifecycle.Response)
 		b.pendingWS = nil
+		b.observeWS = nil
 		b.interrupted = nil
 		b.replayFrom = nil
 		b.replayExcluded = nil
@@ -144,10 +147,15 @@ func rejectAttemptWS(ctx context.Context, accountID int64, status int) {
 		return
 	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	var observe func(string)
 	if r := b.pendingWS; r != nil && r.AccountID == accountID {
 		r.Outcome, r.Status = "rejected", status
-		b.pendingWS = nil
+		observe = b.observeWS
+		b.pendingWS, b.observeWS = nil, nil
+	}
+	b.mu.Unlock()
+	if observe != nil {
+		observe("rejected")
 	}
 }
 
@@ -159,10 +167,15 @@ func writeAttemptWS(ctx context.Context, payload []byte, send func() error) erro
 	event := gjson.GetBytes(payload, "type").String()
 	b.mu.Lock()
 	r := b.response
-	if b.pendingWS != nil && strings.HasPrefix(event, "response.") {
+	var observe func(string)
+	if b.pendingWS != nil && b.pendingWS.Outcome != "transport_response" && strings.HasPrefix(event, "response.") {
 		b.pendingWS.Outcome = "transport_response"
+		observe = b.observeWS
 	}
 	b.mu.Unlock()
+	if observe != nil {
+		observe("transport_response")
+	}
 	if isOpenAIWSTerminalEvent(event) {
 		if !r.BeginTerminal() {
 			return nil
@@ -467,11 +480,29 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 	if tpmErr != nil {
 		return nil, tpmErr
 	}
+	var durable journal.Attempt
+	if plan != nil && plan.store != nil {
+		if b == nil {
+			plan.releaseUnsentTPM(tpmSequence)
+			return nil, journal.ErrDispatch
+		}
+		b.mu.Lock()
+		number := len(b.attempts) + 1
+		b.mu.Unlock()
+		var err error
+		durable, err = plan.journalDispatch(ctx, accountID, number)
+		if err != nil {
+			plan.releaseUnsentTPM(tpmSequence)
+			return nil, err
+		}
+	}
 	var record *AttemptRecord
 	if b != nil {
 		b.mu.Lock()
 		if err := b.checkSendLocked(ctx, accountID); err != nil {
 			b.mu.Unlock()
+			plan.releaseUnsentTPM(tpmSequence)
+			plan.observeJournalAttempt(durable, "not_sent")
 			return nil, err
 		}
 		index := len(b.attempts)
@@ -493,9 +524,12 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		b.attempts = append(b.attempts, record)
 		b.interrupted = nil
 		b.uncertain = false
-		b.pendingWS = nil
+		b.pendingWS, b.observeWS = nil, nil
 		if ws && b.streamTurns {
 			b.pendingWS = record
+			if durable.ID != "" {
+				b.observeWS = func(outcome string) { plan.observeJournalAttempt(durable, outcome) }
+			}
 		}
 		b.mu.Unlock()
 	} else if err := ctx.Err(); err != nil {
@@ -532,7 +566,9 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 						b.uncertain = true
 					}
 				}
+				outcome = record.Outcome
 				b.mu.Unlock()
+				plan.observeJournalAttempt(durable, outcome)
 			}
 		})
 	}, nil
