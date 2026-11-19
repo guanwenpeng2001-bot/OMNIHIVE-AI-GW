@@ -147,7 +147,8 @@ export default {
     interactiveHint: '按 Enter 或点击继续',
     navigation: {
       flipPage: '翻页',
-      exit: '退出'
+      exit: '退出',
+      skip: '跳过引导'
     },
     // Admin tour steps
     admin: {

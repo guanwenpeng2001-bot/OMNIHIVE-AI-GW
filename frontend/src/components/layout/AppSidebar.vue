@@ -323,6 +323,7 @@ const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
+const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
@@ -388,11 +389,24 @@ const navigationGroups = computed((): NavGroup[] => [
     ]
   },
   {
+    key: 'user-models',
+    domain: 'user',
+    section: 'models',
+    label: isZh.value ? 'MODELS · 模型与调用' : 'MODELS & RUN',
+    items: [
+      { path: '/model-plaza', label: label('nav.modelPlaza', '模型广场'), icon: 'cube', featureFlag: flagModelPlaza },
+      { path: '/playground', label: isZh.value ? 'Playground 调试台' : 'Playground', icon: 'play' },
+      ...extensionItemsFor('user', 'models')
+    ]
+  },
+  {
     key: 'user-usage',
     domain: 'user',
     section: 'activity',
     label: isZh.value ? 'USAGE & TASKS · 用量与任务' : 'USAGE & TASKS',
     items: [
+      { path: '/requests', label: isZh.value ? '请求记录' : 'Requests', icon: 'document' },
+      { path: '/tasks', label: isZh.value ? '任务中心' : 'Task Center', icon: 'inbox' },
       { path: '/usage', label: label('nav.usage', '用量记录'), icon: 'chart', hideInSimpleMode: true },
       { path: '/batch-image', label: label('nav.batchImage', '批量生图'), icon: 'sparkles', hideInSimpleMode: true },
       { path: '/available-channels', label: t('nav.availableChannels'), icon: 'server', hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -406,6 +420,7 @@ const navigationGroups = computed((): NavGroup[] => [
     section: 'billing',
     label: isZh.value ? 'BILLING · 计费与额度' : 'BILLING & CREDITS',
     items: [
+      { path: '/billing', label: isZh.value ? '费用与额度' : 'Costs & Quota', icon: 'calculator' },
       { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagSubscription },
       { path: '/purchase', label: purchaseNavLabel.value, icon: 'dollar', hideInSimpleMode: true, featureFlag: flagPayment },
       { path: '/orders', label: t('nav.myOrders'), icon: 'document', hideInSimpleMode: true, featureFlag: flagPayment },
@@ -434,6 +449,7 @@ const navigationGroups = computed((): NavGroup[] => [
     label: isZh.value ? 'OPERATIONS · 运行观测' : 'OPERATIONS',
     items: [
       { path: '/admin/dashboard', label: label('nav.dashboard', '总览仪表盘'), icon: 'grid' },
+      { path: '/admin/requests', label: isZh.value ? '请求诊断' : 'Request Diagnostics', icon: 'document' },
       { path: '/admin/ops', label: label('nav.ops', '运维实时监控'), icon: 'chart', featureFlag: flagOpsMonitoring },
       { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: 'chart', hideInSimpleMode: true, featureFlag: flagChannelMonitor },
       { path: '/admin/usage', label: label('nav.usage', '用量记录'), icon: 'chart' },
@@ -447,6 +463,9 @@ const navigationGroups = computed((): NavGroup[] => [
     label: isZh.value ? 'CONNECTIONS · 连接与路由' : 'CONNECTIONS & ROUTING',
     items: [
       { path: '/admin/accounts', label: label('nav.accounts', '上游账号'), icon: 'globe' },
+      { path: '/admin/connections/new', label: isZh.value ? '新建上游连接' : 'New Upstream Connection', icon: 'plus' },
+      { path: '/admin/pools', label: isZh.value ? '资源池' : 'Resource Pools', icon: 'server' },
+      { path: '/admin/routing', label: isZh.value ? '路由工作台' : 'Routing Workbench', icon: 'swap' },
       { path: '/admin/groups', label: t('nav.groups'), icon: 'grid' },
       { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: 'dollar', hideInSimpleMode: true },
       { path: '/admin/proxies', label: label('nav.ipNodes', 'IP 代理'), icon: 'server' },
@@ -460,6 +479,7 @@ const navigationGroups = computed((): NavGroup[] => [
     section: 'settlement',
     label: isZh.value ? 'SETTLEMENT · 结算与套餐' : 'SETTLEMENT & PLANS',
     items: [
+      { path: '/admin/billing', label: isZh.value ? '对账与账本' : 'Reconciliation & Ledger', icon: 'calculator' },
       { path: '/admin/orders', label: t('nav.orderManagement'), icon: 'document', hideInSimpleMode: true, featureFlag: flagAdminPayment },
       { path: '/admin/orders/dashboard', label: label('nav.paymentDashboard', '支付大盘'), icon: 'chart', hideInSimpleMode: true, featureFlag: flagAdminPayment },
       { path: '/admin/orders/plans', label: label('nav.paymentPlans', '订阅套餐'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagAdminPayment },
@@ -479,6 +499,7 @@ const navigationGroups = computed((): NavGroup[] => [
     label: isZh.value ? 'GOVERNANCE · 治理与系统' : 'GOVERNANCE & SYSTEM',
     items: [
       { path: '/admin/users', label: t('nav.users'), icon: 'users', hideInSimpleMode: true },
+      { path: '/admin/audit', label: isZh.value ? '项目审计' : 'Project Audit', icon: 'shield' },
       { path: '/admin/audit-logs', label: label('nav.auditLogs', '审计日志'), icon: 'shield', hideInSimpleMode: true },
       {
         path: '/admin/security-audit',

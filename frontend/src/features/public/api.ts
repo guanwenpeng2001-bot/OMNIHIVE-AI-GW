@@ -89,16 +89,22 @@ function arrayParams(params: ListParams): Record<string, unknown> {
   }
 }
 
+function withoutImplicitTimezone(params: Record<string, unknown> = {}): Record<string, unknown> {
+  return { ...params, timezone: undefined }
+}
+
 export async function listPublicModels(params: ListParams): Promise<PublicModelPage> {
   const { data } = await apiClient.get('/api/v2/public/models', {
-    params: arrayParams(params),
+    params: withoutImplicitTimezone(arrayParams(params)),
     paramsSerializer: { indexes: null }
   })
   return (data?.data ?? data) as PublicModelPage
 }
 
 export async function getPublicModel(id: string): Promise<PublicModelDetail> {
-  const { data } = await apiClient.get(`/api/v2/public/models/${encodeURIComponent(id)}`)
+  const { data } = await apiClient.get(`/api/v2/public/models/${encodeURIComponent(id)}`, {
+    params: withoutImplicitTimezone()
+  })
   return (data?.data ?? data) as PublicModelDetail
 }
 
@@ -108,6 +114,8 @@ export async function comparePublicModels(modelIds: string[]): Promise<PublicCom
 }
 
 export async function getPublicStatus(): Promise<PublicStatusResponse> {
-  const { data } = await apiClient.get('/api/v2/public/status')
+  const { data } = await apiClient.get('/api/v2/public/status', {
+    params: withoutImplicitTimezone()
+  })
   return (data?.data ?? data) as PublicStatusResponse
 }

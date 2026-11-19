@@ -150,7 +150,8 @@ export default {
     interactiveHint: 'Press Enter or Click to continue',
     navigation: {
       flipPage: 'Flip Page',
-      exit: 'Exit'
+      exit: 'Exit',
+      skip: 'Skip tour'
     },
     // Admin tour steps
     admin: {

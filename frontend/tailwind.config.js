@@ -18,6 +18,9 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      screens: {
+        '3xl': '1800px'
+      },
       colors: {
         // 主色调 - OmniHive 蜜金琥珀色系 (Hive Aura Benchmark)
         primary: {

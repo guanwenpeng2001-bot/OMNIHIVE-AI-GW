@@ -42,7 +42,7 @@ onMounted(load)
     <header class="border-b border-oh-default pb-6">
       <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">STATUS</p>
       <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary">Service status</h1>
-      <p class="mt-2 text-sm text-oh-secondary">
+      <p class="mt-2 max-w-[65ch] text-sm text-oh-secondary">
         Published measurements only. Low-sample or missing data is reported as unknown, never as healthy.
       </p>
     </header>

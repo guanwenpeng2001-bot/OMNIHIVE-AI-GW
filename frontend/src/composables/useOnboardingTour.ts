@@ -229,8 +229,13 @@ export function useOnboardingTour(options: OnboardingOptions) {
         popover.closeButton.style.display = 'block'
         popover.closeButton.style.setProperty('width', 'auto', 'important')
         popover.closeButton.style.setProperty('padding', '0 8px', 'important')
-        popover.closeButton.textContent = t('onboarding.navigation.exit')
-        popover.closeButton.setAttribute('aria-label', t('onboarding.navigation.exit'))
+        popover.closeButton.textContent = state.activeIndex === 0
+          ? t('onboarding.navigation.skip')
+          : t('onboarding.navigation.exit')
+        popover.closeButton.setAttribute(
+          'aria-label',
+          state.activeIndex === 0 ? t('onboarding.navigation.skip') : t('onboarding.navigation.exit')
+        )
         // Class name constants for easier maintenance
         const CLASS_REORGANIZED = 'reorganized'
         const CLASS_FOOTER_LEFT = 'footer-left'
@@ -326,6 +331,11 @@ export function useOnboardingTour(options: OnboardingOptions) {
           // 3. 状态更新
           const isLastStep = state.activeIndex === (config.steps?.length ?? 0) - 1
           const activeNextBtn = nextButton || footerEl.querySelector(`.${CLASS_NEXT_BTN}`)
+          const activePrevBtn = previousButton || footerEl.querySelector(`.${CLASS_PREV_BTN}`)
+
+          // The first step has no previous destination; keep a real, enabled
+          // skip action instead of a disabled "previous" button.
+          if (activePrevBtn) activePrevBtn.style.display = state.activeIndex === 0 ? 'none' : ''
 
           if (activeNextBtn) {
              if (isLastStep) {

@@ -94,7 +94,7 @@ onMounted(() => {
     <header class="border-b border-oh-default pb-6">
       <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">COMPARE</p>
       <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary">Compare up to three models</h1>
-      <p class="mt-2 text-sm text-oh-secondary">Pick models below; the comparison keeps your selection order and catalog version.</p>
+      <p class="mt-2 max-w-[65ch] text-sm text-oh-secondary">Pick models below; the comparison keeps your selection order and catalog version.</p>
     </header>
 
     <Skeleton v-if="loadingOptions" class="py-4" :lines="6" />

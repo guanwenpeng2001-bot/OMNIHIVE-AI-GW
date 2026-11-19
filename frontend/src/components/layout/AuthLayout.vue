@@ -30,7 +30,7 @@ const brand = computed(
 <template>
   <div class="flex min-h-screen flex-col bg-oh-canvas text-oh-primary">
     <main class="flex flex-1 flex-col">
-      <div class="mx-auto flex w-full max-w-[1200px] flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12 xl:border-x xl:border-oh-default">
+      <div class="mx-auto flex w-full max-w-[1560px] flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12 lg:px-8 2xl:px-10 3xl:px-12 min-[1560px]:border-x min-[1560px]:border-oh-default">
         <section
           data-testid="auth-card"
           :class="[

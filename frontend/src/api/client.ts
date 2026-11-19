@@ -84,6 +84,19 @@ const getUserTimezone = (): string => {
   }
 }
 
+const shouldInjectDefaultTimezone = (url: string | undefined, baseURL: string | undefined): boolean => {
+  const path = String(url || '')
+  const base = String(baseURL || '').replace(/\/+$/, '')
+  // v2 contracts are explicit: every date window carries its own timezone.
+  // Injecting a browser default into strict query binding yields 422 on
+  // public catalog/status, scopes, tasks, Playground and request reads.
+  return !(
+    path.startsWith('/api/v2/') ||
+    /\/api\/v2(?:\/|$)/.test(path) ||
+    base.endsWith('/api/v2')
+  )
+}
+
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
     const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname)
@@ -125,7 +138,7 @@ apiClient.interceptors.request.use(
     }
 
     // Attach timezone for all GET requests (backend may use it for default date ranges)
-    if (config.method === 'get') {
+    if (config.method === 'get' && shouldInjectDefaultTimezone(config.url, config.baseURL)) {
       // Normalize tuple parameters so Axios serializes them as query pairs.
       if (Array.isArray(config.params)) config.params = new URLSearchParams(config.params)
       if (config.params instanceof URLSearchParams) {

@@ -80,3 +80,18 @@ describe('AppSidebar subscription feature flag', () => {
     expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })
+
+describe('AppSidebar product surface integration', () => {
+  it.each([
+    '/playground',
+    '/requests',
+    '/tasks',
+    '/billing',
+    '/admin/pools',
+    '/admin/routing',
+    '/admin/audit',
+    '/admin/billing'
+  ])('keeps %s reachable from the primary console navigation', (path) => {
+    expect(componentSource).toContain(`path: '${path}'`)
+  })
+})

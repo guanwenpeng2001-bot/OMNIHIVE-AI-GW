@@ -5,6 +5,14 @@ import { useAuthStore } from '@/stores/auth'
 import { projectScope, requestsApi, scopeQuery, scopeValue, type ProjectScope } from './api'
 import { useScopedRead } from './useScopedRead'
 
+export function firstAvailableScope(
+  workspaces: ReadonlyArray<{ workspace_id: string; projects: ReadonlyArray<{ id: string }> }>
+): { workspaceId: string; projectId: string } | null {
+  const workspace = workspaces.find((item) => item.projects.length > 0)
+  const project = workspace?.projects[0]
+  return workspace && project ? { workspaceId: workspace.workspace_id, projectId: project.id } : null
+}
+
 export function useProjectScope() {
   const app = useAppStore()
   const auth = useAuthStore()
@@ -18,6 +26,18 @@ export function useProjectScope() {
   function choose(next: ProjectScope) {
     app.selectWorkspaceScope(next.workspaceId, next.projectId)
   }
+
+  watch(
+    () => [app.scopesLoaded, app.scopes, scopeValue(scope.value)] as const,
+    ([loaded, workspaces, current]) => {
+      if (!loaded || current) return
+      const next = firstAvailableScope(workspaces)
+      if (next) {
+        app.selectWorkspaceScope(next.workspaceId, next.projectId)
+      }
+    },
+    { immediate: true }
+  )
 
   watch(
     () => [route.query.workspace_id, route.query.project_id],

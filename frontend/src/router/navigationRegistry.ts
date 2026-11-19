@@ -162,6 +162,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['docs', 'guide', 'sdk', 'openai', 'anthropic', 'gemini', '文档']
   },
   {
+    id: 'user-playground',
+    path: '/playground',
+    tier: 'user',
+    section: 'models',
+    fallbackLabelEn: 'Playground',
+    fallbackLabelZh: 'Playground 调试台',
+    icon: 'play',
+    order: 15,
+    keywords: ['playground', 'chat', 'stream', 'compare', '调试', '流式']
+  },
+  {
     id: 'user-keys',
     path: '/keys',
     tier: 'user',
@@ -213,6 +224,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['requests', 'logs', 'usage', 'tokens', 'latency', '用量', '请求日志']
   },
   {
+    id: 'user-requests',
+    path: '/requests',
+    tier: 'user',
+    section: 'requests',
+    fallbackLabelEn: 'Request Records',
+    fallbackLabelZh: '请求记录',
+    icon: 'document',
+    order: 9,
+    keywords: ['requests', 'attempts', 'waterfall', 'route', '请求', '重试']
+  },
+  {
     id: 'user-tasks',
     path: '/batch-image',
     tier: 'user',
@@ -224,6 +246,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     hideInSimpleMode: true,
     order: 20,
     keywords: ['tasks', 'batch', 'image', 'async', '异步任务', '批量生图']
+  },
+  {
+    id: 'user-task-center',
+    path: '/tasks',
+    tier: 'user',
+    section: 'requests',
+    fallbackLabelEn: 'Task Center',
+    fallbackLabelZh: '任务中心',
+    icon: 'inbox',
+    order: 21,
+    keywords: ['tasks', 'artifacts', 'download', 'retry', '任务', '产物']
   },
   {
     id: 'user-monitor',
@@ -251,6 +284,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     featureFlag: 'payment',
     order: 10,
     keywords: ['billing', 'topup', 'recharge', 'plans', '充值', '订阅']
+  },
+  {
+    id: 'user-costs',
+    path: '/billing',
+    tier: 'user',
+    section: 'billing',
+    fallbackLabelEn: 'Costs & Quota',
+    fallbackLabelZh: '费用与额度',
+    icon: 'calculator',
+    order: 5,
+    keywords: ['billing', 'cost', 'quota', 'ledger', '费用', '额度']
   },
   {
     id: 'user-subscriptions',
@@ -371,6 +415,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['connections', 'credentials', 'accounts', 'providers', '上游连接', '上游账号']
   },
   {
+    id: 'admin-connections-new',
+    path: '/admin/connections/new',
+    tier: 'admin',
+    section: 'access',
+    fallbackLabelEn: 'New Upstream Connection',
+    fallbackLabelZh: '新建上游连接',
+    icon: 'plus',
+    order: 15,
+    keywords: ['connection', 'wizard', 'provider', 'credential', '新建连接']
+  },
+  {
     id: 'admin-groups',
     path: '/admin/groups',
     tier: 'admin',
@@ -382,6 +437,28 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     tourId: 'sidebar-group-manage',
     order: 20,
     keywords: ['pools', 'groups', 'routing', 'priority', '资源池', '分组']
+  },
+  {
+    id: 'admin-pools',
+    path: '/admin/pools',
+    tier: 'admin',
+    section: 'access',
+    fallbackLabelEn: 'Resource Pools',
+    fallbackLabelZh: '资源池',
+    icon: 'server',
+    order: 25,
+    keywords: ['pools', 'members', 'concurrency', '资源池']
+  },
+  {
+    id: 'admin-routing',
+    path: '/admin/routing',
+    tier: 'admin',
+    section: 'access',
+    fallbackLabelEn: 'Routing Workbench',
+    fallbackLabelZh: '路由工作台',
+    icon: 'swap',
+    order: 26,
+    keywords: ['routing', 'policy', 'simulator', '路由', '模拟']
   },
   {
     id: 'admin-proxies',
@@ -448,6 +525,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     ]
   },
   {
+    id: 'admin-project-audit',
+    path: '/admin/audit',
+    tier: 'admin',
+    section: 'policies',
+    fallbackLabelEn: 'Project Audit',
+    fallbackLabelZh: '项目审计',
+    icon: 'shield',
+    order: 15,
+    keywords: ['audit', 'project', 'evidence', '审计', '项目']
+  },
+  {
     id: 'admin-ops',
     path: '/admin/ops',
     tier: 'admin',
@@ -487,6 +575,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     keywords: ['usage', 'requests', 'waterfall', 'ledger', '用量记录']
   },
   {
+    id: 'admin-requests',
+    path: '/admin/requests',
+    tier: 'admin',
+    section: 'requests',
+    fallbackLabelEn: 'Request Diagnostics',
+    fallbackLabelZh: '请求诊断',
+    icon: 'document',
+    order: 25,
+    keywords: ['requests', 'attempts', 'waterfall', 'diagnostics', '请求诊断']
+  },
+  {
     id: 'admin-orders-dashboard',
     path: '/admin/orders/dashboard',
     tier: 'admin',
@@ -499,6 +598,17 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     featureFlag: 'adminPayment',
     order: 10,
     keywords: ['revenue', 'payment', 'settlement', '支付大盘']
+  },
+  {
+    id: 'admin-billing',
+    path: '/admin/billing',
+    tier: 'admin',
+    section: 'billing',
+    fallbackLabelEn: 'Reconciliation & Ledger',
+    fallbackLabelZh: '对账与账本',
+    icon: 'calculator',
+    order: 5,
+    keywords: ['billing', 'reconciliation', 'ledger', '对账', '账本']
   },
   {
     id: 'admin-orders',

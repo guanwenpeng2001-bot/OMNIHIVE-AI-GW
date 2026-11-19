@@ -109,7 +109,7 @@ onMounted(() => void load())
     <section class="border-b border-oh-default pb-6">
       <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">MODEL DIRECTORY</p>
       <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary sm:text-4xl">Models</h1>
-      <p class="mt-2 max-w-2xl text-sm text-oh-secondary">
+      <p class="mt-2 max-w-[65ch] text-sm text-oh-secondary">
         Compare capabilities, pricing and observed performance across every provider OmniHive routes to.
         Unknown values stay unknown; they are never reported as zero.
       </p>
@@ -182,7 +182,7 @@ onMounted(() => void load())
           </thead>
           <tbody>
             <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
-              <td class="max-w-[14rem] break-all px-4 py-3">
+              <td class="max-w-[14rem] break-all px-4 py-3 xl:max-w-[22rem]">
                 <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                   {{ model.model }}
                 </RouterLink>
@@ -198,7 +198,7 @@ onMounted(() => void load())
         </table>
       </div>
 
-      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         <RouterLink
           v-for="model in models"
           :key="model.id"

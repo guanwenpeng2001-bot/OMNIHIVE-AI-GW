@@ -197,11 +197,14 @@ onBeforeUnmount(() => {
     data-testid="public-header"
     class="sticky top-0 z-40 h-14 w-full border-b border-oh-default bg-oh-canvas text-oh-primary"
   >
-    <div class="mx-auto flex h-full max-w-[1200px] items-center justify-between gap-2 px-3.5 sm:gap-3 sm:px-6 xl:border-x xl:border-oh-default">
-      <div class="flex min-w-0 items-center gap-3">
+    <div
+      data-testid="public-header-container"
+      class="mx-auto flex h-full w-full max-w-[1560px] items-center justify-between gap-2 px-3.5 sm:gap-3 sm:px-6 lg:px-8 2xl:px-10 3xl:px-12 min-[1560px]:border-x min-[1560px]:border-oh-default"
+    >
+      <div class="flex min-w-0 items-center gap-3 2xl:gap-5">
         <router-link
           to="/home"
-          class="oh-focus-ring inline-flex min-w-0 max-w-[10rem] items-center rounded-oh-sm py-1 sm:max-w-[14rem] xl:max-w-[12rem]"
+          class="oh-focus-ring inline-flex min-w-0 max-w-[10rem] items-center rounded-oh-sm py-1 sm:max-w-[14rem] xl:max-w-[13rem] 2xl:max-w-[16rem]"
           :aria-label="`${brand.siteName} Home`"
         >
           <BrandMark
@@ -361,7 +364,7 @@ onBeforeUnmount(() => {
               ? 'border-oh-accent bg-oh-selected text-oh-accent-text'
               : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
           ]"
-          @click="toggleMobileMenu"
+          @click.stop="toggleMobileMenu"
         >
           <svg
             v-if="mobileMenuOpen"
@@ -395,8 +398,9 @@ onBeforeUnmount(() => {
       ref="menuPanelRef"
       data-testid="public-mobile-nav"
       class="absolute inset-x-0 top-full z-40 border-b border-oh-default bg-oh-elevated shadow-oh-md xl:hidden"
+      @click.stop
     >
-      <div class="mx-auto max-w-[1200px] px-3.5 py-3 sm:px-6">
+      <div class="mx-auto w-full max-w-[1560px] px-3.5 py-3 sm:px-6 lg:px-8">
         <nav
           :aria-label="isZh ? '移动端公共导航' : 'Mobile public navigation'"
           data-testid="public-mobile-nav-list"

@@ -261,12 +261,15 @@ const resolvedTier = computed<'public' | 'user' | 'admin'>(() => {
 
 const resolvedContained = computed(() => props.contained || Boolean(route.meta?.contained))
 const resolvedFullBleed = computed(() => props.fullBleed || Boolean(route.meta?.fullBleed))
+const autoStartTour = computed(
+  () => currentPath.value === '/dashboard' || currentPath.value === '/admin/dashboard'
+)
 
 const { replayTour, cancelTour } = useOnboardingTour({
   storageKey: isAdmin.value
     ? StorageKeys.ONBOARDING_ADMIN_GUIDE
     : StorageKeys.ONBOARDING_USER_GUIDE,
-  autoStart: true
+  autoStart: autoStartTour.value
 })
 
 const pulseCollapsed = ref(false)

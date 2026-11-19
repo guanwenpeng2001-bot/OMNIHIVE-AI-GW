@@ -61,6 +61,29 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('onboarding cancellable lifecycle (real driver)', () => {
+  it('does not auto-start outside the dashboard route', async () => {
+    route.fullPath = '/requests'
+    wrapper = mount(AppLayout, { attachTo: document.body })
+    await advance(1100)
+    noOverlay()
+  })
+
+  it('offers an enabled skip/close action that dismisses the current tour', async () => {
+    host(true)
+    await advance(1100)
+    expect(document.querySelector('.driver-overlay')).not.toBeNull()
+    const skip = document.querySelector<HTMLButtonElement>('.driver-popover-close-btn')
+    expect(skip).not.toBeNull()
+    expect(skip!.disabled).toBe(false)
+    skip!.click()
+    noOverlay()
+    expect(tour.hasSeen()).toBe(false)
+    wrapper!.unmount()
+    host(true)
+    await advance(1100)
+    noOverlay()
+  })
+
   it('remembers Esc cancellation across remount without recording completion', async () => {
     host(true)
     await advance(1100)

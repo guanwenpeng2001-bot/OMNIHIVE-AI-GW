@@ -50,13 +50,13 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
           <rect width="400" height="400" fill="url(#comb)" />
         </svg>
       </div>
-      <div class="relative grid gap-10 py-16 lg:grid-cols-2 lg:py-24">
-        <div>
+      <div class="relative grid items-center gap-10 py-14 lg:grid-cols-12 lg:gap-12 lg:py-20 xl:gap-16 xl:py-24">
+        <div class="min-w-0 lg:col-span-6">
           <p class="font-mono text-xs uppercase tracking-[0.22em] text-oh-muted">OMNIHIVE · AI GATEWAY</p>
-          <h1 class="mt-4 max-w-xl text-4xl font-semibold tracking-tight text-oh-primary sm:text-5xl">
+          <h1 class="mt-4 max-w-[18ch] text-4xl font-semibold tracking-tight text-oh-primary sm:text-5xl xl:text-[3.25rem] xl:leading-[1.12]">
             One API for every model.<br />Built for teams that bill.
           </h1>
-          <p class="mt-5 max-w-xl text-base text-oh-secondary">
+          <p class="mt-5 max-w-[60ch] text-base leading-relaxed text-oh-secondary">
             Route to hundreds of providers through a single compatible endpoint. Exact pricing,
             explainable routing and per-request receipts — no surprises.
           </p>
@@ -66,7 +66,7 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             </RouterLink>
             <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-10">Browse models</RouterLink>
           </div>
-          <dl class="mt-10 flex flex-wrap gap-8 font-mono text-sm">
+          <dl class="mt-10 flex flex-wrap gap-8 font-mono text-sm xl:gap-12">
             <div>
               <dt class="text-[11px] uppercase tracking-wider text-oh-muted">Models</dt>
               <dd class="mt-1 text-2xl tabular-nums text-oh-primary"><Skeleton v-if="loadingCatalog" label="Loading model count" /><template v-else>{{ modelCount ?? '—' }}</template></dd>
@@ -87,9 +87,10 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
             </div>
           </dl>
         </div>
-        <div class="hidden items-center justify-center lg:flex">
-          <div class="w-full max-w-md border border-oh-default bg-oh-surface p-4 font-mono text-xs">
-            <div class="mb-3 flex justify-end">
+        <div class="hidden min-w-0 items-center lg:col-span-6 lg:flex lg:justify-end">
+          <div class="w-full max-w-xl border border-oh-default bg-oh-surface p-4 font-mono text-xs sm:p-5 xl:max-w-2xl xl:p-6 xl:text-[13px]">
+            <div class="mb-3 flex items-center justify-between gap-3 border-b border-oh-subtle pb-3">
+              <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">POST /v1/chat/completions</span>
               <CopyButton :value="example" variant="secondary" aria-label="Copy API request" />
             </div>
             <pre class="oh-focus-ring overflow-x-auto leading-6 text-oh-secondary" tabindex="0" aria-label="Example API request"><code>{{ example }}
@@ -107,9 +108,9 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
         { title: 'Exact billing', body: 'Decimal pricing, per-attempt receipts and a ledger you can reconcile.' },
         { title: 'Explainable routing', body: 'See every candidate, exclusion reason and the final pick for each request.' },
         { title: 'Provider freedom', body: 'OpenAI, Anthropic, Gemini and more behind one compatible surface.' }
-      ]" :key="feature.title" class="bg-oh-canvas p-6">
+      ]" :key="feature.title" class="bg-oh-canvas p-6 xl:p-8">
         <h2 class="text-sm font-semibold text-oh-primary">{{ feature.title }}</h2>
-        <p class="mt-2 text-sm text-oh-secondary">{{ feature.body }}</p>
+        <p class="mt-2 max-w-[48ch] text-sm leading-relaxed text-oh-secondary">{{ feature.body }}</p>
       </div>
     </section>
 
@@ -117,13 +118,13 @@ const ctaTarget = () => (authStore.isAuthenticated ? '/dashboard' : '/login')
       <div class="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 class="text-2xl font-semibold text-oh-primary">Start in three steps</h2>
-          <p class="mt-2 text-sm text-oh-secondary">Create a key, call the standard endpoint, then watch the request and its receipt.</p>
+          <p class="mt-2 max-w-[62ch] text-sm text-oh-secondary">Create a key, call the standard endpoint, then watch the request and its receipt.</p>
         </div>
         <RouterLink to="/model-plaza" class="oh-focus-ring inline-flex items-center rounded-oh-md border border-oh-default bg-oh-surface px-4 text-sm font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover h-9">See all models</RouterLink>
       </div>
-      <ol class="mt-8 grid gap-4 sm:grid-cols-3">
+      <ol class="mt-8 grid gap-4 sm:grid-cols-3 xl:gap-6">
         <li v-for="(step, index) in ['Create a restricted API key', 'Call any supported model', 'Inspect request, route and cost']"
-          :key="step" class="border border-oh-default p-5">
+          :key="step" class="border border-oh-default p-5 xl:p-6">
           <span class="font-mono text-xs text-oh-muted">0{{ index + 1 }}</span>
           <p class="mt-3 text-sm text-oh-primary">{{ step }}</p>
         </li>
