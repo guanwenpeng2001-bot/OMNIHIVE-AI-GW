@@ -1,24 +1,104 @@
 <template>
   <AppLayout>
     <section class="oh-dashboard w-full space-y-5">
+      <ConsoleScopeBar
+        v-if="scope.scopes.value.length > 0"
+        :workspaces="scope.scopes.value"
+        :projects="scope.availableProjects.value"
+        :workspace-id="scope.activeWorkspaceId.value"
+        :project-id="scope.activeProjectId.value"
+        :loading="scope.loading.value"
+        :refreshing="scope.refreshing.value || refreshingOverview"
+        :last-synced-at="scope.lastSyncedAt.value"
+        active-surface="dashboard"
+        @select-scope="handleScopeSelect"
+        @refresh="refreshAll(true)"
+        @navigate="navigateTo"
+      />
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0 space-y-1.5">
-          <h1 class="text-3xl font-bold tracking-tight">{{ activeTab }}</h1>
-          <p class="text-sm opacity-60">你的蜂巢用量、请求与账单概览</p>
+          <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">{{ activeTabLabel }}</h1>
+          <p class="text-sm text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '你的 OmniHive 用量、花费、成功率与近期请求概览' : 'Your OmniHive usage, spend, observed success rate, and recent requests' }}
+          </p>
           <ReportTimeContext :time-zone="reportTimeZone" />
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <span class="oh-hive-badge"><span class="pulse-dot pulse-ok" aria-hidden="true" />蜂巢在线</span>
-          <button type="button" class="btn btn-secondary btn-sm" @click="openCommandPalette">⌘K 命令</button>
-          <button type="button" class="btn btn-secondary btn-sm" aria-controls="getStarted" :aria-expanded="!onboardingHidden" @click="toggleOnboardingVisibility">{{ onboardingHidden ? '恢复引导' : '隐藏引导' }}</button>
+          <span class="oh-hive-badge font-mono text-xs tabular-nums">
+            <span class="pulse-dot pulse-amber" aria-hidden="true" />
+            {{ isZh ? '网关就绪' : 'Gateway Ready' }}
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm font-mono" @click="triggerCommandPalette">
+            {{ isZh ? '⌘K 命令' : '⌘K Command' }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/playground')">Playground</button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/tasks')">{{ isZh ? '任务中心' : 'Tasks' }}</button>
+          <button type="button" class="btn btn-secondary btn-sm" aria-controls="getStarted" :aria-expanded="!onboardingHidden" @click="toggleOnboardingVisibility">
+            {{ onboardingHidden ? (isZh ? '恢复引导' : 'Show Guide') : (isZh ? '隐藏引导' : 'Hide Guide') }}
+          </button>
         </div>
       </header>
-      <div class="activity-tabs" role="group" aria-label="工作台视图">
-        <button v-for="tab in tabs" :key="tab" type="button" :class="{ on: activeTab === tab }" :aria-pressed="activeTab === tab" @click="activeTab = tab">
-          {{ tab }}
-          <span v-if="tab === '调用日志'" class="tab-count">{{ loadingUsage || recentState !== 'known' ? '—' : recentUsage.length }}</span>
-          <span v-else-if="tab === '审计'" class="tab-count">{{ auditLoading || auditError ? '—' : auditPreview.length }}</span>
-          <span v-else-if="activeTab === tab" class="tab-dot" aria-hidden="true" />
+
+      <ConsoleAsyncBanner
+        v-if="staleOverviewNotice"
+        :notice="staleOverviewNotice"
+        :retry-label="isZh ? '重试同步' : 'Retry Sync'"
+        @retry="refreshAll(true)"
+      />
+
+      <section data-testid="overview-reliability-strip" class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
+          <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '近期成功率' : 'Observed Success Rate' }}
+          </p>
+          <p data-testid="overview-success-rate" class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-ink,var(--foreground))]">
+            {{ observedSuccessRateLabel }}
+          </p>
+          <p class="mt-0.5 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ scopedSampleCount > 0 ? `n=${scopedSampleCount}` : (isZh ? '无近期终态样本' : 'No terminal sample') }}
+          </p>
+        </div>
+        <div class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
+          <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '今日实际花费' : 'Today Actual Spend' }}
+          </p>
+          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-accent-ink,var(--brand-text,#d97706))]">
+            {{ stats ? money(stats.today_actual_cost) : '—' }}
+          </p>
+          <p class="mt-0.5 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '累计：' : 'Total: ' }}{{ stats && statsState === 'known' ? money(stats.total_actual_cost) : '—' }}
+          </p>
+        </div>
+        <div class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
+          <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '窗口请求数' : 'Window Requests' }}
+          </p>
+          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-ink,var(--foreground))]">
+            {{ chartError || historyGap ? '—' : trendRequestCount.toLocaleString() }}
+          </p>
+          <p class="mt-0.5 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ startDate }} → {{ endDate }}
+          </p>
+        </div>
+        <div class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
+          <p class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '失败 / 未确认终态' : 'Failed / Unknown' }}
+          </p>
+          <p class="mt-1 font-mono text-xl font-bold tabular-nums text-[var(--oh-ink,var(--foreground))]">
+            {{ scopedSampleCount > 0 ? scopedFailureOrUnknownCount : '—' }}
+          </p>
+          <p class="mt-0.5 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ isZh ? '按实际回执统计' : 'Verified receipt outcomes' }}
+          </p>
+        </div>
+      </section>
+
+      <div class="activity-tabs" role="group" :aria-label="isZh ? '工作台视图' : 'Console View Tabs'">
+        <button v-for="tab in tabItems" :key="tab.id" type="button" :class="{ on: activeTab === tab.id }" :aria-pressed="activeTab === tab.id" @click="activeTab = tab.id">
+          {{ tab.label }}
+          <span v-if="tab.id === 'logs'" class="tab-count">{{ loadingUsage || recentState !== 'known' ? '—' : recentUsage.length }}</span>
+          <span v-else-if="tab.id === 'audit'" class="tab-count">{{ auditLoading || auditError ? '—' : auditPreview.length }}</span>
+          <span v-else-if="activeTab === tab.id" class="tab-dot" aria-hidden="true" />
         </button>
       </div>
       <div class="grid w-full items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -49,12 +129,12 @@
               </div>
             </div>
           </section>
-          <section v-if="activeTab === '审计'" class="card space-y-4 p-5" aria-label="个人安全与操作审计时间线">
+          <section v-if="activeTab === 'audit'" class="card space-y-4 p-5" aria-label="个人安全与操作审计时间线">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="font-semibold">个人安全与操作审计</h2>
-              <button type="button" class="btn btn-secondary btn-sm" @click="openPersonalAuditDrawer">查看详情 →</button>
+              <h2 class="font-semibold">{{ isZh ? '个人安全与操作审计' : 'Personal Security & Operation Audit' }}</h2>
+              <button type="button" class="btn btn-secondary btn-sm" @click="openPersonalAuditDrawer">{{ isZh ? '查看详情 →' : 'View Details →' }}</button>
             </div>
-            <p class="text-sm opacity-60">记录 API 密钥、MCP 授权与账户安全事件</p>
+            <p class="text-sm opacity-60">{{ isZh ? '记录 API 密钥、MCP 授权与账户安全事件' : 'API key, MCP grant & account security events' }}</p>
             <ol class="space-y-4 border-l pl-4" style="border-color: var(--border)">
               <li v-for="event in auditPreview" :key="event.id"><b class="text-sm">{{ event.title }}</b><p class="mt-1 text-sm opacity-60">{{ event.description }}</p><time v-if="event.createdAt" :datetime="event.createdAt" class="mt-1 block font-mono text-xs tabular-nums opacity-50">{{ formatDateTimeWithZone(event.createdAt, reportTimeZone) }}</time></li>
             </ol>
@@ -66,13 +146,34 @@
               <button v-if="auditError" type="button" class="btn btn-secondary btn-sm ml-2" @click="loadPersonalSecurity">重试</button>
             </div>
           </section>
-          <div v-if="activeTab === '调用日志' || activeTab === '我的用量'" class="card flex flex-wrap items-center justify-between gap-3 p-4">
-            <div><h2 class="font-semibold">{{ activeTab === '调用日志' ? '近期调用日志预览' : '用量与成本概览' }}</h2><p class="mt-1 text-sm opacity-60">查看下方实时数据，或进入完整用量页筛选与导出。</p></div>
-            <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/usage')">查看完整{{ activeTab === '调用日志' ? '日志' : '用量' }} →</button>
+          <div v-if="activeTab === 'logs' || activeTab === 'usage'" class="card flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h2 class="font-semibold">{{ activeTab === 'logs' ? (isZh ? '近期调用日志预览' : 'Recent Request Log Preview') : (isZh ? '用量与成本概览' : 'Usage & Spend Summary') }}</h2>
+              <p class="mt-1 text-sm opacity-60">{{ isZh ? '查看下方实时数据，或进入完整用量页筛选与导出。' : 'Inspect live telemetry below or open full usage logs.' }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/usage')">{{ isZh ? '查看完整明细 →' : 'Full Usage Logs →' }}</button>
           </div>
           <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>
           <template v-else>
             <UsageStatsState v-if="statsState !== 'known'" :state="statsState" />
+            <div
+              v-if="stats && statsState === 'known' && (stats.total_requests || 0) === 0 && recentUsage.length === 0"
+              data-testid="dashboard-empty-overview"
+              class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--oh-r-md,8px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-4"
+            >
+              <div>
+                <p class="text-sm font-semibold text-[var(--oh-ink,var(--foreground))]">
+                  {{ isZh ? '尚未产生任何网关调用记录' : 'No Gateway Requests Recorded Yet' }}
+                </p>
+                <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                  {{ isZh ? '创建 API 密钥或在 Playground 发送首条请求后，此处将实时展示真实花费、成功率与调用轨迹。' : 'Create an API key or run your first prompt in Playground to populate live spend, success rate, and request traces.' }}
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" @click="navigateTo('/keys')">{{ isZh ? '创建密钥' : 'Create API Key' }}</button>
+                <button type="button" class="btn btn-primary btn-sm" @click="navigateTo('/playground')">Playground →</button>
+              </div>
+            </div>
             <UserDashboardStats v-if="stats" :time-zone="reportTimeZone" :stats="stats" :balance="user?.balance || 0" :is-simple="authStore.isSimpleMode" :platform-quotas="platformQuotas" />
             <div v-if="historyGap || chartError" data-testid="chart-state" class="card space-y-3 p-4">
               <DateRangePicker v-model:start-date="startDate" v-model:end-date="endDate" @change="loadCharts" />
@@ -87,11 +188,11 @@
           <div class="grid gap-4 md:grid-cols-3">
             <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/usage')">
               <span class="flex justify-between"><b>我的用量</b><span class="opacity-40">›</span></span>
-              <span class="mt-1 block text-sm opacity-60">你的请求、成本与额度</span><span class="mt-4 block text-xl font-bold">{{ stats ? money(stats.total_actual_cost) : '—' }}</span>
+              <span class="mt-1 block text-sm opacity-60">你的请求、成本与额度</span><span class="mt-4 block font-mono text-xl font-bold tabular-nums">{{ stats ? money(stats.total_actual_cost) : '—' }}</span>
             </button>
             <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/purchase')">
               <span class="flex justify-between"><b>账单</b><span class="opacity-40">›</span></span>
-              <span class="mt-1 block text-sm opacity-60">按量付费 · 余额 {{ money(user?.balance) }}</span><span class="mt-4 block text-xl font-bold">{{ money(user?.balance) }}</span>
+              <span class="mt-1 block text-sm opacity-60">按量付费 · 余额 {{ money(user?.balance) }}</span><span class="mt-4 block font-mono text-xl font-bold tabular-nums">{{ money(user?.balance) }}</span>
             </button>
             <button type="button" class="card interactive p-4 text-left" @click="navigateTo('/monitor')">
               <span class="flex justify-between"><b>渠道状态</b><span class="opacity-40">›</span></span>
@@ -147,6 +248,36 @@
         </aside>
       </div>
     </section>
+    <Drawer
+      v-model:open="auditDrawerOpen"
+      :title="isZh ? '个人安全与操作审计' : 'Personal Security & Operation Audit'"
+      :description="isZh ? '记录 API 密钥、MCP 授权与账户安全事件' : 'API key, MCP grant & account security timeline'"
+    >
+      <div class="space-y-4">
+        <ol v-if="auditPreview.length" class="space-y-3 divide-y divide-[var(--oh-border,var(--border))]">
+          <li v-for="event in auditPreview" :key="event.id" class="pt-3 first:pt-0">
+            <h3 class="text-sm font-semibold text-[var(--oh-ink,var(--foreground))]">{{ event.title }}</h3>
+            <p class="mt-1 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ event.description }}</p>
+            <p v-if="event.createdAt" class="mt-1 font-mono text-[11px] tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+              {{ formatDateTimeWithZone(event.createdAt, reportTimeZone) }}
+            </p>
+          </li>
+        </ol>
+        <p v-else role="status" class="py-6 text-center text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ auditLoading ? (isZh ? '正在读取审计记录…' : 'Loading audit log…') : auditError ? (isZh ? '审计记录暂不可用。' : 'Audit log unavailable.') : (isZh ? '暂无安全与操作记录' : 'No security events recorded yet') }}
+        </p>
+      </div>
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" @click="auditDrawerOpen = false; navigateTo('/settings/mcp')">
+            {{ isZh ? 'MCP 授权管理' : 'MCP Grants' }}
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" @click="auditDrawerOpen = false; navigateTo('/profile')">
+            {{ isZh ? '账户安全设置' : 'Account Security' }}
+          </button>
+        </div>
+      </template>
+    </Drawer>
   </AppLayout>
 </template>
 
@@ -159,6 +290,7 @@ import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
 import Select from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
+import Drawer from '@/components/ui/Drawer.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { useAuthStore } from '@/stores/auth'
 import { usageAPI, type UserDashboardStats as UserStatsType } from '@/api/usage'
@@ -170,19 +302,33 @@ import UserDashboardRecentUsage from '@/components/user/dashboard/UserDashboardR
 import UserDashboardQuickActions from '@/components/user/dashboard/UserDashboardQuickActions.vue'
 import type { UsageLog, TrendDataPoint, ModelStat, PlatformQuotaItem } from '@/types'
 import { getMyPlatformQuotas } from '@/api/user'
-import { useThemeDirection } from '@/composables/useThemeDirection'
 import { buildGatewayUrl } from '@/api/url'
 import { buildClientBaseUrl } from '@/utils/url'
+import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
+import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
+import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
+import { EM_DASH, formatNullablePercent } from '@/features/console/format'
+import { useConsoleScope } from '@/features/console/scope'
 
 const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
-const { t } = useI18n()
-const { openDrawer, openCommandPalette } = useThemeDirection()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
-const tabs = ['活动', '我的用量', '调用日志', '审计']
-const activeTab = ref('活动')
+const scope = useConsoleScope()
+const tabItems = computed<Array<{ id: 'activity' | 'usage' | 'logs' | 'audit'; label: string }>>(() => [
+  { id: 'activity', label: isZh.value ? '活动概览' : 'Overview' },
+  { id: 'usage', label: isZh.value ? '我的用量' : 'Usage' },
+  { id: 'logs', label: isZh.value ? '调用日志' : 'Recent Logs' },
+  { id: 'audit', label: isZh.value ? '安全审计' : 'Security Audit' }
+])
+const activeTab = ref<'activity' | 'usage' | 'logs' | 'audit'>('activity')
+const activeTabLabel = computed(
+  () => tabItems.value.find((item) => item.id === activeTab.value)?.label ?? 'Overview'
+)
 const connectExpanded = ref(false)
+const auditDrawerOpen = ref(false)
 const activeClient = ref('opencode')
 const opencodeVersion = ref('2')
 const copyStatus = ref('')
@@ -273,14 +419,21 @@ const toggleStepManualDone = (index: number) => {
 const toggleOnboardingVisibility = () => {
   onboardingHidden.value = !onboardingHidden.value
   persistOnboarding({ hidden: onboardingHidden.value })
-  try { localStorage.setItem('omnihive.dashboard.onboardingHidden', onboardingHidden.value ? '1' : '0') } catch { return }
+  try {
+    const encoded = onboardingHidden.value ? '1' : '0'
+    localStorage.setItem('omnihive.dashboard.onboarding_hidden.v1', encoded)
+    localStorage.setItem('omnihive.dashboard.onboardingHidden', encoded)
+  } catch { return }
 }
 const navigateTo = (path: string) => {
   const router = instance?.appContext.config.globalProperties.$router
   if (router && typeof router.push === 'function') void router.push(path)
   else if (typeof window !== 'undefined') window.location.hash = path
 }
-const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!))
+const triggerCommandPalette = () => {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true, bubbles: true }))
+}
 const openConnectClientDrawer = () => { connectExpanded.value = true }
 const openStepGuide = () => { if (activeStepIndex.value === 0) openConnectClientDrawer(); else navigateTo(currentStep.value.route) }
 const auditPreview = ref<Array<{ id: string; title: string; description: string; createdAt?: string }>>([])
@@ -325,14 +478,21 @@ const loadOnboarding = async () => {
     return
   }
 }
-const openPersonalAuditDrawer = () => openDrawer('个人安全与操作审计',
-  `<div class="space-y-4"><p class="text-sm opacity-60">记录 API 密钥、MCP 授权与账户安全事件</p>${auditPreview.value.length ? auditPreview.value.map(event => `<section class="border-b pb-4" style="border-color:var(--border)"><h3 class="font-semibold">${escapeHtml(event.title)}</h3><p class="mt-2 opacity-60">${escapeHtml(event.description)}</p>${event.createdAt ? `<p class="mt-2 font-mono text-xs opacity-50">${escapeHtml(formatDateTimeWithZone(event.createdAt, reportTimeZone))}</p>` : ''}</section>`).join('') : `<div aria-hidden="true">${[1, 2, 3, 4].map(row => `<div style="display:flex;align-items:center;gap:16px;height:32px;border-left:1px dashed var(--border);margin-left:8px"><i style="width:16px;height:16px;margin-left:-8px;border:1px solid var(--border);border-radius:50%;background:var(--card)"></i><span style="width:${72 - row * 9}%;height:4px;background:var(--border)"></span></div>`).join('')}</div><p role="status" class="text-sm opacity-60">${auditLoading.value ? '正在读取审计记录' : auditError.value ? '审计记录暂不可用，请关闭后重试。' : '暂无安全与操作记录'}</p>`}</div>`,
-  '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/settings/mcp">MCP 授权管理</button><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/profile">账户安全设置</button></div>')
+const openPersonalAuditDrawer = () => { auditDrawerOpen.value = true }
 const money = (value?: number) => typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(4)}` : '—'
 const historyGap = ref<HistoryGap | null>(null)
 const statsState = ref<'known' | 'unknown' | 'error'>('known')
 const chartError = ref(false)
 const recentState = ref<'known' | 'unknown' | 'error'>('known')
+const refreshingOverview = ref(false)
+const staleOverviewNotice = ref<ConsoleAsyncNotice | null>(null)
+const scopedSampleCount = ref(0)
+const scopedSucceededCount = ref(0)
+const scopedFailureOrUnknownCount = ref(0)
+const observedSuccessRateLabel = computed(() => {
+  if (scopedSampleCount.value <= 0) return EM_DASH
+  return formatNullablePercent((scopedSucceededCount.value / scopedSampleCount.value) * 100, 1)
+})
 let statsRequestSequence = 0
 let recentRequestSequence = 0
 const authStore = useAuthStore(); const user = computed(() => authStore.user)
@@ -349,11 +509,17 @@ const miniTrend = computed(() => {
   return padded.map(value => value ? value / max * 100 : 0)
 })
 const startDate = ref(formatReportDateInput(new Date(Date.now() - 6 * 86400000), reportTimeZone)); const endDate = ref(formatReportDateInput(new Date(), reportTimeZone)); const granularity = ref('day')
-const loadStats = async () => {
+const loadStats = async (isBackgroundRefresh = false) => {
   const sequence = ++statsRequestSequence
-  loading.value = true
-  stats.value = null
+  const previousStats = stats.value
+  if (isBackgroundRefresh && previousStats) {
+    refreshingOverview.value = true
+  } else {
+    loading.value = true
+    stats.value = null
+  }
   statsState.value = 'known'
+  staleOverviewNotice.value = null
   try {
     await authStore.refreshUser()
     const response = await usageAPI.getDashboardStats()
@@ -361,9 +527,17 @@ const loadStats = async () => {
     stats.value = response
   } catch (error) {
     if (sequence !== statsRequestSequence) return
-    statsState.value = historyGapFromError(error) ? 'unknown' : 'error'
+    if (isBackgroundRefresh && previousStats) {
+      stats.value = previousStats
+      staleOverviewNotice.value = classifyConsoleError(error, { hasCachedData: true, isZh: isZh.value })
+    } else {
+      statsState.value = historyGapFromError(error) ? 'unknown' : 'error'
+    }
   } finally {
-    if (sequence === statsRequestSequence) loading.value = false
+    if (sequence === statsRequestSequence) {
+      loading.value = false
+      refreshingOverview.value = false
+    }
   }
 }
 let chartRequestSequence = 0
@@ -409,9 +583,47 @@ const loadRecent = async () => {
   }
 }
 const loadPlatformQuotas = async () => { try { const data = await getMyPlatformQuotas(); platformQuotas.value = data.platform_quotas ?? [] } catch (error) { console.warn('Failed to load platform quotas:', error); platformQuotas.value = [] } }
-const refreshAll = () => { loadStats(); loadCharts(); loadRecent(); loadPlatformQuotas() }
+const loadScopedReliabilitySample = async () => {
+  const userId = authStore.user?.id
+  if (!userId) return
+  try {
+    await scope.refreshScopes(false)
+    const wsId = scope.activeWorkspaceId.value
+    const projId = scope.activeProjectId.value
+    if (!wsId || !projId) return
+    const { apiClient } = await import('@/api/client')
+    const { data } = await apiClient.get<{ items?: Array<{ outcome?: string }> }>(
+      buildGatewayUrl(`/api/v2/workspaces/${wsId}/projects/${projId}/requests`),
+      { baseURL: '', params: { limit: 50 }, signal: auditController.signal }
+    )
+    const rows = Array.isArray(data?.items) ? data.items : []
+    const terminal = rows.filter((r) => r.outcome && r.outcome !== 'admitted' && r.outcome !== 'running')
+    scopedSampleCount.value = terminal.length
+    scopedSucceededCount.value = terminal.filter((r) => r.outcome === 'succeeded').length
+    scopedFailureOrUnknownCount.value = terminal.filter((r) => r.outcome !== 'succeeded').length
+  } catch {
+    scopedSampleCount.value = 0
+    scopedSucceededCount.value = 0
+    scopedFailureOrUnknownCount.value = 0
+  }
+}
+const handleScopeSelect = (payload: { workspaceId: string; projectId: string | null }) => {
+  scope.selectWorkspaceProject(payload.workspaceId, payload.projectId)
+  void loadScopedReliabilitySample()
+}
+const refreshAll = (isBackgroundRefresh = false) => {
+  void loadStats(isBackgroundRefresh)
+  void loadCharts()
+  void loadRecent()
+  void loadPlatformQuotas()
+  void loadScopedReliabilitySample()
+}
 onMounted(() => {
-  try { onboardingHidden.value = localStorage.getItem('omnihive.dashboard.onboardingHidden') === '1' } catch { onboardingHidden.value = false }
+  try {
+    const v1Hidden = localStorage.getItem('omnihive.dashboard.onboarding_hidden.v1')
+    const legacyHidden = localStorage.getItem('omnihive.dashboard.onboardingHidden')
+    onboardingHidden.value = (v1Hidden ?? legacyHidden) === '1'
+  } catch { onboardingHidden.value = false }
   refreshAll()
   void loadPersonalSecurity()
   void loadOnboarding()
@@ -421,10 +633,9 @@ onUnmounted(() => { auditController.abort(); statsRequestSequence++; chartReques
 
 <style scoped>
 .oh-dashboard { color: var(--foreground); }
-.oh-hive-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 10px; border-radius: 999px; font-size: 12px; color: var(--ok-text, #15803d); background: color-mix(in srgb, var(--ok, #16a34a) 12%, transparent); }
-.pulse-dot { display: inline-block; width: 7px; height: 7px; flex: none; border-radius: 50%; }
-.pulse-ok { background: #16a34a; animation: oh-breath 2s infinite; }
-@keyframes oh-breath { 50% { box-shadow: 0 0 0 5px rgb(22 163 74 / 12%); } }
+.oh-hive-badge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--oh-border, var(--border)); background: var(--oh-surface, var(--card)); color: var(--oh-ink, var(--foreground)); }
+.pulse-dot { display: inline-block; width: 6px; height: 6px; flex: none; border-radius: 50%; }
+.pulse-amber { background: var(--oh-accent, #f59e0b); }
 .activity-tabs { display: flex; gap: 24px; overflow-x: auto; border-bottom: 1px solid var(--border); }
 .activity-tabs button, .client-tabs button { display: inline-flex; align-items: center; flex: none; gap: 8px; padding: 12px 0; border-bottom: 2px solid transparent; font-size: 13px; color: var(--muted-foreground); }
 .activity-tabs button.on, .client-tabs button.on { color: var(--foreground); border-bottom-color: var(--brand); font-weight: 600; }

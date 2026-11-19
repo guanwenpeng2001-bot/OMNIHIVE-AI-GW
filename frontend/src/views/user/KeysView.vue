@@ -325,7 +325,7 @@
               :class="[
                 'inline-flex min-w-8 items-center justify-center rounded-md px-2 py-0.5 font-mono text-xs font-semibold tabular-nums stat-num',
                 (value ?? 0) > 0
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
+                  ? 'border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] text-[var(--oh-accent-ink,var(--brand-text,#d97706))]'
                   : 'bg-[var(--surface-2)] text-[var(--muted-foreground)]  '
               ]"
             >
@@ -398,7 +398,7 @@
                     :class="[
                       row.usage_5h >= row.rate_limit_5h ? '!bg-red-500' :
                       row.usage_5h >= row.rate_limit_5h * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_5h / row.rate_limit_5h) * 100, 100) + '%' }"
                   />
@@ -425,7 +425,7 @@
                     :class="[
                       row.usage_1d >= row.rate_limit_1d ? '!bg-red-500' :
                       row.usage_1d >= row.rate_limit_1d * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_1d / row.rate_limit_1d) * 100, 100) + '%' }"
                   />
@@ -452,7 +452,7 @@
                     :class="[
                       row.usage_7d >= row.rate_limit_7d ? '!bg-red-500' :
                       row.usage_7d >= row.rate_limit_7d * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_7d / row.rate_limit_7d) * 100, 100) + '%' }"
                   />
@@ -515,7 +515,7 @@
                   :class="[
                     row.budget_remaining <= 0 ? '!bg-red-500' :
                     row.budget_remaining <= row.budget_limit * 0.2 ? '!bg-amber-500' :
-                    '!bg-sky-500'
+                    '!bg-[var(--oh-accent,#f59e0b)]'
                   ]"
                   :style="{ width: Math.min((row.budget_used / row.budget_limit) * 100, 100) + '%' }"
                 />
@@ -548,7 +548,7 @@
               value === 'active' ? 'badge-success oh-status-ok' :
               value === 'quota_exhausted' ? 'badge-warning oh-status-warn' :
               value === 'expired' ? 'badge-danger oh-status-bad' :
-              value === 'disabled' ? 'badge-purple oh-status-disabled' :
+              value === 'disabled' ? 'oh-status-disabled' :
               'badge-gray oh-status-neutral'
             ]">
               <span
@@ -588,7 +588,7 @@
               <!-- Use Key Button -->
               <button
                 @click="openUseKeyModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
@@ -597,7 +597,7 @@
               <button
                 v-if="!publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
                 <Icon name="upload" size="sm" />
                 <span class="text-xs">{{ t('keys.importToCcSwitch') }}</span>
@@ -606,10 +606,10 @@
               <button
                 @click="toggleKeyStatus(row)"
                 :class="[
-                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors',
+                  'flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 transition-colors',
                   row.status === 'active'
-                    ? 'text-[var(--muted-foreground)] hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400'
-                    : 'text-[var(--muted-foreground)] hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
+                    ? 'text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]'
+                    : 'text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
                 ]"
               >
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
@@ -619,7 +619,7 @@
               <!-- Rotate Button -->
               <button
                 @click="openRotateModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
                 <Icon name="refresh" size="sm" />
                 <span class="text-xs">{{ t('keys.rotateKey') }}</span>
@@ -707,8 +707,8 @@
                 @change="selectCreateProvider(provider.value)"
               />
               <span
-                class="flex h-full flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-3 text-center transition-colors peer-checked:border-primary-500 peer-checked:bg-primary-50/60 peer-checked:ring-1 peer-checked:ring-primary-500 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-500 peer-disabled:opacity-40 dark:border-dark-600 dark:bg-dark-800 dark:peer-checked:border-primary-500 dark:peer-checked:bg-primary-500/10"
-                :class="provider.count > 0 && 'hover:border-primary-300 dark:hover:border-primary-700'"
+                class="flex h-full flex-col items-center gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-2 py-3 text-center transition-colors peer-checked:border-[var(--oh-accent,#f59e0b)] peer-checked:bg-[var(--oh-accent-subtle,rgba(245,158,11,0.1))] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--oh-accent,#f59e0b)] peer-disabled:opacity-40"
+                :class="provider.count > 0 && 'hover:border-[var(--oh-border-strong,var(--border))]'"
               >
                 <span class="flex h-8 items-center justify-center gap-1.5" aria-hidden="true">
                   <span
@@ -724,7 +724,7 @@
               </span>
               <span
                 v-if="createProvider === provider.value"
-                class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary-500 text-white"
+                class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--oh-accent,#f59e0b)] text-[#141008]"
                 aria-hidden="true"
               >
                 <Icon name="check" size="xs" :stroke-width="3" />
@@ -1390,7 +1390,7 @@
       :show="showSecretDialog"
       :secret="issuedSecret"
       :grace-until="issuedGraceUntil"
-      @close="showSecretDialog = false"
+      @close="closeSecretDialog"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1638,7 +1638,9 @@ const allColumns = computed<Column[]>(() => [
 const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
 const DEFAULT_HIDDEN_COLUMNS = ['id', 'rate_limit', 'last_used_at', 'last_used_ip']
 const HIDDEN_COLUMNS_KEY = 'api-key-hidden-columns'
+const V1_HIDDEN_COLUMNS_KEY = 'omnihive.keys.hidden_columns.v1'
 const COLUMN_SETTINGS_VERSION_KEY = 'api-key-column-settings-version'
+const V1_COLUMN_SETTINGS_VERSION_KEY = 'omnihive.keys.column_version.v1'
 const COLUMN_SETTINGS_VERSION = 3
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ['last_used_ip'],
@@ -1653,7 +1655,10 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 
 const saveColumnsToStorage = () => {
   try {
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    const serialized = JSON.stringify([...hiddenColumns])
+    localStorage.setItem(V1_HIDDEN_COLUMNS_KEY, serialized)
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, serialized)
+    localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
     localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
   } catch (error) {
     console.error('Failed to save API key table columns:', error)
@@ -1663,7 +1668,7 @@ const saveColumnsToStorage = () => {
 const loadSavedColumns = () => {
   hiddenColumns.clear()
   try {
-    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    const saved = localStorage.getItem(V1_HIDDEN_COLUMNS_KEY) ?? localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
       const validColumnKeys = new Set(allColumns.value.map((col) => col.key))
@@ -1674,7 +1679,11 @@ const loadSavedColumns = () => {
           !ALWAYS_VISIBLE_COLUMNS.has(key)
         )
         .forEach((key) => hiddenColumns.add(key))
-      const storedVersion = Number(localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? '1')
+      const storedVersion = Number(
+        localStorage.getItem(V1_COLUMN_SETTINGS_VERSION_KEY) ??
+        localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ??
+        '1'
+      )
       if (storedVersion < COLUMN_SETTINGS_VERSION) {
         for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
           for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
@@ -1685,10 +1694,12 @@ const loadSavedColumns = () => {
         }
         saveColumnsToStorage()
       } else {
+        localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
         localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+      localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
       localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
     }
   } catch (error) {
@@ -2264,6 +2275,13 @@ const onCredentialIssued = (payload: { secret: string; graceUntil: string | null
   loadApiKeys()
 }
 
+const closeSecretDialog = () => {
+  showSecretDialog.value = false
+  issuedSecret.value = ''
+  issuedGraceUntil.value = null
+  sessionSecrets.clear()
+}
+
 const closeGroupSelector = (event: MouseEvent) => {
   const target = event.target as HTMLElement
   // Check if click is inside the dropdown or the trigger button
@@ -2661,6 +2679,9 @@ onMounted(() => {
 onUnmounted(() => {
   endpointCopyRevision++
   clearTimeout(endpointCopyTimer)
+  issuedSecret.value = ''
+  issuedGraceUntil.value = null
+  sessionSecrets.clear()
   disposed = true
   auxiliaryControllers.forEach(controller => controller.abort())
   auxiliaryControllers.clear()
@@ -2785,13 +2806,9 @@ onUnmounted(() => {
 }
 
 .oh-status-disabled {
-  color: #7e22ce;
-  background: color-mix(in srgb, #9333ea 12%, transparent);
-  border-color: color-mix(in srgb, #9333ea 24%, transparent);
-}
-
-.dark .oh-status-disabled {
-  color: #d8b4fe;
+  color: var(--oh-danger, #dc2626);
+  background: color-mix(in srgb, var(--oh-danger, #dc2626) 10%, transparent);
+  border-color: color-mix(in srgb, var(--oh-danger, #dc2626) 24%, transparent);
 }
 
 .oh-status-neutral {

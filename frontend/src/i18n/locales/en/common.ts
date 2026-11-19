@@ -462,5 +462,15 @@ export default {
     adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.'
   },
 
+  playgroundConsole: {
+    title: 'Playground',
+    description: 'Separately funded native protocol workbench with SSE, reasoning, tool calls, and side-by-side compare.'
+  },
+
+  taskCenter: {
+    title: 'Task Center',
+    description: 'Asynchronous image and batch executions, scope-bound artifact tickets, cancellation, and paid retries.'
+  },
+
   // Dashboard
 }

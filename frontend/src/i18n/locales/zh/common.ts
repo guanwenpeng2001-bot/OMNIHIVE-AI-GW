@@ -461,5 +461,15 @@ export default {
     adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。'
   },
 
+  playgroundConsole: {
+    title: 'Playground 调试台',
+    description: '独立冻结预算的原生协议流式调试台，支持推理、工具调用、左右独立对比与幂等重连。'
+  },
+
+  taskCenter: {
+    title: '任务中心',
+    description: '异步图像与批处理任务管理、受控票据产物下载、取消与付费重试。'
+  },
+
   // Dashboard
 }
