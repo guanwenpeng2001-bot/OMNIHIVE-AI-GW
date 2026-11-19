@@ -1,6 +1,7 @@
 syntax = "proto3";
 package omnihive.plugin.v2;
 option go_package = "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2;pluginv2";
+import "backend/pkg/pluginapi/v2/actions/action.proto";
 
 // One bounded exchange on WASI stdin/stdout per invocation.
 message Request {
@@ -8,6 +9,7 @@ message Request {
   string operation = 2;
   string capability = 3;
   bytes config_json = 4;
+  omnihive.plugin.v2.actions.Request action = 5;
 }
 message Reply {
   string handshake = 1;
@@ -16,4 +18,5 @@ message Reply {
   repeated string capabilities = 4;
   bool accepted = 5;
   bytes normalized_config_json = 6;
+  omnihive.plugin.v2.actions.Plan action = 7;
 }

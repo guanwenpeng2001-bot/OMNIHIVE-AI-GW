@@ -34,7 +34,7 @@ components:
         account_type: {type: string}
     ExtensionInventoryItem:
       type: object
-      required: [id, sdk_version, capabilities, state]
+      required: [id, sdk_version, capabilities, authorized_actions, state]
       properties:
         id: {type: string}
         sdk_version: {type: integer}
@@ -42,5 +42,9 @@ components:
         capabilities:
           type: [array, 'null']
           items: {$ref: '#/components/schemas/ExtensionInventoryCapability'}
+        authorized_actions:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ExtensionActionLabel'}
         state: {type: string}
         digest: {type: string}

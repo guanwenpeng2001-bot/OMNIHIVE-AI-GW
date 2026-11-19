@@ -72,14 +72,15 @@ type RegistryModel struct {
 }
 
 type Capability struct {
-	Action         string     `json:"action"`
-	Protocol       string     `json:"protocol"`
-	Mode           string     `json:"mode"`
-	Tools          string     `json:"tools"`
-	Stream         string     `json:"stream"`
-	VerifiedAt     *time.Time `json:"verified_at"`
-	AdapterVersion *string    `json:"adapter_version"`
-	Limitations    []string   `json:"limitations"`
+	VerifiedExtensionActions []string   `json:"verified_extension_actions,omitempty"`
+	Action                   string     `json:"action"`
+	Protocol                 string     `json:"protocol"`
+	Mode                     string     `json:"mode"`
+	Tools                    string     `json:"tools"`
+	Stream                   string     `json:"stream"`
+	VerifiedAt               *time.Time `json:"verified_at"`
+	AdapterVersion           *string    `json:"adapter_version"`
+	Limitations              []string   `json:"limitations"`
 	Evidence
 }
 

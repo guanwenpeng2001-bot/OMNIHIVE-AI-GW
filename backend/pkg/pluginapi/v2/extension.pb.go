@@ -7,6 +7,7 @@
 package pluginv2
 
 import (
+	actions "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -28,6 +29,7 @@ type Request struct {
 	Operation     string                 `protobuf:"bytes,2,opt,name=operation,proto3" json:"operation,omitempty"`
 	Capability    string                 `protobuf:"bytes,3,opt,name=capability,proto3" json:"capability,omitempty"`
 	ConfigJson    []byte                 `protobuf:"bytes,4,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	Action        *actions.Request       `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -90,6 +92,13 @@ func (x *Request) GetConfigJson() []byte {
 	return nil
 }
 
+func (x *Request) GetAction() *actions.Request {
+	if x != nil {
+		return x.Action
+	}
+	return nil
+}
+
 type Reply struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	Handshake            string                 `protobuf:"bytes,1,opt,name=handshake,proto3" json:"handshake,omitempty"`
@@ -98,6 +107,7 @@ type Reply struct {
 	Capabilities         []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	Accepted             bool                   `protobuf:"varint,5,opt,name=accepted,proto3" json:"accepted,omitempty"`
 	NormalizedConfigJson []byte                 `protobuf:"bytes,6,opt,name=normalized_config_json,json=normalizedConfigJson,proto3" json:"normalized_config_json,omitempty"`
+	Action               *actions.Plan          `protobuf:"bytes,7,opt,name=action,proto3" json:"action,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -174,11 +184,18 @@ func (x *Reply) GetNormalizedConfigJson() []byte {
 	return nil
 }
 
+func (x *Reply) GetAction() *actions.Plan {
+	if x != nil {
+		return x.Action
+	}
+	return nil
+}
+
 var File_backend_pkg_pluginapi_v2_extension_proto protoreflect.FileDescriptor
 
 const file_backend_pkg_pluginapi_v2_extension_proto_rawDesc = "" +
 	"\n" +
-	"(backend/pkg/pluginapi/v2/extension.proto\x12\x12omnihive.plugin.v2\"\x86\x01\n" +
+	"(backend/pkg/pluginapi/v2/extension.proto\x12\x12omnihive.plugin.v2\x1a-backend/pkg/pluginapi/v2/actions/action.proto\"\xc3\x01\n" +
 	"\aRequest\x12\x1c\n" +
 	"\thandshake\x18\x01 \x01(\tR\thandshake\x12\x1c\n" +
 	"\toperation\x18\x02 \x01(\tR\toperation\x12\x1e\n" +
@@ -186,14 +203,16 @@ const file_backend_pkg_pluginapi_v2_extension_proto_rawDesc = "" +
 	"capability\x18\x03 \x01(\tR\n" +
 	"capability\x12\x1f\n" +
 	"\vconfig_json\x18\x04 \x01(\fR\n" +
-	"configJson\"\xd2\x01\n" +
+	"configJson\x12;\n" +
+	"\x06action\x18\x05 \x01(\v2#.omnihive.plugin.v2.actions.RequestR\x06action\"\x8c\x02\n" +
 	"\x05Reply\x12\x1c\n" +
 	"\thandshake\x18\x01 \x01(\tR\thandshake\x12\x1b\n" +
 	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12\"\n" +
 	"\fcapabilities\x18\x04 \x03(\tR\fcapabilities\x12\x1a\n" +
 	"\baccepted\x18\x05 \x01(\bR\baccepted\x124\n" +
-	"\x16normalized_config_json\x18\x06 \x01(\fR\x14normalizedConfigJsonBQZOgithub.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2;pluginv2b\x06proto3"
+	"\x16normalized_config_json\x18\x06 \x01(\fR\x14normalizedConfigJson\x128\n" +
+	"\x06action\x18\a \x01(\v2 .omnihive.plugin.v2.actions.PlanR\x06actionBQZOgithub.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2;pluginv2b\x06proto3"
 
 var (
 	file_backend_pkg_pluginapi_v2_extension_proto_rawDescOnce sync.Once
@@ -209,15 +228,19 @@ func file_backend_pkg_pluginapi_v2_extension_proto_rawDescGZIP() []byte {
 
 var file_backend_pkg_pluginapi_v2_extension_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_backend_pkg_pluginapi_v2_extension_proto_goTypes = []any{
-	(*Request)(nil), // 0: omnihive.plugin.v2.Request
-	(*Reply)(nil),   // 1: omnihive.plugin.v2.Reply
+	(*Request)(nil),         // 0: omnihive.plugin.v2.Request
+	(*Reply)(nil),           // 1: omnihive.plugin.v2.Reply
+	(*actions.Request)(nil), // 2: omnihive.plugin.v2.actions.Request
+	(*actions.Plan)(nil),    // 3: omnihive.plugin.v2.actions.Plan
 }
 var file_backend_pkg_pluginapi_v2_extension_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	2, // 0: omnihive.plugin.v2.Request.action:type_name -> omnihive.plugin.v2.actions.Request
+	3, // 1: omnihive.plugin.v2.Reply.action:type_name -> omnihive.plugin.v2.actions.Plan
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_backend_pkg_pluginapi_v2_extension_proto_init() }

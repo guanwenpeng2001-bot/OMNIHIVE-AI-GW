@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	v2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2"
@@ -73,6 +74,12 @@ func (m *PluginManager) AuthorizeExtension(ctx context.Context, id int64, cap st
 	if r == nil || r.extension == nil {
 		return extensionDenied("unavailable", cap, "v2 runtime is not enabled")
 	}
+	if isTypedAction(cap) {
+		proof, ok := ctx.Value(actionAdmissionKey{}).(actionAdmission)
+		if !ok || proof.runtime != r {
+			return extensionDenied(r.installation.PluginKey, cap, "scoped action admission required")
+		}
+	}
 	return m.authorizeRuntime(ctx, r, cap)
 }
 
@@ -86,6 +93,14 @@ func (m *PluginManager) authorizeRuntime(ctx context.Context, r *pluginRuntime, 
 	}
 	if err = extensionGrant(p, cap); err != nil {
 		return err
+	}
+	if isTypedAction(cap) {
+		proof, ok := ctx.Value(actionAdmissionKey{}).(actionAdmission)
+		if !ok || proof.runtime != r || !slices.ContainsFunc(p.Bindings, func(b PluginBinding) bool {
+			return b.ID == proof.grant.BindingID && b.Enabled && b.Capability == cap
+		}) {
+			return extensionDenied(p.PluginKey, cap, "action activation changed")
+		}
 	}
 	return r.authorize(ctx, cap)
 }

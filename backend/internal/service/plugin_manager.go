@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/extensions/actions"
 	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
 	v2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2"
 )
@@ -1149,9 +1150,5 @@ func bindingRollout(bindings []PluginBinding) int {
 }
 
 func stablePluginBucket(accountID int64) uint64 {
-	value := uint64(accountID)
-	value ^= value >> 33
-	value *= 0xff51afd7ed558ccd
-	value ^= value >> 33
-	return value % 100
+	return actions.Bucket(accountID)
 }

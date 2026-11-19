@@ -518,6 +518,10 @@ components:
       - adapter_version
       - limitations
       properties:
+        verified_extension_actions:
+          type: array
+          uniqueItems: true
+          items: {$ref: '#/components/schemas/ExtensionActionLabel'}
         source:
           type: string
         maturity:

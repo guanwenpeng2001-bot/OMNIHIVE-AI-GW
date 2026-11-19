@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	grants "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/extensions/actions"
 	"github.com/lib/pq"
 )
 
@@ -125,6 +126,7 @@ func (s *Store) ProjectResources(ctx context.Context, p catalog.Perspective) ([]
 }
 
 type EndpointEvidence struct {
+	VerifiedActions               map[string][]string
 	Provider, PrivacyMode, Region string
 	ForceGlobal                   bool
 	LegacyAttempt                 string
@@ -148,7 +150,9 @@ func (s *Store) EndpointEvidence(ctx context.Context, p catalog.Perspective, acc
 	    coalesce(a.extra->'upstream_model_catalog_state'->>'result',''),
 	    coalesce(pc.state='active' AND NOT pc.legacy_dirty,false),
 	    v.expires_at,coalesce(v.snapshot->>'verified_at',''),coalesce(v.snapshot->'models','[]'::jsonb),
-	    coalesce(pc.verified_id IS NULL AND v.id IS NOT NULL,false)
+	    coalesce(pc.verified_id IS NULL AND v.id IS NOT NULL,false),
+	    coalesce((SELECT jsonb_agg(jsonb_build_object('model',g.model,'action',g.action,'rollout',g.rollout_percent) ORDER BY g.action)
+	        FROM omnihive_verified_extension_actions g WHERE g.workspace_id=$1 AND g.project_id=$3 AND g.account_id=a.id),'[]')
 	FROM accounts a
 	LEFT JOIN provider_connections pc ON pc.workspace_id=a.workspace_id AND pc.account_id=a.id
 	LEFT JOIN LATERAL (
@@ -167,7 +171,7 @@ func (s *Store) EndpointEvidence(ctx context.Context, p catalog.Perspective, acc
 	          AND cs.version=v.credential_version AND cs.revoked_at IS NULL)
 	    ORDER BY v.expires_at DESC, v.id LIMIT 1
 	) v ON pc.state='active' AND NOT pc.legacy_dirty
-	WHERE a.workspace_id=$1 AND a.id=ANY($2) AND a.deleted_at IS NULL`, p.Workspace, pq.Array(accounts))
+	WHERE a.workspace_id=$1 AND a.id=ANY($2) AND a.deleted_at IS NULL`, p.Workspace, pq.Array(accounts), p.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -177,15 +181,28 @@ func (s *Store) EndpointEvidence(ctx context.Context, p catalog.Perspective, acc
 		var e EndpointEvidence
 		var expires sql.NullTime
 		var verifiedAt string
-		var models []byte
+		var models, actionRows []byte
 		if err := rows.Scan(&id, &e.Provider, &e.PrivacyMode, &e.Region, &e.ForceGlobal, &e.LegacyAttempt, &e.LegacyResult,
-			&e.ConnectionActive, &expires, &verifiedAt, &models, &e.VerificationFailed); err != nil {
+			&e.ConnectionActive, &expires, &verifiedAt, &models, &e.VerificationFailed, &actionRows); err != nil {
 			return nil, err
 		}
 		e.VerificationExpiry = expires.Time
 		e.VerificationAt, _ = time.Parse(time.RFC3339Nano, verifiedAt)
 		if err := json.Unmarshal(models, &e.VerifiedModels); err != nil {
 			return nil, err
+		}
+		var reviewed []struct {
+			Model, Action string
+			Rollout       int
+		}
+		if err := json.Unmarshal(actionRows, &reviewed); err != nil {
+			return nil, err
+		}
+		e.VerifiedActions = map[string][]string{}
+		for _, g := range reviewed {
+			if grants.InRollout(id, g.Rollout) {
+				e.VerifiedActions[g.Model] = append(e.VerifiedActions[g.Model], g.Action)
+			}
 		}
 		out[id] = e
 	}

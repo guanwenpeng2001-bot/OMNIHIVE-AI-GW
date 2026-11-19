@@ -25,14 +25,15 @@ import (
 
 // Compiled modules share code, never guest memory, file descriptors or globals.
 type extensionRuntime struct {
-	vm        wazero.Runtime
-	module    wazero.CompiledModule
-	installer *PluginPackageInstaller
-	manifest  PluginManifest
-	key       ed25519.PublicKey
-	caps      []string
-	config    atomic.Pointer[[]byte]
-	closed    atomic.Bool
+	vm            wazero.Runtime
+	module        wazero.CompiledModule
+	installer     *PluginPackageInstaller
+	manifest      PluginManifest
+	key           ed25519.PublicKey
+	archiveDigest string
+	caps          []string
+	config        atomic.Pointer[[]byte]
+	closed        atomic.Bool
 }
 
 var extensionSlots = make(chan struct{}, 8)
@@ -83,7 +84,8 @@ func (m *PluginManager) startExtension(ctx context.Context, installation *Plugin
 		return nil, errors.New("WASI module digest mismatch")
 	}
 	vm := wazero.NewRuntimeWithConfig(ctx, wazero.NewRuntimeConfig().WithCloseOnContextDone(true).WithMemoryLimitPages(1024))
-	ext := &extensionRuntime{vm: vm, manifest: signed, installer: m.installer, key: key}
+	archiveDigest := sha256.Sum256(data)
+	ext := &extensionRuntime{archiveDigest: hex.EncodeToString(archiveDigest[:]), vm: vm, manifest: signed, installer: m.installer, key: key}
 	success := false
 	defer func() {
 		if !success {
@@ -147,6 +149,11 @@ func (w *boundedExtensionOutput) Write(p []byte) (int, error) {
 }
 
 func (e *extensionRuntime) exchange(ctx context.Context, operation, cap string, config []byte) (*v2.Reply, error) {
+	return e.invoke(ctx, &v2.Request{Operation: operation, Capability: cap, ConfigJson: config})
+}
+
+func (e *extensionRuntime) invoke(ctx context.Context, request *v2.Request) (*v2.Reply, error) {
+	operation, cap := request.Operation, request.Capability
 	if e.closed.Load() {
 		return nil, errors.New("extension is disabled")
 	}
@@ -159,10 +166,11 @@ func (e *extensionRuntime) exchange(ctx context.Context, operation, cap string, 
 	default:
 		return nil, extensionDenied(e.manifest.ID, cap, "host concurrent invocation limit")
 	}
-	if len(config) > v2.MaxFrame {
+	if len(request.ConfigJson) > v2.MaxFrame {
 		return nil, errors.New("extension configuration exceeds frame limit")
 	}
-	raw, err := proto.Marshal(&v2.Request{Handshake: v2.Handshake, Operation: operation, Capability: cap, ConfigJson: config})
+	request.Handshake = v2.Handshake
+	raw, err := proto.Marshal(request)
 	if err != nil || len(raw) > v2.MaxFrame {
 		return nil, errors.New("extension request exceeds frame limit")
 	}

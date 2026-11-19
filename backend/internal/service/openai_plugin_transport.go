@@ -25,7 +25,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 		return nil, err
 	}
 	send := func(r *http.Request) (*http.Response, error) {
-		response, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), r, proxyURL, account.ID, account.Concurrency)
+		response, err := s.pluginManager.forwardAction(r, account, func(r *http.Request) (*http.Response, error) {
+			return generationDo(accountHTTPUpstream(s.httpUpstream, account), r, proxyURL, account.ID, account.Concurrency)
+		})
 		return compatibleCheckedResponse(account, response, resolveUpstreamResponseReadLimit(s.cfg)), err
 	}
 	if s.pluginManager != nil {
