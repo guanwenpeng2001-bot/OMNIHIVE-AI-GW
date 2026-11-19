@@ -1,6 +1,6 @@
 # BE-11 wallet accounting and settlement evidence
 
-Apply migration 300 through the existing runner after BE-06 migration 295. The migration takes a write-conflicting lock on `users` for the opening snapshot. Size the migration window using a representative user count and verify the snapshot before enabling consumers.
+Apply migration 300 through the existing runner after BE-06 migration 295. The migration takes write-conflicting locks on `usage_settlement_receipts` and `users` in settlement order for the opening snapshot and trigger installation. Size the migration window using a representative user count and verify the snapshot before enabling consumers.
 
 The existing receipt transaction remains the settlement authority. Its dedup key and historical fingerprint are reused. USD wallet openings and changes are captured from PostgreSQL numeric values in the wallet transaction. Each event produces equal and opposite postings. Sum the wallet side by funding account and currency to compare against `users.balance`. The wallet records the actual movement, including reservation refunds, while the reader exposes the amount on the settled command. These amounts can differ when a legacy balance cannot cover the charge.
 
