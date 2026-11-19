@@ -13,6 +13,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions"
 )
 
 type Source struct {
@@ -85,6 +86,12 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 				e := endpoints[binding.AccountID]
 				offer.Facts = append(offer.Facts, binding.CatalogModelFacts(discoveryExpiry(binding, e), now)...)
 				if endpoint, ok := projectEndpoint(p, model.Platform, binding, e, now); ok {
+					if offer.Access && p.EndpointMetadata {
+						for i := range endpoint.Capabilities {
+							capability := &endpoint.Capabilities[i]
+							capability.VerifiedExtensionActions = verifiedExtensionActions(*capability, e.VerifiedActions[model.Name])
+						}
+					}
 					offer.Endpoints = append(offer.Endpoints, endpoint)
 					offer.Capabilities = append(offer.Capabilities, endpoint.Capabilities...)
 				}
@@ -107,6 +114,25 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 		}
 	}
 	return out, nil
+}
+
+func verifiedExtensionActions(c catalog.Capability, labels []string) []string {
+	if c.State != "fresh" || c.VerifiedAt == nil {
+		return nil
+	}
+	var label string
+	switch {
+	case c.Protocol == "openai_responses" && c.Action == "text.chat":
+		label = actions.ProviderResponses
+	case c.Protocol == "openai_images" && c.Action == "image.generate":
+		label = actions.TaskImageGenerate
+	default:
+		return nil
+	}
+	if slices.Contains(labels, label) {
+		return []string{label}
+	}
+	return nil
 }
 
 func (s *Source) scopedGroups(ctx context.Context, p catalog.Perspective) ([]service.PlazaGroup, map[int64]bool, error) {

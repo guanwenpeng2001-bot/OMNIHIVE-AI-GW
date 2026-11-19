@@ -10,6 +10,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions"
 )
 
 func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
@@ -45,4 +46,13 @@ func TestCatalogEndpointVerificationAndModelEvidence(t *testing.T) {
 	require.Len(t, facts, 1)
 	require.Equal(t, "stale", facts[0].State)
 	require.Equal(t, &disabled, facts[0].Tools)
+}
+
+func TestReviewedEndpointActions(t *testing.T) {
+	now := time.Now()
+	c := catalog.Capability{Protocol: "openai_images", Action: "image.generate", Evidence: catalog.Evidence{State: "fresh"}, VerifiedAt: &now}
+	require.Empty(t, verifiedExtensionActions(c, []string{actions.ProviderResponses}))
+	require.Equal(t, []string{actions.TaskImageGenerate}, verifiedExtensionActions(c, []string{actions.ProviderResponses, actions.TaskImageGenerate}))
+	c.State = "stale"
+	require.Empty(t, verifiedExtensionActions(c, []string{actions.TaskImageGenerate}))
 }

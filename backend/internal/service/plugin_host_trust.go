@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	v2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions"
 )
 
 var extensionDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -61,6 +62,10 @@ func validateExtensionManifest(m PluginManifest) error {
 		case v2.Provider:
 			if cap.Platform != PlatformOpenAI || cap.AccountType != AccountTypeOAuth {
 				return extensionDenied(m.ID, cap.ID, "unsupported provider scope")
+			}
+		case actions.ProviderResponses, actions.TaskImageGenerate:
+			if cap.Platform != PlatformOpenAI || (cap.AccountType != AccountTypeOAuth && cap.AccountType != AccountTypeAPIKey) {
+				return extensionDenied(m.ID, cap.ID, "unsupported typed action scope")
 			}
 		case v2.UI, v2.Task:
 			if cap.Platform != "" || cap.AccountType != "" {

@@ -27,10 +27,14 @@
       "type": "array", "minItems": 1, "uniqueItems": true,
       "items": {
         "type": "object", "additionalProperties": false, "required": ["id"],
-        "properties": {"id": {"enum": ["provider","task","ui"]}, "platform": {"type": "string"}, "account_type": {"type": "string"}},
+        "properties": {"id": {"enum": ["provider","task","ui","provider.responses.v1","task.image.generate.v1"]}, "platform": {"type": "string"}, "account_type": {"type": "string"}},
         "if": {"properties": {"id": {"const": "provider"}}},
         "then": {"required": ["platform", "account_type"], "properties": {"platform": {"const": "openai"}, "account_type": {"const": "oauth"}}},
-        "else": {"properties": {"platform": {"const": ""}, "account_type": {"const": ""}}}
+        "else": {
+          "if": {"properties": {"id": {"enum": ["provider.responses.v1","task.image.generate.v1"]}}},
+          "then": {"required": ["platform","account_type"], "properties": {"platform": {"const": "openai"}, "account_type": {"enum": ["oauth","apikey"]}}},
+          "else": {"properties": {"platform": {"const": ""}, "account_type": {"const": ""}}}
+        }
       }
     },
     "runtimes": {
