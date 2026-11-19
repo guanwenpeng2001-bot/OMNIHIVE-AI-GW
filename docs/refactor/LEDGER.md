@@ -29,7 +29,7 @@ Status legend: todo / doing / review / merged / blocked
 | BE-13 | Authenticated streaming Playground | gpt-6.2-astra | codex/be-13-playground | merged | ba83c16a6 merged; production wiring in progress |
 | BE-19 | Payments wiring (HandleVerified + evidence routes) | gpt-6.2-sol | codex/refactor | merged | b6329106d; legacy webhook cutover remains with BE-22 |
 | BE-21 | Scoped audit, retention, controlled egress and observability | gpt-6.2-astra | codex/be-21-audit | merged | c1851422c + routes/op-reader b33051c74; observer/retention lifecycle to BE-22 |
-| BE-22 | Runtime modes and lifecycle | gpt-6.2-astra | codex/be-22-runtime | doing | commits c3dd52740+ |
+| BE-22 | Runtime modes and lifecycle supervisor | gpt-6.2-astra | codex/be-22-runtime | merged | 15aa736b1/e6105a8bb; merged a20e01ebd; all/control/gateway/worker smoke pass |
 | BE-24 | Release verification | gpt-6.2-astra | codex/be-24-release | doing | de1f2741a: GA HOLD — Playground J03 404/403 and embeddings passthrough; fix branch codex/be-24-fix |
 | WP1 | Shell, brand, IA, D08, auth/setup | gemini | codex/fe-wp1-shell | merged | c7a91b892; typecheck/lint/i18n/5295 tests/build pass |
 | RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | merged | b33cecb5a; 1×P1 (BE-05 pricing) fixed, FE-WP1 P1s in flight |
