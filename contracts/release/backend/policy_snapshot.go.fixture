@@ -1,0 +1,52 @@
+package main
+
+import (
+	"context"
+	"database/sql"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
+	_ "github.com/lib/pq"
+)
+
+// Exercise the simulator with a frozen synthetic graph produced through its
+// normal trusted writer, independently of Playground's ability to capture one.
+func main() {
+	db, err := sql.Open("postgres", "postgres://postgres@127.0.0.1:5432/candidate?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	workspace, err := strconv.ParseInt(os.Args[1], 10, 64)
+	if err != nil {
+		log.Fatal(err)
+	}
+	caller := policy.Caller{Workspace: workspace}
+	err = db.QueryRow("SELECT id FROM users WHERE email='release@example.invalid'").Scan(&caller.Actor)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.QueryRow("SELECT scope_version FROM workspaces WHERE id=$1", workspace).Scan(&caller.AccessVersion)
+	if err != nil {
+		log.Fatal(err)
+	}
+	scenario := policy.Scenario{Project: os.Args[2], Model: os.Args[3], Action: "text.chat",
+		Protocol: "openai_chat", Input: "1", Output: "1"}
+	now := time.Now().UTC()
+	graph := policy.Graph{
+		Snapshot: snapshot.CandidateSnapshot{ID: uuid.NewString(), AsOf: now, CatalogVersion: "release-fixture",
+			PriceVersion: "release-price", Candidates: []snapshot.Candidate{{ID: "release-eu", ModelID: scenario.Model,
+				Region: "EU", RegionVerified: true, FundingSource: "wallet", FundingAuthorized: true}}},
+		Facts: map[string]policy.Evidence{"release-eu": {Provider: "fixture", Protocols: []string{scenario.Protocol},
+			Actions: []string{scenario.Action}}},
+		ExpiresAt: now.Add(time.Minute),
+	}
+	if err := (policy.SnapshotWriter{DB: db}).Capture(context.Background(), caller, scenario, graph); err != nil {
+		log.Fatal(err)
+	}
+}
