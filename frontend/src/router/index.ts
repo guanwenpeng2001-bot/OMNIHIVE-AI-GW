@@ -513,6 +513,32 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/pools',
+    name: 'AdminPools',
+    component: () => import('@/views/admin/GroupsView.vue'),
+    props: { initialSection: 'pools' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Resource Pools',
+      titleKey: 'admin.groups.title',
+      descriptionKey: 'admin.groups.description'
+    }
+  },
+  {
+    path: '/admin/routing',
+    name: 'AdminRouting',
+    component: () => import('@/views/admin/GroupsView.vue'),
+    props: { initialSection: 'routing' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Routing Policies',
+      titleKey: 'routing.title',
+      descriptionKey: 'admin.groups.description'
+    }
+  },
+  {
     path: '/admin/channels',
     redirect: '/admin/channels/pricing'
   },
@@ -836,7 +862,7 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
 for (const resourceRoute of [...routes]) {
   if (!workspaceResourcePaths.has(resourceRoute.path)) continue
   const suffix = resourceRoute.path.replace(/^\/admin/, '')
