@@ -1,18 +1,21 @@
 import { apiClient } from '@/api/client'
 
+export interface PublicRate {
+  amount: string
+  currency: string
+  per: string
+  unit: string
+}
+
 export interface PublicModelSummary {
   id: string
   model: string
   provider?: string | null
-  canonical?: string | null
-  context_window?: number | null
+  context_tokens?: string | null
   modalities?: string[] | null
-  input_price?: { amount: string; currency: string; per: string } | null
-  output_price?: { amount: string; currency: string; per: string } | null
-  ttft_ms?: number | null
-  stability?: string | null
+  input_rate?: PublicRate | null
+  output_rate?: PublicRate | null
   route_state?: string | null
-  updated_at?: string | null
 }
 
 export interface PublicModelPage {
@@ -22,42 +25,44 @@ export interface PublicModelPage {
   catalog_version?: string | null
 }
 
-export interface PublicModelDetail extends PublicModelSummary {
-  facts?: Record<string, unknown> | null
-  endpoints?: Array<Record<string, unknown>> | null
+export interface PublicModelDetail {
+  model: PublicModelSummary
+  model_facts?: Array<{
+    state?: string
+    tools?: boolean | null
+    reasoning?: boolean | null
+  }>
   capabilities?: Array<{ action?: string; protocol?: string; state?: string }> | null
-  metrics?: Record<string, unknown> | null
-  evidence?: Record<string, unknown> | null
-}
-
-export interface PublicCompareRow {
-  model_id: string
-  capabilities?: unknown
-  quote?: unknown
-  metrics?: Record<string, unknown> | null
-  benchmarks?: unknown
+  metrics?: { ttft_p50_ms?: number | null }
 }
 
 export interface PublicCompareResponse {
   catalog_version?: string | null
   as_of?: string | null
-  rows: PublicCompareRow[]
+  rows: Array<{
+    model_id: string
+    metrics?: {
+      success_rate?: number | null
+      ttft_p50_ms?: number | null
+      output_tokens_per_second?: number | null
+      requests?: string | null
+    } | null
+  }>
 }
 
 export interface PublicStatusComponent {
   id: string
   name?: string
   observed_state?: string
-  last_success_at?: string | null
+  last_success?: string | null
   success_rate?: number | null
-  samples?: number | null
+  sample_count?: string | null
 }
 
 export interface PublicStatusResponse {
   components?: PublicStatusComponent[]
-  incidents?: Array<Record<string, unknown>>
   as_of?: string | null
-  stale?: boolean
+  overall?: string
 }
 
 export interface ListParams {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, ref } from 'vue'
 import PublicShell from '@/components/layout/PublicShell.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
+import { publicValue } from '@/features/public/format'
 import { getPublicStatus, type PublicStatusResponse } from '@/features/public/api'
 
 const status = ref<PublicStatusResponse | null>(null)
@@ -15,7 +17,7 @@ const components = computed(() => status.value?.components ?? [])
 function stateTone(state?: string): 'success' | 'warning' | 'danger' | 'unknown' {
   if (!state) return 'unknown'
   if (state === 'operational') return 'success'
-  if (state === 'degraded') return 'warning'
+  if (state === 'maintenance' || state === 'degraded') return 'warning'
   if (state === 'outage') return 'danger'
   return 'unknown'
 }
@@ -45,8 +47,8 @@ onMounted(load)
       </p>
     </header>
 
-    <Skeleton v-if="loading" variant="table-row" :lines="6" />
-    <ErrorState v-else-if="error" title="Status unavailable" :message="String((error as any)?.message ?? error)" @retry="load" />
+    <Skeleton v-if="loading" class="py-4" :lines="6" />
+    <ErrorState v-else-if="error" title="Status unavailable" :message="extractApiErrorMessage(error, '')" @retry="load" />
 
     <template v-else>
       <div class="divide-y divide-oh-subtle border border-oh-default">
@@ -54,15 +56,15 @@ onMounted(load)
           <div>
             <p class="text-sm font-medium text-oh-primary">{{ component.name ?? component.id }}</p>
             <p class="font-mono text-[11px] text-oh-muted">
-              last success {{ component.last_success_at ?? '—' }}
+              last success {{ component.last_success ?? '—' }}
             </p>
           </div>
-          <div class="flex items-center gap-4 font-mono text-xs tabular-nums">
-            <span class="text-oh-secondary">{{ component.samples ?? '—' }} samples</span>
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2 font-mono text-xs tabular-nums">
+            <span class="text-oh-secondary">{{ component.sample_count ?? '—' }} samples</span>
             <span class="text-oh-secondary">
-              {{ component.success_rate === null || component.success_rate === undefined ? '—' : `${(component.success_rate * 100).toFixed(2)}%` }}
+              {{ component.success_rate === null || component.success_rate === undefined ? '—' : `${component.success_rate.toFixed(2)}%` }}
             </span>
-            <Badge :tone="stateTone(component.observed_state)" variant="subtle" dot>{{ component.observed_state ?? 'unknown' }}</Badge>
+            <Badge :tone="stateTone(component.observed_state)" variant="subtle" dot>{{ publicValue(component.observed_state) }}</Badge>
           </div>
         </div>
         <p v-if="components.length === 0" class="px-4 py-10 text-center text-sm text-oh-secondary">
