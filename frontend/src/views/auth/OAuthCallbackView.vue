@@ -1,17 +1,24 @@
 <template>
   <AuthLayout>
     <div class="space-y-4">
-      <div v-if="isProcessing" role="status">
-        <div class="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent"></div>
+      <div v-if="isProcessing" role="status" class="space-y-3">
+        <Badge variant="accent" dot mono>EXCHANGING SESSION</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
         <p class="auth-intro">
           {{ t('auth.oauth.callbackHint') }}
         </p>
+        <div class="space-y-2 pt-2" aria-hidden="true">
+          <Skeleton width="100%" height="36px" />
+          <Skeleton width="72%" height="20px" />
+        </div>
       </div>
 
       <div v-else-if="needsRegistrationCompletion">
+        <div class="mb-2">
+          <Badge variant="accent" mono>{{ providerName.toUpperCase() }}</Badge>
+        </div>
         <h1 class="auth-title">
           {{ t('auth.oidc.callbackTitle', { providerName }) }}
         </h1>
@@ -65,24 +72,30 @@
               @keyup.enter="handleSubmitRegistration"
             />
           </div>
-          <p v-if="registrationError" class="text-sm text-red-600 dark:text-red-400">
-            {{ registrationError }}
-          </p>
+          <ErrorState
+            v-if="registrationError"
+            :title="registrationError"
+            compact
+            :retryable="false"
+          />
           <div class="auth-actions">
-          <button
+          <Button
+            variant="primary"
+            :loading="isSubmitting"
             class="btn btn-primary w-full"
             type="button"
             :disabled="isSubmitting || !canSubmitRegistration"
             @click="handleSubmitRegistration"
           >
             {{ isSubmitting ? t('common.processing') : t('auth.oidc.completeRegistration') }}
-          </button>
-          <button type="button" class="btn btn-outline" :disabled="isSubmitting" @click="router.replace('/login')">{{ t('auth.backToLogin') }}</button>
+          </Button>
+          <Button type="button" variant="secondary" class="btn btn-outline" :disabled="isSubmitting" @click="router.replace('/login')">{{ t('auth.backToLogin') }}</Button>
           </div>
         </div>
       </div>
 
-      <div v-else-if="invalidCallback">
+      <div v-else-if="invalidCallback" class="space-y-3">
+        <Badge variant="danger" dot mono>INVALID CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.invalidCallbackTitle') }}
         </h1>
@@ -90,14 +103,15 @@
           {{ t('auth.oauth.invalidCallbackHint') }}
         </p>
         <div class="auth-actions">
-        <button class="btn btn-primary" type="button" @click="router.replace('/login')">
+        <Button variant="primary" class="btn btn-primary" type="button" @click="router.replace('/login')">
           {{ t('auth.backToLogin') }}
-        </button>
+        </Button>
         <router-link to="/home" class="btn btn-outline">← 首页</router-link>
         </div>
       </div>
 
-      <div v-else>
+      <div v-else class="space-y-3">
+        <Badge variant="neutral" mono>OAUTH CALLBACK</Badge>
         <h1 class="auth-title">
           {{ t('auth.oauth.callbackTitle') }}
         </h1>
@@ -153,6 +167,8 @@
 
 <script setup lang="ts">
 import AuthLayout from '@/components/layout/AuthLayout.vue'
+import { Badge, Button, ErrorState, Skeleton } from '@/components/ui'
+import { authStorage } from '@/api/tokenRefresh'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
 
@@ -193,7 +209,6 @@ const registrationError = ref('')
 const pendingProvider = ref<'github' | 'google'>('github')
 const redirectTo = ref('/dashboard')
 const invalidCallback = ref(false)
-const EMAIL_OAUTH_PENDING_PROVIDER_KEY = 'email_oauth_pending_provider'
 
 type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
   error?: string
@@ -246,7 +261,7 @@ function sanitizeRedirectPath(path: string | null | undefined): string {
 
 function readPendingEmailOAuthProvider(): 'github' | 'google' | null {
   if (typeof window === 'undefined') return null
-  const provider = window.sessionStorage.getItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
+  const provider = authStorage.oauthPendingProvider.get()
   if (provider === 'github' || provider === 'google') return provider
   return null
 }
@@ -271,7 +286,7 @@ async function finalizeTokenResponse(tokenResponse: OAuthTokenResponse, redirect
   persistOAuthTokenContext(tokenResponse)
   await waitForCallback(authStore.setToken(tokenResponse.access_token))
   if (typeof window !== 'undefined') {
-    window.sessionStorage.removeItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
+    authStorage.oauthPendingProvider.remove()
   }
   clearAllAffiliateReferralCodes()
   appStore.showSuccess(t('auth.loginSuccess'))
@@ -393,66 +408,3 @@ const copy = (value: string) => {
   copyToClipboard(value)
 }
 </script>
-
-<style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-div.card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-}
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

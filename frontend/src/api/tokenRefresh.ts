@@ -370,19 +370,19 @@ export const authStorage = {
     key: StorageKeys.AUTH_REGISTER_DRAFT,
     legacyKeys: [LegacyStorageKeys.AUTH_REGISTER_DRAFT],
     storage: 'session',
-    mode: 'migrate'
+    mode: 'bridge'
   }),
   oauthPendingProvider: createVersionedStorage({
     key: StorageKeys.AUTH_OAUTH_PENDING_PROVIDER,
     legacyKeys: [LegacyStorageKeys.AUTH_OAUTH_PENDING_PROVIDER],
     storage: 'session',
-    mode: 'migrate'
+    mode: 'bridge'
   }),
   oauthAffCode: createVersionedStorage({
     key: StorageKeys.AUTH_OAUTH_AFF_CODE,
     legacyKeys: [LegacyStorageKeys.AUTH_OAUTH_AFF_CODE],
     storage: 'session',
-    mode: 'migrate'
+    mode: 'bridge'
   }),
   affiliateRef: createVersionedStorage({
     key: StorageKeys.AUTH_AFFILIATE_REF,

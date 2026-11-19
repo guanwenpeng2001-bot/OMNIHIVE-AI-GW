@@ -2,7 +2,11 @@
   <AuthLayout>
     <div class="space-y-4">
       <!-- Title -->
-      <div>
+      <div class="space-y-1">
+        <div class="flex items-center justify-between gap-2">
+          <Badge variant="neutral" mono>CONSOLE AUTH</Badge>
+          <Badge v-if="!publicSettingsLoaded" variant="neutral" dot mono>SYNCING</Badge>
+        </div>
         <h1 class="auth-title">
           {{ t('auth.welcomeBack') }}
         </h1>
@@ -11,7 +15,16 @@
         </p>
       </div>
       <!-- Login Form -->
-      <p v-if="errorMessage" role="alert" class="auth-error">{{ errorMessage }}</p>
+      <ErrorState
+        v-if="errorMessage"
+        :title="errorMessage"
+        compact
+        :retryable="false"
+      />
+      <div v-if="!publicSettingsLoaded" class="space-y-2 py-1" aria-hidden="true">
+        <Skeleton width="100%" height="36px" />
+        <Skeleton width="100%" height="36px" />
+      </div>
       <form @submit.prevent="handleLogin" class="space-y-3">
         <!-- Email Input -->
         <div>
@@ -100,58 +113,38 @@
 
         <!-- Submit Button -->
         <div class="auth-actions">
-        <button
+        <Button
           type="submit"
+          variant="primary"
+          :loading="isLoading"
           :disabled="authActionDisabled || (turnstileEnabled && !turnstileToken)"
+          block
           class="btn btn-primary w-full"
         >
-          <svg
-            v-if="isLoading"
-            class="-ml-1 mr-2 h-4 w-4 animate-spin text-current"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle
-              class="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              stroke-width="4"
-            ></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          <Icon v-else name="login" size="md" class="mr-2" />
-          {{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}
-        </button>
+          <Icon v-if="!isLoading" name="login" size="sm" />
+          <span>{{ isLoading ? t('auth.signingIn') : t('auth.signIn') }}</span>
+        </Button>
         <router-link v-if="passwordResetEnabled && !backendModeEnabled" :to="{ path: '/forgot-password', query: router.currentRoute.value.query }" class="btn btn-outline">
           {{ t('auth.forgotPassword') }}
         </router-link>
         </div>
 
         <div v-if="showPasskeyLogin || showOAuthLogin" class="space-y-3 pt-1">
-          <div class="flex items-center gap-3">
-            <div class="h-px flex-1 bg-[var(--border)]"></div>
-            <span class="text-xs text-[var(--muted-foreground)]">
-              {{ t('auth.oauthOrContinue') }}
-            </span>
-            <div class="h-px flex-1 bg-[var(--border)]"></div>
-          </div>
+          <div class="auth-divider">{{ t('auth.oauthOrContinue') }}</div>
 
-          <button
+          <Button
             v-if="showPasskeyLogin"
             type="button"
+            variant="secondary"
+            :loading="passkeyLoading"
             class="btn btn-secondary btn-outline w-full"
             :disabled="authActionDisabled"
+            block
             @click="handlePasskeyLogin"
           >
-            <Icon name="key" size="md" class="mr-2" />
-            {{ passkeyLoading ? t('auth.passkeySigningIn') : t('auth.passkeySignIn') }}
-          </button>
+            <Icon v-if="!passkeyLoading" name="key" size="sm" />
+            <span>{{ passkeyLoading ? t('auth.passkeySigningIn') : t('auth.passkeySignIn') }}</span>
+          </Button>
 
           <OAuthLoginSections
             v-if="showOAuthLogin"
@@ -196,12 +189,14 @@ import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import { Badge, Button, ErrorState, Skeleton } from '@/components/ui'
 import OAuthLoginSections from '@/components/auth/OAuthLoginSections.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
 import { useAuthStore, useAppStore } from '@/stores'
+import { authStorage } from '@/api/tokenRefresh'
 import {
   buildOAuthLoginStartURL,
   getPublicSettings,
@@ -219,7 +214,6 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiErro
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
 
 const { t } = useI18n()
-const LOGIN_AGREEMENT_STORAGE_KEY = 'sub2api_login_agreement_consent'
 
 // ==================== Router & Stores ====================
 
@@ -338,7 +332,7 @@ watch(validationToastMessage, (value, previousValue) => {
 
 onMounted(async () => {
   try {
-    const rememberedEmail = localStorage.getItem('auth_remembered_email')
+    const rememberedEmail = authStorage.rememberedEmail.get()
     if (rememberedEmail) {
       formData.email = rememberedEmail
       rememberMe.value = true
@@ -346,9 +340,9 @@ onMounted(async () => {
   } catch {
     rememberMe.value = false
   }
-  const expiredFlag = sessionStorage.getItem('auth_expired')
+  const expiredFlag = authStorage.expiredNotice.get()
   if (expiredFlag) {
-    sessionStorage.removeItem('auth_expired')
+    authStorage.expiredNotice.remove()
     const message = t('auth.reloginRequired')
     errorMessage.value = message
     appStore.showWarning(message)
@@ -416,34 +410,23 @@ function hasAcceptedLoginAgreement(revision: string): boolean {
   if (!revision) {
     return false
   }
-  try {
-    const raw = localStorage.getItem(LOGIN_AGREEMENT_STORAGE_KEY)
-    if (!raw) {
-      return false
-    }
-    const parsed = JSON.parse(raw) as { revision?: string }
-    return parsed.revision === revision
-  } catch {
-    return false
-  }
+  const parsed = authStorage.loginAgreement.getJSON<{ revision?: string } | null>(null)
+  return parsed?.revision === revision
 }
 
 function acceptLoginAgreement(): void {
   if (loginAgreementRevision.value) {
-    localStorage.setItem(
-      LOGIN_AGREEMENT_STORAGE_KEY,
-      JSON.stringify({
-        revision: loginAgreementRevision.value,
-        accepted_at: new Date().toISOString()
-      })
-    )
+    authStorage.loginAgreement.setJSON({
+      revision: loginAgreementRevision.value,
+      accepted_at: new Date().toISOString()
+    })
   }
   agreementAccepted.value = true
   showAgreementModal.value = false
 }
 
 function rejectLoginAgreement(): void {
-  localStorage.removeItem(LOGIN_AGREEMENT_STORAGE_KEY)
+  authStorage.loginAgreement.remove()
   agreementAccepted.value = false
   showAgreementModal.value = false
   appStore.showWarning(t('legal.loginAgreementPrompt.loginRejectedWarning'))
@@ -643,9 +626,9 @@ async function handlePasskeyLogin(): Promise<void> {
 function persistRememberedEmail(): void {
   try {
     if (rememberMe.value) {
-      localStorage.setItem('auth_remembered_email', formData.email.trim())
+      authStorage.rememberedEmail.set(formData.email.trim())
     } else {
-      localStorage.removeItem('auth_remembered_email')
+      authStorage.rememberedEmail.remove()
     }
   } catch {
     rememberMe.value = false
@@ -731,69 +714,3 @@ function handle2FACancel(): void {
   totpUserEmailMasked.value = ''
 }
 </script>
-
-<style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, defineAsyncComponent, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
-import { useAuthStore } from '@/stores/auth'
+import * as stores from '@/stores'
 import { useThemeDirection } from '@/composables/useThemeDirection'
-import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { sanitizeUrl } from '@/utils/url'
 import BrandMark from './BrandMark.vue'
 
@@ -15,23 +13,41 @@ const LocaleSwitcher = defineAsyncComponent(
 
 const route = useRoute()
 const { t, locale } = useI18n()
-const appStore = useAppStore()
-const authStore = useAuthStore()
+const appStore = stores.useAppStore()
+const authStore = typeof stores.useAuthStore === 'function' ? stores.useAuthStore() : null
 const { isDark, toggleDarkMode } = useThemeDirection()
 
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
-const brand = computed(() => appStore.brandConfig)
-const docUrl = computed(() => sanitizeUrl(appStore.docUrl || ''))
-const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
-const registrationEnabled = computed(
-  () => appStore.cachedPublicSettings?.registration_enabled !== false
+const brand = computed(
+  () =>
+    appStore.brandConfig ?? {
+      siteName: appStore.siteName || 'OmniHive',
+      siteLogo: appStore.siteLogo || '',
+      subtitle: isZh.value ? '统一 AI 推理网关' : 'Unified AI Inference Gateway'
+    }
 )
-const isAuthenticated = computed(() => Boolean(authStore.isAuthenticated))
-const consolePath = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
+const docUrl = computed(() => sanitizeUrl(appStore.docUrl || ''))
+const modelPlazaEnabled = computed(
+  () => appStore.cachedPublicSettings?.model_plaza_enabled !== false
+)
+const registrationEnabled = computed(
+  () =>
+    appStore.cachedPublicSettings?.registration_enabled !== false &&
+    !appStore.cachedPublicSettings?.backend_mode_enabled
+)
+const isAuthenticated = computed(() => Boolean(authStore?.isAuthenticated))
+const consolePath = computed(() => (authStore?.isAdmin ? '/admin/dashboard' : '/dashboard'))
 
 function openSearch(): void {
-  appStore.openCommandPalette()
+  appStore.openCommandPalette?.()
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('omnihive:open-cmdk'))
+  }
 }
+
+onMounted(() => {
+  appStore.fetchPublicSettings?.()
+})
 </script>
 
 <template>

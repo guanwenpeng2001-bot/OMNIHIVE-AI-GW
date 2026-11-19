@@ -29,8 +29,6 @@ const brand = computed(
 
 <template>
   <div class="flex min-h-screen flex-col bg-oh-canvas text-oh-primary">
-    <PublicHeader />
-
     <main class="flex flex-1 flex-col">
       <div class="mx-auto flex w-full max-w-[1200px] flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12 xl:border-x xl:border-oh-default">
         <section
@@ -71,6 +69,8 @@ const brand = computed(
         </section>
       </div>
     </main>
+
+    <PublicHeader class="-order-1" />
   </div>
 </template>
 
@@ -149,5 +149,107 @@ const brand = computed(
   flex: 1;
   height: 1px;
   background: var(--oh-border-subtle);
+}
+
+:deep(label.input-label) {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--oh-fg-primary);
+}
+
+:deep(:is(input, select, textarea).input) {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  box-shadow: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+:deep(:is(input, select, textarea).input::placeholder) {
+  color: var(--oh-fg-muted);
+}
+
+:deep(:is(input, select, textarea).input:hover:not(:disabled)) {
+  border-color: var(--oh-border-strong);
+}
+
+:deep(:is(input, select, textarea).input:focus) {
+  border-color: var(--oh-accent);
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+:deep(:is(input, select, textarea).input:disabled) {
+  background: var(--oh-bg-subtle);
+  color: var(--oh-fg-disabled);
+  cursor: not-allowed;
+}
+
+:deep(:is(input, select, textarea).input.input-error) {
+  border-color: var(--oh-danger-border);
+}
+
+:deep(:is(button, a).btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--oh-radius-md);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  box-shadow: none;
+  background-image: none;
+  transform: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+:deep(:is(button, a).btn-primary) {
+  border: 1px solid transparent;
+  background: var(--oh-accent);
+  color: var(--oh-accent-ink);
+  font-weight: 600;
+}
+
+:deep(:is(button, a).btn-primary:hover:not(:disabled)) {
+  background: var(--oh-accent-hover);
+}
+
+:deep(:is(button, a).btn-outline),
+:deep(:is(button, a).btn-secondary) {
+  border: 1px solid var(--oh-border-default);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+}
+
+:deep(:is(button, a).btn-outline:hover:not(:disabled)),
+:deep(:is(button, a).btn-secondary:hover:not(:disabled)) {
+  border-color: var(--oh-border-strong);
+  background: var(--oh-bg-hover);
+}
+
+:deep(input[type='checkbox']) {
+  accent-color: var(--oh-accent);
+}
+
+:deep(div.card) {
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+  box-shadow: none;
 }
 </style>
