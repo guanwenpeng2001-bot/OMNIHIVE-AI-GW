@@ -1,0 +1,735 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/routing/policies:
+    get:
+      operationId: listRoutingPolicies
+      description: Requires routing.read.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityCursor'
+      - $ref: '#/components/parameters/IdentityLimit'
+      - name: scope_type
+        in: query
+        schema:
+          type: string
+      - name: scope_id
+        in: query
+        schema:
+          type: string
+      - name: project_id
+        in: query
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RoutingPolicyHead'
+                      next_cursor:
+                        anyOf:
+                        - type: string
+                        - type: 'null'
+                      as_of:
+                        type: string
+                        format: date-time
+                    required:
+                    - items
+                    - next_cursor
+                    - as_of
+                    additionalProperties: false
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    post:
+      operationId: createRoutingPolicy
+      description: Requires routing.edit.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}:
+    get:
+      operationId: getRoutingPolicy
+      description: Requires routing.read.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/draft:
+    put:
+      operationId: editRoutingPolicyDraft
+      description: Requires routing.edit.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/IdentityVersion'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/versions:
+    get:
+      operationId: getRoutingPolicyVersions
+      description: Requires routing.read.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/IdentityCursor'
+      - $ref: '#/components/parameters/IdentityLimit'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RoutingPolicyVersion'
+                      next_cursor:
+                        anyOf:
+                        - type: string
+                        - type: 'null'
+                      as_of:
+                        type: string
+                        format: date-time
+                    required:
+                    - items
+                    - next_cursor
+                    - as_of
+                    additionalProperties: false
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/simulate:
+    post:
+      operationId: simulateRoutingPolicy
+      description: Requires routing.simulate.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicySimulation'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicySimulationInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/publish:
+    post:
+      operationId: publishRoutingPolicy
+      description: Requires routing.publish.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/IdentityVersion'
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyPublication'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyPublish'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/rollback:
+    post:
+      operationId: rollbackRoutingPolicy
+      description: Requires routing.publish.
+      parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/IdentityVersion'
+      - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyPublication'
+                required:
+                - code
+                - message
+                - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyRollback'
+components:
+  schemas:
+    RoutingPolicyScope:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - workspace
+          - project
+          - api_key
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+      required:
+      - type
+      - id
+      additionalProperties: false
+    RoutingPolicyListRule:
+      oneOf:
+      - type: object
+        properties:
+          mode:
+            type: string
+            enum:
+            - inherit
+            - deny_all
+          values:
+            type: array
+            items:
+              type: string
+            maxItems: 0
+        required:
+        - mode
+        additionalProperties: false
+      - type: object
+        properties:
+          mode:
+            type: string
+            enum:
+            - allow_list
+          values:
+            type: array
+            items:
+              type: string
+            minItems: 1
+            maxItems: 256
+            uniqueItems: true
+        required:
+        - mode
+        - values
+        additionalProperties: false
+    RoutingPolicyInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        scope:
+          $ref: '#/components/schemas/RoutingPolicyScope'
+        constraints:
+          type: object
+          properties:
+            models:
+              $ref: '#/components/schemas/RoutingPolicyListRule'
+            regions:
+              $ref: '#/components/schemas/RoutingPolicyListRule'
+            retention:
+              type: string
+              enum:
+              - inherit
+              - strict_zero
+            training:
+              type: string
+              enum:
+              - inherit
+              - prohibited
+            max_input_rate:
+              type: object
+              properties:
+                currency:
+                  const: USD
+                amount:
+                  type: string
+                unit:
+                  const: input_token
+                per:
+                  const: '1000000'
+              required:
+              - currency
+              - amount
+              - unit
+              - per
+              additionalProperties: false
+            required_capabilities:
+              type: array
+              items:
+                type: string
+            require_known_quota:
+              type: boolean
+          additionalProperties: false
+        candidates:
+          type: object
+          properties:
+            pool_ids:
+              type: array
+              items:
+                type: string
+            denied_provider_ids:
+              type: array
+              items:
+                type: string
+            allow_expansion:
+              type: boolean
+          additionalProperties: false
+        preferences:
+          type: object
+          properties:
+            template:
+              type: string
+              enum:
+              - balanced
+              - stable
+              - low_latency
+              - lowest_cost
+            ordered_provider_ids:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+        fallback:
+          type: object
+          properties:
+            endpoint:
+              type: boolean
+            model_ids:
+              type: array
+              items:
+                type: string
+            byok_to_platform:
+              type: boolean
+          additionalProperties: false
+      required:
+      - name
+      - scope
+      additionalProperties: false
+    RoutingPolicyHead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        active_version:
+          type: string
+        draft_version:
+          type: string
+        base_version:
+          type: string
+        etag:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        definition:
+          $ref: '#/components/schemas/RoutingPolicyInput'
+      required:
+      - id
+      - active_version
+      - draft_version
+      - base_version
+      - etag
+      - definition
+      additionalProperties: false
+    RoutingPolicySimulationInput:
+      type: object
+      properties:
+        version:
+          type: string
+          format: uuid
+        compare_version:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+        api_key_id:
+          anyOf:
+          - $ref: '#/components/schemas/IdentityID'
+          - type: 'null'
+        model_id:
+          type: string
+        protocol:
+          type: string
+        action:
+          type: string
+        required_capabilities:
+          type: array
+          items:
+            type: string
+        input_token_bound:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        output_token_bound:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        snapshot_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+        seed:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+      - version
+      - project_id
+      - model_id
+      - protocol
+      - action
+      - input_token_bound
+      - output_token_bound
+      - seed
+      additionalProperties: false
+    RoutingPolicyDiff:
+      type: object
+      properties:
+        selection_changed:
+          type: boolean
+        became_eligible:
+          type: array
+          items:
+            type: string
+        became_excluded:
+          type: array
+          items:
+            type: string
+      required:
+      - selection_changed
+      - became_eligible
+      - became_excluded
+      additionalProperties: false
+    RoutingPolicyImpact:
+      type: object
+      properties:
+        projects:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        keys:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+      - projects
+      - keys
+      additionalProperties: false
+    RoutingPolicySimulation:
+      type: object
+      properties:
+        simulation_id:
+          type: string
+        trace:
+          $ref: '#/components/schemas/RoutingDecisionTrace'
+        baseline:
+          anyOf:
+          - $ref: '#/components/schemas/RoutingDecisionTrace'
+          - type: 'null'
+        diff:
+          anyOf:
+          - $ref: '#/components/schemas/RoutingPolicyDiff'
+          - type: 'null'
+        impact:
+          $ref: '#/components/schemas/RoutingPolicyImpact'
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - simulation_id
+      - trace
+      - baseline
+      - diff
+      - impact
+      - expires_at
+      additionalProperties: false
+    RoutingPolicyPublish:
+      type: object
+      properties:
+        draft_version:
+          type: string
+          format: uuid
+        base_version:
+          type: string
+        simulation_id:
+          type: string
+        change_note:
+          type: string
+      required:
+      - draft_version
+      - base_version
+      - simulation_id
+      - change_note
+      additionalProperties: false
+    RoutingPolicyRollback:
+      type: object
+      properties:
+        from_version:
+          type: string
+          format: uuid
+        restore_version:
+          type: string
+          format: uuid
+        change_note:
+          type: string
+      required:
+      - from_version
+      - restore_version
+      - change_note
+      additionalProperties: false
+    RoutingPolicyPublication:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        active_version:
+          type: string
+          format: uuid
+        previous_version:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+        impact:
+          $ref: '#/components/schemas/RoutingPolicyImpact'
+        revocation_epoch:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+      - id
+      - active_version
+      - previous_version
+      - published_at
+      - impact
+      - revocation_epoch
+      additionalProperties: false
+    RoutingPolicyVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        base_version:
+          type: string
+        actor_id:
+          $ref: '#/components/schemas/IdentityID'
+        published_at:
+          type: string
+          format: date-time
+        change_note:
+          type: string
+      required:
+      - id
+      - base_version
+      - actor_id
+      - published_at
+      - change_note
+      additionalProperties: false
