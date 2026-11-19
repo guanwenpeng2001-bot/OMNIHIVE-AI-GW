@@ -1540,6 +1540,367 @@ paths:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
       - $ref: '#/components/parameters/IdentityProjectID'
       - $ref: '#/components/parameters/RequestsID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks:
+    get:
+      operationId: imageTaskList
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+        - in: query
+          name: kind
+          schema:
+            type: array
+            items:
+              type: string
+        - in: query
+          name: state
+          schema:
+            type: array
+            items:
+              type: string
+        - in: query
+          name: model_id
+          schema:
+            type: array
+            items:
+              type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+    post:
+      operationId: imageTaskCreate
+      x-required-grant: tasks.create
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageTaskCreate'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}:
+    get:
+      operationId: imageTaskDetail
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}:
+    delete:
+      operationId: imageArtifactRevoke
+      x-required-grant: tasks.artifacts.revoke
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    required:
+                      - state
+                    additionalProperties: false
+                    properties:
+                      state:
+                        const: revoked
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+      - $ref: '#/components/parameters/ImageArtifactID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/content:
+    get:
+      operationId: imageArtifactContent
+      x-required-grant: tasks.artifacts.read
+      responses:
+        '200':
+          description: Authorized download
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/ImageTaskTicketHeader'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+      - $ref: '#/components/parameters/ImageArtifactID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/download:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+      - $ref: '#/components/parameters/ImageArtifactID'
+    post:
+      operationId: imageArtifactTicket
+      x-required-grant: tasks.artifacts.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskTicket'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: []
+              additionalProperties: false
+              properties: {}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+    post:
+      operationId: imageTaskCancel
+      x-required-grant: tasks.cancel
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskCancelResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: []
+              additionalProperties: false
+              properties: {}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/items:
+    get:
+      operationId: imageTaskItems
+      x-required-grant: tasks.read
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ImageTaskItemPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/retry:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/ImageTaskID'
+    post:
+      operationId: imageTaskRetry
+      x-required-grant: tasks.retry
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: accepted
+                  data:
+                    $ref: '#/components/schemas/ImageTaskRetryResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      parameters:
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageTaskRetry'
   /api/v2/workspaces/{workspace_id}/provider-schemas:
     get:
       operationId: connectionSchemas
@@ -1581,6 +1942,375 @@ paths:
                 $ref: '#/components/schemas/IdentityError'
     parameters:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
+  /api/v2/workspaces/{workspace_id}/routing/policies:
+    get:
+      operationId: listRoutingPolicies
+      description: Requires routing.read.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+        - name: scope_type
+          in: query
+          schema:
+            type: string
+        - name: scope_id
+          in: query
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RoutingPolicyHead'
+                      next_cursor:
+                        anyOf:
+                          - type: string
+                          - type: 'null'
+                      as_of:
+                        type: string
+                        format: date-time
+                    required:
+                      - items
+                      - next_cursor
+                      - as_of
+                    additionalProperties: false
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    post:
+      operationId: createRoutingPolicy
+      description: Requires routing.edit.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '201':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}:
+    get:
+      operationId: getRoutingPolicy
+      description: Requires routing.read.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/draft:
+    put:
+      operationId: editRoutingPolicyDraft
+      description: Requires routing.edit.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdentityVersion'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyHead'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/publish:
+    post:
+      operationId: publishRoutingPolicy
+      description: Requires routing.publish.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyPublication'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyPublish'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/rollback:
+    post:
+      operationId: rollbackRoutingPolicy
+      description: Requires routing.publish.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdentityVersion'
+        - $ref: '#/components/parameters/IdentityIdempotency'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicyPublication'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicyRollback'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/simulate:
+    post:
+      operationId: simulateRoutingPolicy
+      description: Requires routing.simulate.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/RoutingPolicySimulation'
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoutingPolicySimulationInput'
+  /api/v2/workspaces/{workspace_id}/routing/policies/{id}/versions:
+    get:
+      operationId: getRoutingPolicyVersions
+      description: Requires routing.read.
+      parameters:
+        - $ref: '#/components/parameters/IdentityWorkspaceID'
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdentityCursor'
+        - $ref: '#/components/parameters/IdentityLimit'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/RoutingPolicyVersion'
+                      next_cursor:
+                        anyOf:
+                          - type: string
+                          - type: 'null'
+                      as_of:
+                        type: string
+                        format: date-time
+                    required:
+                      - items
+                      - next_cursor
+                      - as_of
+                    additionalProperties: false
+                required:
+                  - code
+                  - message
+                  - data
+                additionalProperties: false
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
 components:
   headers:
     GatewayExecutionID:
@@ -1657,6 +2387,24 @@ components:
       required: true
       schema:
         $ref: '#/components/schemas/IdentityID'
+    ImageArtifactID:
+      in: path
+      name: artifact_id
+      required: true
+      schema:
+        type: string
+    ImageTaskID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+    ImageTaskTicketHeader:
+      name: X-Artifact-Ticket
+      in: header
+      required: true
+      schema:
+        type: string
     RequestsID:
       name: id
       in: path
@@ -3369,6 +4117,419 @@ components:
         as_of:
           type: string
           format: date-time
+    ImageTaskArtifact:
+      type: object
+      required:
+        - id
+        - content_type
+        - size_bytes
+        - expires_at
+        - state
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        content_type:
+          type: string
+        size_bytes:
+          anyOf:
+            - type: string
+              pattern: ^[0-9]+$
+            - type: 'null'
+        expires_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        state:
+          type: string
+    ImageTaskCancelResult:
+      type: object
+      required:
+        - task_id
+        - cancel_state
+        - state
+        - version
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+        cancel_state:
+          type: string
+        state:
+          type: string
+        version:
+          type: string
+          pattern: ^[0-9]+$
+    ImageTaskCreate:
+      type: object
+      required:
+        - kind
+        - model_id
+        - api_key_id
+        - input
+        - funding_acknowledged
+      additionalProperties: false
+      properties:
+        kind:
+          const: image
+        model_id:
+          type: string
+        api_key_id:
+          type: string
+          pattern: ^[0-9]+$
+        input:
+          type: object
+          required:
+            - prompt
+          additionalProperties: false
+          properties:
+            prompt:
+              type: string
+              minLength: 1
+              maxLength: 8000
+            size:
+              type: string
+            count:
+              type: integer
+              minimum: 1
+              maximum: 4
+        funding_acknowledged:
+          const: true
+    ImageTaskDetail:
+      type: object
+      required:
+        - id
+        - kind
+        - state
+        - stage
+        - model_id
+        - created_at
+        - updated_at
+        - progress
+        - settlement_state
+        - allowed_actions
+        - project_id
+        - source
+        - request_id
+        - request_url
+        - settlement_id
+        - settlement_url
+        - parent_task_id
+        - provider_state
+        - artifact_state
+        - cancel_state
+        - progress_source
+        - items
+        - artifacts
+        - estimate
+        - actual_charge
+        - action_reasons
+        - version
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          const: image
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+            - canceled
+            - unknown
+        stage:
+          type: string
+        model_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        progress:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+        settlement_state:
+          type: string
+        allowed_actions:
+          type: array
+          items:
+            type: string
+        project_id:
+          type: string
+          pattern: ^[0-9]+$
+        source:
+          type: string
+        request_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+        request_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+        settlement_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+        settlement_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+        parent_task_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+        provider_state:
+          type: string
+        artifact_state:
+          type: string
+        cancel_state:
+          type: string
+        progress_source:
+          type: string
+        items:
+          type: object
+          required:
+            - total
+            - succeeded
+            - failed
+            - pending
+            - canceled
+          additionalProperties: false
+          properties:
+            total:
+              type: string
+              pattern: ^[0-9]+$
+            succeeded:
+              type: string
+              pattern: ^[0-9]+$
+            failed:
+              type: string
+              pattern: ^[0-9]+$
+            pending:
+              type: string
+              pattern: ^[0-9]+$
+            canceled:
+              type: string
+              pattern: ^[0-9]+$
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskArtifact'
+        estimate:
+          anyOf:
+            - type: object
+              required:
+                - currency
+                - amount
+              additionalProperties: false
+              properties:
+                currency:
+                  type: string
+                  pattern: ^[A-Z]{3}$
+                amount:
+                  type: string
+                  pattern: ^-?[0-9]+\.[0-9]{8}$
+            - type: 'null'
+        actual_charge:
+          anyOf:
+            - type: object
+              required:
+                - currency
+                - amount
+              additionalProperties: false
+              properties:
+                currency:
+                  type: string
+                  pattern: ^[A-Z]{3}$
+                amount:
+                  type: string
+                  pattern: ^-?[0-9]+\.[0-9]{8}$
+            - type: 'null'
+        action_reasons:
+          type: object
+          additionalProperties:
+            type: string
+        version:
+          type: string
+          pattern: ^[0-9]+$
+    ImageTaskItem:
+      type: object
+      required:
+        - id
+        - state
+        - acceptance
+        - reason
+        - retryable
+        - artifact_ids
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+        acceptance:
+          type: string
+        reason:
+          anyOf:
+            - type: string
+            - type: 'null'
+        retryable:
+          type: boolean
+        artifact_ids:
+          type: array
+          items:
+            type: string
+    ImageTaskItemPage:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - as_of
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskItem'
+        next_cursor:
+          anyOf:
+            - type: string
+            - type: 'null'
+        as_of:
+          type: string
+          format: date-time
+    ImageTaskPage:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - as_of
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageTaskSummary'
+        next_cursor:
+          anyOf:
+            - type: string
+            - type: 'null'
+        as_of:
+          type: string
+          format: date-time
+    ImageTaskRetry:
+      type: object
+      required:
+        - funding_acknowledged
+      additionalProperties: false
+      properties:
+        item_ids:
+          type: array
+          items:
+            type: string
+        funding_acknowledged:
+          const: true
+    ImageTaskRetryResult:
+      type: object
+      required:
+        - task_id
+        - parent_task_id
+        - new_request_id
+        - state
+      additionalProperties: false
+      properties:
+        task_id:
+          type: string
+        parent_task_id:
+          type: string
+        new_request_id:
+          type: string
+        state:
+          type: string
+    ImageTaskSummary:
+      type: object
+      required:
+        - id
+        - kind
+        - state
+        - stage
+        - model_id
+        - created_at
+        - updated_at
+        - progress
+        - settlement_state
+        - allowed_actions
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        kind:
+          const: image
+        state:
+          type: string
+          enum:
+            - queued
+            - running
+            - succeeded
+            - failed
+            - canceled
+            - unknown
+        stage:
+          type: string
+        model_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        progress:
+          anyOf:
+            - type: integer
+              minimum: 0
+              maximum: 100
+            - type: 'null'
+        settlement_state:
+          type: string
+        allowed_actions:
+          type: array
+          items:
+            type: string
+    ImageTaskTicket:
+      type: object
+      required:
+        - url
+        - ticket
+        - expires_at
+        - content_type
+        - size_bytes
+      additionalProperties: false
+      properties:
+        url:
+          type: string
+        ticket:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        content_type:
+          type: string
+        size_bytes:
+          anyOf:
+            - type: string
+              pattern: ^[0-9]+$
+            - type: 'null'
     ModelDetail:
       type: object
       required:
@@ -4015,3 +5176,366 @@ components:
         redactions: {type: array, items: {type: string}}
         execution_outcome: {type: string, enum: [selected, wait, unselected]}
         selection_layer: {type: string}
+    RoutingPolicyDiff:
+      type: object
+      properties:
+        selection_changed:
+          type: boolean
+        became_eligible:
+          type: array
+          items:
+            type: string
+        became_excluded:
+          type: array
+          items:
+            type: string
+      required:
+        - selection_changed
+        - became_eligible
+        - became_excluded
+      additionalProperties: false
+    RoutingPolicyHead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        active_version:
+          type: string
+        draft_version:
+          type: string
+        base_version:
+          type: string
+        etag:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        definition:
+          $ref: '#/components/schemas/RoutingPolicyInput'
+      required:
+        - id
+        - active_version
+        - draft_version
+        - base_version
+        - etag
+        - definition
+      additionalProperties: false
+    RoutingPolicyImpact:
+      type: object
+      properties:
+        projects:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        keys:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+        - projects
+        - keys
+      additionalProperties: false
+    RoutingPolicyInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        scope:
+          $ref: '#/components/schemas/RoutingPolicyScope'
+        constraints:
+          type: object
+          properties:
+            models:
+              $ref: '#/components/schemas/RoutingPolicyListRule'
+            regions:
+              $ref: '#/components/schemas/RoutingPolicyListRule'
+            retention:
+              type: string
+              enum:
+                - inherit
+                - strict_zero
+            training:
+              type: string
+              enum:
+                - inherit
+                - prohibited
+            max_input_rate:
+              type: object
+              properties:
+                currency:
+                  const: USD
+                amount:
+                  type: string
+                unit:
+                  const: input_token
+                per:
+                  const: '1000000'
+              required:
+                - currency
+                - amount
+                - unit
+                - per
+              additionalProperties: false
+            required_capabilities:
+              type: array
+              items:
+                type: string
+            require_known_quota:
+              type: boolean
+          additionalProperties: false
+        candidates:
+          type: object
+          properties:
+            pool_ids:
+              type: array
+              items:
+                type: string
+            denied_provider_ids:
+              type: array
+              items:
+                type: string
+            allow_expansion:
+              type: boolean
+          additionalProperties: false
+        preferences:
+          type: object
+          properties:
+            template:
+              type: string
+              enum:
+                - balanced
+                - stable
+                - low_latency
+                - lowest_cost
+            ordered_provider_ids:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+        fallback:
+          type: object
+          properties:
+            endpoint:
+              type: boolean
+            model_ids:
+              type: array
+              items:
+                type: string
+            byok_to_platform:
+              type: boolean
+          additionalProperties: false
+      required:
+        - name
+        - scope
+      additionalProperties: false
+    RoutingPolicyListRule:
+      oneOf:
+        - type: object
+          properties:
+            mode:
+              type: string
+              enum:
+                - inherit
+                - deny_all
+            values:
+              type: array
+              items:
+                type: string
+              maxItems: 0
+          required:
+            - mode
+          additionalProperties: false
+        - type: object
+          properties:
+            mode:
+              type: string
+              enum:
+                - allow_list
+            values:
+              type: array
+              items:
+                type: string
+              minItems: 1
+              maxItems: 256
+              uniqueItems: true
+          required:
+            - mode
+            - values
+          additionalProperties: false
+    RoutingPolicyPublication:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        active_version:
+          type: string
+          format: uuid
+        previous_version:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+        impact:
+          $ref: '#/components/schemas/RoutingPolicyImpact'
+        revocation_epoch:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+        - id
+        - active_version
+        - previous_version
+        - published_at
+        - impact
+        - revocation_epoch
+      additionalProperties: false
+    RoutingPolicyPublish:
+      type: object
+      properties:
+        draft_version:
+          type: string
+          format: uuid
+        base_version:
+          type: string
+        simulation_id:
+          type: string
+        change_note:
+          type: string
+      required:
+        - draft_version
+        - base_version
+        - simulation_id
+        - change_note
+      additionalProperties: false
+    RoutingPolicyRollback:
+      type: object
+      properties:
+        from_version:
+          type: string
+          format: uuid
+        restore_version:
+          type: string
+          format: uuid
+        change_note:
+          type: string
+      required:
+        - from_version
+        - restore_version
+        - change_note
+      additionalProperties: false
+    RoutingPolicyScope:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - workspace
+            - project
+            - api_key
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+      required:
+        - type
+        - id
+      additionalProperties: false
+    RoutingPolicySimulation:
+      type: object
+      properties:
+        simulation_id:
+          type: string
+        trace:
+          $ref: '#/components/schemas/RoutingDecisionTrace'
+        baseline:
+          anyOf:
+            - $ref: '#/components/schemas/RoutingDecisionTrace'
+            - type: 'null'
+        diff:
+          anyOf:
+            - $ref: '#/components/schemas/RoutingPolicyDiff'
+            - type: 'null'
+        impact:
+          $ref: '#/components/schemas/RoutingPolicyImpact'
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - simulation_id
+        - trace
+        - baseline
+        - diff
+        - impact
+        - expires_at
+      additionalProperties: false
+    RoutingPolicySimulationInput:
+      type: object
+      properties:
+        version:
+          type: string
+          format: uuid
+        compare_version:
+          anyOf:
+            - type: string
+              format: uuid
+            - type: 'null'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+        api_key_id:
+          anyOf:
+            - $ref: '#/components/schemas/IdentityID'
+            - type: 'null'
+        model_id:
+          type: string
+        protocol:
+          type: string
+        action:
+          type: string
+        required_capabilities:
+          type: array
+          items:
+            type: string
+        input_token_bound:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        output_token_bound:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        snapshot_id:
+          anyOf:
+            - type: string
+            - type: 'null'
+        seed:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      required:
+        - version
+        - project_id
+        - model_id
+        - protocol
+        - action
+        - input_token_bound
+        - output_token_bound
+        - seed
+      additionalProperties: false
+    RoutingPolicyVersion:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        base_version:
+          type: string
+        actor_id:
+          $ref: '#/components/schemas/IdentityID'
+        published_at:
+          type: string
+          format: date-time
+        change_note:
+          type: string
+      required:
+        - id
+        - base_version
+        - actor_id
+        - published_at
+        - change_note
+      additionalProperties: false

@@ -667,6 +667,168 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get: operations["imageTaskList"];
+        put?: never;
+        post: operations["imageTaskCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        get: operations["imageTaskDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["imageArtifactRevoke"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        get: operations["imageArtifactContent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/artifacts/{artifact_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["imageArtifactTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["imageTaskCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        get: operations["imageTaskItems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/tasks/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["imageTaskRetry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/provider-schemas": {
         parameters: {
             query?: never;
@@ -677,6 +839,126 @@ export interface paths {
             cookie?: never;
         };
         get: operations["connectionSchemas"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Requires routing.read. */
+        get: operations["listRoutingPolicies"];
+        put?: never;
+        /** @description Requires routing.edit. */
+        post: operations["createRoutingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Requires routing.read. */
+        get: operations["getRoutingPolicy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Requires routing.edit. */
+        put: operations["editRoutingPolicyDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires routing.publish. */
+        post: operations["publishRoutingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires routing.publish. */
+        post: operations["rollbackRoutingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Requires routing.simulate. */
+        post: operations["simulateRoutingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/routing/policies/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Requires routing.read. */
+        get: operations["getRoutingPolicyVersions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1261,6 +1543,134 @@ export interface components {
             /** Format: date-time */
             as_of: string;
         };
+        ImageTaskArtifact: {
+            id: string;
+            content_type: string;
+            size_bytes: string | null;
+            expires_at: string | null;
+            state: string;
+        };
+        ImageTaskCancelResult: {
+            task_id: string;
+            cancel_state: string;
+            state: string;
+            version: string;
+        };
+        ImageTaskCreate: {
+            /** @constant */
+            kind: "image";
+            model_id: string;
+            api_key_id: string;
+            input: {
+                prompt: string;
+                size?: string;
+                count?: number;
+            };
+            /** @constant */
+            funding_acknowledged: true;
+        };
+        ImageTaskDetail: {
+            id: string;
+            /** @constant */
+            kind: "image";
+            /** @enum {string} */
+            state: "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
+            stage: string;
+            model_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            progress: number | null;
+            settlement_state: string;
+            allowed_actions: string[];
+            project_id: string;
+            source: string;
+            request_id: string | null;
+            request_url: string | null;
+            settlement_id: string | null;
+            settlement_url: string | null;
+            parent_task_id: string | null;
+            provider_state: string;
+            artifact_state: string;
+            cancel_state: string;
+            progress_source: string;
+            items: {
+                total: string;
+                succeeded: string;
+                failed: string;
+                pending: string;
+                canceled: string;
+            };
+            artifacts: components["schemas"]["ImageTaskArtifact"][];
+            estimate: {
+                currency: string;
+                amount: string;
+            } | null;
+            actual_charge: {
+                currency: string;
+                amount: string;
+            } | null;
+            action_reasons: {
+                [key: string]: string;
+            };
+            version: string;
+        };
+        ImageTaskItem: {
+            id: string;
+            state: string;
+            acceptance: string;
+            reason: string | null;
+            retryable: boolean;
+            artifact_ids: string[];
+        };
+        ImageTaskItemPage: {
+            items: components["schemas"]["ImageTaskItem"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ImageTaskPage: {
+            items: components["schemas"]["ImageTaskSummary"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        ImageTaskRetry: {
+            item_ids?: string[];
+            /** @constant */
+            funding_acknowledged: true;
+        };
+        ImageTaskRetryResult: {
+            task_id: string;
+            parent_task_id: string;
+            new_request_id: string;
+            state: string;
+        };
+        ImageTaskSummary: {
+            id: string;
+            /** @constant */
+            kind: "image";
+            /** @enum {string} */
+            state: "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
+            stage: string;
+            model_id: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            progress: number | null;
+            settlement_state: string;
+            allowed_actions: string[];
+        };
+        ImageTaskTicket: {
+            url: string;
+            ticket: string;
+            /** Format: date-time */
+            expires_at: string;
+            content_type: string;
+            size_bytes: string | null;
+        };
         ModelDetail: {
             model: components["schemas"]["ModelSummary"];
             aliases: string[];
@@ -1595,6 +2005,135 @@ export interface components {
             execution_outcome?: "selected" | "wait" | "unselected";
             selection_layer?: string;
         };
+        RoutingPolicyDiff: {
+            selection_changed: boolean;
+            became_eligible: string[];
+            became_excluded: string[];
+        };
+        RoutingPolicyHead: {
+            /** Format: uuid */
+            id: string;
+            active_version: string;
+            draft_version: string;
+            base_version: string;
+            etag: string;
+            definition: components["schemas"]["RoutingPolicyInput"];
+        };
+        RoutingPolicyImpact: {
+            projects: string;
+            keys: string;
+        };
+        RoutingPolicyInput: {
+            name: string;
+            scope: components["schemas"]["RoutingPolicyScope"];
+            constraints?: {
+                models?: components["schemas"]["RoutingPolicyListRule"];
+                regions?: components["schemas"]["RoutingPolicyListRule"];
+                /** @enum {string} */
+                retention?: "inherit" | "strict_zero";
+                /** @enum {string} */
+                training?: "inherit" | "prohibited";
+                max_input_rate?: {
+                    /** @constant */
+                    currency: "USD";
+                    amount: string;
+                    /** @constant */
+                    unit: "input_token";
+                    /** @constant */
+                    per: "1000000";
+                };
+                required_capabilities?: string[];
+                require_known_quota?: boolean;
+            };
+            candidates?: {
+                pool_ids?: string[];
+                denied_provider_ids?: string[];
+                allow_expansion?: boolean;
+            };
+            preferences?: {
+                /** @enum {string} */
+                template?: "balanced" | "stable" | "low_latency" | "lowest_cost";
+                ordered_provider_ids?: string[];
+            };
+            fallback?: {
+                endpoint?: boolean;
+                model_ids?: string[];
+                byok_to_platform?: boolean;
+            };
+        };
+        RoutingPolicyListRule: {
+            /** @enum {string} */
+            mode: "inherit" | "deny_all";
+            values?: string[];
+        } | {
+            /** @enum {string} */
+            mode: "allow_list";
+            values: string[];
+        };
+        RoutingPolicyPublication: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            active_version: string;
+            previous_version: string;
+            /** Format: date-time */
+            published_at: string;
+            impact: components["schemas"]["RoutingPolicyImpact"];
+            revocation_epoch: string;
+        };
+        RoutingPolicyPublish: {
+            /** Format: uuid */
+            draft_version: string;
+            base_version: string;
+            simulation_id: string;
+            change_note: string;
+        };
+        RoutingPolicyRollback: {
+            /** Format: uuid */
+            from_version: string;
+            /** Format: uuid */
+            restore_version: string;
+            change_note: string;
+        };
+        RoutingPolicyScope: {
+            /** @enum {string} */
+            type: "workspace" | "project" | "api_key";
+            id: components["schemas"]["IdentityID"];
+            project_id?: components["schemas"]["IdentityID"];
+        };
+        RoutingPolicySimulation: {
+            simulation_id: string;
+            trace: components["schemas"]["RoutingDecisionTrace"];
+            baseline: components["schemas"]["RoutingDecisionTrace"] | null;
+            diff: components["schemas"]["RoutingPolicyDiff"] | null;
+            impact: components["schemas"]["RoutingPolicyImpact"];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        RoutingPolicySimulationInput: {
+            /** Format: uuid */
+            version: string;
+            compare_version?: string | null;
+            project_id: components["schemas"]["IdentityID"];
+            api_key_id?: components["schemas"]["IdentityID"] | null;
+            model_id: string;
+            protocol: string;
+            action: string;
+            required_capabilities?: string[];
+            input_token_bound: string;
+            output_token_bound: string;
+            snapshot_id?: string | null;
+            seed: string;
+        };
+        RoutingPolicyVersion: {
+            /** Format: uuid */
+            id: string;
+            base_version: string;
+            actor_id: components["schemas"]["IdentityID"];
+            /** Format: date-time */
+            published_at: string;
+            change_note: string;
+        };
     };
     responses: {
         /** @description Management error including invalid filters, expired cursor or artifact, denied action, and inaccessible request */
@@ -1618,6 +2157,9 @@ export interface components {
         IdentityProjectID: components["schemas"]["IdentityID"];
         IdentityVersion: string;
         IdentityWorkspaceID: components["schemas"]["IdentityID"];
+        ImageArtifactID: string;
+        ImageTaskID: string;
+        ImageTaskTicketHeader: string;
         RequestsID: string;
     };
     requestBodies: never;
@@ -3321,6 +3863,390 @@ export interface operations {
             default: components["responses"]["RequestsError"];
         };
     };
+    imageTaskList: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+                kind?: string[];
+                state?: string[];
+                model_id?: string[];
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ImageTaskPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageTaskCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageTaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ImageTaskDetail"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageTaskDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ImageTaskDetail"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageArtifactRevoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            /** @constant */
+                            state: "revoked";
+                        };
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageArtifactContent: {
+        parameters: {
+            query?: never;
+            header: {
+                "X-Artifact-Ticket": components["parameters"]["ImageTaskTicketHeader"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorized download */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageArtifactTicket: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+                artifact_id: components["parameters"]["ImageArtifactID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ImageTaskTicket"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageTaskCancel: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ImageTaskCancelResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageTaskItems: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ImageTaskItemPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    imageTaskRetry: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["ImageTaskID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageTaskRetry"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["ImageTaskRetryResult"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
     connectionSchemas: {
         parameters: {
             query?: {
@@ -3349,6 +4275,357 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["ConnectionSchemaPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    listRoutingPolicies: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+                scope_type?: string;
+                scope_id?: string;
+                project_id?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            items: components["schemas"]["RoutingPolicyHead"][];
+                            next_cursor: string | null;
+                            /** Format: date-time */
+                            as_of: string;
+                        };
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    createRoutingPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPolicyInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicyHead"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getRoutingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicyHead"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    editRoutingPolicyDraft: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPolicyInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicyHead"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    publishRoutingPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPolicyPublish"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicyPublication"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    rollbackRoutingPolicy: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": components["parameters"]["IdentityVersion"];
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPolicyRollback"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicyPublication"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    simulateRoutingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutingPolicySimulationInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RoutingPolicySimulation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getRoutingPolicyVersions: {
+        parameters: {
+            query?: {
+                cursor?: components["parameters"]["IdentityCursor"];
+                limit?: components["parameters"]["IdentityLimit"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            items: components["schemas"]["RoutingPolicyVersion"][];
+                            next_cursor: string | null;
+                            /** Format: date-time */
+                            as_of: string;
+                        };
                     };
                 };
             };
