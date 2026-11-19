@@ -28,7 +28,7 @@ Status legend: todo / doing / review / merged / blocked
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
 | ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | merged | cbcc3c23f → 259df733d; NOTICE + IDENTITY_ALLOWLIST (740 lines classified); handoffs to FE-WP1/FE-WP4; gate green (5296 tests) |
 | DS-A11Y | Design-system contrast and IconButton a11y fixes | gemini-3.8-flash | codex/ds-a11y | merged | 20c2875c8; tokens AA-verified by tokens-contrast.spec.ts; IconButton ariaLabel now required |
-| QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | doing | scripts/quality-gate.sh, QUALITY_GATE.md |
+| QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | merged | 9bd91379a; all stages PASS at 2637e9e59; 3 fixture/env failures fixed; BE-05/09 smoke skipped (need fixtures) |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, ScopeSwitcher, D08 storage adapter, auth/setup views | gemini-4-carbon | codex/fe-wp1-shell | doing | foundation gate for WP2–WP7 |
 | FE-WP2 | Public site, model plaza, detail/compare heatmap, pricing, status, docs | gemini | — | todo | after WP1 + BE-05 |
