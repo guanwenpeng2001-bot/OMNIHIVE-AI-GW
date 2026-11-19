@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="space-y-6">
+    <div data-testid="workspaces-view" class="space-y-5">
       <header class="card p-5 sm:p-6">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -9,77 +9,257 @@
                 {{ t('workspaces.title') }}
               </h1>
               <span class="chip text-xs">
-                <span class="pulse-dot pulse-ok" aria-hidden="true" />
+                <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
                 <span class="font-mono tabular-nums">{{ workspaces.length }}</span>
               </span>
               <span v-if="selected" class="pill pill-ghost font-mono text-[11px] uppercase">
                 {{ selected.role }}
+              </span>
+              <span
+                v-if="selected && String(selected.id) === activeScope.workspaceId"
+                data-testid="active-workspace-badge"
+                class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--oh-ink,var(--foreground))]"
+              >
+                {{ t('workspaces.activeScopeBadge') }}
+                <template v-if="activeScope.projectId"> · #{{ activeScope.projectId }}</template>
               </span>
             </div>
             <p class="mt-1.5 text-sm text-[var(--muted-foreground)]">
               {{ t('workspaces.description') }}
             </p>
           </div>
+          <div v-if="selected" class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              data-testid="activate-workspace-scope-btn"
+              class="btn btn-secondary btn-sm font-mono text-xs"
+              @click="activateScope(String(selected.id), projects[0]?.id ?? null)"
+            >
+              {{ t('workspaces.activateScope') }}
+            </button>
+          </div>
         </div>
       </header>
+
+      <ConsoleAsyncBanner
+        v-if="scopeConfirmedNotice"
+        :notice="scopeConfirmedNotice"
+        dismissible
+        @dismiss="scopeConfirmedNotice = null"
+      />
+
       <form v-if="auth.isAdmin" class="card flex flex-wrap items-end gap-3 p-5" @submit.prevent="createWorkspace">
         <label class="flex-1 space-y-2 text-sm font-medium text-[var(--foreground)]">
           <span class="flex items-center gap-2">
-            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <span>{{ t('workspaces.name') }}</span>
           </span>
           <input v-model="workspaceName" required maxlength="100" class="input w-full" />
         </label>
         <button class="btn btn-primary" :disabled="busy || !workspaceName.trim()">{{ t('workspaces.create') }}</button>
       </form>
+
       <div class="card p-5">
         <label class="block space-y-2 text-sm font-medium text-[var(--foreground)]">
           <span class="flex items-center justify-between gap-2">
             <span class="flex items-center gap-2">
-              <span class="pulse-dot pulse-ok" aria-hidden="true" />
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
               <span>{{ t('workspaces.select') }}</span>
             </span>
             <span v-if="selected" class="pill pill-ghost font-mono text-xs tabular-nums">
               #{{ selected.id }}
             </span>
           </span>
-          <select v-model="selectedID" class="input w-full font-mono" :disabled="loading || busy" @change="loadMembers">
+          <select v-model="selectedID" class="input w-full font-mono tabular-nums" :disabled="loading || busy" @change="onWorkspaceSelectionChange">
             <option :value="null" disabled>{{ t('workspaces.select') }}</option>
             <option v-for="workspace in workspaces" :key="workspace.id" :value="workspace.id">{{ workspace.name }}</option>
           </select>
         </label>
       </div>
+
       <p v-if="!loading && workspaces.length === 0" class="card p-8 text-center text-sm text-[var(--muted-foreground)]">
         {{ t('workspaces.empty') }}
       </p>
+
       <section v-if="selected" class="card space-y-4 p-5">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
           <div class="flex items-center gap-2">
-            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <h2 class="text-lg font-semibold text-[var(--foreground)]">
               {{ selected.name }} · {{ t('workspaces.resources') }}
             </h2>
           </div>
           <span class="chip font-mono text-xs tabular-nums">
-            {{ selected.role === 'admin' ? resources.length + 1 : 1 }}
+            {{ selected.role === 'admin' ? resources.length + 3 : 3 }}
           </span>
         </div>
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-2.5">
           <RouterLink :to="`/workspaces/${selected.id}/keys`" class="btn btn-secondary">{{ t('nav.apiKeys') }}</RouterLink>
+          <RouterLink to="/playground" class="btn btn-secondary">Playground</RouterLink>
+          <RouterLink to="/tasks" class="btn btn-secondary">Task Center</RouterLink>
           <template v-if="selected.role === 'admin'">
             <RouterLink v-for="resource in resources" :key="resource.path" :to="`/workspaces/${selected.id}/${resource.path}`" class="btn btn-secondary">{{ t(resource.label) }}</RouterLink>
           </template>
         </div>
       </section>
+
+      <!-- BE-01 Projects & Scope Switcher Section (uses div/table so legacy form/li selectors stay untouched) -->
+      <section v-if="selected" data-testid="workspace-projects-section" class="card space-y-4 p-5">
+        <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] pb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
+              <h2 class="text-lg font-semibold text-[var(--foreground)]">{{ t('workspaces.projectsTitle') }}</h2>
+              <span class="pill pill-ghost font-mono text-xs tabular-nums">{{ projects.length }}</span>
+            </div>
+            <p class="mt-1 text-xs text-[var(--muted-foreground)]">{{ t('workspaces.projectsDesc') }}</p>
+          </div>
+          <button
+            type="button"
+            data-testid="refresh-projects-btn"
+            class="btn btn-secondary btn-sm"
+            :disabled="projectsLoading"
+            @click="loadProjects(selected.id, true)"
+          >
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+
+        <ConsoleAsyncBanner
+          v-if="projectsNotice"
+          :notice="projectsNotice"
+          @retry="loadProjects(selected.id, true)"
+        />
+
+        <!-- Create Project Bar (admin only, div container instead of form) -->
+        <div
+          v-if="selected.role === 'admin'"
+          class="flex flex-wrap items-center gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--border)] bg-[var(--surface-2)] p-3"
+        >
+          <input
+            v-model="newProjectName"
+            data-testid="new-project-name-input"
+            type="text"
+            maxlength="100"
+            :placeholder="t('workspaces.newProjectPlaceholder')"
+            class="input flex-1 text-sm"
+            @keydown.enter.prevent="handleCreateProject"
+          />
+          <button
+            type="button"
+            data-testid="create-project-btn"
+            class="btn btn-primary btn-sm"
+            :disabled="projectActionBusy || !newProjectName.trim()"
+            @click="handleCreateProject"
+          >
+            {{ t('workspaces.createProject') }}
+          </button>
+        </div>
+
+        <div v-if="projects.length > 0" class="overflow-x-auto">
+          <table class="w-full border-collapse text-left text-xs">
+            <thead>
+              <tr class="border-b border-[var(--border)] font-mono text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
+                <th class="py-2 pr-3">ID</th>
+                <th class="px-3 py-2">Project</th>
+                <th class="px-3 py-2">State</th>
+                <th class="py-2 pl-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-[var(--border)]">
+              <tr v-for="proj in projects" :key="proj.id" :data-testid="`project-row-${proj.id}`">
+                <td class="py-2.5 pr-3 font-mono tabular-nums text-[var(--muted-foreground)]">#{{ proj.id }}</td>
+                <td class="px-3 py-2.5">
+                  <div v-if="renamingProjectId === proj.id" class="flex items-center gap-1.5">
+                    <input
+                      v-model="renameProjectDraft"
+                      data-testid="rename-project-input"
+                      type="text"
+                      maxlength="100"
+                      class="input h-7 px-2 text-xs"
+                    />
+                    <button
+                      type="button"
+                      data-testid="confirm-rename-project-btn"
+                      class="btn btn-primary btn-sm px-2 py-1 text-xs"
+                      :disabled="projectActionBusy || !renameProjectDraft.trim()"
+                      @click="confirmRenameProject(proj)"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm px-2 py-1 text-xs"
+                      @click="renamingProjectId = null"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div v-else class="flex items-center gap-2">
+                    <span class="font-medium text-[var(--foreground)]">{{ proj.name }}</span>
+                    <span
+                      v-if="
+                        String(selected.id) === activeScope.workspaceId &&
+                        proj.id === activeScope.projectId
+                      "
+                      class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--foreground)]"
+                    >
+                      ACTIVE
+                    </span>
+                  </div>
+                </td>
+                <td class="px-3 py-2.5 font-mono text-[11px] uppercase text-[var(--muted-foreground)]">
+                  {{ proj.state ?? 'active' }} · v{{ proj.version }}
+                </td>
+                <td class="py-2.5 pl-3 text-right">
+                  <div class="inline-flex flex-wrap items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      :data-testid="`switch-project-${proj.id}`"
+                      class="btn btn-secondary btn-sm px-2.5 py-1 font-mono text-xs"
+                      @click="activateScope(String(selected.id), proj.id)"
+                    >
+                      {{ t('workspaces.activateScope') }}
+                    </button>
+                    <button
+                      v-if="selected.role === 'admin' && (proj.state ?? 'active') === 'active'"
+                      type="button"
+                      :data-testid="`start-rename-project-${proj.id}`"
+                      class="btn btn-secondary btn-sm px-2 py-1 text-xs"
+                      @click="startRenameProject(proj)"
+                    >
+                      {{ t('workspaces.renameProject') }}
+                    </button>
+                    <button
+                      v-if="selected.role === 'admin' && (proj.state ?? 'active') === 'active'"
+                      type="button"
+                      :data-testid="`archive-project-${proj.id}`"
+                      class="btn btn-secondary btn-sm px-2 py-1 text-xs text-[var(--oh-danger,#dc2626)]"
+                      :disabled="projectActionBusy"
+                      @click="handleArchiveProject(proj)"
+                    >
+                      {{ t('workspaces.archiveProject') }}
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else-if="!projectsLoading" class="text-xs text-[var(--muted-foreground)]">
+          {{ t('workspaces.noProjects') }}
+        </p>
+      </section>
+
       <section v-if="selected?.role === 'admin'" class="card space-y-4 p-5" :aria-busy="loadingMembers">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
           <div class="flex items-center gap-2">
-            <span class="pulse-dot pulse-ok" aria-hidden="true" />
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-[var(--oh-accent,#f59e0b)]" aria-hidden="true" />
             <h2 class="text-lg font-semibold text-[var(--foreground)]">{{ t('workspaces.members') }}</h2>
           </div>
           <span class="chip font-mono text-xs tabular-nums">{{ members.length }}</span>
         </div>
-        <form class="flex flex-wrap items-end gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4" @submit.prevent="saveMember">
+        <form class="flex flex-wrap items-end gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--border)] bg-[var(--surface-2)] p-4" @submit.prevent="saveMember">
           <label class="space-y-2 text-sm font-medium text-[var(--foreground)]"><span class="block">{{ t('workspaces.userID') }}</span><input v-model.number="userID" type="number" min="1" required class="input font-mono tabular-nums" /></label>
           <label class="space-y-2 text-sm font-medium text-[var(--foreground)]"><span class="block">{{ t('workspaces.role') }}</span><select v-model="memberRole" class="input"><option value="member">{{ t('workspaces.member') }}</option><option value="admin">{{ t('workspaces.admin') }}</option></select></label>
           <button class="btn btn-primary" :disabled="busy || !userID">{{ t('workspaces.save') }}</button>
@@ -130,6 +310,15 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { normalizeApiError } from '@/utils/apiError'
 import type { RoutingPolicyConfig } from '@/api/mcp'
+import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
+import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
+import {
+  identityV2Api,
+  persistConsoleScope,
+  readPersistedConsoleScope,
+  type ConsoleScopeSelection,
+  type IdentityProject
+} from '@/features/console/scope'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -138,6 +327,17 @@ const workspaces = ref<Workspace[]>([])
 const members = ref<WorkspaceMember[]>([])
 const selectedID = ref<number | null>(null)
 const selected = computed(() => workspaces.value.find(workspace => workspace.id === selectedID.value))
+
+const activeScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
+const scopeConfirmedNotice = ref<ConsoleAsyncNotice | null>(null)
+const projects = ref<IdentityProject[]>([])
+const projectsLoading = ref(false)
+const projectActionBusy = ref(false)
+const projectsNotice = ref<ConsoleAsyncNotice | null>(null)
+const newProjectName = ref('')
+const renamingProjectId = ref<string | null>(null)
+const renameProjectDraft = ref('')
+let projectRequestSeq = 0
 const workspaceName = ref('')
 const userID = ref<number | null>(null)
 const memberRole = ref<WorkspaceMember['role']>('member')
@@ -234,10 +434,143 @@ async function loadMembers() {
   }
 }
 
+async function loadProjects(workspaceID: number | null | undefined, explicit = false) {
+  const seq = ++projectRequestSeq
+  projectsNotice.value = null
+  if (!workspaceID) {
+    projects.value = []
+    return
+  }
+  if (!explicit && !(auth as { user?: { id?: number } }).user?.id) {
+    return
+  }
+  const hadCached = projects.value.length > 0
+  projectsLoading.value = true
+  try {
+    const page = await identityV2Api.listProjects(String(workspaceID), { limit: 100 })
+    if (seq === projectRequestSeq) {
+      projects.value = page.items ?? []
+    }
+  } catch (err) {
+    if (seq === projectRequestSeq) {
+      projectsNotice.value = classifyConsoleError(err, {
+        hasCachedData: hadCached,
+        requiredGrantFallback: 'projects.read'
+      })
+    }
+  } finally {
+    if (seq === projectRequestSeq) {
+      projectsLoading.value = false
+    }
+  }
+}
+
+function onWorkspaceSelectionChange() {
+  projects.value = []
+  renamingProjectId.value = null
+  void loadMembers()
+  void loadProjects(selectedID.value, false)
+}
+
+function activateScope(workspaceId: string, projectId: string | null) {
+  const next: ConsoleScopeSelection = {
+    mode: 'workspace',
+    workspaceId,
+    projectId
+  }
+  persistConsoleScope(next)
+  activeScope.value = next
+  scopeConfirmedNotice.value = {
+    kind: 'confirmed',
+    title: projectId
+      ? `Active scope switched to Workspace #${workspaceId} / Project #${projectId}`
+      : `Active scope switched to Workspace #${workspaceId}`
+  }
+}
+
+async function handleCreateProject() {
+  if (!selected.value || !newProjectName.value.trim() || projectActionBusy.value) return
+  projectActionBusy.value = true
+  projectsNotice.value = null
+  try {
+    const created = await identityV2Api.createProject(String(selected.value.id), {
+      name: newProjectName.value.trim()
+    })
+    newProjectName.value = ''
+    projects.value = [created, ...projects.value.filter((p) => p.id !== created.id)]
+    scopeConfirmedNotice.value = {
+      kind: 'confirmed',
+      title: `Created project "${created.name}" (#${created.id})`
+    }
+  } catch (err) {
+    projectsNotice.value = classifyConsoleError(err, {
+      requiredGrantFallback: 'projects.write'
+    })
+  } finally {
+    projectActionBusy.value = false
+  }
+}
+
+function startRenameProject(proj: IdentityProject) {
+  renamingProjectId.value = proj.id
+  renameProjectDraft.value = proj.name
+}
+
+async function confirmRenameProject(proj: IdentityProject) {
+  if (!selected.value || !renameProjectDraft.value.trim() || projectActionBusy.value) return
+  projectActionBusy.value = true
+  projectsNotice.value = null
+  try {
+    const updated = await identityV2Api.renameProject(
+      String(selected.value.id),
+      proj.id,
+      { name: renameProjectDraft.value.trim() },
+      proj.version
+    )
+    projects.value = projects.value.map((item) => (item.id === updated.id ? updated : item))
+    renamingProjectId.value = null
+    scopeConfirmedNotice.value = {
+      kind: 'confirmed',
+      title: `Renamed project #${updated.id} to "${updated.name}" (v${updated.version})`
+    }
+  } catch (err) {
+    projectsNotice.value = classifyConsoleError(err, {
+      requiredGrantFallback: 'projects.write'
+    })
+  } finally {
+    projectActionBusy.value = false
+  }
+}
+
+async function handleArchiveProject(proj: IdentityProject) {
+  if (!selected.value || projectActionBusy.value) return
+  projectActionBusy.value = true
+  projectsNotice.value = null
+  try {
+    const archived = await identityV2Api.archiveProject(
+      String(selected.value.id),
+      proj.id,
+      proj.version
+    )
+    projects.value = projects.value.map((item) => (item.id === archived.id ? archived : item))
+    scopeConfirmedNotice.value = {
+      kind: 'confirmed',
+      title: `Archived project "${archived.name}" (#${archived.id})`
+    }
+  } catch (err) {
+    projectsNotice.value = classifyConsoleError(err, {
+      requiredGrantFallback: 'projects.write'
+    })
+  } finally {
+    projectActionBusy.value = false
+  }
+}
+
 async function refresh() {
   workspaces.value = await workspacesAPI.list()
   if (!workspaces.value.some(workspace => workspace.id === selectedID.value)) selectedID.value = workspaces.value[0]?.id ?? null
   await loadMembers()
+  await loadProjects(selectedID.value, false)
 }
 
 async function createWorkspace() {

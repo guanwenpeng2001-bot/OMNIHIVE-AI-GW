@@ -324,6 +324,30 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/playground',
+    name: 'Playground',
+    component: () => import('@/views/user/PlaygroundView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Playground',
+      titleKey: 'playgroundConsole.title',
+      descriptionKey: 'playgroundConsole.description'
+    }
+  },
+  {
+    path: '/tasks',
+    name: 'TaskCenter',
+    component: () => import('@/views/user/TaskCenterView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Task Center',
+      titleKey: 'taskCenter.title',
+      descriptionKey: 'taskCenter.description'
+    }
+  },
+  {
     path: '/admin/billing',
     name: 'AdminBilling',
     component: () => import('@/features/billing/ReconciliationView.vue'),
