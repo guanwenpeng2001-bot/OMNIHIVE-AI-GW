@@ -145,3 +145,15 @@ Backend failures observed:
 - `TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate` fails with `invalid input syntax for type integer: "1.0"` (credential draft revision passed as decimal string) — needs product fix.
 - `TestForwardModelBindingManualMediaSelectionUsesInstalledAdapter`, `TestBillingBacklogPostgres`, `TestOpenRouterSynchronousMediaActualHandlers`, `TestOpenRouterMediaRejectsInvalidResultsAndUnsupportedInputs` fail; these are new media/billing paths and need per-test fixtures or fixes.
 - Earlier full `go test ./...` passed at 958fdedb1 (before BE-25/26/27/28/29/30 merges).
+
+## Green gates at a79304ef4 (2026-11-19)
+
+| Check | Result |
+| --- | --- |
+| backend `go test ./...` (codespace, isolated PG/Redis) | PASS (RC=0, 92 packages) |
+| backend `go test -tags=unit ./...` | PASS (97 packages) |
+| dedicated-DB targeted suite | PASS (6 cases) |
+| frontend i18n/typecheck/lint | PASS |
+| frontend full Vitest | 468 files / 5357 passed (after em-dash assertion fix) |
+| frontend production build | PASS (6 GB heap) |
+| contracts / generated-drift / independence | PASS |
