@@ -197,11 +197,13 @@ func newCoreFlowFixture(t *testing.T) *coreFlowFixture {
 		require.NoError(t, f.users.Create(ctx, user))
 		*target = user.ID
 	}
-	// Cleanup only this scenario's identities, including receipts before users.
+	// Remove this scenario's derived receipt links before their source receipts.
 	t.Cleanup(func() {
 		_, err := db.ExecContext(context.Background(), `DELETE FROM usage_billing_dedup WHERE api_key_id=$1`, f.keyID)
 		require.NoError(t, err)
 		for _, statement := range []string{
+			`DELETE FROM billing_movement_links m USING usage_settlement_receipts r
+			 WHERE m.receipt_id=r.id AND r.user_id IN ($1,$2)`,
 			`DELETE FROM usage_settlement_receipts WHERE user_id IN ($1,$2)`,
 			`DELETE FROM usage_logs WHERE user_id IN ($1,$2)`,
 			`DELETE FROM api_keys WHERE user_id IN ($1,$2)`,

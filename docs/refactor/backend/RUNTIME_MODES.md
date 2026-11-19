@@ -62,6 +62,7 @@ go vet ./...
 go test ./...
 go test -tags=unit -count=1 ./cmd/server ./internal/modules/runtime
 go test -tags=integration -count=1 ./cmd/server -run '^TestRuntimeSplitProcesses$' -v
+go test -count=2 ./internal/integrationtests -run '^TestCoreModelFlowPostgres$'
 ```
 
 进程测试以相同二进制分别从默认值、YAML、环境变量及 CLI 启动。它检查核心依赖故障、可选恢复能力诊断、v1/v2 真实读、control 签发后 gateway 使用/撤销、worker 路由隔离以及并发槽。测试持有回执行锁，通过 PostgreSQL 锁等待确认 worker 已进入结算后发送 SIGKILL，再启动两个 worker。断言基于数据库终态、余额和用量行数，图片任务另行检查 generation 和 retry 密文。SSE 与 WS 测试覆盖已观察回执、排空顺序和卡住的 hijack 连接。
