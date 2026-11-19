@@ -2,11 +2,14 @@ package handler
 
 import (
 	"context"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,4 +34,30 @@ func TestImageTaskCenterChecksVerifiedDispatchAccount(t *testing.T) {
 	model.Endpoints[0].Capabilities[0].State = "stale"
 	_, _, err = gateway.verified(t.Context(), a, "entry", 12)
 	require.Error(t, err)
+}
+
+type readableTaskObjects struct{ service.BackupObjectStore }
+
+func (readableTaskObjects) Download(context.Context, string) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("stored image")), nil
+}
+
+func TestTaskArtifactStorageUnavailableAndReadOnly(t *testing.T) {
+	ctx := t.Context()
+	missing := &taskArtifactObjects{}
+	require.False(t, missing.writable())
+	_, err := missing.Upload(ctx, "task-artifacts/image", strings.NewReader("data"), "image/png")
+	require.ErrorIs(t, err, tasks.Unavailable)
+	_, err = missing.Download(ctx, "task-artifacts/image")
+	require.ErrorIs(t, err, tasks.Unavailable)
+
+	readOnly := &taskArtifactObjects{store: readableTaskObjects{}}
+	_, err = readOnly.Upload(ctx, "task-artifacts/image", strings.NewReader("data"), "image/png")
+	require.ErrorIs(t, err, tasks.Unavailable)
+	body, err := readOnly.Download(ctx, "task-artifacts/image")
+	require.NoError(t, err)
+	defer body.Close()
+	data, err := io.ReadAll(body)
+	require.NoError(t, err)
+	require.Equal(t, "stored image", string(data))
 }

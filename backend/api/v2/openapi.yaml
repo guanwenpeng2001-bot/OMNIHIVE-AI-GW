@@ -45,6 +45,30 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdentityError'
       summary: Consume a workspace and browser-bound authorization draft
+  /api/v2/admin/extensions:
+    get:
+      operationId: listAdminExtensions
+      description: List installed extension packages and their signed capability inventory for the authenticated administrator.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/ExtensionInventoryItem'}
+        default:
+          description: Management error
   /api/v2/admin/restores:
     post:
       operationId: executeRestore
@@ -3834,6 +3858,25 @@ components:
     ExecutionIdentityNumber:
       type: string
       pattern: '^[1-9][0-9]*$'
+    ExtensionInventoryCapability:
+      type: object
+      required: [id, platform, account_type]
+      properties:
+        id: {type: string}
+        platform: {type: string}
+        account_type: {type: string}
+    ExtensionInventoryItem:
+      type: object
+      required: [id, sdk_version, capabilities, state]
+      properties:
+        id: {type: string}
+        sdk_version: {type: integer}
+        publisher_id: {type: string}
+        capabilities:
+          type: [array, 'null']
+          items: {$ref: '#/components/schemas/ExtensionInventoryCapability'}
+        state: {type: string}
+        digest: {type: string}
     IdentityAccess:
       type: object
       required:

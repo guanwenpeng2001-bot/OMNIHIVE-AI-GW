@@ -245,3 +245,12 @@ func TestConfigurationWriteAuditRecordsSubmittedDiffWorkspaceAndActor(t *testing
 	require.Contains(t, fields, "name")
 	require.Contains(t, fields, "credentials")
 }
+
+func TestTaskMutationsOmitBodiesAndExtensionReadIsAudited(t *testing.T) {
+	const path = "POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks"
+	require.Contains(t, auditBodyOmittedRoutes, path)
+	require.Contains(t, auditBodyOmittedRoutes, path+"/:id/retry")
+	require.Equal(t, "tasks.create", auditActionOverrides[path])
+	require.Equal(t, "tasks.retry", auditActionOverrides[path+"/:id/retry"])
+	require.Equal(t, "admin.extensions.list", auditSensitiveReads["GET /api/v2/admin/extensions"])
+}

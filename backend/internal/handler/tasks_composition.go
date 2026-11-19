@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"context"
 	"database/sql"
+	"log/slog"
+	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
@@ -23,4 +26,22 @@ func NewImageTaskCenter(db *sql.DB, cfg *config.Config, access identity.AccessEv
 		encryptor = nil
 	}
 	return taskhttp.New(tasks.New(db, gateway, encryptor, reader, reader), access, cfg)
+}
+
+func ProvideImageTaskCenter(db *sql.DB, cfg *config.Config, access identity.AccessEvaluator, scopes identity.GatewayScopes,
+	catalogReader catalog.CatalogReader, keys *service.APIKeyService, subscriptions *service.SubscriptionService,
+	images *OpenAIGatewayHandler, settings *service.ImageStorageSettingService, factory service.BackupObjectStoreFactory,
+	batches *service.BatchImageDownloadService, commands *service.BatchImagePublicService, encryptor service.SecretEncryptor) *taskhttp.Handler {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	store, enabled, err := settings.PrivateTaskArtifactStore(ctx, factory)
+	if err != nil {
+		slog.Warn("Image task artifact storage unavailable")
+		store, enabled = nil, false
+	}
+	if !cfg.Totp.EncryptionKeyConfigured {
+		encryptor = nil
+	}
+	return NewImageTaskCenter(db, cfg, access, scopes, catalogReader, keys, subscriptions, images,
+		&taskArtifactObjects{store: store, enabled: enabled}, batches, commands, encryptor)
 }

@@ -20,6 +20,7 @@ import (
 	_ "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/runtime"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
@@ -182,6 +183,8 @@ func runMainServer() {
 		stopRestores = app.Restores.StartWorker(context.Background())
 	}
 
+	stopImageTaskRecovery := startImageTaskRecovery(app.ImageTaskCenter.Store)
+
 	readyHandler := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.UpstreamJobs.Ready)
 	originalHandler := app.Server.Handler
 	app.Server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -219,6 +222,7 @@ func runMainServer() {
 	log.Println("Shutting down server...")
 
 	stopRestores()
+	stopImageTaskRecovery()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -228,6 +232,30 @@ func runMainServer() {
 	}
 
 	log.Println("Server exited")
+}
+
+func startImageTaskRecovery(store *tasks.Store) func() {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			if err := store.Recover(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("Image task recovery failed: %v", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // The initial 20s application budget includes WS drain, receipt persistence,

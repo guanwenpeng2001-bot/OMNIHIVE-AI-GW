@@ -27,7 +27,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil,
 		middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
@@ -41,6 +41,14 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		require.Contains(t, registered, "GET "+path+"/:id")
 		require.Contains(t, registered, "POST "+path+"/compare")
 	}
+	const taskPath = "/api/v2/workspaces/:workspace_id/projects/:project_id/tasks"
+	require.Contains(t, registered, "GET "+taskPath)
+	require.Contains(t, registered, "POST "+taskPath)
+	require.Contains(t, registered, "POST "+taskPath+"/:id/retry")
+	require.Contains(t, registered, "GET /api/v2/admin/extensions")
+	extension := httptest.NewRecorder()
+	router.ServeHTTP(extension, httptest.NewRequest(http.MethodGet, "/api/v2/admin/extensions", nil))
+	require.Equal(t, http.StatusUnauthorized, extension.Code, extension.Body.String())
 	router.NoRoute(func(c *gin.Context) { c.Data(200, "text/html", []byte("<html>frontend</html>")) })
 	for _, test := range []struct{ method, path string }{
 		{"POST", "/v1"}, {"POST", "/v1/"}, {"POST", "/"},

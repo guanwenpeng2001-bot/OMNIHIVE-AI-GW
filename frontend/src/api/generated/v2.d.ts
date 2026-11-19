@@ -24,6 +24,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/admin/extensions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List installed extension packages and their signed capability inventory for the authenticated administrator. */
+        get: operations["listAdminExtensions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/admin/restores": {
         parameters: {
             query?: never;
@@ -1452,6 +1469,19 @@ export interface components {
             authorization_version: components["schemas"]["ExecutionIdentityNumber"];
         };
         ExecutionIdentityNumber: string;
+        ExtensionInventoryCapability: {
+            id: string;
+            platform: string;
+            account_type: string;
+        };
+        ExtensionInventoryItem: {
+            id: string;
+            sdk_version: number;
+            publisher_id?: string;
+            capabilities: components["schemas"]["ExtensionInventoryCapability"][] | null;
+            state: string;
+            digest?: string;
+        };
         IdentityAccess: {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
@@ -2215,6 +2245,41 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["IdentityError"];
                 };
+            };
+        };
+    };
+    listAdminExtensions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            items: components["schemas"]["ExtensionInventoryItem"][];
+                        };
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

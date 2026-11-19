@@ -4,7 +4,7 @@
       <header class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 class="text-2xl font-bold tracking-tight">插件管理</h1>
-          <p class="mt-1 text-sm text-[var(--muted-foreground)]">管理宿主动态传输插件（.s2plugin）与网关核心流量扩展引擎</p>
+          <p class="mt-1 text-sm text-[var(--muted-foreground)]">管理宿主动态传输插件（.ohplugin、.s2plugin）与网关核心流量扩展引擎</p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || actionBusy" @click="loadPlugins">
           <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
@@ -27,11 +27,11 @@
         @drop.prevent="handleDrop"
       >
         <h2 class="font-semibold">安装插件</h2>
-        <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入单个 .s2plugin 文件（ZIP 包），宿主自动校验包清单、协议版本、兼容性范围与可信签名。</p>
-        <input ref="fileInput" class="hidden" type="file" accept=".s2plugin" aria-label="选择 .s2plugin 文件" @change="handleFileSelected" />
+        <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入单个 .ohplugin 或 .s2plugin 文件（ZIP 包），宿主自动校验包清单、协议版本、兼容性范围与可信签名。</p>
+        <input ref="fileInput" class="hidden" type="file" accept=".ohplugin,.s2plugin" aria-label="选择 .ohplugin 或 .s2plugin 文件" @change="handleFileSelected" />
         <button type="button" class="btn btn-primary btn-sm mt-3" :disabled="actionBusy" @click="fileInput?.click()">
           <Icon name="upload" size="sm" />
-          {{ uploading ? '正在安装…' : '选择 .s2plugin 文件' }}
+          {{ uploading ? '正在安装…' : '选择 .ohplugin 或 .s2plugin 文件' }}
         </button>
         <span v-if="dragDepth > 0" class="ml-3 text-sm text-[var(--brand-text)]" role="status">松开以安装插件</span>
       </section>
@@ -42,7 +42,7 @@
         <p v-else-if="loading && !plugins.length" class="plugin-card p-8 text-center text-sm text-[var(--muted-foreground)]" role="status">正在加载插件…</p>
         <div v-else-if="!plugins.length" class="plugin-card p-8 text-center">
           <p class="font-semibold">{{ t('admin.plugins.empty') }}</p>
-          <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入本机的 .s2plugin 文件进行安装。</p>
+          <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入本机的 .ohplugin 或 .s2plugin 文件进行安装。</p>
         </div>
         <div v-if="plugins.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <article v-for="plugin in plugins" :key="plugin.id" class="plugin-card flex flex-col gap-4 p-5">
@@ -271,12 +271,14 @@ async function loadPlugins(): Promise<void> {
 async function installFiles(files: FileList | File[] | null | undefined): Promise<void> {
   if (actionBusy.value || !files?.length) return
   if (files.length !== 1) {
-    appStore.showError('一次只能安装一个 .s2plugin 文件。')
+    appStore.showError('一次只能安装一个 .ohplugin 或 .s2plugin 文件。')
     return
   }
   const file = files[0]
-  if (!file.name.toLowerCase().endsWith('.s2plugin') || file.name.length <= 9 || file.size <= 0) {
-    appStore.showError('请选择非空的 .s2plugin 文件。')
+  const name = file.name.toLowerCase()
+  const validExtension = ['.ohplugin', '.s2plugin'].some(ext => name.endsWith(ext) && name.length > ext.length)
+  if (!validExtension || file.size <= 0) {
+    appStore.showError('请选择非空的 .ohplugin 或 .s2plugin 文件。')
     return
   }
   uploading.value = true

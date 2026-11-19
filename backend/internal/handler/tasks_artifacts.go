@@ -92,3 +92,51 @@ func (r *ImageTaskArtifacts) Open(ctx context.Context, v tasks.ArtifactContent) 
 		return nil, tasks.Unavailable
 	}
 }
+
+type taskArtifactObjects struct {
+	store   service.BackupObjectStore
+	enabled bool
+}
+
+func (o *taskArtifactObjects) writable() bool {
+	return o.enabled && o.store != nil
+}
+
+func (o *taskArtifactObjects) Upload(ctx context.Context, key string, body io.Reader, contentType string) (int64, error) {
+	if !o.writable() {
+		return 0, tasks.Unavailable
+	}
+	return o.store.Upload(ctx, key, body, contentType)
+}
+
+func (o *taskArtifactObjects) UploadFile(ctx context.Context, key, filename, contentType string) (int64, error) {
+	if !o.writable() {
+		return 0, tasks.Unavailable
+	}
+	return o.store.UploadFile(ctx, key, filename, contentType)
+}
+
+func (o *taskArtifactObjects) Download(ctx context.Context, key string) (io.ReadCloser, error) {
+	if o.store == nil {
+		return nil, tasks.Unavailable
+	}
+	return o.store.Download(ctx, key)
+}
+
+func (o *taskArtifactObjects) Delete(ctx context.Context, key string) error {
+	if o.store == nil {
+		return tasks.Unavailable
+	}
+	return o.store.Delete(ctx, key)
+}
+
+func (o *taskArtifactObjects) PresignURL(context.Context, string, time.Duration) (string, error) {
+	return "", tasks.Unavailable
+}
+
+func (o *taskArtifactObjects) HeadBucket(ctx context.Context) error {
+	if o.store == nil {
+		return tasks.Unavailable
+	}
+	return o.store.HeadBucket(ctx)
+}

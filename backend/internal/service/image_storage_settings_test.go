@@ -252,3 +252,41 @@ func TestImageStorageSettingsFallBackToConfigFile(t *testing.T) {
 	require.Equal(t, "yaml-bucket", fetched.Bucket)
 	require.Empty(t, fetched.SecretAccessKey)
 }
+
+func TestImageStoragePrivateTaskArtifactBinding(t *testing.T) {
+	conf := config.ImageStorageConfig{
+		Endpoint: "https://storage.example.test", Region: "auto", Bucket: "private-images",
+		AccessKeyID: "test-key", SecretAccessKey: strings.Repeat("x", 8), ForcePathStyle: true,
+	}
+	ctx := t.Context()
+	objects := newMockObjectStore()
+	factory := func(_ context.Context, cfg *BackupS3Config) (BackupObjectStore, error) {
+		require.Equal(t, conf.Bucket, cfg.Bucket)
+		require.Equal(t, conf.Endpoint, cfg.Endpoint)
+		require.Equal(t, conf.SecretAccessKey, cfg.SecretAccessKey)
+		require.True(t, cfg.ForcePathStyle)
+		return objects, nil
+	}
+	settings := NewImageStorageSettingService(newStubSettingRepo(), nil, nil, nil, conf)
+	store, enabled, err := settings.PrivateTaskArtifactStore(ctx, factory)
+	require.NoError(t, err)
+	require.Same(t, objects, store)
+	require.False(t, enabled)
+
+	conf.Enabled = true
+	settings = NewImageStorageSettingService(newStubSettingRepo(), nil, nil, nil, conf)
+	store, enabled, err = settings.PrivateTaskArtifactStore(ctx, factory)
+	require.NoError(t, err)
+	require.Same(t, objects, store)
+	require.True(t, enabled)
+
+	conf.PublicBaseURL = "https://public.example.test"
+	settings = NewImageStorageSettingService(newStubSettingRepo(), nil, nil, nil, conf)
+	store, enabled, err = settings.PrivateTaskArtifactStore(ctx, func(context.Context, *BackupS3Config) (BackupObjectStore, error) {
+		t.Fatal("public image storage must never be opened for task artifacts")
+		return nil, nil
+	})
+	require.NoError(t, err)
+	require.Nil(t, store)
+	require.False(t, enabled)
+}

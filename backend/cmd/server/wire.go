@@ -19,6 +19,7 @@ import (
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
@@ -37,13 +38,14 @@ import (
 )
 
 type Application struct {
-	Restores      *legacyrestore.Runtime
-	OpsMetrics    *service.OpsMetricsCollector
-	UpstreamJobs  *service.UpstreamJobService
-	Server        *http.Server
-	PromptAudit   *securityaudit.PromptService
-	PluginManager *service.PluginManager
-	Cleanup       func()
+	ImageTaskCenter *taskhttp.Handler
+	Restores        *legacyrestore.Runtime
+	OpsMetrics      *service.OpsMetricsCollector
+	UpstreamJobs    *service.UpstreamJobService
+	Server          *http.Server
+	PromptAudit     *securityaudit.PromptService
+	PluginManager   *service.PluginManager
+	Cleanup         func()
 }
 
 func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
@@ -63,6 +65,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		modelshttp.ProviderSet,
 		restorehttp.ProviderSet,
 		requestsHandlerProvider,
+		handler.ProvideImageTaskCenter,
 		policieshttp.ProviderSet,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
@@ -82,7 +85,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter"),
 	)
 	return nil, nil
 }

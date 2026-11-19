@@ -176,13 +176,13 @@ describe('管理员插件页二次验证', () => {
     expect(enablePlugin).toHaveBeenCalledWith(7, 100, false)
   })
 
-  it('上传插件通过 step-up 控制器执行', async () => {
+  it.each(['.s2plugin', '.OHPLUGIN'])('上传 %s 插件通过 step-up 控制器执行', async (extension) => {
     const wrapper = mountView()
     await flushPromises()
     const input = wrapper.get('input[type="file"]')
     Object.defineProperty(input.element, 'files', {
       configurable: true,
-      value: [new File(['plugin'], 'transport.s2plugin', { type: 'application/zip' })],
+      value: [new File(['plugin'], `transport${extension}`, { type: 'application/zip' })],
     })
 
     await input.trigger('change')

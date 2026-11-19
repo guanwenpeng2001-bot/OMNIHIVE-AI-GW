@@ -110,6 +110,7 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
+	"GET /api/v2/admin/extensions":                       "admin.extensions.list",
 	"GET /api/v1/admin/accounts/data":                    "admin.accounts.export",
 	"GET /api/v1/workspaces/:workspace_id/accounts/data": "workspace.accounts.export",
 	"GET /api/v1/admin/proxies/data":                     "admin.proxies.export",
@@ -123,6 +124,9 @@ var auditSensitiveReads = map[string]string{
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
 var auditActionOverrides = map[string]string{
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":           "tasks.create",
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry": "tasks.retry",
+
 	"POST /api/v1/admin/proxy-groups":                         "admin.proxy_groups.create",
 	"PUT /api/v1/admin/proxy-groups/:id":                      "admin.proxy_groups.update",
 	"DELETE /api/v1/admin/proxy-groups/:id":                   "admin.proxy_groups.delete",
@@ -155,6 +159,9 @@ var auditActionOverrides = map[string]string{
 // auditBodyOmittedRoutes 请求体几乎整体由凭证构成的路由（如整块粘贴 auth JSON 的导入接口）。
 // 这类 body 的凭证内嵌在普通字符串值里，键级脱敏无法覆盖，整体不入库。
 var auditBodyOmittedRoutes = map[string]struct{}{
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks":           {},
+	"POST /api/v2/workspaces/:workspace_id/projects/:project_id/tasks/:id/retry": {},
+
 	// Omit every import body, including invalid and legacy requests. The route
 	// decision also skips SubmittedConfigurationDiff and leaves Body unread for
 	// the handler; a client-controlled stage_inactive field grants no audit bypass.

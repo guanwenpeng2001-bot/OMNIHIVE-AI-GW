@@ -224,6 +224,22 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	return nil
 }
 
+// PrivateTaskArtifactStore pins the current image bucket for the task reader and writer.
+func (s *ImageStorageSettingService) PrivateTaskArtifactStore(ctx context.Context, factory BackupObjectStoreFactory) (BackupObjectStore, bool, error) {
+	cfg, err := s.effectiveConfig(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if factory == nil || !cfg.IsConfigured() || strings.TrimSpace(cfg.PublicBaseURL) != "" {
+		return nil, false, nil
+	}
+	store, err := factory(ctx, &BackupS3Config{
+		Endpoint: cfg.Endpoint, Region: cfg.Region, Bucket: cfg.Bucket,
+		AccessKeyID: cfg.AccessKeyID, SecretAccessKey: cfg.SecretAccessKey, ForcePathStyle: cfg.ForcePathStyle,
+	})
+	return store, cfg.Enabled, err
+}
+
 // effectiveConfig 把后台设置（或 config.yaml 回落）解析成运行时配置。
 func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*config.ImageStorageConfig, error) {
 	settings, err := s.load(ctx)

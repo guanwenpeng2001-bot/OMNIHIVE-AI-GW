@@ -108,6 +108,9 @@ func (g *ImageTaskGateway) Prepare(ctx context.Context, a tasks.Scope, w tasks.W
 	if g.Objects == nil || g.Images == nil || g.Images.gatewayService == nil || g.Catalog == nil || g.Scopes == nil || g.Access == nil || g.Keys == nil {
 		return out, tasks.Unavailable
 	}
+	if objects, ok := g.Objects.(*taskArtifactObjects); ok && !objects.writable() {
+		return out, tasks.Unavailable
+	}
 	model, version, e := g.verified(ctx, a, w.Model, 0)
 	if e != nil {
 		return out, e
