@@ -8,6 +8,8 @@
         {{ errorMessage }}
       </div>
 
+      <OperationalSignals />
+
       <OpsDashboardSkeleton v-if="loading && !hasLoadedOnce" :fullscreen="isFullscreen" />
 
       <OpsDashboardHeader
@@ -147,6 +149,7 @@ import { useDebounceFn, useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import OperationalSignals from '@/features/operations/OperationalSignals.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import {
   opsAPI,

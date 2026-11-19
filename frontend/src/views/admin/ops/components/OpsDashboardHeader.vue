@@ -279,23 +279,10 @@ const totalTokensLabel = computed(() => formatNumber(overview.value?.token_consu
 const realtimeTrafficSummary = ref<OpsRealtimeTrafficSummary | null>(null)
 const realtimeTrafficLoading = ref(false)
 
-function makeZeroRealtimeTrafficSummary(): OpsRealtimeTrafficSummary {
-  const now = new Date().toISOString()
-  return {
-    window: realtimeWindow.value,
-    start_time: now,
-    end_time: now,
-    platform: props.platform,
-    group_id: props.groupId,
-    qps: { current: 0, peak: 0, avg: 0 },
-    tps: { current: 0, peak: 0, avg: 0 }
-  }
-}
-
 async function loadRealtimeTrafficSummary() {
   if (realtimeTrafficLoading.value) return
   if (!adminSettingsStore.opsRealtimeMonitoringEnabled) {
-    realtimeTrafficSummary.value = makeZeroRealtimeTrafficSummary()
+    realtimeTrafficSummary.value = null
     return
   }
   realtimeTrafficLoading.value = true
@@ -304,7 +291,7 @@ async function loadRealtimeTrafficSummary() {
     if (res && res.enabled === false) {
       adminSettingsStore.setOpsRealtimeMonitoringEnabledLocal(false)
     }
-    realtimeTrafficSummary.value = res?.summary ?? null
+    realtimeTrafficSummary.value = res?.enabled ? res.summary : null
   } catch (err) {
     console.error('[OpsDashboardHeader] Failed to load realtime traffic summary', err)
     realtimeTrafficSummary.value = null
@@ -325,8 +312,7 @@ watch(
   () => adminSettingsStore.opsRealtimeMonitoringEnabled,
   (enabled) => {
     if (!enabled) {
-      // Keep UI stable when realtime monitoring is turned off.
-      realtimeTrafficSummary.value = makeZeroRealtimeTrafficSummary()
+      realtimeTrafficSummary.value = null
     } else {
       loadRealtimeTrafficSummary()
     }
@@ -351,12 +337,12 @@ watch(
 
 const displayRealTimeQps = computed(() => {
   const v = realtimeTrafficSummary.value?.qps?.current
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 })
 
 const displayRealTimeTps = computed(() => {
   const v = realtimeTrafficSummary.value?.tps?.current
-  return typeof v === 'number' && Number.isFinite(v) ? v : 0
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
 })
 
 const realtimeQpsPeakLabel = computed(() => {
@@ -1131,11 +1117,11 @@ function handleToolbarRefresh() {
                 <div :class="[props.fullscreen ? 'text-xs' : 'text-[10px]', 'font-bold uppercase text-[var(--muted-foreground)]']">{{ t('admin.ops.current') }}</div>
                 <div class="mt-1 flex flex-wrap items-baseline gap-x-4 gap-y-2">
                   <div class="flex items-baseline gap-1.5">
-                    <span :class="[props.fullscreen ? 'text-4xl' : 'text-xl sm:text-2xl', 'font-semibold text-[var(--foreground)] ']">{{ displayRealTimeQps.toFixed(1) }}</span>
+                    <span :class="[props.fullscreen ? 'text-4xl' : 'text-xl sm:text-2xl', 'font-semibold text-[var(--foreground)] ']">{{ displayRealTimeQps?.toFixed(1) ?? '—' }}</span>
                     <span :class="[props.fullscreen ? 'text-sm' : 'text-xs', 'font-bold text-[var(--muted-foreground)]']">QPS</span>
                   </div>
                   <div class="flex items-baseline gap-1.5">
-                    <span :class="[props.fullscreen ? 'text-4xl' : 'text-xl sm:text-2xl', 'font-semibold text-[var(--foreground)] ']">{{ displayRealTimeTps.toFixed(1) }}</span>
+                    <span :class="[props.fullscreen ? 'text-4xl' : 'text-xl sm:text-2xl', 'font-semibold text-[var(--foreground)] ']">{{ displayRealTimeTps?.toFixed(1) ?? '—' }}</span>
                     <span :class="[props.fullscreen ? 'text-sm' : 'text-xs', 'font-bold text-[var(--muted-foreground)]']">{{ t('admin.ops.tps') }}</span>
                   </div>
                 </div>

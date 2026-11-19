@@ -12,7 +12,7 @@
           <span class="chip font-medium">
             <span
               class="pulse-dot"
-              :class="creatingBackup || restoringId ? 'pulse-warn' : 'pulse-ok'"
+              :class="creatingBackup ? 'pulse-warn' : 'pulse-ok'"
             ></span>
             <span>{{ t('admin.backup.operations.title') }}</span>
           </span>
@@ -216,6 +216,8 @@
         </div>
       </div>
 
+      <RestoreWorkflow :backup-id="selectedRestoreBackup" @lock="restoreLocked = $event" />
+
       <!-- Backup Operations -->
       <div class="card p-5">
         <div
@@ -307,10 +309,10 @@
                       v-if="record.status === 'completed'"
                       type="button"
                       class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
-                      :disabled="restoringId === record.id"
-                      @click="restoreBackup(record.id)"
+                      :disabled="restoreLocked"
+                      @click="selectRestoreBackup(record.id)"
                     >
-                      {{ restoringId === record.id ? t('common.loading') : t('admin.backup.actions.restore') }}
+                      {{ t('admin.backup.actions.restore') }}
                     </button>
                     <button
                       v-if="record.status !== 'running'"
@@ -463,7 +465,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -476,6 +478,7 @@ import type {
 } from '@/api/admin/backup'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import RestoreWorkflow from '@/features/operations/RestoreWorkflow.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -539,14 +542,14 @@ const savingSchedule = ref(false)
 const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
-const restoringId = ref('')
+const selectedRestoreBackup = ref('')
+const restoreLocked = ref(false)
 const manualExpireDays = ref(14)
 const downloadParts = ref<BackupDownloadPart[]>([])
 const downloadPartsModalOpen = ref(false)
 
 // Polling
 const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
-const restoringPollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const MAX_POLL_COUNT = 900
 
 function updateRecordInList(updated: BackupRecord) {
@@ -592,46 +595,9 @@ function stopPolling() {
   }
 }
 
-function startRestorePolling(backupId: string) {
-  stopRestorePolling()
-  let count = 0
-  restoringPollingTimer.value = setInterval(async () => {
-    if (count++ >= MAX_POLL_COUNT) {
-      stopRestorePolling()
-      restoringId.value = ''
-      appStore.showWarning(t('admin.backup.operations.restoreRunning'))
-      return
-    }
-    try {
-      const record = await adminAPI.backup.getBackup(backupId)
-      updateRecordInList(record)
-      if (record.restore_status === 'completed' || record.restore_status === 'failed') {
-        stopRestorePolling()
-        restoringId.value = ''
-        if (record.restore_status === 'completed') {
-          appStore.showSuccess(t('admin.backup.actions.restoreSuccess'))
-        } else {
-          appStore.showError(record.restore_error || t('admin.backup.operations.restoreFailed'))
-        }
-        await loadBackups()
-      }
-    } catch {
-      // 轮询失败时不中断
-    }
-  }, 2000)
-}
-
-function stopRestorePolling() {
-  if (restoringPollingTimer.value) {
-    clearInterval(restoringPollingTimer.value)
-    restoringPollingTimer.value = null
-  }
-}
-
 function handleVisibilityChange() {
   if (document.hidden) {
     stopPolling()
-    stopRestorePolling()
   } else {
     // 标签页恢复时刷新列表，检查是否仍有活跃操作
     loadBackups().then(() => {
@@ -639,11 +605,6 @@ function handleVisibilityChange() {
       if (running) {
         creatingBackup.value = true
         startPolling(running.id)
-      }
-      const restoring = backups.value.find(r => r.restore_status === 'running')
-      if (restoring) {
-        restoringId.value = restoring.id
-        startRestorePolling(restoring.id)
       }
     })
   }
@@ -852,26 +813,10 @@ function closeDownloadParts() {
   downloadParts.value = []
 }
 
-async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
-  const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
-  if (!password) return
-  restoringId.value = id
-  try {
-    const record = await backupStepUp.run(() => adminAPI.backup.restoreBackup(id, password))
-    updateRecordInList(record)
-    startRestorePolling(id)
-  } catch (error: any) {
-    restoringId.value = ''
-    if (isStepUpCancelled(error)) return
-    if (reportStepUpBlocked(error)) return
-    // apiClient 拦截器把 HTTP 错误归一化为顶层 { status } 平面对象（无 response 字段）
-    if (error?.status === 409 || error?.response?.status === 409) {
-      appStore.showWarning(t('admin.backup.operations.restoreRunning'))
-    } else {
-      appStore.showError(error?.message || t('errors.networkError'))
-    }
-  }
+async function selectRestoreBackup(id: string) {
+  selectedRestoreBackup.value = id
+  await nextTick()
+  document.getElementById('restore-workflow-title')?.focus()
 }
 
 async function removeBackup(id: string) {
@@ -933,16 +878,10 @@ onMounted(async () => {
     creatingBackup.value = true
     startPolling(runningBackup.id)
   }
-  const restoringBackup = backups.value.find(r => r.restore_status === 'running')
-  if (restoringBackup) {
-    restoringId.value = restoringBackup.id
-    startRestorePolling(restoringBackup.id)
-  }
 })
 
 onBeforeUnmount(() => {
   stopPolling()
-  stopRestorePolling()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
