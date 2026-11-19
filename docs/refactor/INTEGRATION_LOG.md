@@ -157,3 +157,17 @@ Backend failures observed:
 | frontend full Vitest | 468 files / 5357 passed (after em-dash assertion fix) |
 | frontend production build | PASS (6 GB heap) |
 | contracts / generated-drift / independence | PASS |
+
+## Confirmed gates at a79304ef4
+
+- backend `go test ./...`: PASS (RC=0)
+- backend `go test -tags=unit ./...`: PASS (97 packages)
+- frontend `pnpm run test:run`: PASS 468 files / 5357 tests / 1 skipped (laptop, RC=0)
+- frontend `pnpm run build`: PASS (6 GB heap, ~32 s)
+- frontend typecheck / lint / i18n: PASS
+- contracts / generated-drift / independence: PASS
+
+Remaining GA-only items (environment dependent, not code):
+- two-hour paired load run;
+- full protocol success-message matrix on real providers;
+- live cutover sign-off and independent release assets.
