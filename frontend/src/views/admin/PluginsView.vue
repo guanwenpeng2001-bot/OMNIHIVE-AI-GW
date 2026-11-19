@@ -63,7 +63,7 @@
               <div>
                 <h4 class="font-semibold">版本兼容性</h4>
                 <p class="mt-1" :class="!plugin.compatibility.compatible ? 'text-[var(--bad-text)]' : !plugin.compatibility.tested ? 'text-[var(--warn-text)]' : 'text-[var(--ok-text)]'">{{ t(`admin.plugins.${plugin.compatibility.status}`) }}</p>
-                <p class="mt-1 break-words text-xs text-[var(--muted-foreground)]">宿主 {{ plugin.compatibility.current_sub2api_version }} · 要求 {{ plugin.compatibility.required_sub2api_version }} · 建议 {{ plugin.compatibility.recommended_sub2api_version || '未指定' }}</p>
+                <p class="mt-1 break-words text-xs text-[var(--muted-foreground)]">宿主 {{ plugin.compatibility.current_omnihive_version ?? plugin.compatibility.current_sub2api_version }} · 要求 {{ plugin.compatibility.required_omnihive_version ?? plugin.compatibility.required_sub2api_version }} · 建议 {{ (plugin.compatibility.recommended_omnihive_version ?? plugin.compatibility.recommended_sub2api_version) || '未指定' }}</p>
               </div>
               <div>
                 <h4 class="font-semibold">运行状态</h4>

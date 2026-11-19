@@ -176,15 +176,15 @@ export default {
         "rows": {
           "curl": {
             "client": "curl",
-            "base": "$SUB2API_BASE_URL",
-            "key": "Authorization: Bearer $SUB2API_API_KEY",
+            "base": "$OMNIHIVE_BASE_URL",
+            "key": "Authorization: Bearer $OMNIHIVE_API_KEY",
             "model": "model: MODEL_ID_FROM_LIST",
             "notes": "Chat uses chat/completions; see streaming below and the first request in Quick start."
           },
           "python": {
             "client": "Python · OpenAI SDK",
-            "base": "base_url = SUB2API_BASE_URL",
-            "key": "api_key = SUB2API_API_KEY",
+            "base": "base_url = OMNIHIVE_BASE_URL",
+            "key": "api_key = OMNIHIVE_API_KEY",
             "model": "model = MODEL_ID_FROM_LIST",
             "notes": "Install openai first; the SDK appends the endpoint path."
           },
@@ -197,8 +197,8 @@ export default {
           },
           "codex": {
             "client": "Codex",
-            "base": "model_providers.sub2api.base_url",
-            "key": "env_key = \"SUB2API_API_KEY\"",
+            "base": "model_providers.omnihive.base_url",
+            "key": "env_key = \"OMNIHIVE_API_KEY\"",
             "model": "model = \"MODEL_ID_FROM_CODEX_LIST\"",
             "notes": "Configure the provider in ~/.codex/config.toml and store the key in an environment variable; the example uses HTTP Responses."
           },
@@ -247,21 +247,21 @@ export default {
           "opencode": {
             "client": "OpenCode (v1 config)",
             "base": "provider.<id>.options.baseURL = root + /v1",
-            "key": "options.apiKey: {'{'}env:SUB2API_API_KEY{'}'}",
+            "key": "options.apiKey: {'{'}env:OMNIHIVE_API_KEY{'}'}",
             "model": "<provider>/MODEL_ID_FROM_LIST",
             "notes": "The example uses the {'@'}ai-sdk/openai-compatible package for Chat. OpenCode 2 has a different schema; do not mix them."
           },
           "dsh": {
             "client": "DeepSeek Harness (DSH)",
             "base": "baseURL = root + /v1",
-            "key": "apiKeyEnv: SUB2API_API_KEY",
+            "key": "apiKeyEnv: OMNIHIVE_API_KEY",
             "model": "MODEL_ID_FROM_LIST",
             "notes": "Select openai-completions in provider settings; openai-responses and anthropic-messages are separate protocol choices. Save through your installed version’s setup flow."
           },
           "pi": {
             "client": "Pi",
             "base": "baseUrl = root + /v1",
-            "key": "apiKey: $SUB2API_API_KEY",
+            "key": "apiKey: $OMNIHIVE_API_KEY",
             "model": "models[].id: MODEL_ID_FROM_LIST",
             "notes": "Configure openai-completions in ~/.pi/agent/models.json; open /model to reload and select it."
           }

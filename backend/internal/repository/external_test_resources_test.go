@@ -17,7 +17,7 @@ import (
 
 func TestExternalTestResourceMode(test *testing.T) {
 	if !testresources.External() {
-		test.Skip("set SUB2API_TEST_EXTERNAL_SERVICES=1 and allocate isolated services")
+		test.Skip("set OMNIHIVE_TEST_EXTERNAL_SERVICES=1 and allocate isolated services")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -75,7 +75,7 @@ func TestExternalTestResourceMode(test *testing.T) {
 		}
 	})
 	test.Run("default_lifecycle_is_preserved", func(test *testing.T) {
-		test.Setenv("SUB2API_TEST_EXTERNAL_SERVICES", "")
+		test.Setenv("OMNIHIVE_TEST_EXTERNAL_SERVICES", "")
 		managedCalls := 0
 		require.Equal(test, 17, testresources.Run(func() int { test.Fatal("unexpected external callback"); return 1 }, func() int { managedCalls++; return 17 }))
 		require.Equal(test, 1, managedCalls)

@@ -141,7 +141,7 @@ const {
 const showThemeMenu = ref(false)
 
 const settings = computed(() => appStore.cachedPublicSettings)
-const siteName = computed(() => (settings.value?.site_name || 'OmniHive').replace(/sub2api|omniscription/gi, 'OmniHive'))
+const siteName = computed(() => settings.value?.site_name?.trim() || 'OmniHive')
 const siteLogo = computed(() =>
   sanitizeUrl(settings.value?.site_logo || '', { allowRelative: true, allowDataUrl: true })
 )

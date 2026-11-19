@@ -186,6 +186,7 @@ func TestCursorEstimatedUsageAllProtocols(t *testing.T) {
 				require.Positive(t, result.Usage.InputTokens)
 				require.Contains(t, recorder.Body.String(), `"estimated":true`)
 				if !stream {
+					require.Equal(t, "estimated_missing_turn_ended", recorder.Header().Get("X-OmniHive-Usage-Source"))
 					require.Equal(t, "estimated_missing_turn_ended", recorder.Header().Get("X-Sub2API-Usage-Source"))
 				}
 			})

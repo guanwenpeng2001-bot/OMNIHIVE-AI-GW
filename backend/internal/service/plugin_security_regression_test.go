@@ -77,6 +77,35 @@ func TestPluginUIAssetTokenCanBeResolvedByAnotherInstance(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPluginUIAssetTokenPrefixFollowsManifest(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		requires PluginRequirements
+		prefix   string
+	}{
+		{name: "legacy", requires: PluginRequirements{Sub2API: ">=0.1.0"}, prefix: "sub2api:plugin-ui:v1:"},
+		{name: "OmniHive", requires: PluginRequirements{OmniHive: ">=0.1.0"}, prefix: "omnihive:plugin-ui:v1:"},
+		{name: "mixed hosts", requires: PluginRequirements{OmniHive: ">=0.1.0", Sub2API: ">=0.1.0"}, prefix: "sub2api:plugin-ui:v1:"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			installation := &PluginInstallation{ID: 42, Manifest: PluginManifest{Requires: test.requires}}
+			manager := &PluginManager{repo: &pluginTokenRepository{installation: installation}, encryptor: pluginTokenEncryptor{}}
+
+			token, _, err := manager.CreateUIAssetToken(context.Background(), 42, time.Minute)
+			require.NoError(t, err)
+			encoded, err := base64.RawURLEncoding.DecodeString(token)
+			require.NoError(t, err)
+			plaintext, err := manager.encryptor.Decrypt(string(encoded))
+			require.NoError(t, err)
+			require.True(t, strings.HasPrefix(plaintext, test.prefix))
+
+			id, err := manager.ResolveUIAssetToken(token)
+			require.NoError(t, err)
+			require.Equal(t, installation.ID, id)
+		})
+	}
+}
+
 func TestPluginUIAssetTokenRejectsOtherEncryptedPayloads(t *testing.T) {
 	repo := &pluginTokenRepository{installation: &PluginInstallation{ID: 42}}
 	manager := &PluginManager{repo: repo, encryptor: pluginTokenEncryptor{}}

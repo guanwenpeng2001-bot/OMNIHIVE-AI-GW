@@ -1,21 +1,21 @@
 import { curlResourceExample, jsonRequestExample, powershellChatExample, requestExample, shellQuote } from './quickstart'
 
-export function guideExamples(root: string): Record<string, { label: string; code: string }[]> {
+export function guideExamples(root: string, siteName = 'OmniHive'): Record<string, { label: string; code: string }[]> {
   const base = root ? `${root}/v1` : ''
   if (!base) return {}
   return {
     ...apiExamples(root),
     quick: [
-      { label: 'Bash · environment & models', code: String.raw`export SUB2API_BASE_URL=${shellQuote(base)}
-export SUB2API_API_KEY="sk-your-api-key"
-curl "$SUB2API_BASE_URL/models" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"` },
+      { label: 'Bash · environment & models', code: String.raw`export OMNIHIVE_BASE_URL=${shellQuote(base)}
+export OMNIHIVE_API_KEY="sk-your-api-key"
+curl "$OMNIHIVE_BASE_URL/models" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"` },
       requestExample(root, 'MODEL_ID_FROM_LIST', 'chat/completions').examples[0],
       powershellChatExample(root, 'MODEL_ID_FROM_LIST')
     ],
     models: [curlResourceExample(root, '/backend-api/codex/models', 'Bash · Codex catalog'), curlResourceExample(root, '/v1/models/catalog?limit=100', 'Bash · rich catalog')],
     clients: [
-      ...clientExamples(root),
+      ...clientExamples(root, siteName),
       { label: 'Text · Cursor', code: String.raw`OpenAI Base URL: ${base}
 OpenAI API Key: sk-your-api-key
 Model: MODEL_ID_FROM_LIST` },
@@ -23,7 +23,7 @@ Model: MODEL_ID_FROM_LIST` },
 Base URL: ${base}
 API Key: sk-your-api-key
 Model: MODEL_ID_FROM_LIST` },
-      { label: 'Continue · config.yaml', code: String.raw`name: OmniHive
+      { label: 'Continue · config.yaml', code: String.raw`name: ${JSON.stringify(siteName)}
 version: 0.0.1
 schema: v1
 models:
@@ -41,21 +41,21 @@ import os
 from openai import OpenAI
 
 client = OpenAI(
-    base_url=os.environ["SUB2API_BASE_URL"],
-    api_key=os.environ["SUB2API_API_KEY"],
+    base_url=os.environ["OMNIHIVE_BASE_URL"],
+    api_key=os.environ["OMNIHIVE_API_KEY"],
 )
 response = client.chat.completions.create(
     model="MODEL_ID_FROM_LIST",
     messages=[{"role": "user", "content": "Hello"}],
 )
 print(response.choices[0].message.content)` },
-      { label: 'TOML · ~/.codex/config.toml', code: String.raw`model_provider = "sub2api"
+      { label: 'TOML · ~/.codex/config.toml', code: String.raw`model_provider = "omnihive"
 model = "MODEL_ID_FROM_CODEX_LIST"
 
-[model_providers.sub2api]
-name = "OmniHive"
+[model_providers.omnihive]
+name = ${JSON.stringify(siteName)}
 base_url = "${base}"
-env_key = "SUB2API_API_KEY"
+env_key = "OMNIHIVE_API_KEY"
 wire_api = "responses"
 requires_openai_auth = false
 supports_websockets = false` },
@@ -89,9 +89,9 @@ Chat request URL: ${chat.url}` }],
       tools: [{ type: 'function', function: { name: 'get_weather', description: 'Get the weather for a city', parameters: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } } }]
     }, 'Bash · function declaration')],
     // No invented effort enum: use an actual value supplied by the catalog.
-    reasoning: [{ label: 'Node · Responses reasoning', code: `const key = process.env.SUB2API_API_KEY;
+    reasoning: [{ label: 'Node · Responses reasoning', code: `const key = process.env.OMNIHIVE_API_KEY;
 const effort = process.env.MODEL_REASONING_EFFORT; // Set to a supported catalog level.
-if (!key || !effort) throw new Error("Set SUB2API_API_KEY and MODEL_REASONING_EFFORT");
+if (!key || !effort) throw new Error("Set OMNIHIVE_API_KEY and MODEL_REASONING_EFFORT");
 const response = await fetch(${JSON.stringify(`${root}/v1/responses`)}, {
   method: "POST",
   headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json" },
@@ -126,21 +126,21 @@ console.log(await response.json());` }],
   }
 }
 
-function clientExamples(root: string) {
+function clientExamples(root: string, siteName: string) {
   return [
     { label: 'Bash · Claude Code CLI', code: `export ANTHROPIC_BASE_URL=${shellQuote(root)}
-export ANTHROPIC_API_KEY="$SUB2API_API_KEY"
+export ANTHROPIC_API_KEY="$OMNIHIVE_API_KEY"
 claude --model 'MESSAGES_MODEL_ID_FROM_LIST'` },
     { label: 'JSON · OpenCode v1 · opencode.json', code: JSON.stringify({
-      provider: { omnihive: { npm: '@ai-sdk/openai-compatible', name: 'OmniHive', options: { baseURL: `${root}/v1`, apiKey: '{env:SUB2API_API_KEY}' }, models: { MODEL_ID_FROM_LIST: { name: 'MODEL_ID_FROM_LIST' } } } },
+      provider: { omnihive: { npm: '@ai-sdk/openai-compatible', name: siteName, options: { baseURL: `${root}/v1`, apiKey: '{env:OMNIHIVE_API_KEY}' }, models: { MODEL_ID_FROM_LIST: { name: 'MODEL_ID_FROM_LIST' } } } },
       model: 'omnihive/MODEL_ID_FROM_LIST'
     }, null, 2) },
     { label: 'JSON · Pi · ~/.pi/agent/models.json', code: JSON.stringify({
-      providers: { omnihive: { baseUrl: `${root}/v1`, api: 'openai-completions', apiKey: '$SUB2API_API_KEY', models: [{ id: 'MODEL_ID_FROM_LIST' }] } }
+      providers: { omnihive: { baseUrl: `${root}/v1`, api: 'openai-completions', apiKey: '$OMNIHIVE_API_KEY', models: [{ id: 'MODEL_ID_FROM_LIST' }] } }
     }, null, 2) },
     { label: 'DSH · provider setup', code: `Protocol: openai-completions
 baseURL: ${root}/v1
-apiKeyEnv: SUB2API_API_KEY
+apiKeyEnv: OMNIHIVE_API_KEY
 Model ID: MODEL_ID_FROM_LIST` }
   ]
 }

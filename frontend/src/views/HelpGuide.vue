@@ -162,7 +162,7 @@ const links = computed(() => Object.fromEntries(Object.entries(relatedLinks).map
   if (link.path === '/subscriptions') return isFeatureFlagEnabled(FeatureFlags.subscription)
   return true
 })])))
-const examples = computed(() => guideExamples(apiRoot.value))
+const examples = computed(() => guideExamples(apiRoot.value, appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'OmniHive'))
 </script>
 <style scoped>
 .guide-document { background: var(--background); overflow-wrap: anywhere; }

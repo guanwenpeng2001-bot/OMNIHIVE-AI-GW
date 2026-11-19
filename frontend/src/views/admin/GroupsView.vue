@@ -1177,7 +1177,7 @@
             />
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiLive.hint").replace(/sub2api/gi, "OmniHive") }}
+            {{ t("admin.groups.openaiLive.hint") }}
           </p>
         </div>
 
@@ -2836,7 +2836,7 @@
             />
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {{ t("admin.groups.openaiLive.hint").replace(/sub2api/gi, "OmniHive") }}
+            {{ t("admin.groups.openaiLive.hint") }}
           </p>
         </div>
 
@@ -3352,7 +3352,7 @@
     <ConfirmDialog
       :show="showUnsupportedLiveConfirm"
       :title="t('admin.groups.openaiLive.unsupportedTitle')"
-      :message="t('admin.groups.openaiLive.unsupportedMessage').replace(/sub2api/gi, 'OmniHive')"
+      :message="t('admin.groups.openaiLive.unsupportedMessage')"
       :confirm-text="t('admin.groups.openaiLive.enableAnyway')"
       :cancel-text="t('common.cancel')"
       :danger="true"
