@@ -16,6 +16,10 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/planner"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -92,9 +96,11 @@ type OpenAIAccountScheduleRequest struct {
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
 	RequireCompact bool
 	ExcludedIDs    map[int64]struct{}
+	routing        *openAIRoutingEvidence
 }
 
 type OpenAIAccountScheduleDecision struct {
+	Trace               *trace.DecisionTrace `json:"-"`
 	Layer               string
 	StickyPreviousHit   bool
 	StickySessionHit    bool
@@ -391,10 +397,13 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		req.RequirePrivacySet = true
 	}
 	start := time.Now()
+	req.routing = newOpenAIRoutingEvidence(ctx, req, start)
 	// 命名返回值保证 defer 写入的耗时同时返回给调用方。
 	defer func() {
 		decision.LatencyMs = time.Since(start).Milliseconds()
 		s.metrics.recordSelect(decision)
+		req.routing.finish(ctx, selection, decision.Layer)
+		decision.Trace = &req.routing.decision
 	}()
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
@@ -666,6 +675,7 @@ type openAIAccountCandidateScore struct {
 	errorRate float64
 	ttft      float64
 	hasTTFT   bool
+	factors   []trace.Factor
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -750,32 +760,6 @@ func selectTopKOpenAICandidates(candidates []openAIAccountCandidateScore, topK i
 	return ranked
 }
 
-type openAISelectionRNG struct {
-	state uint64
-}
-
-func newOpenAISelectionRNG(seed uint64) openAISelectionRNG {
-	if seed == 0 {
-		seed = 0x9e3779b97f4a7c15
-	}
-	return openAISelectionRNG{state: seed}
-}
-
-func (r *openAISelectionRNG) nextUint64() uint64 {
-	// xorshift64*
-	x := r.state
-	x ^= x >> 12
-	x ^= x << 25
-	x ^= x >> 27
-	r.state = x
-	return x * 2685821657736338717
-}
-
-func (r *openAISelectionRNG) nextFloat64() float64 {
-	// [0,1)
-	return float64(r.nextUint64()>>11) / (1 << 53)
-}
-
 func deriveOpenAISelectionSeed(req OpenAIAccountScheduleRequest) uint64 {
 	hasher := fnv.New64a()
 	writeValue := func(value string) {
@@ -805,59 +789,8 @@ func deriveOpenAISelectionSeed(req OpenAIAccountScheduleRequest) uint64 {
 	return seed
 }
 
-func buildOpenAIWeightedSelectionOrder(
-	candidates []openAIAccountCandidateScore,
-	req OpenAIAccountScheduleRequest,
-) []openAIAccountCandidateScore {
-	if len(candidates) <= 1 {
-		return append([]openAIAccountCandidateScore(nil), candidates...)
-	}
-
-	pool := append([]openAIAccountCandidateScore(nil), candidates...)
-	weights := make([]float64, len(pool))
-	minScore := pool[0].score
-	for i := 1; i < len(pool); i++ {
-		if pool[i].score < minScore {
-			minScore = pool[i].score
-		}
-	}
-	for i := range pool {
-		// 将 top-K 分值平移到正区间，避免“单一最高分账号”长期垄断。
-		weight := (pool[i].score - minScore) + 1.0
-		if math.IsNaN(weight) || math.IsInf(weight, 0) || weight <= 0 {
-			weight = 1.0
-		}
-		weights[i] = weight
-	}
-
-	order := make([]openAIAccountCandidateScore, 0, len(pool))
-	rng := newOpenAISelectionRNG(deriveOpenAISelectionSeed(req))
-	for len(pool) > 0 {
-		total := 0.0
-		for _, w := range weights {
-			total += w
-		}
-
-		selectedIdx := 0
-		if total > 0 {
-			r := rng.nextFloat64() * total
-			acc := 0.0
-			for i, w := range weights {
-				acc += w
-				if r <= acc {
-					selectedIdx = i
-					break
-				}
-			}
-		} else {
-			selectedIdx = int(rng.nextUint64() % uint64(len(pool)))
-		}
-
-		order = append(order, pool[selectedIdx])
-		pool = append(pool[:selectedIdx], pool[selectedIdx+1:]...)
-		weights = append(weights[:selectedIdx], weights[selectedIdx+1:]...)
-	}
-	return order
+func buildOpenAIWeightedSelectionOrder(candidates []openAIAccountCandidateScore, req OpenAIAccountScheduleRequest) []openAIAccountCandidateScore {
+	return planner.WeightedOrder(candidates, deriveOpenAISelectionSeed(req), func(c openAIAccountCandidateScore) float64 { return c.score })
 }
 
 func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
@@ -1032,6 +965,18 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			weights.Reset*resetFactor +
 			weights.QuotaHeadroom*quotaHeadroomFactor +
 			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+		if req.routing != nil {
+			item.factors = []trace.Factor{
+				openAIRoutingFactor("priority", weights.Priority*priorityFactor, true),
+				openAIRoutingFactor("load", weights.Load*loadFactor, item.loadKnown),
+				openAIRoutingFactor("queue", weights.Queue*queueFactor, item.loadKnown),
+				openAIRoutingFactor("error_rate", weights.ErrorRate*errorFactor, false),
+				openAIRoutingFactor("ttft", weights.TTFT*ttftFactor, item.hasTTFT),
+				openAIRoutingFactor("reset_window", weights.Reset*resetFactor, hasResetSample),
+				openAIRoutingFactor("quota_headroom", weights.QuotaHeadroom*quotaHeadroomFactor, false),
+				openAIRoutingFactor("upstream_cost", weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor), upstreamCostFactor != openAIUpstreamCostNeutralFactor),
+			}
+		}
 		if req.StickyWeighted {
 			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
 				item.score += weights.Previous
@@ -1055,111 +1000,126 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	return plan
 }
 
+func openAIRoutingFactor(name string, contribution float64, observed bool) trace.Factor {
+	freshness := "unknown"
+	if observed {
+		freshness = "observed"
+	}
+	return trace.Factor{Name: name, Value: strconv.FormatFloat(contribution, 'g', -1, 64), Unit: "score", Source: "legacy_scheduler", Freshness: freshness}
+}
+
+type openAIRoutingEvidence struct {
+	features planner.Features
+	snapshot snapshot.CandidateSnapshot
+	rejected map[int64]string
+	decision trace.DecisionTrace
+}
+
+func newOpenAIRoutingEvidence(ctx context.Context, req OpenAIAccountScheduleRequest, now time.Time) *openAIRoutingEvidence {
+	e := &openAIRoutingEvidence{
+		features: planner.Features{Mode: trace.Execution, ModelID: req.RequestedModel, Seed: deriveOpenAISelectionSeed(req)},
+		snapshot: snapshot.CandidateSnapshot{ID: journal.NewID(), AsOf: now.UTC()},
+		rejected: make(map[int64]string),
+	}
+	if execution, err := GatewayRequestPlanFromContext(ctx).AdmittedExecution(); err == nil {
+		e.snapshot.CatalogVersion = execution.Versions.Model
+		e.snapshot.PriceVersion = execution.Versions.Price
+	}
+	return e
+}
+
+func (e *openAIRoutingEvidence) finish(ctx context.Context, result *AccountSelectionResult, layer string) {
+	if e.decision.SchemaVersion == 0 {
+		in := e.snapshot
+		for id, reason := range e.rejected {
+			in.Candidates = append(in.Candidates, snapshot.Candidate{ID: strconv.FormatInt(id, 10), Rejection: reason})
+		}
+		e.decision = planner.Plan(e.features, planner.EffectivePolicy{}, in)
+	}
+	e.decision.Selected = nil
+	if result != nil && result.Account != nil {
+		id := strconv.FormatInt(result.Account.ID, 10)
+		e.decision.Selected = &trace.Selection{CandidateID: id, ModelID: e.features.ModelID}
+		e.decision.ExecutionOutcome = "selected"
+		if result.WaitPlan != nil && !result.Acquired {
+			e.decision.ExecutionOutcome = "wait"
+		}
+		found := false
+		for _, candidate := range e.decision.Candidates {
+			if candidate.ID == id && candidate.Rank != nil {
+				found = true
+				if *candidate.Rank != 1 {
+					e.decision.Uncertainties = append(e.decision.Uncertainties, "EXECUTION_ORDER_CHANGED")
+				}
+				break
+			}
+		}
+		if !found {
+			e.decision.Uncertainties = append(e.decision.Uncertainties, "SELECTION_OUTSIDE_PLANNED_POOL")
+		}
+	} else {
+		e.decision.ExecutionOutcome = "unselected"
+	}
+	e.decision.SelectionLayer = layer
+	trace.Emit(ctx, e.decision)
+}
+
 func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
-		if len(pool) == 0 || plan.topK <= 0 {
-			return nil
-		}
-		groupTopK := plan.topK
-		if groupTopK > len(pool) {
-			groupTopK = len(pool)
-		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
-		var primary []openAIAccountCandidateScore
-		if req.StickyWeighted {
-			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
-				if stickyID <= 0 {
-					continue
-				}
-				for i, candidate := range ranked {
-					if candidate.account != nil && candidate.account.ID == stickyID {
-						primary = append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
-						primary = append(primary, ranked[i+1:]...)
-						break
-					}
-				}
-				if len(primary) > 0 {
-					break
-				}
+	e := req.routing
+	if e == nil {
+		e = newOpenAIRoutingEvidence(context.Background(), req, time.Now())
+	}
+	features := e.features
+	if req.StickyWeighted {
+		for _, id := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+			if id > 0 {
+				features.AffinityIDs = append(features.AffinityIDs, strconv.FormatInt(id, 10))
 			}
 		}
-		if len(primary) == 0 {
-			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
-		}
-		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
-			return primary
-		}
-
-		selected := make(map[int64]struct{}, len(primary))
-		for _, candidate := range primary {
-			selected[candidate.account.ID] = struct{}{}
-		}
-		overflow := make([]openAIAccountCandidateScore, 0, len(pool)-len(primary))
-		for _, candidate := range pool {
-			if _, ok := selected[candidate.account.ID]; !ok {
-				overflow = append(overflow, candidate)
-			}
-		}
-		sort.Slice(overflow, func(i, j int) bool {
-			return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
+	}
+	in := e.snapshot
+	in.ID = journal.NewID()
+	in.AsOf = time.Now().UTC()
+	in.Candidates = make([]snapshot.Candidate, 0, len(plan.allCandidates)+len(e.rejected))
+	accounts := make(map[string]openAIAccountCandidateScore, len(plan.allCandidates))
+	add := func(c openAIAccountCandidateScore, tier int, recheck bool) {
+		id := strconv.FormatInt(c.account.ID, 10)
+		accounts[id] = c
+		in.Candidates = append(in.Candidates, snapshot.Candidate{
+			ID: id, ModelID: req.RequestedModel, Score: c.score,
+			Priority: c.account.Priority, LoadRate: c.loadInfo.LoadRate, Waiting: c.loadInfo.WaitingCount,
+			Tier: tier, RecheckOnly: recheck, LastUsedAt: c.account.LastUsedAt, InputOrder: len(in.Candidates), Factors: c.factors,
 		})
-		return append(primary, overflow...)
 	}
-
-	if req.RequireCompact {
-		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
-		unknown := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
-		for _, candidate := range plan.candidates {
-			switch openAICompactSupportTier(candidate.account) {
-			case 2:
-				supported = append(supported, candidate)
-			case 1:
-				unknown = append(unknown, candidate)
-			}
+	for _, c := range plan.candidates {
+		tier := 0
+		if req.RequireCompact && openAICompactSupportTier(c.account) == 1 {
+			tier = 1
 		}
-		selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
-		selectionOrder = append(selectionOrder, buildSelectionOrder(supported)...)
-		selectionOrder = append(selectionOrder, buildSelectionOrder(unknown)...)
-		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
-			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
-		}
-		return selectionOrder
+		add(c, tier, false)
 	}
-
-	return buildSelectionOrder(plan.candidates)
-}
-
-func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
-	if len(pool) == 0 {
-		return nil
+	for _, c := range plan.staleSnapshotCompactRetry {
+		add(c, 2, true)
 	}
-	ordered := append([]openAIAccountCandidateScore(nil), pool...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		a, b := ordered[i], ordered[j]
-		if a.account.Priority != b.account.Priority {
-			return a.account.Priority < b.account.Priority
+	for id, reason := range e.rejected {
+		key := strconv.FormatInt(id, 10)
+		if _, ok := accounts[key]; !ok {
+			in.Candidates = append(in.Candidates, snapshot.Candidate{ID: key, Rejection: reason})
 		}
-		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
-			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+	}
+	e.decision = planner.Plan(features, planner.EffectivePolicy{
+		TopK: plan.topK, IncludeOverflow: plan.includeOverflowFallback, AllowRecheck: s.service != nil && s.service.schedulerSnapshot != nil,
+	}, in)
+	order := make([]openAIAccountCandidateScore, 0, len(accounts))
+	for _, candidate := range e.decision.Candidates {
+		if candidate.Rank != nil {
+			order = append(order, accounts[candidate.ID])
 		}
-		if a.loadInfo.WaitingCount != b.loadInfo.WaitingCount {
-			return a.loadInfo.WaitingCount < b.loadInfo.WaitingCount
-		}
-		switch {
-		case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
-			return true
-		case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
-			return false
-		case a.account.LastUsedAt == nil && b.account.LastUsedAt == nil:
-			return false
-		default:
-			return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
-		}
-	})
-	return ordered
+	}
+	return order
 }
 
 func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrder(
@@ -1484,6 +1444,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		account := &accounts[i]
 		if reason := s.loadCandidateFailureReason(ctx, account, req, schedGroup); reason != "" {
 			filterStats.exclude(reason)
+			if req.routing != nil {
+				req.routing.rejected[account.ID] = strings.ToUpper(reason)
+			}
 			continue
 		}
 		filtered = append(filtered, account)
@@ -1498,10 +1461,20 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	}
 	ctx = withOpenAIAccountRecheckBatch(ctx, recheckBatch)
 	rechecked := openAIRecheckedCandidates(filtered, recheckBatch)
+	if req.routing != nil {
+		for _, account := range filtered {
+			if recheckBatch[account.ID] == nil {
+				req.routing.rejected[account.ID] = "CANDIDATE_RECHECK_UNAVAILABLE"
+			}
+		}
+	}
 	filtered = filtered[:0]
 	for _, account := range rechecked {
 		if reason := s.loadCandidateFailureReason(ctx, account, req, schedGroup); reason != "" {
 			filterStats.exclude(reason)
+			if req.routing != nil {
+				req.routing.rejected[account.ID] = strings.ToUpper(reason)
+			}
 			continue
 		}
 		filtered = append(filtered, account)

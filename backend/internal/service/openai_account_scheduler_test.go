@@ -1265,6 +1265,13 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
 	require.True(t, decision.StickySessionHit)
 	require.Equal(t, 2, decision.TopK)
+	require.NotNil(t, decision.Trace)
+	require.Equal(t, "execution", string(decision.Trace.Mode))
+	require.NotEmpty(t, decision.Trace.SnapshotID)
+	require.NotNil(t, decision.Trace.Selected)
+	require.Equal(t, "37101", decision.Trace.Selected.CandidateID)
+	require.Equal(t, "37101", decision.Trace.Candidates[0].ID)
+	require.Equal(t, "selected", decision.Trace.ExecutionOutcome)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
 	}

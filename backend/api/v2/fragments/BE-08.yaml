@@ -1,0 +1,77 @@
+components:
+  schemas:
+    RoutingDecisionTrace:
+      type: object
+      required: [schema_version, mode, snapshot_id, as_of, policy_version, catalog_version, price_version, seed, origins, stages, candidates, selected, uncertainties, redactions]
+      properties:
+        schema_version: {type: integer, enum: [1]}
+        mode: {type: string, enum: [simulation, execution]}
+        snapshot_id: {type: string}
+        as_of: {type: string, format: date-time}
+        policy_version: {type: string}
+        catalog_version: {type: string}
+        price_version: {type: string}
+        seed: {type: string, pattern: '^[0-9]+$'}
+        origins:
+          type: array
+          items:
+            type: object
+            required: [constraint, scope_type, scope_id, version]
+            properties:
+              constraint: {type: string}
+              scope_type: {type: string}
+              scope_id: {type: string}
+              version: {type: string}
+        stages:
+          type: array
+          items:
+            type: object
+            required: [name, input_count, remaining_count]
+            properties:
+              name: {type: string}
+              input_count: {type: string}
+              remaining_count: {type: string}
+        candidates:
+          type: array
+          items:
+            type: object
+            required: [id, state, rank, reasons, factors]
+            properties:
+              id: {type: string}
+              state: {type: string, enum: [eligible, excluded]}
+              rank: {type: integer, nullable: true, minimum: 1}
+              reasons:
+                type: array
+                items:
+                  type: object
+                  required: [code, stage]
+                  properties:
+                    code: {type: string}
+                    stage: {type: string}
+                    origin: {type: string}
+              factors:
+                type: array
+                items:
+                  type: object
+                  required: [name, value, unit, source, freshness, window_seconds, samples, observed_at]
+                  properties:
+                    name: {type: string}
+                    value: {type: string}
+                    unit: {type: string}
+                    source: {type: string}
+                    freshness: {type: string}
+                    window_seconds: {type: integer, nullable: true}
+                    samples: {type: string, nullable: true}
+                    observed_at: {type: string, format: date-time, nullable: true}
+        selected:
+          type: object
+          nullable: true
+          required: [model_id, candidate_id, funding_source]
+          properties:
+            model_id: {type: string}
+            candidate_id: {type: string}
+            funding_source: {type: string}
+        uncertainties: {type: array, items: {type: string}}
+        redactions: {type: array, items: {type: string}}
+        execution_outcome: {type: string, enum: [selected, wait, unselected]}
+        selection_layer: {type: string}
