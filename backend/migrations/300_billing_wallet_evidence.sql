@@ -1,6 +1,8 @@
 -- Lock in receipt-to-payer order, matching settlement. The migration runner
 -- holds these locks through the opening snapshot and trigger installation.
-LOCK TABLE usage_settlement_receipts, users IN SHARE ROW EXCLUSIVE MODE;
+-- EXCLUSIVE also waits for workers that have only locked a receipt row.
+LOCK TABLE usage_settlement_receipts IN EXCLUSIVE MODE;
+LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE;
 
 CREATE TABLE billing_funding_accounts (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
