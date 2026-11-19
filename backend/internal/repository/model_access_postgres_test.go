@@ -3,22 +3,19 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
 func TestModelAccessPostgresRoundTripReferencesAndRevision(t *testing.T) {
-	dsn := os.Getenv("MODEL_ACCESS_TEST_DSN")
-	if dsn == "" {
-		t.Skip("MODEL_ACCESS_TEST_DSN must target disposable model_access_test")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "MODEL_ACCESS_TEST_DSN", "model_access_test")
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = database.Close() })

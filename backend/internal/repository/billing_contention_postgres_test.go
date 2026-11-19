@@ -138,7 +138,11 @@ func runBillingMixedContention(t *testing.T, ctx context.Context, db *sql.DB, pa
 			if p == nil || p.user == 0 {
 				continue
 			}
-			_, err := db.Exec(`DELETE FROM usage_settlement_receipts WHERE user_id=$1`, p.user)
+			_, err := db.Exec(`DELETE FROM billing_movement_links WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id=$1)`, p.user)
+			require.NoError(t, err)
+			_, err = db.Exec(`DELETE FROM billing_settlement_outbox WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id=$1)`, p.user)
+			require.NoError(t, err)
+			_, err = db.Exec(`DELETE FROM usage_settlement_receipts WHERE user_id=$1`, p.user)
 			require.NoError(t, err)
 			_, err = db.Exec(`DELETE FROM user_platform_quota_events WHERE user_id=$1`, p.user)
 			require.NoError(t, err)

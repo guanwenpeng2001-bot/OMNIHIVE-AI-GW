@@ -93,6 +93,17 @@ func OpenPostgres(ctx context.Context, connectionString, database string) (*sql.
 	return connection, nil
 }
 
+// DedicatedPostgresDSN handles the shared job_test URL supplied by the general
+// test runner. Each dedicated suite still validates its own target before use.
+func DedicatedPostgresDSN(test *testing.T, variable, database string) string {
+	test.Helper()
+	dsn := os.Getenv(variable)
+	if dsn == "" || ValidatePostgres(dsn, "job_test") == nil {
+		test.Skipf("%s requires its dedicated %s fixture; the shared job_test database cannot be used", variable, database)
+	}
+	return dsn
+}
+
 // RequireDisposableDatabase rejects bad configuration before recording a real
 // coverage gap. Full migrations contain public-qualified DDL: a new schema is
 // not an equivalent replacement for a fresh database.

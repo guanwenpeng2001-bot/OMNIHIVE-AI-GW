@@ -50,14 +50,10 @@ func TestUsageDashboardChunkingPostgres(t *testing.T) {
 		_, err := db.ExecContext(ctx, query, args...)
 		require.NoError(t, err)
 	}
-	exec(`TRUNCATE usage_settlement_receipts, users, accounts, api_keys, usage_logs, usage_dashboard_hourly, usage_dashboard_daily, usage_dashboard_hourly_users, usage_dashboard_daily_users RESTART IDENTITY CASCADE`)
+	user, key, account := newDashboardUsageFixture(t, db)
 	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	end := start.AddDate(0, 0, 3)
 	exec(`UPDATE usage_dashboard_aggregation_watermark SET history_known_empty_before=NULL,last_aggregated_at='1970-01-01',raw_retained_from=$1,hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name='UTC',projection_version=2`, start)
-	var user, key, account int64
-	require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES('chunks@example.test','test',100) RETURNING id`).Scan(&user))
-	require.NoError(t, db.QueryRow(`INSERT INTO api_keys(user_id,key,name) VALUES($1,'chunks','chunks') RETURNING id`, user).Scan(&key))
-	require.NoError(t, db.QueryRow(`INSERT INTO accounts(name,platform,type) VALUES('chunks','openai','apikey') RETURNING id`).Scan(&account))
 	for day := 0; day < 3; day++ {
 		exec(`INSERT INTO usage_logs(user_id,api_key_id,account_id,model,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_cost,actual_cost,account_stats_cost,account_rate_multiplier,created_at)
  VALUES($1,$2,$3,'chunks',11,7,3,5,0.123456,0.012345,0.234567,0.5,$4)`, user, key, account, start.AddDate(0, 0, day).Add(time.Hour))

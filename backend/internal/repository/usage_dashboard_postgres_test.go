@@ -14,6 +14,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The dashboard reads globally from the dedicated stats_test database. Reset
+// only dashboard inputs and projections. Financial evidence retains user IDs.
+func newDashboardUsageFixture(t *testing.T, db *sql.DB) (user, key, account int64) {
+	t.Helper()
+	_, err := db.Exec(`DELETE FROM usage_logs;
+		TRUNCATE usage_dashboard_hourly, usage_dashboard_daily,
+		usage_dashboard_hourly_users, usage_dashboard_daily_users`)
+	require.NoError(t, err)
+	name := uniqueName("dashboard")
+	t.Cleanup(func() {
+		_, err := db.Exec(`DELETE FROM usage_settlement_receipts WHERE api_key_id=$1`, key)
+		require.NoError(t, err)
+		_, err = db.Exec(`DELETE FROM users WHERE id=$1`, user)
+		require.NoError(t, err)
+		_, err = db.Exec(`DELETE FROM accounts WHERE id=$1`, account)
+		require.NoError(t, err)
+	})
+	require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES($1,'test',100) RETURNING id`, name+"@example.test").Scan(&user))
+	require.NoError(t, db.QueryRow(`INSERT INTO api_keys(user_id,key,name) VALUES($1,$2,$2) RETURNING id`, user, name).Scan(&key))
+	require.NoError(t, db.QueryRow(`INSERT INTO accounts(name,platform,type) VALUES($1,'openai','apikey') RETURNING id`, name).Scan(&account))
+	return user, key, account
+}
+
 func TestUsageDashboardPostgres(t *testing.T) {
 	dsn := os.Getenv("USAGE_STATS_TEST_DSN")
 	if dsn == "" {
@@ -21,7 +44,7 @@ func TestUsageDashboardPostgres(t *testing.T) {
 	}
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { _ = db.Close() })
 	var name string
 	require.NoError(t, db.QueryRow("SELECT current_database()").Scan(&name))
 	require.Equal(t, "stats_test", name, "only a dedicated disposable statistics database is allowed")
@@ -34,12 +57,8 @@ func TestUsageDashboardPostgres(t *testing.T) {
 		_, err := db.ExecContext(ctx, query, args...)
 		require.NoError(t, err)
 	}
-	exec(`TRUNCATE usage_settlement_receipts, users, accounts, api_keys, usage_logs, usage_dashboard_hourly, usage_dashboard_daily, usage_dashboard_hourly_users, usage_dashboard_daily_users RESTART IDENTITY CASCADE`)
+	user, key, account := newDashboardUsageFixture(t, db)
 	exec(`UPDATE usage_dashboard_aggregation_watermark SET history_known_empty_before=NULL,last_aggregated_at='1970-01-01',raw_retained_from='1970-01-01',hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name=$1`, timezone.Name())
-	var user, key, account int64
-	require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES('stats-p112@example.test','test',100) RETURNING id`).Scan(&user))
-	require.NoError(t, db.QueryRow(`INSERT INTO api_keys(user_id,key,name) VALUES($1,'stats-p112','stats') RETURNING id`, user).Scan(&key))
-	require.NoError(t, db.QueryRow(`INSERT INTO accounts(name,platform,type) VALUES('stats','openai','apikey') RETURNING id`).Scan(&account))
 	start := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	insert := func(at time.Time) {
 		exec(`INSERT INTO usage_logs(user_id,api_key_id,account_id,model,input_tokens,output_tokens,total_cost,actual_cost,account_stats_cost,account_rate_multiplier,created_at) VALUES($1,$2,$3,'stats',10,5,1,0.125,2,0.5,$4)`, user, key, account, at)
