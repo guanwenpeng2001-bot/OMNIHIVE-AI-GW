@@ -7,7 +7,8 @@ import { defineStore } from 'pinia'
 import { ref, computed, readonly, onScopeDispose } from 'vue'
 import {
   captureAuthSession, isAuthSessionCurrent, authSessionChangedError,
-  advanceAuthSession, AUTH_SESSION_KEY, AUTH_SESSION_EVENT
+  advanceAuthSession, authStorage, clearPersistedAuthCredentials,
+  ALL_AUTH_STORAGE_WATCH_KEYS, AUTH_SESSION_EVENT
 } from '@/api/tokenRefresh'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
 import type {
@@ -18,11 +19,6 @@ import type {
   ActionCaptchaRequestProof
 } from '@/types'
 
-const AUTH_TOKEN_KEY = 'auth_token'
-const AUTH_USER_KEY = 'auth_user'
-const REFRESH_TOKEN_KEY = 'refresh_token'
-const TOKEN_EXPIRES_AT_KEY = 'token_expires_at' // 存储过期时间戳而非有效期
-const PENDING_AUTH_SESSION_KEY = 'pending_auth_session'
 const AUTO_REFRESH_INTERVAL = 60 * 1000 // 60 seconds for user data refresh
 const TOKEN_REFRESH_BUFFER = 120 * 1000 // 120 seconds before expiry to refresh token
 
@@ -43,7 +39,7 @@ function normalizePendingAuthTokenField(value: unknown): PendingAuthTokenField {
 }
 
 function getPersistedPendingAuthSession(): PendingAuthSessionSummary | null {
-  const raw = localStorage.getItem(PENDING_AUTH_SESSION_KEY)
+  const raw = authStorage.pendingSession.get()
   if (!raw) {
     return null
   }
@@ -52,7 +48,7 @@ function getPersistedPendingAuthSession(): PendingAuthSessionSummary | null {
     const parsed = JSON.parse(raw) as Partial<PendingAuthSessionSummary> | null
     const provider = typeof parsed?.provider === 'string' ? parsed.provider.trim() : ''
     if (!provider) {
-      localStorage.removeItem(PENDING_AUTH_SESSION_KEY)
+      authStorage.pendingSession.remove()
       return null
     }
     return {
@@ -65,17 +61,17 @@ function getPersistedPendingAuthSession(): PendingAuthSessionSummary | null {
       suggested_avatar_url: typeof parsed?.suggested_avatar_url === 'string' ? parsed.suggested_avatar_url : undefined
     }
   } catch {
-    localStorage.removeItem(PENDING_AUTH_SESSION_KEY)
+    authStorage.pendingSession.remove()
     return null
   }
 }
 
 function persistPendingAuthSession(session: PendingAuthSessionSummary): void {
-  localStorage.setItem(PENDING_AUTH_SESSION_KEY, JSON.stringify(session))
+  authStorage.pendingSession.setJSON(session)
 }
 
 function clearPendingAuthSessionStorage(): void {
-  localStorage.removeItem(PENDING_AUTH_SESSION_KEY)
+  authStorage.pendingSession.remove()
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -90,29 +86,28 @@ export const useAuthStore = defineStore('auth', () => {
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
   let identityRevision = 0
-  const sessionRevision = ref(localStorage.getItem(AUTH_SESSION_KEY))
+  const sessionRevision = ref(authStorage.sessionRevision.get())
 
   // Storage events run in peer tabs; the custom event covers local interceptor expiry.
   // Read the complete persisted state rather than an individual event's stale newValue.
   function syncAuthFromStorage(event: Event): void {
     if (event instanceof StorageEvent &&
       ((event.storageArea && event.storageArea !== localStorage) ||
-       (event.key !== null && ![AUTH_TOKEN_KEY, AUTH_USER_KEY, REFRESH_TOKEN_KEY,
-         TOKEN_EXPIRES_AT_KEY, AUTH_SESSION_KEY, PENDING_AUTH_SESSION_KEY].includes(event.key)))) return
+       (event.key !== null && !ALL_AUTH_STORAGE_WATCH_KEYS.includes(event.key)))) return
     identityRevision++
-    sessionRevision.value = localStorage.getItem(AUTH_SESSION_KEY)
+    sessionRevision.value = authStorage.sessionRevision.get()
     stopAutoRefresh()
     stopTokenRefresh()
-    const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
+    const savedToken = authStorage.token.get()
     let savedUser: (User & { run_mode?: 'standard' | 'simple' }) | null = null
     try {
-      savedUser = JSON.parse(localStorage.getItem(AUTH_USER_KEY) || 'null')
+      savedUser = JSON.parse(authStorage.user.get() || 'null')
     } catch { /* Invalid peer state is unauthenticated; never erase the peer's storage. */ }
     const sameUser = user.value?.id === savedUser?.id
     token.value = savedToken && savedUser ? savedToken : null
     user.value = token.value ? savedUser : null
-    refreshTokenValue.value = token.value ? localStorage.getItem(REFRESH_TOKEN_KEY) : null
-    const expiresAt = Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY))
+    refreshTokenValue.value = token.value ? authStorage.refreshToken.get() : null
+    const expiresAt = Number(authStorage.expiresAt.get())
     tokenExpiresAt.value = token.value && expiresAt > 0 ? expiresAt : null
     runMode.value = savedUser?.run_mode || (sameUser && user.value ? runMode.value : 'standard')
     pendingAuthSession.value = getPersistedPendingAuthSession()
@@ -156,10 +151,10 @@ export const useAuthStore = defineStore('auth', () => {
    */
   function checkAuth(): void {
     identityRevision++
-    const savedToken = localStorage.getItem(AUTH_TOKEN_KEY)
-    const savedUser = localStorage.getItem(AUTH_USER_KEY)
-    const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
-    const savedExpiresAt = localStorage.getItem(TOKEN_EXPIRES_AT_KEY)
+    const savedToken = authStorage.token.get()
+    const savedUser = authStorage.user.get()
+    const savedRefreshToken = authStorage.refreshToken.get()
+    const savedExpiresAt = authStorage.expiresAt.get()
     pendingAuthSession.value = getPersistedPendingAuthSession()
 
     if (savedToken && savedUser) {
@@ -249,7 +244,7 @@ export const useAuthStore = defineStore('auth', () => {
   function scheduleTokenRefresh(expiresInSeconds: number): void {
     const expiresAtMs = Date.now() + expiresInSeconds * 1000
     tokenExpiresAt.value = expiresAtMs
-    localStorage.setItem(TOKEN_EXPIRES_AT_KEY, String(expiresAtMs))
+    authStorage.expiresAt.set(String(expiresAtMs))
     scheduleTokenRefreshAt(expiresAtMs)
   }
 
@@ -365,15 +360,15 @@ export const useAuthStore = defineStore('auth', () => {
     stopTokenRefresh()
     refreshTokenValue.value = null
     tokenExpiresAt.value = null
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY)
+    authStorage.refreshToken.remove()
+    authStorage.expiresAt.remove()
     // Store token and user
     token.value = response.access_token
 
     // Store refresh token if present
     if (response.refresh_token) {
       refreshTokenValue.value = response.refresh_token
-      localStorage.setItem(REFRESH_TOKEN_KEY, response.refresh_token)
+      authStorage.refreshToken.set(response.refresh_token)
     }
 
     // Extract run_mode if present
@@ -381,9 +376,8 @@ export const useAuthStore = defineStore('auth', () => {
     const { run_mode: _run_mode, ...userData } = response.user
     user.value = userData
 
-    // Persist to localStorage
-    localStorage.setItem(AUTH_TOKEN_KEY, response.access_token)
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+    authStorage.token.set(response.access_token)
+    authStorage.user.setJSON(userData)
     clearPendingAuthSession()
     advanceAuthSession()
 
@@ -436,18 +430,18 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null
     user.value = null
     runMode.value = 'standard'
-    localStorage.removeItem(AUTH_USER_KEY)
+    authStorage.user.remove()
 
     token.value = newToken
-    localStorage.setItem(AUTH_TOKEN_KEY, newToken)
+    authStorage.token.set(newToken)
     // Announce invalidation before hydration; restore the token after the storage listener
     // correctly treats the not-yet-hydrated persisted identity as unauthenticated.
     advanceAuthSession()
     token.value = newToken
 
     // Read refresh token and expires_at from localStorage if set by OAuth callback
-    const savedRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
-    const savedExpiresAt = localStorage.getItem(TOKEN_EXPIRES_AT_KEY)
+    const savedRefreshToken = authStorage.refreshToken.get()
+    const savedExpiresAt = authStorage.expiresAt.get()
 
     refreshTokenValue.value = savedRefreshToken
     tokenExpiresAt.value = savedExpiresAt ? parseInt(savedExpiresAt, 10) : null
@@ -533,8 +527,7 @@ export const useAuthStore = defineStore('auth', () => {
       const { run_mode: _run_mode, ...userData } = response.data
       user.value = userData
 
-      // Update localStorage
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+      authStorage.user.setJSON(userData)
 
       return userData
     } catch (error) {
@@ -564,10 +557,7 @@ export const useAuthStore = defineStore('auth', () => {
     tokenExpiresAt.value = null
     user.value = null
     runMode.value = 'standard'
-    localStorage.removeItem(AUTH_TOKEN_KEY)
-    localStorage.removeItem(AUTH_USER_KEY)
-    localStorage.removeItem(REFRESH_TOKEN_KEY)
-    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY)
+    clearPersistedAuthCredentials()
     advanceAuthSession()
 
     if (options?.preservePendingAuthSession) {

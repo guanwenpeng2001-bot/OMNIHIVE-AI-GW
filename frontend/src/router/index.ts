@@ -2,11 +2,12 @@ import { helpSectionIds, helpScrollOffset } from '@/components/intro/helpSection
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { normalizeApiError } from '@/utils/apiError'
 /**
- * Vue Router configuration for Sub2API frontend
+ * Vue Router configuration for OmniHive frontend
  * Defines all application routes with lazy loading and navigation guards
  */
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { routerChunkReloadStorage } from '@/api/tokenRefresh'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -14,6 +15,10 @@ import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
+import {
+  evaluateRoutePolicy,
+  shouldAllowNavigation
+} from './routePolicy'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { lazyIdentityScoped } from './identityScope'
@@ -205,6 +210,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/model-plaza',
     name: 'ModelPlaza',
+    alias: ['/models'],
     component: () => import('@/views/ModelPlazaView.vue'),
     meta: {
       requiresAuth: false,
@@ -233,6 +239,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/help',
     name: 'HelpGuide',
+    alias: ['/docs'],
     component: () => import('@/views/HelpGuide.vue'),
     meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
   },
@@ -883,41 +890,6 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = [
-  '/login',
-  '/key-usage',
-  '/setup',
-  '/payment/result',
-  '/payment/airwallex',
-  '/legal',
-  ...(import.meta.env.DEV ? ['/__design'] : [])
-]
-const BACKEND_MODE_CALLBACK_PATHS = [
-  '/auth/callback',
-  '/auth/linuxdo/callback',
-  '/auth/dingtalk/callback',
-  '/auth/dingtalk/email-completion',
-  '/auth/oidc/callback',
-  '/auth/wechat/callback',
-  '/auth/wechat/payment/callback',
-]
-const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
-
-function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
-  if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
-    return true
-  }
-
-  if (BACKEND_MODE_CALLBACK_PATHS.some((callbackPath) => path === callbackPath)) {
-    return true
-  }
-
-  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.some((allowedPath) => path === allowedPath)) {
-    return true
-  }
-
-  return false
-}
 
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
@@ -960,20 +932,7 @@ router.beforeEach(async (to, _from, next) => {
 
   // If route doesn't require auth, allow access
   if (!requiresAuth) {
-    // If already authenticated and trying to access login/register, redirect to appropriate dashboard
-    if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
-      // In backend mode, non-admin users should NOT be redirected away from login
-      // (they are blocked from all protected routes, so redirecting would cause a loop)
-      if (appStore.backendModeEnabled && !authStore.isAdmin) {
-        next()
-        return
-      }
-      // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-      return
-    }
-    // Model Plaza:公开路由但受「启用开关 + 可选强制登录」双重控制(后端同口径 fail-closed)
-    if (to.path === '/model-plaza') {
+    if (to.path === '/model-plaza' || to.path === '/models' || to.meta.featureFlag === 'modelPlaza') {
       if (!appStore.publicSettingsLoaded) {
         try {
           await appStore.fetchPublicSettings()
@@ -981,35 +940,29 @@ router.beforeEach(async (to, _from, next) => {
           console.warn('Failed to load public settings in route guard', error)
         }
       }
-      const plazaSettings = appStore.cachedPublicSettings
-      // 仅在设置成功加载且明确为 false 时拦截(瞬时加载失败视为未知,由后端 404 兜底)
-      if (appStore.publicSettingsLoaded && plazaSettings?.model_plaza_enabled === false) {
-        next(
-          authStore.isAuthenticated
-            ? authStore.isAdmin
-              ? '/admin/dashboard'
-              : '/dashboard'
-            : '/home'
-        )
-        return
-      }
-      if (plazaSettings?.model_plaza_require_auth === true && !authStore.isAuthenticated) {
-        next({ path: '/login', query: { redirect: to.fullPath } })
-        return
-      }
-      // Backend mode:登录的非管理员也不可见(匿名由下方公共拦截处理,广场不在白名单)
-      if (appStore.backendModeEnabled && authStore.isAuthenticated && !authStore.isAdmin) {
-        next('/login')
-        return
-      }
     }
-    // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
-    if (appStore.backendModeEnabled && !authStore.isAuthenticated) {
-      const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
-      if (!isAllowed) {
-        next('/login')
-        return
-      }
+
+    const publicPolicy = evaluateRoutePolicy(
+      {
+        requiresAuth: false,
+        featureFlag: to.meta.featureFlag
+      },
+      {
+        path: to.path,
+        fullPath: to.fullPath,
+        isAuthenticated: authStore.isAuthenticated,
+        isAdmin: authStore.isAdmin,
+        isSimpleMode: authStore.isSimpleMode,
+        hasPendingAuthSession: authStore.hasPendingAuthSession,
+        backendModeEnabled: appStore.backendModeEnabled,
+        publicSettingsLoaded: appStore.publicSettingsLoaded,
+        publicSettings: appStore.cachedPublicSettings
+      },
+      { allowDevGallery: Boolean(import.meta.env.DEV) }
+    )
+    if (!shouldAllowNavigation(publicPolicy) && publicPolicy.redirectTo) {
+      next(publicPolicy.redirectTo)
+      return
     }
     next()
     return
@@ -1079,7 +1032,13 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresSubscription) && !appStore.publicSettingsLoaded) {
+  if (
+    (to.meta.requiresPayment ||
+      to.meta.requiresRiskControl ||
+      to.meta.requiresSubscription ||
+      to.meta.featureFlag) &&
+    !appStore.publicSettingsLoaded
+  ) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -1092,63 +1051,33 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  // Only an explicit value from successfully loaded settings can disable a route.
-  // A transient settings failure is unknown state, not a confirmed feature toggle.
-  if (
-    to.meta.requiresPayment &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.payment_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+  const protectedPolicy = evaluateRoutePolicy(
+    {
+      requiresAuth: true,
+      requiresAdmin,
+      hideInSimpleMode: to.meta.hideInSimpleMode,
+      requiresPayment: to.meta.requiresPayment,
+      requiresRiskControl: to.meta.requiresRiskControl,
+      requiresSubscription: to.meta.requiresSubscription,
+      featureFlag: to.meta.featureFlag
+    },
+    {
+      path: to.path,
+      fullPath: to.fullPath,
+      isAuthenticated: authStore.isAuthenticated,
+      isAdmin: authStore.isAdmin,
+      isSimpleMode: authStore.isSimpleMode,
+      hasPendingAuthSession: authStore.hasPendingAuthSession,
+      backendModeEnabled: appStore.backendModeEnabled,
+      publicSettingsLoaded: appStore.publicSettingsLoaded,
+      publicSettings: appStore.cachedPublicSettings
+    },
+    { allowDevGallery: Boolean(import.meta.env.DEV) }
+  )
+
+  if (!shouldAllowNavigation(protectedPolicy) && protectedPolicy.redirectTo) {
+    next(protectedPolicy.redirectTo)
     return
-  }
-
-  if (
-    to.meta.requiresRiskControl &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.risk_control_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/settings' : '/dashboard')
-    return
-  }
-
-  // 订阅功能是 opt-out 开关：只有显式 false 才拦截「我的订阅」页直达。
-  if (
-    to.meta.requiresSubscription &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.subscription_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-    return
-  }
-
-  // 简易模式下限制访问某些页面
-  if (authStore.isSimpleMode) {
-    const restrictedPaths = [
-      '/admin/subscriptions',
-      '/admin/redeem',
-      '/subscriptions',
-      '/redeem'
-    ]
-
-    if (restrictedPaths.some((path) => to.path.startsWith(path))) {
-      // 简易模式下访问受限页面,重定向到仪表板
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-      return
-    }
-  }
-
-  // Backend mode: admin gets full access, non-admin blocked
-  if (appStore.backendModeEnabled) {
-    if (authStore.isAuthenticated && authStore.isAdmin) {
-      next()
-      return
-    }
-    const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
-    if (!isAllowed) {
-      next('/login')
-      return
-    }
   }
 
   // All checks passed, allow navigation
@@ -1191,14 +1120,12 @@ router.onError((error) => {
     error.name === 'ChunkLoadError'
 
   if (isChunkLoadError) {
-    // Avoid infinite reload loop by checking sessionStorage
-    const reloadKey = 'chunk_reload_attempted'
-    const lastReload = sessionStorage.getItem(reloadKey)
+    const lastReload = routerChunkReloadStorage.get()
     const now = Date.now()
 
     // Allow reload if never attempted or more than 10 seconds ago
     if (!lastReload || now - parseInt(lastReload) > 10000) {
-      sessionStorage.setItem(reloadKey, now.toString())
+      routerChunkReloadStorage.set(now.toString())
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
       window.location.reload()
     } else {

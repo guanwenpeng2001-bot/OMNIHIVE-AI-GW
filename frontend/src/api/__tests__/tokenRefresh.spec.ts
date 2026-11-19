@@ -83,7 +83,9 @@ describe('refreshAuthTokens', () => {
 
     const result = await refreshAuthTokens({ failedAccessToken: 'old-access' })
 
-    expect(request).toHaveBeenCalledTimes(1)
+    // The client takes the new lock and, during the compatibility window, the
+    // legacy lock so old and new tabs cannot refresh concurrently.
+    expect(request).toHaveBeenCalledTimes(2)
     expect(mockedPost).not.toHaveBeenCalled()
     expect(result).toMatchObject({
       access_token: 'peer-access',
@@ -104,7 +106,7 @@ describe('refreshAuthTokens', () => {
 
     await expect(refreshAuthTokens()).resolves.toMatchObject({ access_token: 'new-access' })
 
-    expect(request).toHaveBeenCalledTimes(1)
+    expect(request).toHaveBeenCalledTimes(2)
     expect(mockedPost).toHaveBeenCalledTimes(1)
   })
 

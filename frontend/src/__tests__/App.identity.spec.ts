@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   fetchAnnouncements: vi.fn(),
   clear: vi.fn(),
   removeRouteHook: vi.fn(),
+  fetchScopes: vi.fn().mockResolvedValue(null),
+  resetScopes: vi.fn(),
 }))
 vi.mock('vue-router', () => ({
   RouterView: { template: '<div />' },
@@ -23,7 +25,7 @@ vi.mock('vue-router', () => ({
 }))
 vi.mock('@/stores', () => ({
   useAuthStore: () => mocks.auth,
-  useAppStore: () => ({ cachedPublicSettings: {}, fetchPublicSettings: vi.fn().mockResolvedValue({}) }),
+  useAppStore: () => ({ cachedPublicSettings: {}, fetchPublicSettings: vi.fn().mockResolvedValue({}), fetchScopes: mocks.fetchScopes, resetScopes: mocks.resetScopes }),
   useSubscriptionStore: () => ({ fetchActiveSubscriptions: mocks.fetchSubscriptions, startPolling: mocks.startPolling, stopPolling: mocks.stopPolling, clear: mocks.clear }),
   useAnnouncementStore: () => ({ fetchAnnouncements: mocks.fetchAnnouncements, reset: vi.fn() }),
   useAdminComplianceStore: () => ({ reset: vi.fn(), fetchStatus: vi.fn().mockResolvedValue({}) }),

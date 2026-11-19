@@ -15,11 +15,46 @@ import {
 } from './adminUIRequest'
 import {
   refreshAuthTokens, captureAuthSession, isAuthSessionCurrent, authSessionChangedError,
-  advanceAuthSession, AUTH_SESSION_EVENT, type AuthSessionSnapshot
+  advanceAuthSession, authStorage, opsEnabledStorage, clearPersistedAuthCredentials,
+  AUTH_SESSION_EVENT, type AuthSessionSnapshot
 } from './tokenRefresh'
-import { getAPIBaseURL } from './url'
+import { getAPIBaseURL, buildGatewayUrl } from './url'
 import { workspaceRequestURL } from './workspaceScope'
 export { buildApiUrl, buildGatewayUrl } from './url'
+
+export function isSilentRequestError(error: unknown): boolean {
+  if (!error) return false
+  if (axios.isCancel(error)) return true
+  const candidate = error as { code?: string; name?: string }
+  return (
+    candidate.code === 'ERR_CANCELED' ||
+    candidate.name === 'CanceledError' ||
+    candidate.name === 'AbortError' ||
+    candidate.code === 'AUTH_SESSION_CHANGED'
+  )
+}
+
+function resolveVersionedRequestConfig(url: string | undefined, pathname: string): {
+  baseURL?: string
+  url?: string
+} {
+  if (!url) return { url }
+  if (url === '/api/v2' || url.startsWith('/api/v2/')) {
+    return {
+      baseURL: buildGatewayUrl('/api/v2'),
+      url: url.slice('/api/v2'.length) || '/'
+    }
+  }
+  if (url === '/v2' || url.startsWith('/v2/')) {
+    return {
+      baseURL: buildGatewayUrl('/api/v2'),
+      url: url.slice('/v2'.length) || '/'
+    }
+  }
+  return {
+    url: workspaceRequestURL(url, pathname)
+  }
+}
 
 // ==================== Axios Instance Configuration ====================
 
@@ -51,7 +86,11 @@ const getUserTimezone = (): string => {
 
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
-    config.url = workspaceRequestURL(config.url, window.location.pathname)
+    const resolvedUrl = resolveVersionedRequestConfig(config.url, window.location.pathname)
+    if (resolvedUrl.baseURL) {
+      config.baseURL = resolvedUrl.baseURL
+    }
+    config.url = resolvedUrl.url
     if (config._authSession && !isAuthSessionCurrent(config._authSession)) {
       return Promise.reject(authSessionChangedError())
     }
@@ -75,8 +114,7 @@ apiClient.interceptors.request.use(
         config.signal = callerSignal
       }
     }
-    // Attach token from localStorage
-    const token = localStorage.getItem('auth_token')
+    const token = authStorage.token.get()
     if (token && config.headers) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -170,11 +208,7 @@ apiClient.interceptors.response.use(
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.
       if (status === 404 && (apiError.reason === 'OPS_DISABLED' || apiError.message === 'Ops monitoring is disabled')) {
-        try {
-          localStorage.setItem('ops_monitoring_enabled_cached', 'false')
-        } catch {
-          // ignore localStorage failures
-        }
+        opsEnabledStorage.set('false')
         try {
           window.dispatchEvent(new CustomEvent('ops-monitoring-disabled'))
         } catch {
@@ -190,7 +224,7 @@ apiClient.interceptors.response.use(
 
       if (status === 423 && apiError.reason === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
         try {
-          const currentToken = localStorage.getItem('auth_token')
+          const currentToken = authStorage.token.get()
           // A rejected request from a previous login must not lock the current admin.
           if (currentToken && (originalRequest?._authSession
             ? isAuthSessionCurrent(originalRequest._authSession)
@@ -211,16 +245,16 @@ apiClient.interceptors.response.use(
       if (status === 401 && originalRequest && !originalRequest._retry) {
         const sentToken = originalRequest.headers?.Authorization
         if (!originalRequest._authSession && sentToken &&
-          sentToken !== `Bearer ${localStorage.getItem('auth_token')}`) {
+          sentToken !== `Bearer ${authStorage.token.get()}`) {
           return Promise.reject(authSessionChangedError())
         }
-        const refreshToken = localStorage.getItem('refresh_token')
+        const refreshToken = authStorage.refreshToken.get()
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
 
         // If we have a refresh token and this is not an auth endpoint, try to refresh
         if (refreshToken && !isAuthEndpoint) {
-          const refreshSessionUser = localStorage.getItem('auth_user')
+          const refreshSessionUser = authStorage.user.get()
           originalRequest._retry = true
 
           try {
@@ -232,7 +266,7 @@ apiClient.interceptors.response.use(
                 : null
             // Older/custom adapters may omit interceptor metadata; never adopt a different token
             // without the original principal snapshot.
-            if (!originalRequest._authSession && failedAccessToken !== localStorage.getItem('auth_token')) {
+            if (!originalRequest._authSession && failedAccessToken !== authStorage.token.get()) {
               throw authSessionChangedError()
             }
             const session = originalRequest._authSession ?? captureAuthSession()
@@ -251,8 +285,8 @@ apiClient.interceptors.response.use(
             const sessionChanged =
               (refreshError as { code?: string }).code === 'AUTH_SESSION_CHANGED' ||
               (originalRequest._authSession && !isAuthSessionCurrent(originalRequest._authSession)) ||
-              localStorage.getItem('refresh_token') !== refreshToken ||
-              localStorage.getItem('auth_user') !== refreshSessionUser
+              authStorage.refreshToken.get() !== refreshToken ||
+              authStorage.user.get() !== refreshSessionUser
             if (sessionChanged) {
               return Promise.reject(authSessionChangedError())
             }
@@ -269,12 +303,9 @@ apiClient.interceptors.response.use(
             }
 
             // Clear tokens and redirect to login
-            localStorage.removeItem('auth_token')
-            localStorage.removeItem('refresh_token')
-            localStorage.removeItem('auth_user')
-            localStorage.removeItem('token_expires_at')
+            clearPersistedAuthCredentials()
             advanceAuthSession()
-            sessionStorage.setItem('auth_expired', '1')
+            authStorage.expiredNotice.set('1')
 
             if (!window.location.pathname.includes('/login')) {
               window.location.href = '/login'
@@ -289,7 +320,7 @@ apiClient.interceptors.response.use(
         }
 
         // No refresh token or is auth endpoint - clear auth and redirect
-        const hasToken = !!localStorage.getItem('auth_token')
+        const hasToken = !!authStorage.token.get()
         const headers = error.config?.headers as Record<string, unknown> | undefined
         const authHeader = headers?.Authorization ?? headers?.authorization
         const sentAuth =
@@ -299,13 +330,10 @@ apiClient.interceptors.response.use(
               ? authHeader.length > 0
               : !!authHeader
 
-        localStorage.removeItem('auth_token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('auth_user')
-        localStorage.removeItem('token_expires_at')
+        clearPersistedAuthCredentials()
         advanceAuthSession()
         if ((hasToken || sentAuth) && !isAuthEndpoint) {
-          sessionStorage.setItem('auth_expired', '1')
+          authStorage.expiredNotice.set('1')
         }
         // Only redirect if not already on login page
         if (!window.location.pathname.includes('/login')) {

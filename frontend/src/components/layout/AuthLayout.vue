@@ -1,181 +1,255 @@
-<template>
-  <div class="auth-backdrop-shell hive-dots">
-    <main class="auth-main">
-      <section class="auth-local-card" :class="{ 'auth-local-wide': wide }">
-        <div class="auth-brand-head">
-          <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-            <path d="M16 2 28.1 9v14L16 30 3.9 23V9Z" fill="var(--primary)" />
-            <path d="M16 5.6 25 10.8v10.4L16 26.4 7 21.2V10.8Z" stroke="var(--brand)" stroke-width="1.8" />
-            <path d="M16 10.2 21 13.1v5.8L16 21.8l-5-2.9v-5.8Z" fill="var(--brand)" />
-            <circle cx="16" cy="16" r="2.1" fill="var(--primary)" />
-          </svg>
-          <div>
-            <strong>OmniHive</strong>
-            <p>中立 AI 算力中转网关</p>
-          </div>
-          <router-link to="/home" class="auth-home-link">← 首页</router-link>
-        </div>
-        <slot />
-        <div v-if="$slots.footer" class="auth-footer">
-          <slot name="footer" />
-        </div>
-      </section>
-    </main>
-    <header class="auth-public-header" @keydown.esc="themeMenuOpen = false">
-      <router-link to="/home" class="auth-logo" aria-label="OmniHive 首页">
-        <svg width="26" height="26" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-          <path d="M16 2 28.1 9v14L16 30 3.9 23V9Z" fill="var(--primary)" />
-          <path d="M16 5.6 25 10.8v10.4L16 26.4 7 21.2V10.8Z" stroke="var(--brand)" stroke-width="1.8" />
-          <path d="M16 10.2 21 13.1v5.8L16 21.8l-5-2.9v-5.8Z" fill="var(--brand)" />
-          <circle cx="16" cy="16" r="2.1" fill="var(--primary)" />
-        </svg>
-        <strong>OmniHive</strong>
-      </router-link>
-      <button type="button" class="auth-search" aria-label="搜索模型和页面" @click="openCommandPalette()">
-        <span aria-hidden="true">⌕</span>
-        <span class="auth-search-label">搜索模型 / 页面…</span>
-        <kbd>⌘K</kbd>
-      </button>
-      <nav class="auth-public-links" aria-label="公开站导航">
-        <router-link v-if="modelPlazaEnabled" to="/model-plaza">模型</router-link>
-        <router-link to="/key-usage">查用量</router-link>
-        <router-link to="/help">指南</router-link>
-        <router-link to="/home">首页</router-link>
-      </nav>
-      <div class="auth-public-tools">
-        <router-link to="/dashboard" class="auth-console">控制台 ›</router-link>
-        <LocaleSwitcher v-if="locale" />
-        <div ref="themePickerRef" class="auth-theme-picker">
-          <button type="button" class="auth-theme-trigger" :aria-expanded="themeMenuOpen" aria-label="切换设计方向" @click="themeMenuOpen = !themeMenuOpen">
-            <span class="auth-theme-dot" :style="{ background: currentThemeMeta.c2 }"></span>
-            <span class="auth-theme-label">{{ currentThemeMeta.shortName }}</span>
-            <span aria-hidden="true">▾</span>
-          </button>
-          <div v-if="themeMenuOpen" class="auth-theme-menu" role="group" aria-label="设计方向">
-            <button v-for="item in themes" :key="item.key" type="button" :aria-pressed="currentTheme === item.key" @click="handleSelectTheme(item.key)">
-              <span class="auth-theme-dot" :style="{ background: item.c2 }"></span>
-              <span>{{ item.name }}</span>
-              <span v-if="currentTheme === item.key" aria-hidden="true">✓</span>
-            </button>
-          </div>
-        </div>
-        <button type="button" class="auth-mode-toggle" :title="isDark ? '切换浅色模式' : '切换深色模式'" aria-label="切换深浅色" :aria-pressed="isDark" @click="toggleDarkMode">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-            <circle cx="12" cy="12" r="8" />
-            <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" />
-          </svg>
-        </button>
-        <router-link to="/login" class="auth-nav-login">登录</router-link>
-        <router-link v-if="registrationEnabled" to="/register" class="auth-nav-register">免费注册</router-link>
-      </div>
-    </header>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
-import { useThemeDirection, type ThemeDirectionKey } from '@/composables/useThemeDirection'
+import PublicHeader from './PublicHeader.vue'
+import BrandMark from './BrandMark.vue'
 
-withDefaults(defineProps<{ wide?: boolean }>(), { wide: false })
+withDefaults(
+  defineProps<{
+    wide?: boolean
+  }>(),
+  {
+    wide: false
+  }
+)
 
 const appStore = useAppStore()
 const { locale } = useI18n()
-const LocaleSwitcher = defineAsyncComponent(() => import('@/components/common/LocaleSwitcher.vue'))
-const { themes, currentTheme, currentThemeMeta, isDark, setThemeDirection, toggleDarkMode, openCommandPalette } = useThemeDirection()
-const themeMenuOpen = ref(false)
-const themePickerRef = ref<HTMLElement | null>(null)
-const modelPlazaEnabled = computed(() => appStore.cachedPublicSettings?.model_plaza_enabled !== false)
-const registrationEnabled = computed(() => appStore.cachedPublicSettings?.registration_enabled === true && !appStore.cachedPublicSettings?.backend_mode_enabled)
-
-function handleSelectTheme(key: ThemeDirectionKey) {
-  setThemeDirection(key)
-  themeMenuOpen.value = false
-}
-
-function handleOutsideClick(event: MouseEvent) {
-  if (themePickerRef.value && !themePickerRef.value.contains(event.target as Node)) {
-    themeMenuOpen.value = false
-  }
-}
-
-onMounted(() => {
-  appStore.fetchPublicSettings?.()
-  document.addEventListener('click', handleOutsideClick)
-})
-
-onBeforeUnmount(() => document.removeEventListener('click', handleOutsideClick))
+const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+const brand = computed(
+  () =>
+    appStore.brandConfig ?? {
+      siteName: appStore.siteName || 'OmniHive',
+      siteLogo: appStore.siteLogo || '',
+      subtitle: isZh.value ? '统一 AI 推理网关' : 'Unified AI Inference Gateway'
+    }
+)
 </script>
 
+<template>
+  <div class="flex min-h-screen flex-col bg-oh-canvas text-oh-primary">
+    <main class="flex flex-1 flex-col">
+      <div class="mx-auto flex w-full max-w-[1200px] flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12 xl:border-x xl:border-oh-default">
+        <section
+          data-testid="auth-card"
+          :class="[
+            'w-full rounded-oh-lg border border-oh-default bg-oh-surface p-5 shadow-oh-xs sm:p-7',
+            wide ? 'max-w-xl' : 'max-w-[440px]'
+          ]"
+        >
+          <div class="mb-5 flex items-center justify-between gap-3 border-b border-oh-subtle pb-4">
+            <div class="min-w-0">
+              <BrandMark
+                :site-name="brand.siteName"
+                :site-logo="brand.siteLogo"
+                size="md"
+              />
+              <p class="mt-1 truncate text-xs text-oh-muted">
+                {{ brand.subtitle }}
+              </p>
+            </div>
+
+            <router-link
+              to="/home"
+              class="oh-focus-ring shrink-0 rounded-oh-sm border border-oh-default bg-oh-subtle px-2.5 py-1 font-mono text-[11px] font-medium text-oh-secondary transition-colors hover:border-oh-strong hover:text-oh-primary"
+            >
+              {{ isZh ? '← 首页' : '← HOME' }}
+            </router-link>
+          </div>
+
+          <slot />
+
+          <div
+            v-if="$slots.footer"
+            class="mt-5 border-t border-oh-subtle pt-4 text-center text-[13px] text-oh-secondary"
+          >
+            <slot name="footer" />
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <PublicHeader class="-order-1" />
+  </div>
+</template>
+
 <style scoped>
-.auth-backdrop-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  color: var(--foreground);
-  background-color: var(--background);
-  background-image: radial-gradient(640px circle at 50% 18%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 70%), radial-gradient(circle, color-mix(in srgb, var(--brand) 18%, transparent) 1px, transparent 1px);
-  background-size: 100% 100%, 18px 18px;
+:deep(.auth-title) {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--oh-fg-primary);
 }
-.auth-public-header {
-  order: -1;
-  flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  z-index: 40;
+
+:deep(.auth-intro) {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  line-height: 1.35rem;
+  color: var(--oh-fg-secondary);
+}
+
+:deep(.auth-error) {
+  border: 1px solid var(--oh-danger-border);
+  background: var(--oh-danger-bg);
+  color: var(--oh-danger-fg);
+  border-radius: var(--oh-radius-md);
+  padding: 0.625rem 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+:deep(.auth-field-error) {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--oh-danger-fg);
+}
+
+:deep(.auth-summary) {
+  border: 1px solid var(--oh-border-default);
+  background: var(--oh-bg-subtle);
+  color: var(--oh-fg-primary);
+  border-radius: var(--oh-radius-md);
+  padding: 0.75rem 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.35rem;
+  overflow-wrap: anywhere;
+}
+
+:deep(.auth-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.625rem;
+  padding-top: 0.25rem;
+}
+
+:deep(.auth-actions > *) {
+  flex: 1;
+  min-width: 110px;
+}
+
+:deep(.auth-divider) {
   display: flex;
   align-items: center;
-  gap: 18px;
-  min-height: 56px;
-  padding: 10px 24px;
-  border-bottom: 1px solid var(--border);
-  background: var(--glass);
-  backdrop-filter: blur(16px);
-  font-size: 12px;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  font-family: var(--oh-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--oh-fg-muted);
 }
-.auth-logo, .auth-public-links, .auth-public-tools, .auth-theme-trigger, .auth-search { display: flex; align-items: center; gap: 10px; }
-.auth-logo { flex-shrink: 0; font-size: 15px; letter-spacing: -.02em; }
-.auth-public-links { justify-content: center; gap: 20px; flex: 1; white-space: nowrap; }
-.auth-public-tools { margin-left: auto; gap: 12px; white-space: nowrap; }
-.auth-search { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); background: var(--surface-2); }
-.auth-search kbd { font-size: 10px; }
-.auth-theme-picker { position: relative; }
-.auth-theme-trigger { padding: 5px 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); }
-.auth-theme-dot { display: inline-block; width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%; }
-.auth-theme-menu { position: absolute; right: 0; top: calc(100% + 8px); width: 224px; padding: 6px; background: var(--popover); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 30px #0002; }
-.auth-theme-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px; text-align: left; border-radius: 8px; }
-.auth-theme-menu button:hover, .auth-theme-menu button[aria-pressed='true'] { background: var(--secondary); }
-.auth-mode-toggle { padding: 6px; border-radius: 6px; }
-.auth-nav-register { padding: 7px 12px; border-radius: 7px; background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
-.auth-main { display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 56px); padding: 32px 16px; }
-.auth-local-card { position: relative; width: min(100%, 29.5rem); min-width: 0; padding: 28px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); color: var(--card-foreground); box-shadow: 0 20px 50px -12px #00000017; }
-.auth-local-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; border-radius: 16px 16px 0 0; background: linear-gradient(90deg, var(--brand), #fb923c, var(--primary)); }
-.auth-local-wide { width: min(100%, 52rem); }
-.auth-brand-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-.auth-brand-head svg { flex-shrink: 0; }
-.auth-brand-head strong { font-size: 14px; font-weight: 750; letter-spacing: -.02em; }
-.auth-brand-head p { font-size: 11px; color: var(--muted-foreground); }
-.auth-home-link { margin-left: auto; padding: 5px 8px; border-radius: 6px; font-size: 12px; }
-.auth-home-link:hover { background: var(--secondary); }
-.auth-footer { margin-top: 16px; font-size: 13px; }
-.auth-local-card :deep(.auth-title) { font-size: 23px; line-height: 1.25; font-weight: 750; letter-spacing: -.02em; text-align: left; }
-.auth-local-card :deep(.auth-intro) { margin: 6px 0 16px; color: var(--muted-foreground); font-size: 13.5px; line-height: 1.55; }
-.auth-local-card :deep(.auth-summary) { padding: 12px; margin: 12px 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; font-size: 13px; overflow-wrap: anywhere; }
-.auth-local-card :deep(.auth-actions) { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin-top: 16px; }
-.auth-local-card :deep(.auth-actions > *) { flex: 1; min-width: 110px; }
-.auth-local-card :deep(.auth-actions .btn) { width: 100%; }
-.auth-local-card :deep(.auth-error) { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--bad) 8%, var(--card)); color: var(--bad-text); font-size: 13px; }
-.auth-local-card :deep(.input) { width: 100%; min-width: 0; min-height: 40px; border-radius: 8px; font-size: 14px; background: var(--card); color: var(--foreground); box-shadow: none; }
-.auth-local-card :deep(.input-label) { margin-bottom: 4px; font-size: 13px; font-weight: 500; }
-.auth-local-card :deep(.btn) { min-height: 38px; border-radius: 8px; font-size: 13px; box-shadow: none; background-image: none; transform: none; }
-.auth-local-card :deep(.btn-primary) { background: var(--primary); color: var(--primary-foreground); }
-.auth-local-card :deep(.btn-outline) { background: var(--card); border: 1px solid var(--border); color: var(--foreground); }
-.auth-local-card :deep(.btn-outline:hover:not(:disabled)) { background: var(--surface-2); }
-.auth-local-card :deep(input[type='checkbox']) { accent-color: var(--brand); }
-.auth-local-card :deep(.auth-field-error) { margin-top: 4px; font-size: 12px; color: var(--bad-text); }
-:is(button, a):focus-visible, .auth-local-card :deep(:is(button, a, input):focus-visible) { outline: 2px solid var(--ring); outline-offset: 3px; }
-@media (max-width: 1120px) { .auth-search-label { display: none; } .auth-public-header { gap: 12px; padding-inline: 16px; } .auth-public-tools { gap: 8px; } }
-@media (max-width: 800px) { .auth-public-header { flex-wrap: wrap; } .auth-public-links { order: 3; flex-basis: 100%; justify-content: flex-start; } .auth-console, .auth-nav-login { display: none; } }
-@media (max-width: 520px) { .auth-public-header { gap: 8px; padding: 10px 12px; } .auth-logo strong, .auth-theme-label { display: none; } .auth-public-tools { gap: 5px; } .auth-main { align-items: flex-start; padding: 20px 12px; } .auth-local-card { padding: 20px; } }
+
+:deep(.auth-divider::before),
+:deep(.auth-divider::after) {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--oh-border-subtle);
+}
+
+:deep(label.input-label) {
+  display: block;
+  margin-bottom: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  color: var(--oh-fg-primary);
+}
+
+:deep(:is(input, select, textarea).input) {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  box-shadow: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+:deep(:is(input, select, textarea).input::placeholder) {
+  color: var(--oh-fg-muted);
+}
+
+:deep(:is(input, select, textarea).input:hover:not(:disabled)) {
+  border-color: var(--oh-border-strong);
+}
+
+:deep(:is(input, select, textarea).input:focus) {
+  border-color: var(--oh-accent);
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+:deep(:is(input, select, textarea).input:disabled) {
+  background: var(--oh-bg-subtle);
+  color: var(--oh-fg-disabled);
+  cursor: not-allowed;
+}
+
+:deep(:is(input, select, textarea).input.input-error) {
+  border-color: var(--oh-danger-border);
+}
+
+:deep(:is(button, a).btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.875rem;
+  border-radius: var(--oh-radius-md);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  box-shadow: none;
+  background-image: none;
+  transform: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+:deep(:is(button, a).btn-primary) {
+  border: 1px solid transparent;
+  background: var(--oh-accent);
+  color: var(--oh-accent-ink);
+  font-weight: 600;
+}
+
+:deep(:is(button, a).btn-primary:hover:not(:disabled)) {
+  background: var(--oh-accent-hover);
+}
+
+:deep(:is(button, a).btn-outline),
+:deep(:is(button, a).btn-secondary) {
+  border: 1px solid var(--oh-border-default);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+}
+
+:deep(:is(button, a).btn-outline:hover:not(:disabled)),
+:deep(:is(button, a).btn-secondary:hover:not(:disabled)) {
+  border-color: var(--oh-border-strong);
+  background: var(--oh-bg-hover);
+}
+
+:deep(input[type='checkbox']) {
+  accent-color: var(--oh-accent);
+}
+
+:deep(div.card) {
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+  box-shadow: none;
+}
 </style>
