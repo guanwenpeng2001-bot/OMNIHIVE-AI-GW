@@ -12,7 +12,7 @@ Both LoginView and RegisterView use the AuthLayout component, which provides:
 │  ┌─────────────────────────────────────┐   │
 │  │                                     │   │
 │  │         OmniHive Logo                │   │
-│  │  "Subscription to API Conversion"   │   │
+│  │  "Unified AI Inference Gateway"     │   │
 │  │                                     │   │
 │  └─────────────────────────────────────┘   │
 │                                             │
@@ -40,7 +40,7 @@ Centered: Both horizontally and vertically
 ┌─────────────────────────────────────────────┐
 │                                             │
 │         🔷 OmniHive                          │
-│    Subscription to API Conversion Platform  │
+│         Unified AI Inference Gateway        │
 │                                             │
 │  ┌─────────────────────────────────────┐   │
 │  │                                     │   │
@@ -134,7 +134,7 @@ Centered: Both horizontally and vertically
 ┌─────────────────────────────────────────────┐
 │                                             │
 │         🔷 OmniHive                          │
-│    Subscription to API Conversion Platform  │
+│         Unified AI Inference Gateway        │
 │                                             │
 │  ┌─────────────────────────────────────┐   │
 │  │                                     │   │

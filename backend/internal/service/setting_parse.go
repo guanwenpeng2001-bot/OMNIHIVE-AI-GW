@@ -357,7 +357,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
 		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "OmniHive"),
 		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, defaultSiteSubtitle),
 		SiteICP:                                s.getStringOrDefault(settings, SettingKeySiteICP, ""),
 		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
 		ContactInfo:                            settings[SettingKeyContactInfo],

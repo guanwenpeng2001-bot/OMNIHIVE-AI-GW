@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { DEFAULT_BRAND_SUBTITLE_EN } from "@/router/brandConfig";
 import type { SettingsForm } from "./settingsForm";
 
 export function useGeneralSettingsForm(tablePageSizeDefault: number) {
@@ -43,7 +44,7 @@ export function useGeneralSettingsForm(tablePageSizeDefault: number) {
 
     site_logo: "",
 
-    site_subtitle: "Subscription to API Conversion Platform",
+    site_subtitle: DEFAULT_BRAND_SUBTITLE_EN,
 
     api_base_url: "",
 
