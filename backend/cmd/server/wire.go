@@ -20,6 +20,7 @@ import (
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	statushttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
 	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
@@ -39,6 +40,7 @@ import (
 )
 
 type Application struct {
+	Status          *statushttp.Handler
 	ImageTaskCenter *taskhttp.Handler
 	Restores        *legacyrestore.Runtime
 	OpsMetrics      *service.OpsMetricsCollector
@@ -69,6 +71,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		handler.ProvideImageTaskCenter,
 		policieshttp.ProviderSet,
 		billingHandlerProvider,
+		statusHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -87,13 +90,17 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics", "Restores", "ImageTaskCenter", "Status"),
 	)
 	return nil, nil
 }
 
 func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config) *requestshttp.Handler {
 	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func statusHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config, ops *service.OpsService) *statushttp.Handler {
+	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
 
 func billingHandlerProvider(db *sql.DB, store *identitypostgres.Store, totp *service.TotpService, cfg *config.Config) *billinghttp.Handler {

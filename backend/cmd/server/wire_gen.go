@@ -18,6 +18,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
@@ -384,6 +385,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	restoreHandler := restore.New(runtime)
 	policyStore := policies.NewStore(db, configConfig)
 	policiesHandler := policies.New(policyStore, store)
+	statusHandler := statusHandlerProvider(db, store, configConfig, opsService)
 	tasksHandler := handler.ProvideImageTaskCenter(db, configConfig, store, store, reader, apiKeyService, subscriptionService, openAIGatewayHandler, imageStorageSettingService, backupObjectStoreFactory, batchImageDownloadService, batchImagePublicService, aesEncryptor)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
@@ -391,7 +393,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, statusHandler, tasksHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -420,6 +422,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		OpsMetrics:      opsMetricsCollector,
 		Restores:        runtime,
 		ImageTaskCenter: tasksHandler,
+		Status:          statusHandler,
 	}
 	return application, nil
 }
@@ -427,6 +430,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 // wire.go:
 
 type Application struct {
+	Status          *status.Handler
 	ImageTaskCenter *tasks.Handler
 	Restores        *be09.Runtime
 	OpsMetrics      *service.OpsMetricsCollector
@@ -439,6 +443,10 @@ type Application struct {
 
 func requestsHandlerProvider(db *sql.DB, store *postgres.Store, cfg *config.Config) *requests.Handler {
 	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func statusHandlerProvider(db *sql.DB, store *postgres.Store, cfg *config.Config, ops *service.OpsService) *status.Handler {
+	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
 
 func billingHandlerProvider(db *sql.DB, store *postgres.Store, totp *service.TotpService, cfg *config.Config) *billing.Handler {

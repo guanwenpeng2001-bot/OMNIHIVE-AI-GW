@@ -92,6 +92,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/admin/status/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish an incident and its initial investigating update
+         * @description Requires a console session and ops.incidents.publish. Title and message are shown publicly as plain text.
+         */
+        post: operations["statusIncidentCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/status/incidents/{id}/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["StatusIncidentID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Append an incident timeline update
+         * @description Requires ops.incidents.publish. The incident can stay in its current active state or advance toward resolved.
+         */
+        post: operations["statusIncidentUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/me/scopes": {
         parameters: {
             query?: never;
@@ -153,6 +195,65 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["comparePublicModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read published service health
+         * @description Returns allowlisted component measurements, the latest 90 UTC dates and up to 25 active incidents.
+         */
+        get: operations["publicStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/status/incidents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List published incidents
+         * @description Results seek by newest incident start first. From and to filter incident start using a half-open interval.
+         */
+        get: operations["publicIncidentList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/status/incidents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["StatusIncidentID"];
+            };
+            cookie?: never;
+        };
+        /** Read a published incident and its full update history */
+        get: operations["publicIncidentDetail"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2581,6 +2682,111 @@ export interface components {
             published_at: string;
             change_note: string;
         };
+        StatusAffectedComponents: components["schemas"]["StatusComponentID"][];
+        StatusComponent: {
+            id: components["schemas"]["StatusComponentID"];
+            name: string;
+            state: components["schemas"]["StatusState"];
+            observed_state: components["schemas"]["StatusState"];
+            reason: components["schemas"]["StatusReason"];
+            /** @enum {string} */
+            source: "gateway_observations" | "unavailable";
+            /** @enum {string} */
+            freshness: "fresh" | "stale" | "unknown";
+            /** Format: date-time */
+            stale_after: string | null;
+            /** Format: date-time */
+            last_success: string | null;
+            sample_count: components["schemas"]["StatusCount"];
+            minimum_sample_count: components["schemas"]["StatusCount"];
+            success_rate: components["schemas"]["StatusPercent"];
+            ttft_sample_count: components["schemas"]["StatusCount"];
+            ttft_p50_ms: number | null;
+            ttft_p95_ms: number | null;
+            stream_completion_rate: components["schemas"]["StatusPercent"];
+            counts: components["schemas"]["StatusCounts"];
+            history: components["schemas"]["StatusDaily"][];
+        };
+        /** @enum {string} */
+        StatusComponentID: "inference" | "openai_compatible" | "anthropic_compatible" | "gemini_compatible" | "console_auth" | "async_workers";
+        StatusCount: string;
+        StatusCounts: {
+            succeeded: components["schemas"]["StatusCount"];
+            gateway_errors: components["schemas"]["StatusCount"];
+            upstream_errors: components["schemas"]["StatusCount"];
+            upstream_rate_limits: components["schemas"]["StatusCount"];
+            stream_interruptions: components["schemas"]["StatusCount"];
+            unknown_outcomes: components["schemas"]["StatusCount"];
+            admission_denials: components["schemas"]["StatusCount"];
+            client_cancellations: components["schemas"]["StatusCount"];
+            attempts: components["schemas"]["StatusCount"];
+            first_byte_timeouts: components["schemas"]["StatusCount"];
+            stream_samples: components["schemas"]["StatusCount"];
+            stream_succeeded: components["schemas"]["StatusCount"];
+        };
+        StatusDaily: {
+            /** Format: date */
+            date: string;
+            state: components["schemas"]["StatusState"];
+            reason: components["schemas"]["StatusReason"];
+            sample_count: components["schemas"]["StatusCount"];
+            success_rate: components["schemas"]["StatusPercent"];
+        };
+        StatusDefinitions: {
+            success_rate: string;
+            stream_completion_rate: string;
+            ttft: string;
+            excluded_categories: string[];
+            reported_categories: string[];
+            /** @constant */
+            attempts_counted_separately: true;
+            aggregation_interval_seconds: number;
+            publication_delay_seconds: number;
+        };
+        StatusIncident: components["schemas"]["StatusIncidentSummary"] & {
+            updates: {
+                /** Format: date-time */
+                at: string;
+                state: components["schemas"]["StatusIncidentState"];
+                message: components["schemas"]["StatusMessage"];
+            }[];
+        };
+        /** @enum {string} */
+        StatusIncidentState: "investigating" | "identified" | "monitoring" | "resolved";
+        StatusIncidentSummary: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            state: components["schemas"]["StatusIncidentState"];
+            severity: components["schemas"]["StatusSeverity"];
+            component_ids: components["schemas"]["StatusAffectedComponents"];
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            resolved_at: string | null;
+        };
+        StatusMessage: string;
+        StatusPercent: number | null;
+        /** @enum {string|null} */
+        StatusReason: "INSUFFICIENT_SAMPLES" | "STALE_DATA" | "SOURCE_UNAVAILABLE" | "ROLLUP_PENDING" | "OUTCOME_UNKNOWN" | null;
+        /** @enum {string} */
+        StatusSeverity: "degraded" | "outage" | "maintenance";
+        /** @enum {string} */
+        StatusState: "operational" | "degraded" | "outage" | "maintenance" | "unknown";
+        StatusSummary: {
+            /** Format: date-time */
+            as_of: string;
+            /** Format: date-time */
+            window_start: string;
+            /** Format: date-time */
+            window_end: string;
+            data_lag_seconds: number | null;
+            overall: components["schemas"]["StatusState"];
+            components: components["schemas"]["StatusComponent"][];
+            incidents: components["schemas"]["StatusIncidentSummary"][];
+            active_incident_count: components["schemas"]["StatusCount"];
+            definitions: components["schemas"]["StatusDefinitions"];
+        };
     };
     responses: {
         /** @description Management error including invalid filters, expired cursor or artifact, denied action, and inaccessible request */
@@ -2590,6 +2796,41 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Request failed */
+        StatusError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description The public representation is unchanged */
+        StatusNotModified: {
+            headers: {
+                ETag: components["headers"]["StatusETag"];
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /** @description Published incident including its optimistic version */
+        StatusPublication: {
+            headers: {
+                ETag: components["headers"]["StatusETag"];
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    /** @constant */
+                    message: "success";
+                    data: components["schemas"]["StatusIncident"] & {
+                        version: components["schemas"]["StatusCount"];
+                    };
+                };
             };
         };
     };
@@ -2630,6 +2871,9 @@ export interface components {
         ImageTaskID: string;
         ImageTaskTicketHeader: string;
         RequestsID: string;
+        StatusIfModifiedSince: string;
+        StatusIfNoneMatch: string;
+        StatusIncidentID: string;
     };
     requestBodies: never;
     headers: {
@@ -2637,6 +2881,10 @@ export interface components {
         GatewayExecutionID: string;
         /** @description Present on a matching keyed Responses resubmission with its original execution ID and an empty 204 body. */
         GatewayExecutionReplayed: "true";
+        /** @description Representation validator on public GET or version on a publication response */
+        StatusETag: string;
+        /** @description HTTP date for this representation */
+        StatusLastModified: string;
     };
     pathItems: never;
 }
@@ -2841,6 +3089,67 @@ export interface operations {
             };
         };
     };
+    statusIncidentCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    title: string;
+                    severity: components["schemas"]["StatusSeverity"];
+                    component_ids: components["schemas"]["StatusAffectedComponents"];
+                    message: components["schemas"]["StatusMessage"];
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["StatusPublication"];
+            409: components["responses"]["StatusError"];
+            default: components["responses"]["StatusError"];
+        };
+    };
+    statusIncidentUpdate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+                "If-Match": components["parameters"]["IdentityVersion"];
+            };
+            path: {
+                id: components["parameters"]["StatusIncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    state: components["schemas"]["StatusIncidentState"];
+                    message: components["schemas"]["StatusMessage"];
+                };
+            };
+        };
+        responses: {
+            201: components["responses"]["StatusPublication"];
+            409: components["responses"]["StatusError"];
+            /** @description Stale incident version */
+            412: {
+                headers: {
+                    ETag: components["headers"]["StatusETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+            default: components["responses"]["StatusError"];
+        };
+    };
     identityScopes: {
         parameters: {
             query?: {
@@ -3002,6 +3311,121 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    publicStatus: {
+        parameters: {
+            query?: {
+                window?: "1h" | "24h" | "7d" | "30d";
+            };
+            header?: {
+                "If-None-Match"?: components["parameters"]["StatusIfNoneMatch"];
+                "If-Modified-Since"?: components["parameters"]["StatusIfModifiedSince"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public service status */
+            200: {
+                headers: {
+                    ETag: components["headers"]["StatusETag"];
+                    "Last-Modified": components["headers"]["StatusLastModified"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["StatusSummary"];
+                    };
+                };
+            };
+            304: components["responses"]["StatusNotModified"];
+            default: components["responses"]["StatusError"];
+        };
+    };
+    publicIncidentList: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: components["parameters"]["StatusIfNoneMatch"];
+                "If-Modified-Since"?: components["parameters"]["StatusIfModifiedSince"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Public incident page with a publication cutoff */
+            200: {
+                headers: {
+                    ETag: components["headers"]["StatusETag"];
+                    "Last-Modified": components["headers"]["StatusLastModified"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: {
+                            items: components["schemas"]["StatusIncidentSummary"][];
+                            next_cursor: string | null;
+                            /** Format: date-time */
+                            as_of: string;
+                        };
+                    };
+                };
+            };
+            304: components["responses"]["StatusNotModified"];
+            410: components["responses"]["StatusError"];
+            default: components["responses"]["StatusError"];
+        };
+    };
+    publicIncidentDetail: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: components["parameters"]["StatusIfNoneMatch"];
+                "If-Modified-Since"?: components["parameters"]["StatusIfModifiedSince"];
+            };
+            path: {
+                id: components["parameters"]["StatusIncidentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Incident with updates in chronological order */
+            200: {
+                headers: {
+                    ETag: components["headers"]["StatusETag"];
+                    "Last-Modified": components["headers"]["StatusLastModified"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["StatusIncident"];
+                    };
+                };
+            };
+            304: components["responses"]["StatusNotModified"];
+            404: components["responses"]["StatusError"];
+            default: components["responses"]["StatusError"];
         };
     };
     workspaceCostActivity: {

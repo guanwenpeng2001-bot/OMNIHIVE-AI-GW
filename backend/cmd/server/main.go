@@ -178,6 +178,11 @@ func runMainServer() {
 		}
 	}
 
+	statusCtx, stopStatus := context.WithCancel(context.Background())
+	if app.Status != nil {
+		go app.Status.RunCollector(statusCtx)
+	}
+
 	stopRestores := func() {}
 	if app.Restores != nil {
 		stopRestores = app.Restores.StartWorker(context.Background())
@@ -222,6 +227,7 @@ func runMainServer() {
 	log.Println("Shutting down server...")
 
 	stopRestores()
+	stopStatus()
 	stopImageTaskRecovery()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

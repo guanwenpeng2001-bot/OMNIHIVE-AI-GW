@@ -15,6 +15,7 @@ import (
 	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	statushttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
 	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -40,6 +41,7 @@ func SetupRouter(
 	requestsHandler *requestshttp.Handler,
 	policiesHandler *policieshttp.Handler,
 	billingHandler *billinghttp.Handler,
+	statusHandler *statushttp.Handler,
 	imageTaskCenter *taskhttp.Handler,
 	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
@@ -123,7 +125,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, billingHandler, statusHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -139,6 +141,7 @@ func registerRoutes(
 	requestsHandler *requestshttp.Handler,
 	policiesHandler *policieshttp.Handler,
 	billingHandler *billinghttp.Handler,
+	statusHandler *statushttp.Handler,
 	imageTaskCenter *taskhttp.Handler,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
@@ -188,6 +191,9 @@ func registerRoutes(
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
 	billinghttp.Register(v2, billingHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	statushttp.Register(v2, statusHandler,
+		[]gin.HandlerFunc{panelRateLimiter.PublicIP()},
+		[]gin.HandlerFunc{gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog)})
 	taskhttp.Register(v2, imageTaskCenter,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	v2.GET("/admin/extensions", identityhttp.TenantHeaders, gin.HandlerFunc(jwtAuth), middleware2.AdminOnly(),
