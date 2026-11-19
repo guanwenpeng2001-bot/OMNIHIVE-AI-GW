@@ -38,20 +38,19 @@ func (s *Store) Publish(ctx context.Context, actor int64, rawID, key string, exp
 		return Publication{}, err
 	}
 	defer tx.Rollback()
-	now := time.Now().UTC()
 	id, err := cmd.replay(ctx, tx)
 	if err != nil {
 		return Publication{}, err
 	}
 	if id != uuid.Nil {
-		return scanPublication(tx.QueryRowContext(ctx, publicationSelect+" WHERE p.id=$1", id), now)
+		return scanPublication(tx.QueryRowContext(ctx, publicationSelect+" WHERE p.id=$1", id))
 	}
 	target, err := loadTarget(ctx, tx, targetID)
 	if err != nil {
 		return Publication{}, err
 	}
 	cell := target.cellID()
-	current, err := currentPublication(ctx, tx, cell, now)
+	current, err := currentPublication(ctx, tx, cell)
 	if err != nil {
 		return Publication{}, err
 	}
@@ -62,11 +61,15 @@ func (s *Store) Publish(ctx context.Context, actor int64, rawID, key string, exp
 	if version != expected {
 		return Publication{}, fault.Stale(version)
 	}
+	now, err := databaseTime(ctx, tx)
+	if err != nil {
+		return Publication{}, err
+	}
 
 	var next Publication
 	switch {
 	case in.RollbackVersion != nil:
-		next, err = rollbackPublication(ctx, tx, target, in, version, now)
+		next, err = rollbackPublication(ctx, tx, target, in, version)
 	default:
 		next, err = advancePublication(ctx, tx, target, targetID, current, in, now)
 	}
@@ -99,7 +102,7 @@ func (s *Store) Publish(ctx context.Context, actor int64, rawID, key string, exp
 	if err := cmd.save(ctx, tx, id); err != nil {
 		return Publication{}, err
 	}
-	out, err := scanPublication(tx.QueryRowContext(ctx, publicationSelect+" WHERE p.id=$1", id), now)
+	out, err := scanPublication(tx.QueryRowContext(ctx, publicationSelect+" WHERE p.id=$1", id))
 	if err != nil {
 		return Publication{}, err
 	}
@@ -115,7 +118,7 @@ func newPublication(t Target, maturity string) Publication {
 	}
 }
 
-func rollbackPublication(ctx context.Context, q queryer, target Target, in Publish, currentVersion int64, now time.Time) (Publication, error) {
+func rollbackPublication(ctx context.Context, q queryer, target Target, in Publish, currentVersion int64) (Publication, error) {
 	if in.Maturity != "" || in.EvidenceID != "" || in.Reason != "" || in.SunsetAt != nil {
 		return Publication{}, fault.Invalid("/rollback_version")
 	}
@@ -126,7 +129,7 @@ func rollbackPublication(ctx context.Context, q queryer, target Target, in Publi
 	out := newPublication(target, candidate)
 	if version != 0 {
 		var err error
-		out, err = scanPublication(q.QueryRowContext(ctx, publicationSelect+" WHERE p.cell_id=$1 AND p.version=$2", target.cellID(), version), now)
+		out, err = scanPublication(q.QueryRowContext(ctx, publicationSelect+" WHERE p.cell_id=$1 AND p.version=$2", target.cellID(), version))
 		if errors.Is(err, sql.ErrNoRows) {
 			err = fault.NotFound
 		}
@@ -237,13 +240,14 @@ const publicationSelect = `SELECT p.version,p.maturity,p.published_at,p.rollback
 	t.entry_id,t.action,t.protocol,t.account_mode,t.adapter_version,
 	e.id,coalesce(e.origin,''),coalesce(e.state,''),coalesce(e.sample_count,0),
 	coalesce(e.window_start,p.published_at),coalesce(e.observed_at,p.published_at),coalesce(e.expires_at,p.published_at),e.fixture_id,
-	p.deprecation_reason,p.announced_at,p.sunset_at
+	p.deprecation_reason,p.announced_at,p.sunset_at,statement_timestamp()
 	FROM catalog_compatibility_publications p
 	JOIN catalog_verification_targets t ON t.id=p.target_id
 	LEFT JOIN catalog_verification_evidence e ON e.id=p.evidence_id`
 
-func scanPublication(row scanner, now time.Time) (Publication, error) {
+func scanPublication(row scanner) (Publication, error) {
 	var p Publication
+	var now time.Time
 	var target uuid.UUID
 	var evidence uuid.NullUUID
 	var e catalog.CompatibilityEvidence
@@ -252,7 +256,7 @@ func scanPublication(row scanner, now time.Time) (Publication, error) {
 	err := row.Scan(&p.Version, &p.Maturity, &p.PublishedAt, &p.RollbackVersion, &target,
 		&p.EntryID, &p.Action, &p.Protocol, &p.AccountMode, &p.AdapterVersion,
 		&evidence, &e.Source, &e.State, &e.SampleCount, &e.WindowStart, &e.ObservedAt, &e.ExpiresAt, &e.FixtureID,
-		&noticeReason, &announced, &sunset)
+		&noticeReason, &announced, &sunset, &now)
 	if err != nil {
 		return Publication{}, err
 	}
@@ -269,8 +273,8 @@ func scanPublication(row scanner, now time.Time) (Publication, error) {
 	return p, nil
 }
 
-func currentPublication(ctx context.Context, q queryer, cell string, now time.Time) (*Publication, error) {
-	p, err := scanPublication(q.QueryRowContext(ctx, publicationSelect+" WHERE p.cell_id=$1 ORDER BY p.version DESC LIMIT 1", cell), now)
+func currentPublication(ctx context.Context, q queryer, cell string) (*Publication, error) {
+	p, err := scanPublication(q.QueryRowContext(ctx, publicationSelect+" WHERE p.cell_id=$1 ORDER BY p.version DESC LIMIT 1", cell))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -282,7 +286,7 @@ func currentPublication(ctx context.Context, q queryer, cell string, now time.Ti
 
 // ReadPublished takes the IDs already selected by the catalog's visibility
 // policy. The immutable release controls exactly which observation can appear.
-func ReadPublished(ctx context.Context, db *sql.DB, entries []string, now time.Time) (map[string][]catalog.Compatibility, error) {
+func ReadPublished(ctx context.Context, db *sql.DB, entries []string) (map[string][]catalog.Compatibility, error) {
 	if len(entries) == 0 {
 		return nil, nil
 	}
@@ -296,7 +300,7 @@ func ReadPublished(ctx context.Context, db *sql.DB, entries []string, now time.T
 	defer rows.Close()
 	out := make(map[string][]catalog.Compatibility)
 	for rows.Next() {
-		p, err := scanPublication(rows, now)
+		p, err := scanPublication(rows)
 		if err != nil {
 			return nil, err
 		}

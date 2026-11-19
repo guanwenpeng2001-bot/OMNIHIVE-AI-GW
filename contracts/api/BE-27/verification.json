@@ -1,6 +1,6 @@
 {
   "request": {
-    "entry_id": "m_1f625f6098fc4b7298864ecb0f10f772",
+    "entry_id": "m_cb3566734085184ad8e426fff41356ae",
     "adapter_version": "ad_openai_chat_responses_v1",
     "action": "text.chat",
     "account_mode": "api_key",
@@ -13,7 +13,7 @@
       "operation_id": "cv_68415100-5cb7-4906-807b-1d6bf879bb8e",
       "state": "queued",
       "status_url": "/api/v2/workspaces/1/operations/cv_68415100-5cb7-4906-807b-1d6bf879bb8e",
-      "resource_id": "m_1f625f6098fc4b7298864ecb0f10f772",
+      "resource_id": "m_cb3566734085184ad8e426fff41356ae",
       "result": null,
       "error": null
     }
@@ -30,7 +30,7 @@
     "expires_at": "2026-11-20T10:00:01Z",
     "fixture_id": "openai_chat_responses_v1",
     "matrix": {
-      "entry_id": "m_1f625f6098fc4b7298864ecb0f10f772",
+      "entry_id": "m_cb3566734085184ad8e426fff41356ae",
       "adapter_version": "ad_openai_chat_responses_v1",
       "action": "text.chat",
       "account_mode": "api_key",
@@ -50,7 +50,7 @@
     "expires_at": "2026-11-20T10:05:15Z",
     "fixture_id": null,
     "matrix": {
-      "entry_id": "m_1f625f6098fc4b7298864ecb0f10f772",
+      "entry_id": "m_cb3566734085184ad8e426fff41356ae",
       "adapter_version": "ad_openai_chat_responses_v1",
       "action": "text.chat",
       "account_mode": "api_key",

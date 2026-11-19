@@ -46,7 +46,7 @@ func (s *Store) Enqueue(ctx context.Context, actor int64, key string, m Matrix) 
 		return identity.Operation{}, err
 	}
 	if id != uuid.Nil {
-		return loadOperation(ctx, tx, id, time.Now())
+		return loadOperation(ctx, tx, id)
 	}
 	target, err := resolveMatrix(ctx, tx, m)
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Store) Enqueue(ctx context.Context, actor int64, key string, m Matrix) 
 	if err := cmd.save(ctx, tx, id); err != nil {
 		return identity.Operation{}, err
 	}
-	out, err := loadOperation(ctx, tx, id, time.Now())
+	out, err := loadOperation(ctx, tx, id)
 	if err != nil {
 		return identity.Operation{}, err
 	}

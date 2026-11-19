@@ -104,7 +104,7 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 	for _, model := range out.Models {
 		visibleEntries = append(visibleEntries, catalog.StableID(model.Provider, model.Model))
 	}
-	out.Compatibility, err = s.store.Compatibility(ctx, visibleEntries, now)
+	out.Compatibility, err = s.store.Compatibility(ctx, visibleEntries)
 	if err != nil {
 		return catalog.Input{}, err
 	}
