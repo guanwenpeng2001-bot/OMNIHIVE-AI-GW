@@ -123,7 +123,7 @@ func TestForwardModelBindingSavedCatalogWithoutMappingUsesWireFamily(t *testing.
 }
 
 func TestForwardModelBindingManualMediaSelectionUsesInstalledAdapter(t *testing.T) {
-	for _, endpoint := range []string{"images", "embeddings", "speech", "transcriptions"} {
+	for _, endpoint := range []string{"images", "speech", "transcriptions"} {
 		for _, task := range []string{"", "unknown", "text_generation"} {
 			t.Run(endpoint+"/"+task, func(t *testing.T) {
 				platform := PlatformOpenAI
@@ -142,6 +142,19 @@ func TestForwardModelBindingManualMediaSelectionUsesInstalledAdapter(t *testing.
 	}
 	account := legacyCatalogSeedAccount(PlatformCommandCode)
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "images", FinalModel: "actual-model"}))
+}
+
+func TestForwardModelBindingManualEmbeddingsSelectionRequiresModelEvidence(t *testing.T) {
+	for _, task := range []string{"", "unknown", "text_generation", "embeddings"} {
+		t.Run(task, func(t *testing.T) {
+			account := legacyCatalogSeedAccount(PlatformOpenAI)
+			account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"actual-model": {TaskType: task}}})
+			options := AccountModelBindingOptions{Endpoint: "embeddings", FinalModel: "actual-model"}
+			require.Equal(t, task == "embeddings", AccountSupportsResolvedModel(context.Background(), &account, "public-model", options))
+			options.FinalModel = "unselected"
+			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "unselected", options))
+		})
+	}
 }
 
 func TestForwardModelBindingRejectsRevokedCurrentAccount(t *testing.T) {

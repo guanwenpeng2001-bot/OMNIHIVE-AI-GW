@@ -14,8 +14,10 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -112,32 +114,40 @@ func TestCredentialDraftExistingAccountConfirmationIsBoundAndDoesNotCreate(t *te
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.Postgres, database))))
-	t.Cleanup(func() { _ = client.Close() })
-	pending := service.NewAuthPendingIdentityService(client)
+	t.Cleanup(func() { _ = database.Close() })
 	ctx := context.Background()
-	existing, err := client.Account.Create().SetName("existing").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old"}).Save(ctx)
+	require.NoError(t, repository.ApplyMigrations(ctx, database))
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
+	pending := service.NewAuthPendingIdentityService(client)
+	fixture := "credential-draft-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, err := database.ExecContext(ctx, "DELETE FROM pending_auth_sessions WHERE browser_session_key=$1", fixture)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM accounts WHERE name IN ($1,$2)", fixture, fixture+"-changed")
+		require.NoError(t, err)
+	})
+	existing, err := client.Account.Create().SetName(fixture).SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old"}).Save(ctx)
 	require.NoError(t, err)
 	admin := &atomicWorkflowAdmin{stubAdminService: newStubAdminService(), client: client}
-	draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"access_token": "new"})
+	draft, err := pending.IssueAccountCredentialDraft(ctx, fixture, service.PlatformOpenAI, service.AccountTypeOAuth, map[string]any{"access_token": "new"})
 	require.NoError(t, err)
-	request := CreateAccountRequest{ExistingAccountID: existing.ID, Name: "existing", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision, Credentials: map[string]any{"model_mapping": map[string]any{"public": "native"}}}
+	request := CreateAccountRequest{ExistingAccountID: existing.ID, Name: fixture, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, CredentialDraft: draft.Reference, CredentialDraftRevision: draft.Revision, Credentials: map[string]any{"model_mapping": map[string]any{"public": "native"}}}
 	digest, err := credentialDraftSubmission(request)
 	require.NoError(t, err)
-	review, err := pending.ReviewAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, digest)
+	review, err := pending.ReviewAccountCredentialDraft(ctx, draft.Reference, fixture, draft.Revision, digest)
 	require.NoError(t, err)
 	request.CredentialDraftRevision = review.Revision
 	for range 2 {
-		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, "browser", request, nil, false, false, "admin", false)
+		account, err := confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
 		require.NoError(t, err)
 		require.Equal(t, existing.ID, account.ID)
 	}
-	require.Equal(t, 1, client.Account.Query().CountX(ctx))
+	require.Equal(t, 1, client.Account.Query().Where(account.NameEQ(fixture)).CountX(ctx))
 	require.Equal(t, "new", client.Account.GetX(ctx, existing.ID).Credentials["access_token"])
-	request.Name = "changed-payload"
-	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, "browser", request, nil, false, false, "admin", false)
+	request.Name = fixture + "-changed"
+	_, err = confirmCredentialDraftWithBinding(ctx, pending, admin, fixture, request, nil, false, false, "admin", false)
 	require.ErrorIs(t, err, service.ErrAccountCredentialDraftConflict)
-	require.Equal(t, 1, client.Account.Query().CountX(ctx))
+	require.Equal(t, 1, client.Account.Query().Where(account.NameIn(fixture, request.Name)).CountX(ctx))
 }
 
 func TestAccountWorkflowBatchFailureLeavesNoAccounts(t *testing.T) {

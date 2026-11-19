@@ -132,7 +132,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account = get(test, account.ID)
 		require.Empty(test, account.GetUpstreamModelCatalog().EligibleModels)
 		require.Empty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-		require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind, "stale discovery is withheld while the selected model survives")
+		require.Equal(test, "target", account.GetMappedModel("alias"), "renewal preserves the configured selection")
+		require.Nil(test, account.EffectiveUpstreamModelCatalog(), "a stale native publication cannot be replaced by configured evidence")
 	})
 	test.Run("protocol release and bulk mapping changes revoke", func(test *testing.T) {
 		for _, change := range []string{"protocol", "capability release", "bulk mapping", "bulk proxy"} {
