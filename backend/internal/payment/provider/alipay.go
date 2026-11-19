@@ -301,16 +301,14 @@ func (a *Alipay) VerifyNotification(ctx context.Context, rawBody string, _ map[s
 		status = payment.ProviderStatusSuccess
 	}
 
-	amount, err := strconv.ParseFloat(notification.TotalAmount, 64)
-	if err != nil {
-		amount, err = parseAlipayAmount(
-			notification.TotalAmount,
-			notification.ReceiptAmount,
-			notification.BuyerPayAmount,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("alipay parse notification amount: %w", err)
-		}
+	minor, err := payment.AmountToMinorUnit(notification.TotalAmount, payment.DefaultPaymentCurrency)
+	if err != nil || minor <= 0 || notification.TradeNo == "" || notification.AppId != a.config["appId"] {
+		return nil, fmt.Errorf("incomplete or mismatched alipay notification")
+	}
+	amount := payment.LegacyCallbackAmount(minor, payment.DefaultPaymentCurrency)
+	eventID := notification.NotifyId
+	if eventID == "" {
+		eventID = notification.TradeNo + "/" + status
 	}
 
 	metadata := a.MerchantIdentityMetadata()
@@ -322,6 +320,7 @@ func (a *Alipay) VerifyNotification(ctx context.Context, rawBody string, _ map[s
 	}
 
 	return &payment.PaymentNotification{
+		EventID: eventID, EffectID: notification.TradeNo, InstanceID: a.instanceID, Currency: payment.DefaultPaymentCurrency, Minor: minor,
 		TradeNo:  notification.TradeNo,
 		OrderID:  notification.OutTradeNo,
 		Amount:   amount,
