@@ -1,0 +1,151 @@
+import { describe, expect, it } from 'vitest'
+import {
+  buildMixedChannelDetails,
+  buildTempUnschedRules,
+  canPerformConnectionAction,
+  formatPoolModeRetryStatusCodes,
+  getAuthModeLabel,
+  getProviderDisplayMeta,
+  isConnectionRedacted,
+  isOAuthWorkflowSupported,
+  isVerificationFresh,
+  mapApiErrorToAsyncContext,
+  parsePoolModeRetryStatusCodes,
+  splitTempUnschedKeywords,
+  toggleErrorCodeInList,
+  validateConnectionEndpoint,
+  validateCustomErrorCode
+} from '../rules'
+
+describe('connections/rules (UIR01)', () => {
+  it('parses and formats pool mode retry status codes deterministically', () => {
+    expect(parsePoolModeRetryStatusCodes('503, 429 500 429 99 600 abc')).toEqual([429, 500, 503])
+    expect(parsePoolModeRetryStatusCodes('   ')).toEqual([])
+    expect(formatPoolModeRetryStatusCodes([503, '429', 99, 500, 429])).toBe('429, 500, 503')
+    expect(formatPoolModeRetryStatusCodes(null)).toBe('')
+  })
+
+  it('validates custom error codes and flags 429/529 confirmation', () => {
+    expect(validateCustomErrorCode(null, [])).toEqual({ ok: false, reason: 'invalid' })
+    expect(validateCustomErrorCode(99, [])).toEqual({ ok: false, reason: 'invalid' })
+    expect(validateCustomErrorCode(500, [500])).toEqual({ ok: false, reason: 'duplicate' })
+    expect(validateCustomErrorCode(429, [])).toEqual({ ok: true, requiresConfirm: 429 })
+    expect(validateCustomErrorCode(529, [])).toEqual({ ok: true, requiresConfirm: 529 })
+    expect(validateCustomErrorCode(502, [500])).toEqual({ ok: true })
+  })
+
+  it('toggles error codes without mutating input array', () => {
+    const source = [500, 502]
+    expect(toggleErrorCodeInList(source, 503)).toEqual([500, 502, 503])
+    expect(toggleErrorCodeInList(source, 500)).toEqual([502])
+    expect(source).toEqual([500, 502])
+  })
+
+  it('splits keywords and builds temp unschedulable rules', () => {
+    expect(splitTempUnschedKeywords('rate limit; quota exceeded, overloaded')).toEqual([
+      'rate limit',
+      'quota exceeded',
+      'overloaded'
+    ])
+    expect(
+      buildTempUnschedRules([
+        { error_code: 429, keywords: 'rate limit, too many', duration_minutes: 15.8, description: ' Rate cap ' },
+        { error_code: 99, keywords: 'bad', duration_minutes: 10, description: '' },
+        { error_code: 500, keywords: '   ', duration_minutes: 10, description: '' }
+      ])
+    ).toEqual([
+      {
+        error_code: 429,
+        keywords: ['rate limit', 'too many'],
+        duration_minutes: 15,
+        description: 'Rate cap'
+      }
+    ])
+  })
+
+  it('maps mixed channel details and provider metadata', () => {
+    expect(buildMixedChannelDetails(undefined)).toBeNull()
+    expect(
+      buildMixedChannelDetails({
+        details: { group_name: 'pool-a', current_platform: 'anthropic' }
+      })
+    ).toEqual({
+      groupName: 'pool-a',
+      currentPlatform: 'anthropic',
+      otherPlatform: 'Unknown'
+    })
+    expect(getProviderDisplayMeta('openai').label).toBe('OpenAI')
+    expect(getProviderDisplayMeta('custom_gw').label).toBe('CUSTOM_GW')
+    expect(getAuthModeLabel('oauth')).toBe('OAuth 2.0')
+  })
+
+  it('checks OAuth workflow support, verification freshness, redaction, and role actions', () => {
+    expect(
+      isOAuthWorkflowSupported(
+        { provider: 'openai', schema_version: '1', auth_types: ['oauth'], fields: [], supported_actions: [] },
+        'oauth'
+      )
+    ).toBe(true)
+    expect(
+      isOAuthWorkflowSupported(
+        {
+          provider: 'openai',
+          schema_version: '1',
+          auth_types: ['api_key'],
+          fields: [],
+          supported_actions: [],
+          authorization_workflows: { device_code: 'oauth' }
+        },
+        'device_code'
+      )
+    ).toBe(true)
+    expect(
+      isVerificationFresh(
+        {
+          verification_id: 'ver_1',
+          models: [],
+          verified_at: '2026-11-19T00:00:00Z',
+          expires_at: '2026-11-19T01:00:00Z',
+          checks: []
+        },
+        Date.parse('2026-11-19T00:30:00Z')
+      )
+    ).toBe(true)
+    expect(
+      isVerificationFresh(
+        {
+          verification_id: 'ver_1',
+          models: [],
+          verified_at: '2026-11-19T00:00:00Z',
+          expires_at: '2026-11-19T01:00:00Z',
+          checks: []
+        },
+        Date.parse('2026-11-19T01:30:00Z')
+      )
+    ).toBe(false)
+    expect(isConnectionRedacted({ version: '2', redactions: ['credential'] })).toBe(true)
+    expect(canPerformConnectionAction({ allowed_actions: ['update', 'verify'] }, 'verify')).toBe(true)
+    expect(canPerformConnectionAction({ allowed_actions: ['update'] }, 'activate')).toBe(false)
+  })
+
+  it('validates endpoint URLs and maps API errors to async states', () => {
+    expect(validateConnectionEndpoint('', true)).toBe('Endpoint URL is required by provider schema.')
+    expect(validateConnectionEndpoint('ftp://example.com', true)).toBe('Endpoint must use https:// or http://')
+    expect(validateConnectionEndpoint('https://api.openai.com', true)).toBeNull()
+
+    const err403 = {
+      response: { status: 403, data: { error: { code: 'FORBIDDEN', message: 'Denied' } } }
+    }
+    expect(mapApiErrorToAsyncContext(err403).state).toBe('permission_denied')
+
+    const err409 = {
+      response: { status: 409, data: { error: { code: 'VERSION_CONFLICT', message: 'Stale version' } } }
+    }
+    expect(mapApiErrorToAsyncContext(err409).state).toBe('version_conflict')
+
+    const err504 = {
+      response: { status: 504, data: { error: { code: 'TIMEOUT', message: 'Timed out' } } }
+    }
+    expect(mapApiErrorToAsyncContext(err504).state).toBe('unknown_outcome')
+  })
+})
