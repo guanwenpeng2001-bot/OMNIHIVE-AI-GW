@@ -1,0 +1,111 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "model": {
+      "id": "m_999fff7ac750942004e8fc300d1b1259",
+      "model": "gpt-4o",
+      "display_name": "GPT-4o",
+      "provider": "openai",
+      "modalities": [
+        "text",
+        "image"
+      ],
+      "protocols": [
+        "openai_chat"
+      ],
+      "actions": [
+        "text.chat"
+      ],
+      "regions": [],
+      "context_tokens": "128000",
+      "maturity": "stable",
+      "catalog_version": "cat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "catalog_state": "listed",
+      "access_state": "allowed",
+      "route_state": "eligible",
+      "price_state": "priced",
+      "input_rate": {
+        "currency": "USD",
+        "amount": "2.5",
+        "unit": "input_token",
+        "per": "1000000"
+      },
+      "output_rate": {
+        "currency": "USD",
+        "amount": "10",
+        "unit": "output_token",
+        "per": "1000000"
+      },
+      "observed_at": "2026-11-19T10:00:00Z",
+      "evidence_state": "fresh",
+      "effective_scope": {
+        "workspace_id": "1",
+        "project_id": "6",
+        "scope_version": "3"
+      }
+    },
+    "aliases": [],
+    "model_facts": [
+      {
+        "source": "approved_registry",
+        "maturity": "stable",
+        "observed_at": "2026-11-19T10:00:00Z",
+        "expires_at": null,
+        "state": "fresh",
+        "context_tokens": "128000",
+        "context_kind": "total",
+        "max_output_tokens": null,
+        "embedding_dimensions": null,
+        "tools": false,
+        "vision": true,
+        "reasoning": null,
+        "prompt_caching": null,
+        "pdf": null,
+        "modalities": [
+          "text",
+          "image"
+        ]
+      }
+    ],
+    "capabilities": [
+      {
+        "source": "approved_registry",
+        "maturity": "stable",
+        "observed_at": "2026-11-19T10:00:00Z",
+        "expires_at": null,
+        "state": "fresh",
+        "action": "text.chat",
+        "protocol": "openai_chat",
+        "mode": "unknown",
+        "tools": "unknown",
+        "stream": "unknown",
+        "verified_at": null,
+        "adapter_version": null,
+        "limitations": []
+      }
+    ],
+    "endpoints": [],
+    "price_version": "ref_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "price_source": "scoped_plaza_reference",
+    "additional_rates": [],
+    "time_bands": [],
+    "metrics": {
+      "window_start": "2026-11-18T10:00:00Z",
+      "window_end": "2026-11-19T10:00:00Z",
+      "source": "gateway_observations",
+      "requests": "5",
+      "ttft_samples": "1",
+      "speed_samples": "0",
+      "success_rate": 0,
+      "ttft_p50_ms": null,
+      "output_tokens_per_second": null,
+      "state": "partial"
+    },
+    "benchmarks": [],
+    "documentation_url": null,
+    "redactions": [
+      "endpoints"
+    ]
+  }
+}
