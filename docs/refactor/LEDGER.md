@@ -13,6 +13,9 @@ Status legend: todo / doing / review / merged / blocked
 | BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | merged | c6270bee6 module; 660e876e6 integration (wire/router/openapi/v2.d.ts) merged; smoke pass (public+scoped list, detail, compare, snapshot) |
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
 | BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | merged | 39b054030 → integrated 146fc5cdb (journal middleware in router; build/vet/unit pass) |
+| BE-07 | Exact pricing authority, quotes and comparisons | gpt-6.2-astra | codex/be-07-pricing | doing | from 2637e9e59 |
+| BE-08 | Shared routing planner and production trace | gpt-6.2-astra | codex/be-08-routing | doing | from 2637e9e59 |
+| RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | doing | report only |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
 | ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | merged | cbcc3c23f → 259df733d; NOTICE + IDENTITY_ALLOWLIST (740 lines classified); handoffs to FE-WP1/FE-WP4; gate green (5296 tests) |
