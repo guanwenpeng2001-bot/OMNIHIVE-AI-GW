@@ -51,7 +51,7 @@ func TestStatusPostgres(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	require.NoError(t, repository.ApplyMigrations(t.Context(), db))
-	f := &fixture{t: t, db: db, now: time.Now().UTC().Truncate(time.Minute).Add(31 * time.Second), monitoring: true}
+	f := &fixture{t: t, db: db, now: time.Now().UTC().Truncate(time.Hour).Add(30*time.Minute + 31*time.Second), monitoring: true}
 	f.admin = f.id(`INSERT INTO users(email,password_hash,role) VALUES ('publisher@example.test','fixture','admin') RETURNING id`)
 	f.member = f.id(`INSERT INTO users(email,password_hash) VALUES ('private-member@example.test','fixture') RETURNING id`)
 	f.exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES (1,$1,'admin')`, f.member)
@@ -66,8 +66,14 @@ func TestStatusPostgres(t *testing.T) {
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: id})
 		}
 	}})
-	t.Run("published observations", func(t *testing.T) { f.observations() })
-	t.Run("incident lifecycle and validators", func(t *testing.T) { f.incidents() })
+	t.Run("published observations", func(t *testing.T) {
+		f.t = t
+		f.observations()
+	})
+	t.Run("incident lifecycle and validators", func(t *testing.T) {
+		f.t = t
+		f.incidents()
+	})
 }
 
 func (f *fixture) observations() {
@@ -100,7 +106,9 @@ func (f *fixture) observations() {
 	rejected := f.execution(at, badCorrelation, false, 4)
 	f.attempt(rejected, at, 1, "")
 	f.ops(badCorrelation, at, "provider", 502, 429, false, nil, "/v1/responses")
-	f.ops(uuid.NewString(), at, "platform", 502, 429, false, nil, "/v1/responses")
+	platformCorrelation := uuid.NewString()
+	f.ops(platformCorrelation, at, "platform", 502, 429, false, nil, "/v1/responses")
+	f.ops(platformCorrelation, at.Add(time.Minute), "platform", 502, 429, false, nil, "/v1/responses")
 	f.ops(uuid.NewString(), at, "provider", 502, 500, false, nil, "/v1/responses")
 	f.ops(uuid.NewString(), at, "client", 429, 0, false, nil, "/v1/responses")
 	f.ops(uuid.NewString(), at, "client", 499, 0, true, 115, "/v1/responses")
@@ -314,9 +322,16 @@ func (f *fixture) execution(at time.Time, correlation string, canceled bool, sta
 
 func (f *fixture) attempt(id string, at time.Time, ordinal int, reason string) {
 	f.t.Helper()
+	acceptance, outcome := "accepted", "transport_response"
+	if reason != "" {
+		acceptance, outcome = "unknown", "unknown"
+	}
 	f.exec(`INSERT INTO gateway_execution_attempts (attempt_id, request_id, ordinal, account_id, dispatched_at,acceptance,outcome,decision)
-	    VALUES ($1,$2,$3,$4,$5,'accepted','transport_response',jsonb_build_object('reason',$6::text))`,
-		uuid.NewString(), id, ordinal, f.account, at, reason)
+	    VALUES ($1,$2,$3,$4,$5,$6,$7,jsonb_build_object('reason',$8::text))`,
+		uuid.NewString(), id, ordinal, f.account, at, acceptance, outcome, reason)
+	if reason != "" {
+		f.exec(`UPDATE gateway_execution_attempts SET abandoned_uncertain=true WHERE request_id=$1 AND ordinal=$2`, id, ordinal)
+	}
 }
 
 func (f *fixture) usage(id, endpoint string, at time.Time, ttft int) {

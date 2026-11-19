@@ -89,3 +89,20 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT AS $$
             THEN 'gemini_compatible'
     END
 $$;
+
+CREATE FUNCTION status_terminal_error(status int, owner text, upstream_status int, limited boolean, started_output boolean)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT CASE WHEN status = 499 THEN 'client_cancellation'
+                WHEN limited OR owner = 'client' THEN 'admission_denial'
+                WHEN started_output THEN 'stream_interruption'
+                WHEN owner = 'provider' AND upstream_status = 429 THEN 'upstream_rate_limit'
+                WHEN owner = 'provider' THEN 'upstream_error'
+                WHEN owner = 'platform' OR status >= 500 THEN 'gateway_error'
+                ELSE 'unknown' END
+$$;
+
+CREATE FUNCTION status_ops_component(request_path text, inbound_endpoint text) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT coalesce(status_gateway_component(NULLIF(request_path, '/v1beta/models')),
+           CASE WHEN inbound_endpoint <> '/v1beta/models' THEN status_gateway_component(inbound_endpoint) END)
+$$;

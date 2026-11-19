@@ -1,0 +1,15 @@
+{
+  "id": "a90cee0f-b874-45c5-8bea-408698c63141",
+  "title": "Elevated inference errors",
+  "state": "resolved",
+  "severity": "outage",
+  "component_ids": ["inference"],
+  "started_at": "2026-11-19T09:00:00Z",
+  "resolved_at": "2026-11-19T10:00:00Z",
+  "updates": [
+    {"at": "2026-11-19T09:00:00Z", "state": "investigating", "message": "We are investigating."},
+    {"at": "2026-11-19T09:10:00Z", "state": "identified", "message": "We identified the affected subsystem."},
+    {"at": "2026-11-19T09:30:00Z", "state": "monitoring", "message": "Monitoring recovery."},
+    {"at": "2026-11-19T10:00:00Z", "state": "resolved", "message": "The service has recovered."}
+  ]
+}
