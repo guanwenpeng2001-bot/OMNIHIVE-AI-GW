@@ -1,5 +1,7 @@
 # datamanagementd 部署说明（数据管理）
 
+> 历史文档。当前 OmniHive 已移除该集成。参见[数据管理接口移除说明](../docs/data-management-removal.md)。
+
 本文说明如何在宿主机部署 `datamanagementd`，并与主进程联动开启“数据管理”功能。
 
 ## 1. 关键约束

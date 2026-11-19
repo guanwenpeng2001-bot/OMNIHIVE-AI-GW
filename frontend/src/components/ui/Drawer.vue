@@ -93,7 +93,7 @@ const widthClasses = computed(() => {
               </p>
             </slot>
           </div>
-          <IconButton aria-label="Close drawer" size="sm" @click="requestClose">
+          <IconButton aria-label="Close drawer" ariaLabel="Close drawer" size="sm" @click="requestClose">
             <svg viewBox="0 0 16 16" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
               <path stroke-linecap="round" d="M4 4l8 8M12 4l-8 8" />
             </svg>

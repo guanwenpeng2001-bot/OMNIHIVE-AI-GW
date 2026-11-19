@@ -32,7 +32,7 @@ const examples = computed<HeaderExample[]>(() => {
     items.push({
       label: 'OmniHive',
       header: 'X-Client-Request-ID',
-      note: t('admin.accounts.upstreamRequestIdHeaderHelp.sub2apiNote')
+      note: t('admin.accounts.upstreamRequestIdHeaderHelp.omnihiveNote')
     })
     items.push({ label: 'new-api / one-api', header: 'X-Oneapi-Request-Id' })
   }

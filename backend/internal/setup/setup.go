@@ -28,7 +28,7 @@ import (
 // Config paths
 const (
 	ConfigFileName             = "config.yaml"
-	InstallLockFile            = ".installed"
+	InstallLockFile            = runtimeenv.InstallLockFile
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
@@ -155,19 +155,10 @@ func decideAdminBootstrap(totalUsers, adminUsers int64) adminBootstrapDecision {
 	}
 }
 
-func skipSetupEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("SKIP_SETUP"))) {
-	case "true", "1", "yes":
-		return true
-	default:
-		return false
-	}
-}
-
 // NeedsSetup checks if the system needs initial setup
 // Uses multiple checks to prevent attackers from forcing re-setup by deleting config
 func NeedsSetup() bool {
-	if skipSetupEnabled() {
+	if runtimeenv.SkipSetupEnabled() {
 		logger.L().Debug("setup.needs_setup_bypassed", zap.String("reason", "skip_setup_enabled"))
 		return false
 	}
@@ -592,7 +583,7 @@ func AutoSetupFromEnv() error {
 			Port:     getEnvIntOrDefault("DATABASE_PORT", 5432),
 			User:     getEnvOrDefault("DATABASE_USER", "postgres"),
 			Password: getEnvOrDefault("DATABASE_PASSWORD", ""),
-			DBName:   getEnvOrDefault("DATABASE_DBNAME", "omnihive"),
+			DBName:   getEnvOrDefault("DATABASE_DBNAME", config.DefaultDatabaseName),
 			SSLMode:  getEnvOrDefault("DATABASE_SSLMODE", "disable"),
 		},
 		Redis: RedisConfig{

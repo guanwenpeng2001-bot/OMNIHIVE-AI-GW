@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, useAttrs } from 'vue'
+import { computed } from 'vue'
 import type { UiButtonVariant, UiSize } from './types'
 import { cn } from './utils'
 
 export interface IconButtonProps {
-  ariaLabel?: string
+  ariaLabel: string
   label?: string
   variant?: UiButtonVariant
   size?: Exclude<UiSize, 'lg'>
@@ -15,7 +15,6 @@ export interface IconButtonProps {
 }
 
 const props = withDefaults(defineProps<IconButtonProps>(), {
-  ariaLabel: undefined,
   label: undefined,
   variant: 'ghost',
   size: 'md',
@@ -25,11 +24,7 @@ const props = withDefaults(defineProps<IconButtonProps>(), {
   active: false
 })
 
-const attrs = useAttrs()
-const resolvedLabel = computed(() => {
-  const attrLabel = typeof attrs['aria-label'] === 'string' ? attrs['aria-label'] : undefined
-  return props.ariaLabel || props.label || attrLabel || 'Button'
-})
+const resolvedLabel = computed(() => props.ariaLabel || props.label || '')
 
 const emit = defineEmits<{
   click: [event: MouseEvent]

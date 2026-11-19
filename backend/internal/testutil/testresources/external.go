@@ -14,10 +14,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 	_ "github.com/lib/pq"
 )
 
-func External() bool { return os.Getenv("SUB2API_TEST_EXTERNAL_SERVICES") == "1" }
+func External() bool {
+	return runtimeenv.Get("OMNIHIVE_TEST_EXTERNAL_SERVICES", "SUB2API_TEST_EXTERNAL_SERVICES") == "1"
+}
 
 // Run selects the lifecycle before any managed service callback can run.
 func Run(external, managed func() int) int {

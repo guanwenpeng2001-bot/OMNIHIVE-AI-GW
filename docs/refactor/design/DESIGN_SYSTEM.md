@@ -31,9 +31,9 @@ All new UI primitives (`frontend/src/components/ui/**`) and migrated pages consu
 | `--oh-bg-inset` | `bg-oh-inset` | `#ECEEF2` | `#0A0C10` | Segmented control track, input well, raw JSON/code viewport |
 | `--oh-bg-hover` | `bg-oh-hover` | `#F3F4F7` | `#1F2430` | Interactive row / list item / ghost button hover |
 | `--oh-bg-selected` | `bg-oh-selected` | `#FEF7E6` | `#261F12` | Selected table row, active nav item tint, chosen wizard card |
-| `--oh-fg-primary` | `text-oh-primary` | `#141519` | `#F3F4F6` | Primary body copy, headings, key numbers (`>= 15.4:1` contrast) |
+| `--oh-fg-primary` | `text-oh-primary` | `#141519` | `#F3F4F6` | Primary body copy, headings, key numbers (`>= 14.8:1` contrast) |
 | `--oh-fg-secondary` | `text-oh-secondary` | `#4B505C` | `#A6AEBC` | Descriptions, table secondary cells, form labels (`>= 7.2:1`) |
-| `--oh-fg-muted` | `text-oh-muted` | `#6E7482` | `#7A8394` | Captions, placeholders, mono eyebrows, unit suffixes (`>= 4.6:1`) |
+| `--oh-fg-muted` | `text-oh-muted` | `#666C79` | `#828BA0` | Captions, placeholders, mono eyebrows, unit suffixes (`>= 4.7:1`) |
 | `--oh-fg-disabled` | `text-oh-disabled` | `#9CA3AF` | `#4E5564` | Disabled controls only (always paired with `aria-disabled` / `disabled`) |
 | `--oh-border-subtle` | `border-oh-subtle` | `#EAECEF` | `#1E222D` | Internal table row dividers, section hairlines |
 | `--oh-border-default` | `border-oh-default` | `#DDE0E6` | `#262B38` | Card borders, input borders, shell structural grid lines |
@@ -41,13 +41,13 @@ All new UI primitives (`frontend/src/components/ui/**`) and migrated pages consu
 
 ### 2.2 Brand Accent Tokens (Single Accent: Amber)
 
-> **Contrast Rule:** Never render white text (`#FFFFFF`) on `#F59E0B` amber fills (contrast is `2.15:1`, failing WCAG AA). Primary amber fills always use `--oh-accent-ink` (`#141008`, contrast `9.8:1`). Inline amber text on neutral surfaces uses `--oh-accent-text` (`#B45309` in Light `5.1:1`, `#FBBF24` in Dark `11.6:1`).
+> **Contrast Rule:** Never render white text (`#FFFFFF`) on `#F59E0B` amber fills (contrast is `2.15:1`, failing WCAG AA). Primary amber fills always use `--oh-accent-ink` (`#141008`, contrast `8.8:1`). Inline amber text on neutral surfaces uses `--oh-accent-text` (`#B45309` in Light `4.7:1`, `#FBBF24` in Dark `9.7:1`).
 
 | Semantic Token | Tailwind Utility | Light Mode | Dark Mode | Usage |
 | --- | --- | --- | --- | --- |
 | `--oh-accent` | `bg-oh-accent` | `#F59E0B` | `#F59E0B` | Primary CTA fill, active tab bar (`2px`), active step node |
 | `--oh-accent-hover` | `bg-oh-accent-hover` | `#D97706` | `#FBBF24` | Primary CTA hover fill |
-| `--oh-accent-active` | `bg-oh-accent-active` | `#B45309` | `#D97706` | Primary CTA pressed fill |
+| `--oh-accent-active` | `bg-oh-accent-active` | `#C56207` | `#D97706` | Primary CTA pressed fill (`>= 4.6:1` against `--oh-accent-ink`) |
 | `--oh-accent-ink` | `text-oh-accent-ink` | `#141008` | `#141008` | Text & icons inside solid `--oh-accent` buttons/badges |
 | `--oh-accent-text` | `text-oh-accent-text` | `#B45309` | `#FBBF24` | Links, highlighted mono metrics, active filter counts |
 | `--oh-accent-subtle` | `bg-oh-accent-subtle` | `#FFF8EB` | `#271F10` | Accent badge fill, selected chip background, callout surface |
@@ -65,7 +65,7 @@ Every status badge or banner combines **icon + label + token** so color-blind us
 | **Danger (`danger`)** | `#B91C1C` / `#F87171` | `#FEF2F2` / `#2A1315` | `#FECACA` / `#5C2125` | Auth Invalid, Circuit Open, Quota Exhausted, `4xx/5xx` Failure |
 | **Info (`info`)** | `#1D4ED8` / `#60A5FA` | `#EFF6FF` / `#122038` | `#BFDBFE` / `#233E6B` | Running Async Job, Draining In-Flight, Policy Simulation |
 | **Neutral (`neutral`)** | `#4B505C` / `#A6AEBC` | `#F1F3F6` / `#1D212C` | `#DDE0E6` / `#2E3444` | Disabled by Admin, Archived, Draft, Standard Protocol |
-| **Unknown (`unknown`)** | `#6E7482` / `#8A93A5` | `#F7F8FA` / `#151821` | `dashed #C4C9D4` / `dashed #363D4E` | Unverified, Insufficient Sample, Telemetry Stale |
+| **Unknown (`unknown`)** | `#666C79` / `#8A93A5` | `#F7F8FA` / `#151821` | `dashed #C4C9D4` / `dashed #363D4E` | Unverified, Insufficient Sample, Telemetry Stale |
 
 ### 2.4 Chart & Heatmap Palette Tokens
 

@@ -117,6 +117,7 @@ function handleBackdropClick(): void {
 
           <IconButton
             v-if="!hideCloseButton"
+            ariaLabel="Close dialog"
             aria-label="Close dialog"
             size="sm"
             @click="requestClose"

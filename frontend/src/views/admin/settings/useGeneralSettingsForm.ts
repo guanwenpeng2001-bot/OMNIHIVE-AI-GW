@@ -37,7 +37,7 @@ export function useGeneralSettingsForm(tablePageSizeDefault: number) {
   >({
     registration_email_suffix_whitelist: [],
 
-    site_name: "Sub2API",
+    site_name: "OmniHive",
 
     site_icp: "",
 

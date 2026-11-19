@@ -1,7 +1,7 @@
 # Portable per-node proxy
 
 This optional deployment adds the official Mihomo core as `node-proxy` on the
-existing backend's `sub2api-network`. Each canonical real node gets its own HTTP
+existing backend's `omnihive-network`. Each canonical real node gets its own HTTP
 listener (including HTTP CONNECT), wired directly to that outbound. The runtime
 does not require Python, Windows, Clash Verge, TUN, a desktop session, or a system
 proxy. The normal `deploy/docker-compose.yml` remains unchanged.
@@ -233,26 +233,26 @@ there is deliberately no controller-driven hot reload.
 
 From the repository root, use the **same project name, project directory, base
 Compose files and environment file as the existing backend deployment**. Below,
-`sub2api` is an example project name: replace it if the current deployment uses
+`omnihive` is an example project name: replace it if the current deployment uses
 another name. Relative paths in all overlays resolve against `deploy`, not the
 `mihomo` subdirectory. `NODE_PROXY_CONFIG` must be an absolute host path.
 
 ```sh
 export NODE_PROXY_CONFIG=/srv/private/node-proxy/config.yaml
-docker compose --project-directory deploy --env-file /srv/private/sub2api.env \
-  -p sub2api -f deploy/docker-compose.yml -f deploy/mihomo/compose.yml config --quiet
+docker compose --project-directory deploy --env-file /srv/private/omnihive.env \
+  -p omnihive -f deploy/docker-compose.yml -f deploy/mihomo/compose.yml config --quiet
 ```
 
 The above only validates. After configuration review, deployment is an explicit
 operator action:
 
 ```sh
-docker compose --project-directory deploy --env-file /srv/private/sub2api.env \
-  -p sub2api -f deploy/docker-compose.yml -f deploy/mihomo/compose.yml \
+docker compose --project-directory deploy --env-file /srv/private/omnihive.env \
+  -p omnihive -f deploy/docker-compose.yml -f deploy/mihomo/compose.yml \
   up -d --no-deps --force-recreate node-proxy
 ```
 
-Both services join `<project>_sub2api-network`; do not deploy this overlay under
+Both services join `<project>_omnihive-network`; do not deploy this overlay under
 a separate project. It adds no dependency to backend startup and launches no
 database services when targeted as above. Do not use the local overlay in server
 deployment. No `privileged`, host networking, TUN devices, added capabilities or

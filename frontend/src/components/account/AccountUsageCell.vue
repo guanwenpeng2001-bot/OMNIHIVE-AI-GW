@@ -358,7 +358,7 @@
       @refresh="loadUsage({ source: 'active', bypassCache: true })"
     />
 
-    <!-- Grok OAuth accounts: passive xAI quota headers + local Sub2API usage -->
+    <!-- Grok OAuth accounts: passive xAI quota headers + local gateway usage -->
     <template v-else-if="account.platform === 'grok' && account.type === 'oauth'">
       <div v-if="loading" class="space-y-1.5">
         <div class="flex items-center gap-1">
@@ -386,7 +386,7 @@
           <UsageProgressBar
             v-if="grokFreeTokenBar"
             label="24h"
-            :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) }).replace(/sub2api/gi, 'OmniHive')"
+            :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) })"
             :utilization="grokFreeTokenBar.utilization"
             :window-stats="grokFreeQuotaUsage"
             :show-now-when-idle="true"

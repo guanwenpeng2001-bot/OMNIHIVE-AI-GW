@@ -1690,7 +1690,7 @@ async function submitJob() {
         response_mime_type: form.responseMimeType,
         items: parsedItems.value,
 	      },
-	      `sub2api-ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+	      `omnihive-ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
 	    )
 	    currentJob.value = job
 	    selectedBatchId.value = job.id
@@ -1903,7 +1903,7 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
         response_mime_type: form.responseMimeType,
         items: failedItems,
       },
-      `sub2api-ui-retry-${job.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      `omnihive-ui-retry-${job.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     )
     currentJob.value = retryJob
     selectedBatchId.value = retryJob.id

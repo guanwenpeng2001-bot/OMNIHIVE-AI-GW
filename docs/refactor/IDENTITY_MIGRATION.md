@@ -29,3 +29,7 @@ The Apple Container script creates `omnihive-apple` resources for new deployment
 The same precedence applies to pairs of `OMNIHIVE_*` and `SUB2API_*` variables for image model selection, profiling, the Claude CLI pin and gateway debugging. Applications log deprecated fallback use without logging values. Update and database environment keys that were already product-independent keep their existing names. PostgreSQL and Redis state, installed credentials and coordinated namespaces stay on their current identities through the transition.
 
 The signed release manifest, plugin v2 and coordinated database, browser and protocol migrations are tracked in the [identity inventory](IDENTITY_INVENTORY.md). The transition window should be set against the active deployment inventory before retiring the compatibility paths.
+
+New wizard and automatic setup installations write `database.dbname: omnihive` by default. If an existing config, install lock, or `SKIP_SETUP` deployment omits the name, the backend preserves the previous implicit `sub2api` database name. Pin the actual database explicitly in `database.dbname` or `DATABASE_DBNAME` before moving configuration or applying new templates. An explicit database name continues to work, including the old name.
+
+The [BE-30 inventory](../../contracts/migrations/BE-30/README.md) tracks caller counts, retirement gates and the BE-20 plugin handoff.

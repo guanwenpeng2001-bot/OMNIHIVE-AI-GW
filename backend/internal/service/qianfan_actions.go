@@ -319,7 +319,7 @@ func buildQianfanSpeechBody(info QianfanActionRequestInfo, requestID string) ([]
 	}
 	form := url.Values{}
 	form.Set("tex", text)
-	form.Set("cuid", firstNonEmptyString(strings.TrimSpace(requestID), "sub2api"))
+	form.Set("cuid", firstNonEmptyString(strings.TrimSpace(requestID), "omnihive"))
 	form.Set("ctp", "1")
 	form.Set("lan", "zh")
 	form.Set("per", firstNonEmptyString(strings.TrimSpace(info.Voice), qianfanSpeechTTSDefaultVoice))
