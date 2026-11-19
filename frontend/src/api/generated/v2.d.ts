@@ -528,6 +528,145 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/quotes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["quoteProjectModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List logical requests in the project
+         * @description Requires requests.read. Results seek from newest admission or legacy observation, then descending request ID.
+         */
+        get: operations["requestList"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a project request and its evidence
+         * @description Requires requests.read. Connection identity requires connections.read. Amounts and financial references require billing.ledger.read.
+         */
+        get: operations["requestDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a request metadata export operation
+         * @description Requires requests.read and requests.export. An identical retry returns the same operation and expiration.
+         */
+        post: operations["requestExportCreate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/exports/{export_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Stream the selected request metadata sections
+         * @description Requires the creating actor, requests.read and requests.export. Field permissions apply at download.
+         */
+        get: operations["requestExportDownload"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/requests/{id}/route-explain": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read the latest recorded execution routing decision
+         * @description Requires requests.read. Candidate IDs are local to the routing decision.
+         */
+        get: operations["requestRouteExplanation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/provider-schemas": {
         parameters: {
             query?: never;
@@ -961,6 +1100,54 @@ export interface components {
             credential_version: string;
         };
         ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
+        ExactCount: string;
+        ExactDuration: string;
+        /** @description Quantities per request. Cached input is included in input; other dimensions are disjoint. Missing usage fields default to zero and requests defaults to one. */
+        ExactPriceScenario: {
+            input_tokens?: components["schemas"]["ExactCount"];
+            cached_input_tokens?: components["schemas"]["ExactCount"];
+            output_tokens?: components["schemas"]["ExactCount"];
+            /** @default 1 */
+            requests: string;
+            cache_write_tokens?: components["schemas"]["ExactCount"];
+            cache_write_1h_tokens?: components["schemas"]["ExactCount"];
+            reasoning_tokens?: components["schemas"]["ExactCount"];
+            images?: components["schemas"]["ExactCount"];
+            image_input_tokens?: components["schemas"]["ExactCount"];
+            image_output_tokens?: components["schemas"]["ExactCount"];
+            search_calls?: components["schemas"]["ExactCount"];
+            audio_seconds?: components["schemas"]["ExactDuration"];
+            video_seconds?: components["schemas"]["ExactDuration"];
+            size_tier?: string;
+        };
+        ExactQuote: {
+            /** @enum {string} */
+            state: "estimated" | "free" | "unpriced";
+            price_version: string | null;
+            source: string | null;
+            estimated_charge: components["schemas"]["CatalogMoney"] | null;
+            components: components["schemas"]["ExactQuoteLine"][];
+            rounding_adjustment: string | null;
+            effective_scope: {
+                workspace_id: string;
+                project_id: string;
+                scope_version: string;
+            };
+        };
+        ExactQuoteInput: {
+            model_id: string;
+            api_key_id?: string | null;
+            protocol: string;
+            action: string;
+            scenario: components["schemas"]["ExactPriceScenario"];
+        };
+        ExactQuoteLine: {
+            kind: string;
+            quantity: components["schemas"]["ExactDuration"];
+            raw_amount: string;
+            numerator: string;
+            denominator: string;
+        };
         ExecutionAttempt: {
             /** Format: uuid */
             id: string;
@@ -1118,6 +1305,193 @@ export interface components {
             evidence_state: "fresh" | "stale" | "unknown";
             effective_scope?: components["schemas"]["CatalogScope"];
         };
+        RequestsAttempt: {
+            id: string;
+            number: number;
+            candidate_id: string | null;
+            connection_id: string | null;
+            connection_name: string | null;
+            /** Format: date-time */
+            started_at: string | null;
+            duration_ms: number | null;
+            upstream_ttft_ms: number | null;
+            /** @enum {string} */
+            acceptance: "not_sent" | "accepted" | "unknown";
+            outcome: components["schemas"]["RequestsOutcome"];
+            status: number | null;
+            reason: string | null;
+            semantic_output: boolean | null;
+            abandoned_uncertain: boolean;
+            receipt_state: components["schemas"]["RequestsReceiptState"];
+            conversion: components["schemas"]["RequestsConversion"];
+        };
+        RequestsBilling: {
+            billing_source: components["schemas"]["RequestsFundingSource"] | null;
+            state: components["schemas"]["RequestsSettlementState"];
+            currency: string | null;
+            price_version: string | null;
+            pricing_state: string | null;
+            reservation_id: string | null;
+            reservation_state: string | null;
+            release_pending: boolean | null;
+            reserved: components["schemas"]["RequestsNullableMoney"];
+            estimate: components["schemas"]["RequestsNullableMoney"];
+            platform_charge: components["schemas"]["RequestsNullableMoney"];
+            catalog_reference: components["schemas"]["RequestsNullableMoney"];
+            entitlement_consumption: components["schemas"]["RequestsNullableMoney"];
+            byok_external_estimate: components["schemas"]["RequestsNullableMoney"];
+            platform_service_fee: components["schemas"]["RequestsNullableMoney"];
+            settlement_id: string | null;
+            receipt_state: components["schemas"]["RequestsReceiptState"];
+            ledger_entry_ids: string[];
+            rounding_rule: string | null;
+        };
+        RequestsCompleteness: {
+            /** @enum {string} */
+            state: "complete" | "partial";
+            missing: {
+                section: string;
+                reason: string;
+            }[];
+        };
+        RequestsConversion: {
+            /** @enum {string} */
+            mode: "native" | "bridge" | "rejected";
+            source_protocol: string;
+            target_protocol: string;
+            diagnostics: {
+                field: string;
+                reason: string;
+                severity: string;
+            }[];
+        } | null;
+        RequestsDetail: components["schemas"]["RequestsSummary"] & {
+            workspace_id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+            api_key_id: components["schemas"]["IdentityID"];
+            client_correlation_id: string | null;
+            actor_id: string | null;
+            key_owner_id: string | null;
+            funding_account_id: string | null;
+            trace_id: string | null;
+            origin: string;
+            action: string | null;
+            effective_model: string | null;
+            /** Format: date-time */
+            ended_at: string | null;
+            timings_ms: {
+                queue: number | null;
+                route: number | null;
+                upstream_ttft: number | null;
+                total: number | null;
+            };
+            timeline: components["schemas"]["RequestsTimeline"];
+            route: components["schemas"]["RequestsRoute"];
+            attempts: components["schemas"]["RequestsAttempt"][];
+            abandoned_attempts: components["schemas"]["RequestsAttempt"][];
+            conversion: components["schemas"]["RequestsConversion"];
+            usage: components["schemas"]["RequestsUsage"];
+            billing: components["schemas"]["RequestsBilling"];
+            task_ids: string[];
+            diagnostics: {
+                reason: string;
+                attempt_id?: string;
+            }[];
+            data_completeness: components["schemas"]["RequestsCompleteness"];
+            allowed_actions: string[];
+        };
+        RequestsExportDocument: {
+            request: {
+                id: string;
+                workspace_id: components["schemas"]["IdentityID"];
+                project_id: components["schemas"]["IdentityID"];
+                redactions: string[];
+                data_completeness: components["schemas"]["RequestsCompleteness"];
+            };
+            timeline?: components["schemas"]["RequestsTimeline"];
+            route?: components["schemas"]["RequestsRoute"];
+            attempts?: components["schemas"]["RequestsAttempt"][];
+            abandoned_attempts?: components["schemas"]["RequestsAttempt"][];
+            usage?: components["schemas"]["RequestsUsage"];
+            billing?: components["schemas"]["RequestsBilling"];
+        };
+        RequestsExportInput: {
+            /** @constant */
+            format: "json";
+            sections: ("timeline" | "route" | "attempts" | "usage" | "billing")[];
+        };
+        RequestsExportOperation: components["schemas"]["IdentityOperation"] & {
+            result?: {
+                download_url: string | null;
+                /** Format: date-time */
+                expires_at: string;
+            };
+        };
+        /** @enum {string} */
+        RequestsFundingSource: "wallet" | "subscription" | "byok" | "mixed" | "unknown";
+        RequestsNullableMoney: components["schemas"]["CatalogMoney"] | null;
+        /** @enum {string} */
+        RequestsOutcome: "admitted" | "running" | "succeeded" | "failed" | "interrupted" | "canceled" | "unknown";
+        RequestsPage: {
+            items: components["schemas"]["RequestsSummary"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+        };
+        /** @enum {string} */
+        RequestsProtocol: "openai_chat" | "openai_responses" | "anthropic_messages" | "gemini_generate" | "gemini_count_tokens" | "gemini_embedding" | "openai_images" | "openai_embeddings" | "openai_audio" | "openai_video";
+        /** @enum {string} */
+        RequestsReason: "STREAM_INTERRUPTED" | "REQUEST_CANCELED" | "ACCEPTANCE_UNKNOWN" | "RECEIPT_UNCONFIRMED" | "UPSTREAM_RATE_LIMITED" | "UPSTREAM_ERROR" | "REQUEST_REJECTED" | "GATEWAY_ERROR";
+        /** @enum {string} */
+        RequestsReceiptState: "unconfirmed" | "pending" | "settled" | "needs_review";
+        RequestsRoute: {
+            policy_version: string | null;
+            snapshot_id: string | null;
+            candidate_id: string | null;
+            explain_url: string;
+        };
+        RequestsRouteExplanation: {
+            request_id: string;
+            trace: components["schemas"]["RoutingDecisionTrace"] | null;
+            data_completeness: components["schemas"]["RequestsCompleteness"];
+        };
+        /** @enum {string} */
+        RequestsSettlementState: "estimated" | "reserved" | "pending" | "settled" | "needs_review" | "adjusted" | "refunded" | "unknown";
+        RequestsSummary: {
+            id: string;
+            /** Format: date-time */
+            started_at: string;
+            /** @enum {string} */
+            start_source: "admission" | "legacy_observation";
+            requested_model: string | null;
+            protocol: components["schemas"]["RequestsProtocol"] | null;
+            outcome: components["schemas"]["RequestsOutcome"];
+            reason: components["schemas"]["RequestsReason"] | null;
+            settlement_state: components["schemas"]["RequestsSettlementState"];
+            charged_amount: components["schemas"]["RequestsNullableMoney"];
+            attempt_count: string | null;
+            detail_url: string;
+            redactions: string[];
+        };
+        RequestsTimeline: {
+            /** @enum {string} */
+            kind: "admitted" | "first_output" | "client_completed" | "client_ended" | "execution_finished" | "settled";
+            /** Format: date-time */
+            at: string;
+            /** @enum {string} */
+            source: "gateway_admission" | "gateway_finalization" | "upstream_ttft_estimate" | "settlement_receipt";
+        }[];
+        RequestsUsage: {
+            /** @enum {string} */
+            level: "observed" | "unknown";
+            /** @enum {string} */
+            source: "settlement_receipt" | "legacy_usage" | "unconfirmed";
+            units: {
+                /** @enum {string} */
+                kind: "input_token" | "output_token";
+                quantity: string;
+            }[];
+        };
         RestoreExecuteInput: {
             preview_id: string;
             /** @enum {string} */
@@ -1165,8 +1539,74 @@ export interface components {
             };
             reason?: string;
         };
+        RoutingDecisionTrace: {
+            /** @enum {integer} */
+            schema_version: 1;
+            /** @enum {string} */
+            mode: "simulation" | "execution";
+            snapshot_id: string;
+            /** Format: date-time */
+            as_of: string;
+            policy_version: string;
+            catalog_version: string;
+            price_version: string;
+            seed: string;
+            origins: {
+                constraint: string;
+                scope_type: string;
+                scope_id: string;
+                version: string;
+            }[];
+            stages: {
+                name: string;
+                input_count: string;
+                remaining_count: string;
+            }[];
+            candidates: {
+                id: string;
+                /** @enum {string} */
+                state: "eligible" | "excluded";
+                rank: number | null;
+                reasons: {
+                    code: string;
+                    stage: string;
+                    origin?: string;
+                }[];
+                factors: {
+                    name: string;
+                    value: string;
+                    unit: string;
+                    source: string;
+                    freshness: string;
+                    window_seconds: number | null;
+                    samples: string | null;
+                    /** Format: date-time */
+                    observed_at: string | null;
+                }[];
+            }[];
+            selected: {
+                model_id: string;
+                candidate_id: string;
+                funding_source: string;
+            } | null;
+            uncertainties: string[];
+            redactions: string[];
+            /** @enum {string} */
+            execution_outcome?: "selected" | "wait" | "unselected";
+            selection_layer?: string;
+        };
     };
-    responses: never;
+    responses: {
+        /** @description Management error including invalid filters, expired cursor or artifact, denied action, and inaccessible request */
+        RequestsError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+    };
     parameters: {
         CatalogModelID: string;
         ConnectionID: components["schemas"]["IdentityID"];
@@ -1178,6 +1618,7 @@ export interface components {
         IdentityProjectID: components["schemas"]["IdentityID"];
         IdentityVersion: string;
         IdentityWorkspaceID: components["schemas"]["IdentityID"];
+        RequestsID: string;
     };
     requestBodies: never;
     headers: {
@@ -2662,6 +3103,222 @@ export interface operations {
                     "application/json": components["schemas"]["IdentityError"];
                 };
             };
+        };
+    };
+    quoteProjectModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExactQuoteInput"];
+            };
+        };
+        responses: {
+            /** @description Estimate at the authorized price version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ExactQuote"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    requestList: {
+        parameters: {
+            query?: {
+                /** @description Inclusive lower time bound */
+                from?: string;
+                /** @description Exclusive upper time bound */
+                to?: string;
+                /** @description IANA timezone */
+                timezone?: string;
+                key_id?: components["schemas"]["IdentityID"][];
+                /** @description Model identifier recorded by the gateway at admission */
+                model_id?: string[];
+                protocol?: components["schemas"]["RequestsProtocol"][];
+                outcome?: components["schemas"]["RequestsOutcome"][];
+                settlement_state?: components["schemas"]["RequestsSettlementState"][];
+                /** @description Requires billing.ledger.read */
+                funding_source?: components["schemas"]["RequestsFundingSource"][];
+                reason?: components["schemas"]["RequestsReason"][];
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Project request page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RequestsPage"];
+                    };
+                };
+            };
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    requestDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RequestsDetail"];
+                    };
+                };
+            };
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    requestExportCreate: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RequestsExportInput"];
+            };
+        };
+        responses: {
+            /** @description Accepted export operation */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["RequestsExportOperation"];
+                    };
+                };
+            };
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    requestExportDownload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Request metadata attachment */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestsExportDocument"];
+                };
+            };
+            default: components["responses"]["RequestsError"];
+        };
+    };
+    requestRouteExplanation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["RequestsID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Routing explanation, including historical evidence gaps */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RequestsRouteExplanation"];
+                    };
+                };
+            };
+            default: components["responses"]["RequestsError"];
         };
     };
     connectionSchemas: {

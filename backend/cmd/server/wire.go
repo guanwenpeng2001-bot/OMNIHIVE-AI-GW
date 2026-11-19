@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"net/http"
 	"sync"
@@ -15,12 +16,14 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
 	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	identitypostgres "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/securityaudit"
@@ -58,6 +61,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		connectionshttp.ProviderSet,
 		modelshttp.ProviderSet,
 		restorehttp.ProviderSet,
+		requestsHandlerProvider,
 		wire.Bind(new(connections.Prober), new(*service.AccountTestService)),
 		provideIdentityOperations,
 
@@ -81,8 +85,12 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	return nil, nil
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores}}
+func requestsHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config) *requestshttp.Handler {
+	return handler.ProvideRequestsHandler(db, store, cfg)
+}
+
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

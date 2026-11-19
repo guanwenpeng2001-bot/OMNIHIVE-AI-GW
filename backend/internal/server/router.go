@@ -11,6 +11,7 @@ import (
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
 	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -33,6 +34,7 @@ func SetupRouter(
 	connectionsHandler *connectionshttp.Handler,
 	modelsHandler *modelshttp.Handler,
 	restoreHandler *restorehttp.Handler,
+	requestsHandler *requestshttp.Handler,
 	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
@@ -115,7 +117,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -128,6 +130,7 @@ func registerRoutes(
 	connectionsHandler *connectionshttp.Handler,
 	modelsHandler *modelshttp.Handler,
 	restoreHandler *restorehttp.Handler,
+	requestsHandler *requestshttp.Handler,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
@@ -170,6 +173,8 @@ func registerRoutes(
 	)
 	restorehttp.Register(v2, restoreHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	requestshttp.Register(v2, requestsHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
 	connectionshttp.RegisterAuthorization(v1, connectionsHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
