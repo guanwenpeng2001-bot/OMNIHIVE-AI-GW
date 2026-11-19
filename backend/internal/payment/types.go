@@ -169,12 +169,18 @@ type QueryOrderResponse struct {
 
 // PaymentNotification is the parsed result of a webhook/notify callback.
 type PaymentNotification struct {
-	TradeNo  string
-	OrderID  string
-	Amount   float64
-	Status   string // "success" or "failed"
-	RawData  string // Raw notification body for audit
-	Metadata map[string]string
+	// Exact evidence from the verified notification. Amount remains the v1 DTO.
+	EventID    string
+	EffectID   string
+	InstanceID string
+	Currency   string
+	Minor      int64
+	TradeNo    string
+	OrderID    string
+	Amount     float64
+	Status     string // "success" or "failed"
+	RawData    string // Raw notification body for audit
+	Metadata   map[string]string
 }
 
 // RefundRequest contains the parameters for requesting a refund.

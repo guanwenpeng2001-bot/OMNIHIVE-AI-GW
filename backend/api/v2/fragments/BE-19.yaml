@@ -1,0 +1,84 @@
+paths:
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/adjustments/{id}/payment-evidence:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/PaymentAdjustmentID'}
+    get:
+      operationId: listPaymentAdjustmentEvidence
+      summary: Read reviewed entitlement links for a project adjustment
+      responses:
+        '200':
+          description: Project financial evidence with personal references visible to the payer
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, message, data]
+                properties:
+                  code: {const: 0}
+                  message: {const: success}
+                  data:
+                    type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items: {$ref: '#/components/schemas/PaymentAdjustmentEvidence'}
+        default:
+          description: Scoped management error
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityError'}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/billing/adjustments/{id}/payment-evidence/{event_id}:
+    parameters:
+      - {$ref: '#/components/parameters/IdentityWorkspaceID'}
+      - {$ref: '#/components/parameters/IdentityProjectID'}
+      - {$ref: '#/components/parameters/PaymentAdjustmentID'}
+      - name: event_id
+        in: path
+        required: true
+        schema: {type: string, pattern: '^[1-9][0-9]*$'}
+    put:
+      operationId: linkPaymentAdjustmentEvidence
+      summary: Attach same-payer evidence using a session step-up and billing adjustment grant
+      responses:
+        '204':
+          description: The link exists
+        default:
+          description: Scoped management error
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IdentityError'}
+components:
+  parameters:
+    PaymentAdjustmentID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+  schemas:
+    PaymentAdjustmentEvidence:
+      type: object
+      required: [id, kind, billing_source, entitlement_consumption, platform_charge]
+      properties:
+        id: {type: string}
+        kind: {type: string}
+        billing_source: {type: string, enum: [wallet, subscription, byok, mixed, unknown]}
+        entitlement_consumption:
+          oneOf:
+            - {$ref: '#/components/schemas/CostMoney'}
+            - {type: 'null'}
+        platform_charge:
+          oneOf:
+            - {$ref: '#/components/schemas/CostMoney'}
+            - {type: 'null'}
+        references:
+          type: object
+          required: [source_command_id, source_wallet_event_id, original_wallet_event_id, adjustment_wallet_event_id, adjustment_command_id]
+          properties:
+            source_command_id: {type: string, format: uuid}
+            source_wallet_event_id: {type: [string, 'null']}
+            original_wallet_event_id: {type: string}
+            adjustment_wallet_event_id: {type: string}
+            adjustment_command_id: {type: string, format: uuid}

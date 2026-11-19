@@ -392,7 +392,11 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 	if params["trade_status"] == tradeStatusSuccess {
 		status = payment.ProviderStatusSuccess
 	}
-	amount, _ := strconv.ParseFloat(params["money"], 64)
+	minor, err := payment.AmountToMinorUnit(params["money"], payment.DefaultPaymentCurrency)
+	if err != nil || minor <= 0 || params["trade_no"] == "" || params["out_trade_no"] == "" || params["pid"] != e.config["pid"] {
+		return nil, fmt.Errorf("incomplete or mismatched easypay notification")
+	}
+	amount := payment.LegacyCallbackAmount(minor, payment.DefaultPaymentCurrency)
 
 	metadata := e.MerchantIdentityMetadata()
 	if pid := strings.TrimSpace(params["pid"]); pid != "" {
@@ -402,6 +406,7 @@ func (e *EasyPay) VerifyNotification(_ context.Context, rawBody string, _ map[st
 		metadata["pid"] = pid
 	}
 	return &payment.PaymentNotification{
+		EventID: params["trade_no"] + "/" + status, EffectID: params["trade_no"], InstanceID: e.instanceID, Currency: payment.DefaultPaymentCurrency, Minor: minor,
 		TradeNo: params["trade_no"], OrderID: params["out_trade_no"],
 		Amount: amount, Status: status, RawData: rawBody, Metadata: metadata,
 	}, nil

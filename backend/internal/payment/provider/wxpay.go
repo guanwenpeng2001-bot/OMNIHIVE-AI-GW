@@ -441,15 +441,16 @@ func (w *Wxpay) VerifyNotification(ctx context.Context, rawBody string, headers 
 	if nr.EventType != wxpayEventTransactionSuccess {
 		return nil, nil
 	}
-	var amt float64
-	if tx.Amount != nil && tx.Amount.Total != nil {
-		amt = payment.FenToYuan(*tx.Amount.Total)
+	if tx.Amount == nil || tx.Amount.Total == nil || *tx.Amount.Total <= 0 || wxSV(tx.Amount.Currency) != "CNY" || wxSV(tx.TransactionId) == "" || nr.ID == "" {
+		return nil, fmt.Errorf("incomplete wxpay notification")
 	}
+	amt := payment.LegacyCallbackAmount(*tx.Amount.Total, payment.DefaultPaymentCurrency)
 	st := payment.ProviderStatusFailed
 	if wxSV(tx.TradeState) == wxpayTradeStateSuccess {
 		st = payment.ProviderStatusSuccess
 	}
 	return &payment.PaymentNotification{
+		EventID: nr.ID, EffectID: wxSV(tx.TransactionId), InstanceID: w.instanceID, Currency: "CNY", Minor: *tx.Amount.Total,
 		TradeNo: wxSV(tx.TransactionId), OrderID: wxSV(tx.OutTradeNo),
 		Amount: amt, Status: st, RawData: rawBody, Metadata: buildWxpayTransactionMetadata(&tx),
 	}, nil
