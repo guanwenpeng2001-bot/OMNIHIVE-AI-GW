@@ -1,0 +1,47 @@
+{
+  "submit": {
+    "api_key_id": "12",
+    "payer_user_id": "42",
+    "model_id": "m_641c06296ec942c0aa423c5f970594e7",
+    "protocol": "openai_chat",
+    "action": "text.chat",
+    "input": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ],
+      "max_tokens": 128
+    },
+    "options": {
+      "stream": true,
+      "include_raw_events": false
+    },
+    "funding_acknowledged": true
+  },
+  "summary": {
+    "run_id": "65e22e1b-2004-44fe-991e-a324d4c84f90",
+    "request_id": "5e5cd201-7dd6-4e8c-901d-6a646bdeb0a0",
+    "protocol": "openai_chat",
+    "state": "unknown",
+    "last_seq": 4,
+    "content_retained": false,
+    "status_url": "/api/v2/workspaces/1/projects/2/playground/runs/65e22e1b-2004-44fe-991e-a324d4c84f90",
+    "detail_url": "/api/v2/workspaces/1/projects/2/requests/5e5cd201-7dd6-4e8c-901d-6a646bdeb0a0",
+    "payer_user_id": "42",
+    "settlement_state": "unknown"
+  },
+  "replay": {
+    "api_key_id": "12",
+    "input": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Hello"
+        }
+      ]
+    },
+    "funding_acknowledged": true
+  }
+}
