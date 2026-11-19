@@ -76,6 +76,159 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/public/models:
+    get:
+      operationId: listPublicModels
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: provider
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: protocol
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: action
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: modality
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: region
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: retention
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: stability
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - name
+              - price_input
+              - context
+              - ttft
+        - $ref: '#/components/parameters/IdentityLimit'
+        - $ref: '#/components/parameters/IdentityCursor'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/CatalogModelPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/public/models/{id}:
+    get:
+      operationId: getPublicModel
+      parameters:
+        - name: catalog_version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ModelDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/CatalogModelID'
+  /api/v2/public/models/compare:
+    post:
+      operationId: comparePublicModels
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/CatalogCompareResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatalogCompareInput'
   /api/v2/workspaces/{workspace_id}/connections:
     get:
       operationId: connectionList
@@ -935,6 +1088,175 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/models:
+    get:
+      operationId: listProjectModels
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: provider
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: protocol
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: action
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: modality
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: region
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: retention
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: stability
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - name
+              - price_input
+              - context
+              - ttft
+        - $ref: '#/components/parameters/IdentityLimit'
+        - $ref: '#/components/parameters/IdentityCursor'
+        - name: accessible
+          in: query
+          schema:
+            type: boolean
+        - name: routable
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/CatalogModelPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/models/{id}:
+    get:
+      operationId: getProjectModel
+      parameters:
+        - name: catalog_version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/ModelDetail'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - $ref: '#/components/parameters/CatalogModelID'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/models/compare:
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+    post:
+      operationId: compareProjectModels
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/CatalogCompareResult'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CatalogCompareInput'
   /api/v2/workspaces/{workspace_id}/provider-schemas:
     get:
       operationId: connectionSchemas
@@ -978,6 +1300,13 @@ paths:
       - $ref: '#/components/parameters/IdentityWorkspaceID'
 components:
   parameters:
+    CatalogModelID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^m_[0-9a-f]{32}$
     ConnectionID:
       name: id
       in: path
@@ -1039,6 +1368,577 @@ components:
       schema:
         $ref: '#/components/schemas/IdentityID'
   schemas:
+    CatalogBenchmark:
+      type: object
+      required:
+        - benchmark_id
+        - unit
+        - source
+        - value
+        - verified_at
+      properties:
+        benchmark_id:
+          type: string
+        unit:
+          type: string
+        source:
+          type: string
+        value:
+          type: string
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+        verified_at:
+          type: string
+          format: date-time
+    CatalogCapability:
+      type: object
+      required:
+        - source
+        - maturity
+        - observed_at
+        - expires_at
+        - state
+        - action
+        - protocol
+        - mode
+        - tools
+        - stream
+        - verified_at
+        - adapter_version
+        - limitations
+      properties:
+        source:
+          type: string
+        maturity:
+          type: string
+          enum:
+            - unknown
+            - stable
+            - experimental
+            - deprecated
+        observed_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        expires_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        state:
+          type: string
+          enum:
+            - fresh
+            - stale
+            - unknown
+        action:
+          type: string
+        protocol:
+          type: string
+        mode:
+          type: string
+          enum:
+            - native
+            - bridge
+            - unknown
+        tools:
+          type: string
+          enum:
+            - supported
+            - unsupported
+            - unknown
+        stream:
+          type: string
+          enum:
+            - supported
+            - unsupported
+            - unknown
+        verified_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        adapter_version:
+          anyOf:
+            - type: string
+            - type: 'null'
+        limitations:
+          type: array
+          items:
+            type: string
+    CatalogCompareInput:
+      type: object
+      required:
+        - model_ids
+      properties:
+        model_ids:
+          type: array
+          items:
+            type: string
+          minItems: 1
+          maxItems: 3
+          uniqueItems: true
+        protocol:
+          type: string
+        action:
+          type: string
+        scenario:
+          $ref: '#/components/schemas/CatalogPriceScenario'
+        price_at:
+          type: string
+          format: date-time
+    CatalogCompareResult:
+      type: object
+      required:
+        - catalog_version
+        - as_of
+        - rows
+      properties:
+        catalog_version:
+          type: string
+        as_of:
+          type: string
+          format: date-time
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogCompareRow'
+    CatalogCompareRow:
+      type: object
+      required:
+        - model_id
+        - capabilities
+        - metrics
+        - benchmarks
+        - quote
+      properties:
+        model_id:
+          type: string
+        capabilities:
+          type: object
+          required:
+            - tools
+            - stream
+          properties:
+            tools:
+              type: string
+              enum:
+                - supported
+                - unsupported
+                - unknown
+            stream:
+              type: string
+              enum:
+                - supported
+                - unsupported
+                - unknown
+        metrics:
+          $ref: '#/components/schemas/CatalogMetrics'
+        benchmarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogBenchmark'
+        quote:
+          $ref: '#/components/schemas/CatalogEstimate'
+    CatalogEndpoint:
+      type: object
+      required:
+        - id
+        - provider
+        - training
+        - content_retention
+        - regions
+        - safety_retention_days
+        - region_evidence
+        - privacy_evidence
+        - capabilities
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        training:
+          type: string
+        content_retention:
+          type: string
+        regions:
+          type: array
+          items:
+            type: string
+        safety_retention_days:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        region_evidence:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogEvidence'
+            - type: 'null'
+        privacy_evidence:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogEvidence'
+            - type: 'null'
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogCapability'
+    CatalogEstimate:
+      type: object
+      required:
+        - state
+        - price_version
+        - estimated_charge
+        - components
+        - rounding_adjustment
+      properties:
+        state:
+          type: string
+          enum:
+            - estimated
+            - unpriced
+        price_version:
+          anyOf:
+            - type: string
+            - type: 'null'
+        estimated_charge:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogMoney'
+            - type: 'null'
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogEstimateComponent'
+        rounding_adjustment:
+          anyOf:
+            - type: string
+              pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+            - type: 'null'
+    CatalogEstimateComponent:
+      type: object
+      required:
+        - kind
+        - quantity
+        - raw_amount
+      properties:
+        kind:
+          type: string
+        quantity:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        raw_amount:
+          type: string
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+    CatalogEvidence:
+      type: object
+      required:
+        - source
+        - maturity
+        - observed_at
+        - expires_at
+        - state
+      properties:
+        source:
+          type: string
+        maturity:
+          type: string
+          enum:
+            - unknown
+            - stable
+            - experimental
+            - deprecated
+        observed_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        expires_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        state:
+          type: string
+          enum:
+            - fresh
+            - stale
+            - unknown
+    CatalogMetrics:
+      type: object
+      required:
+        - window_start
+        - window_end
+        - source
+        - requests
+        - ttft_samples
+        - speed_samples
+        - success_rate
+        - ttft_p50_ms
+        - output_tokens_per_second
+        - state
+      properties:
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        source:
+          type: string
+        requests:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        ttft_samples:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        speed_samples:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        success_rate:
+          anyOf:
+            - type: number
+              minimum: 0
+              maximum: 1
+            - type: 'null'
+        ttft_p50_ms:
+          anyOf:
+            - type: integer
+              minimum: 0
+            - type: 'null'
+        output_tokens_per_second:
+          anyOf:
+            - type: number
+            - type: 'null'
+        state:
+          type: string
+          enum:
+            - insufficient_samples
+            - partial
+            - available
+            - unavailable
+            - withheld
+    CatalogModelFacts:
+      type: object
+      required:
+        - source
+        - maturity
+        - observed_at
+        - expires_at
+        - state
+        - context_tokens
+        - max_output_tokens
+        - embedding_dimensions
+        - context_kind
+        - tools
+        - vision
+        - reasoning
+        - prompt_caching
+        - pdf
+        - modalities
+      properties:
+        source:
+          type: string
+        maturity:
+          type: string
+          enum:
+            - unknown
+            - stable
+            - experimental
+            - deprecated
+        observed_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        expires_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        state:
+          type: string
+          enum:
+            - fresh
+            - stale
+            - unknown
+        context_tokens:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        max_output_tokens:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        embedding_dimensions:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        context_kind:
+          type: string
+          enum:
+            - input
+            - total
+            - unspecified
+            - ''
+        tools:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        vision:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        reasoning:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        prompt_caching:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        pdf:
+          anyOf:
+            - type: boolean
+            - type: 'null'
+        modalities:
+          anyOf:
+            - type: array
+              items:
+                type: string
+            - type: 'null'
+    CatalogModelPage:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - as_of
+        - catalog_version
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelSummary'
+        next_cursor:
+          anyOf:
+            - type: string
+            - type: 'null'
+        as_of:
+          type: string
+          format: date-time
+        catalog_version:
+          type: string
+    CatalogMoney:
+      type: object
+      required:
+        - currency
+        - amount
+      properties:
+        currency:
+          type: string
+          pattern: ^[A-Z]{3}$
+        amount:
+          type: string
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+    CatalogPriceScenario:
+      type: object
+      required: []
+      properties:
+        input_tokens:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        cached_input_tokens:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        output_tokens:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        requests:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+    CatalogRate:
+      type: object
+      required:
+        - currency
+        - amount
+        - unit
+        - per
+      properties:
+        currency:
+          type: string
+          pattern: ^[A-Z]{3}$
+        amount:
+          type: string
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
+        unit:
+          type: string
+        per:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+    CatalogRateBand:
+      type: object
+      required:
+        - rate
+        - kind
+        - min_tokens
+        - max_tokens
+      properties:
+        rate:
+          $ref: '#/components/schemas/CatalogRate'
+        kind:
+          type: string
+        min_tokens:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        max_tokens:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        label:
+          type: string
+    CatalogScope:
+      type: object
+      required:
+        - workspace_id
+        - project_id
+        - scope_version
+      properties:
+        workspace_id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
+        scope_version:
+          $ref: '#/components/schemas/IdentityID'
+    CatalogTimeBand:
+      type: object
+      required:
+        - timezone
+        - start_time
+        - end_time
+        - weekdays_only
+        - multiplier
+      properties:
+        timezone:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        weekdays_only:
+          type: boolean
+        multiplier:
+          type: string
+          pattern: ^-?(0|[1-9][0-9]*)(\.[0-9]+)?$
     ConnectionActivate:
       type: object
       required:
@@ -2053,3 +2953,175 @@ components:
         as_of:
           type: string
           format: date-time
+    ModelDetail:
+      type: object
+      required:
+        - model
+        - aliases
+        - model_facts
+        - capabilities
+        - endpoints
+        - price_version
+        - price_source
+        - additional_rates
+        - time_bands
+        - metrics
+        - benchmarks
+        - documentation_url
+        - redactions
+      properties:
+        model:
+          $ref: '#/components/schemas/ModelSummary'
+        aliases:
+          type: array
+          items:
+            type: string
+        model_facts:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogModelFacts'
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogCapability'
+        endpoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogEndpoint'
+        price_version:
+          anyOf:
+            - type: string
+            - type: 'null'
+        price_source:
+          type: string
+        additional_rates:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogRateBand'
+        context_basis:
+          type: string
+        time_bands:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogTimeBand'
+        metrics:
+          $ref: '#/components/schemas/CatalogMetrics'
+        benchmarks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogBenchmark'
+        documentation_url:
+          anyOf:
+            - type: string
+            - type: 'null'
+        redactions:
+          type: array
+          items:
+            type: string
+    ModelSummary:
+      type: object
+      required:
+        - id
+        - model
+        - display_name
+        - provider
+        - catalog_version
+        - modalities
+        - protocols
+        - actions
+        - regions
+        - context_tokens
+        - maturity
+        - catalog_state
+        - access_state
+        - route_state
+        - price_state
+        - input_rate
+        - output_rate
+        - observed_at
+        - evidence_state
+      properties:
+        id:
+          type: string
+        model:
+          type: string
+        display_name:
+          type: string
+        provider:
+          type: string
+        catalog_version:
+          type: string
+        modalities:
+          type: array
+          items:
+            type: string
+        protocols:
+          type: array
+          items:
+            type: string
+        actions:
+          type: array
+          items:
+            type: string
+        regions:
+          type: array
+          items:
+            type: string
+        context_tokens:
+          anyOf:
+            - type: string
+              pattern: ^(0|[1-9][0-9]*)$
+            - type: 'null'
+        maturity:
+          type: string
+          enum:
+            - unknown
+            - stable
+            - experimental
+            - deprecated
+        catalog_state:
+          type: string
+          enum:
+            - listed
+        access_state:
+          type: string
+          enum:
+            - allowed
+            - denied
+            - unknown
+            - requires_scope
+        route_state:
+          type: string
+          enum:
+            - eligible
+            - ineligible
+            - unknown
+            - requires_scope
+        price_state:
+          type: string
+          enum:
+            - priced
+            - free
+            - unpriced
+            - error
+        input_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        output_rate:
+          anyOf:
+            - $ref: '#/components/schemas/CatalogRate'
+            - type: 'null'
+        observed_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        evidence_state:
+          type: string
+          enum:
+            - fresh
+            - stale
+            - unknown
+        effective_scope:
+          $ref: '#/components/schemas/CatalogScope'
