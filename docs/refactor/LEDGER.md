@@ -30,7 +30,7 @@ Status legend: todo / doing / review / merged / blocked
 | BE-19 | Payments wiring (HandleVerified + evidence routes) | gpt-6.2-sol | codex/refactor | merged | b6329106d; legacy webhook cutover remains with BE-22 |
 | BE-21 | Scoped audit, retention, controlled egress and observability | gpt-6.2-astra | codex/be-21-audit | merged | c1851422c + routes/op-reader b33051c74; observer/retention lifecycle to BE-22 |
 | BE-22 | Runtime modes and lifecycle supervisor | gpt-6.2-astra | codex/be-22-runtime | merged | 15aa736b1/e6105a8bb; merged a20e01ebd; all/control/gateway/worker smoke pass |
-| BE-24 | Release verification | gpt-6.2-astra | codex/be-24-release | doing | blocker fixes merged (8d09ffdb6); GA re-run (J01–J06, protocol matrix, 2h load, cutover) still pending |
+| BE-24 | Release verification | gpt-6.2-astra | codex/be-24-release | merged | 60s isolated rerun at edac3ce6c: J01–J06 and all executable checks pass; TYPESCRIPT/SDK_HTTP offline caches and PAIRED_2H/WIRE_PARITY/CUTOVER remain environment gates |
 | WP1 | Shell, brand, IA, D08, auth/setup | gemini | codex/fe-wp1-shell | merged | c7a91b892; typecheck/lint/i18n/5295 tests/build pass |
 | RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | merged | b33cecb5a; 1×P1 (BE-05 pricing) fixed, FE-WP1 P1s in flight |
 | BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
@@ -40,9 +40,10 @@ Status legend: todo / doing / review / merged / blocked
 | QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | merged | 9bd91379a; all stages PASS at 2637e9e59; 3 fixture/env failures fixed; BE-05/09 smoke skipped (need fixtures) |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |
 | FE-WP1 | Shell, brand, IA, D08, auth/setup | gemini | codex/fe-wp1-shell | merged | c7a91b892; 451 files/5295 tests/build pass |
-| FE-WP2 | Public site, model plaza, detail/compare, pricing, status | coordinator | codex/refactor | merged | 5f48a1e3f (home/models/detail/compare/pricing/status on BE-05/BE-18 APIs) |
+| FE-WP2 | Public site, model plaza, detail/compare, pricing, status | coordinator | codex/refactor | merged | 5f48a1e3f + 0916d617d (canonical `/model-plaza`, gateway `/models` collision resolved); 1560px responsive shell landed in c6cf8ca30 |
 | FE-WP3 | Overview, keys, playground, task center, workspaces | gemini | codex/fe-wp3-console | merged | 47fc2bf23 + routes a9ef01149 |
 | FE-WP4 | 5-step connection wizard, egress | gemini-4-hydrogen | codex/fe-wp4-connections | merged | 954146d71; router routes applied; typecheck + 97 tests pass |
 | FE-WP5 | Pools, mapping, routing workbench and simulator | gemini | codex/fe-wp5-routing | merged | 01ff24314 + routes dff37714c; branch 5321 tests pass |
 | FE-WP6 | Request waterfall, cost & quota, billing | coordinator | codex/fe-wp6-billing | merged | d4548a936 + routes e0b26ae56 |
-| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini | codex/fe-wp7-ops | merged | 9b26594fc WIP + typing fixes db9cbb37d; audit/backup/ops pages still partial |
+| FE-WP7 | Ops, members, audit, backup, settings, profile | gemini | codex/fe-wp7-ops | merged | 9b26594fc + db9cbb37d; scoped audit/backup/ops/profile live-verified in c6cf8ca30 |
+| FE-FIX | Responsive header, console IA, project-scope bootstrap, strict v2 reads, tour skip | gemini + coordinator | codex/refactor | merged | 9dfd9e0bd + c6cf8ca30; 104 targeted frontend tests, full frontend gate PASS on Codespace |
