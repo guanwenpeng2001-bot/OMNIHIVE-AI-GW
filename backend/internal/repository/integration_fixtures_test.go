@@ -56,14 +56,18 @@ func cleanupRepositoryRows(t *testing.T) {
 		"usage_dashboard_hourly_users", "usage_dashboard_daily_users",
 		"usage_dashboard_hourly", "usage_dashboard_daily", "scheduler_outbox",
 		"user_affiliate_ledger", "payment_orders", "usage_cleanup_tasks",
+		"connection_pool_members", "connection_verifications", "connection_events",
+		"connection_operations", "connection_previews", "connection_pools",
+		"provider_connections", "connection_credential_versions", "connection_migration_quarantine",
 		"credential_secrets", "api_key_credentials",
 		"api_key_budget_periods", "api_key_budget_reservations", "api_key_budget_adjustments",
-		"user_subscriptions", "user_allowed_groups", "api_keys",
+		"project_key_policies", "user_subscriptions", "user_allowed_groups", "api_keys",
 		"identity_adoption_decisions", "auth_identity_channels", "auth_identities",
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
 		"passkey_credentials", "passkey_user_handles", "user_affiliates",
 		"user_attribute_values", "user_avatars", "user_group_rate_multipliers",
-		"user_platform_quotas", "user_provider_default_grants", "workspace_members", "users",
+		"user_platform_quotas", "user_provider_default_grants", "project_grants",
+		"workspace_members", "users",
 		"scheduled_test_results", "scheduled_test_plans", "account_groups",
 	}
 	// Bound the reviewed FK closure, including references that keep their rows
@@ -72,7 +76,11 @@ func cleanupRepositoryRows(t *testing.T) {
 	dependents := append(append([]string{}, parents...),
 		"announcements", "content_moderation_logs", "prompt_audit_events", "prompt_audit_jobs",
 		"redeem_codes", "sub2api_plugin_installations", "channel_monitors",
-		"channel_groups", "composite_model_routes", "model_access_groups")
+		"channel_groups", "composite_model_routes", "model_access_groups",
+		"connection_pool_members", "connection_verifications", "connection_events",
+		"connection_operations", "connection_previews", "connection_pools",
+		"provider_connections", "connection_credential_versions", "connection_migration_quarantine",
+		"project_key_policies", "project_grants")
 	var unreviewed string
 	require.NoError(t, tx.QueryRowContext(ctx, `SELECT coalesce(string_agg(DISTINCT conrelid::regclass::text, ', '), '') FROM pg_constraint
  WHERE contype = 'f' AND confrelid = ANY($1::regclass[])

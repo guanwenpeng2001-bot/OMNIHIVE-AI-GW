@@ -31,12 +31,17 @@ jobs:
           printf '%s\n' 'No tracked .pi process artifacts'
       - name: Check deployment scripts
         run: make test-shell
+      - name: Check quality-gate shell syntax
+        shell: bash
+        run: |
+          bash -n scripts/quality-gate.sh
+          bash -n scripts/independence-check.sh
 
   test:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -45,6 +50,15 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d job_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -59,6 +73,11 @@ jobs:
       - name: Verify Go version
         run: |
           go version | grep -q 'go1.27'
+      - name: Build and vet
+        working-directory: backend
+        run: |
+          go build ./...
+          go vet ./...
       - name: Unit tests
         working-directory: backend
         run: make test-unit
@@ -70,6 +89,16 @@ jobs:
           UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
           NEW_PLATFORMS_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
           USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
+          CATALOG_SCOPE_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          SUB2API_TEST_EXTERNAL_SERVICES: "1"
+          AFFINITY_REDIS_TEST_ADDR: localhost:6379
+          ACCOUNTING_TEST_REDIS_ADDR: localhost:6379
+          CURSOR_TEST_REDIS_ADDR: localhost:6379
+          QUOTA_TEST_REDIS_ADDR: localhost:6379
+          SECURITY_REDIS_TEST_ADDR: localhost:6379
+          PROMPT_AUDIT_TEST_REDIS_ADDR: localhost:6379
+          SCHEDULER_RESOURCES_REDIS_ADDR: localhost:6379
+          TEST_REDIS_URL: redis://localhost:6379/0
         run: make test-integration
 
   postgres:
@@ -292,6 +321,9 @@ jobs:
       - name: Full frontend regression suite and coverage
         working-directory: frontend
         run: pnpm run test:coverage
+      - name: Production frontend build
+        working-directory: frontend
+        run: pnpm run build
 
   golangci-lint:
     runs-on: ubuntu-latest
@@ -312,3 +344,29 @@ jobs:
           version: v2.15.0
           args: --timeout=30m
           working-directory: backend
+
+  quality-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '^1.27.4'
+          check-latest: true
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.25.0
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Protocol contracts, generated drift and independence
+        run: scripts/quality-gate.sh contracts generated-drift independence

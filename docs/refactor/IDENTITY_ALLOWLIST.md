@@ -277,3 +277,102 @@ FE-WP4 owns the account export filename and account page copy. The proxy surface
 | `frontend/src/router/index.ts` | 5 | FE-WP1 shell copy |
 | `frontend/src/views/admin/AccountsView.vue` | 339, 395, 2369 | FE-WP4 account labels and export filename |
 | `frontend/src/views/setup/SetupWizardView.vue` | 17–18, 144, 560 | FE-WP1 setup/auth copy and fixtures |
+
+## Machine-readable gate entries
+
+The table above is the review inventory. `scripts/independence-check.sh` uses
+the following path/token expressions for the protected product-source scan.
+Documentation, tests, migrations and generated descriptors are outside that
+scan. A line passes only when both its path and content match an entry.
+
+Format: `path-regex <TAB> line-regex <TAB> reason`. Matching is case-insensitive
+for the line expression. Add an entry only for attribution or a persisted or
+negotiated compatibility value.
+
+```
+^backend/internal/pkg/cursor/nal\.go$	Wei-Shaw/sub2api	upstream protocol provenance
+^backend/internal/payment/provider/easypay_notify_security_test\.go$	Wei-Shaw/sub2api	test provenance
+^backend/\.golangci\.yml$	Wei-Shaw/sub2api	legacy module path attribution
+^backend/	SUB2API_[A-Z0-9_]+	legacy environment aliases
+^backend/internal/payment/wire\.go$	sub2api/payment/encryption	persisted payment derivation key
+^backend/internal/pkg/runtimeenv/identity\.go$	sub2api	legacy environment and directory compatibility
+^backend/internal/config/	SUB2API_	legacy configuration aliases
+^backend/internal/setup/	SUB2API_	legacy setup aliases
+^backend/internal/server/	urn:sub2api:identity-ticket	persisted identity ticket namespace
+^backend/internal/service/auth_identity_tickets\.go$	urn:sub2api:identity-ticket	persisted identity ticket namespace
+^backend/internal/service/domain_constants\.go$	sub2api	persisted domain/cache namespace
+^backend/internal/service/plugin_	(?:sub2api|Sub2API)	plugin manifest and compatibility keys
+^backend/internal/service/plugin_manager\.go$	(?:sub2api|Sub2API)	plugin compatibility keys
+^backend/internal/service/update_service\.go$	sub2api	legacy release compatibility
+^backend/internal/repository/plugin_repo\.go$	sub2api_plugin_	persisted plugin table names
+^backend/internal/repository/.*\.go$	sub2api\.(?:usage_retention|key_billing|ip-geo-cache)|sub2api:(?:ip-geo-cache|admin:)	persisted database and cache keys
+^backend/internal/handler/.*\.go$	/v1/sub2api/billing	legacy billing endpoint compatibility
+^backend/internal/server/.*\.go$	/v1/sub2api/billing	legacy billing endpoint compatibility
+^backend/internal/securityaudit/	sub2api	persisted audit namespaces
+^backend/internal/repository/BILLING_LOCK_ORDER\.md$	sub2api	persisted lock-order documentation
+^backend/internal/pkg/claude/	sub2api	legacy client configuration
+^backend/internal/pkg/cursor/	(?:sub2api|Sub2API)	legacy client configuration
+^backend/internal/pkg/ip/	sub2api	persisted cache key
+^backend/internal/pkg/logger/	sub2api	legacy log file compatibility
+^backend/internal/pkg/openai/	sub2api	persisted client configuration
+^backend/internal/pkg/openai_compat/	sub2api	persisted client configuration
+^backend/internal/pkg/xai/	sub2api	legacy upstream identity compatibility
+^backend/internal/platform/	sub2api	persisted platform identity
+^backend/pkg/pluginapi/	(?:Sub2API|sub2api)	plugin protocol compatibility
+^backend/internal/handler/.*\.go$	X-Sub2API-	negotiated legacy upstream headers
+^backend/internal/handler/.*\.go$	sub2api-claude-code-todo-guard	legacy upstream tool namespace
+^backend/internal/service/.*\.go$	X-Sub2API-	negotiated legacy upstream headers
+^backend/internal/service/.*\.go$	sub2api-grok-oauth	legacy upstream user agent
+^backend/internal/service/.*\.go$	(?:Sub2API|sub2api)	persisted routing, plugin and provider compatibility values
+^backend/internal/handler/.*\.go$	(?:Sub2API|sub2api)	project key and protocol compatibility values
+^backend/internal/server/.*\.go$	(?:Sub2API|sub2api)	persisted gateway protocol compatibility values
+^backend/internal/repository/.*\.go$	(?:Sub2API|sub2api)	persisted storage compatibility values
+^backend/internal/config/.*\.go$	(?:Sub2API|sub2api)	legacy configuration compatibility values
+^backend/internal/testutil/	sub2api	test resource compatibility
+^deploy/	(?i)sub2api	deployment compatibility
+^\.github/	SUB2API_	CI compatibility aliases
+^Makefile$	sub2api	legacy test environment documentation
+^backend/scripts/	sub2api	legacy test harness compatibility
+^frontend/src/api/admin/	sub2api:admin:	persisted browser storage and dedupe keys
+^frontend/src/api/admin/	sub2api-admin	negotiated admin websocket protocol
+^frontend/src/api/admin/plugins\.ts$	sub2api	plugin manifest compatibility keys
+^frontend/src/components/admin/subscription/	sub2api:admin:	persisted browser storage key
+^frontend/src/components/admin/account/ImportDataModal\.vue$	sub2api-(?:data|bundle)	legacy import format
+^frontend/src/components/account/	sub2api	legacy account help and probe text
+^frontend/src/components/intro/	(?:Sub2API|sub2api|SUB2API_)	legacy shell examples
+^frontend/src/components/keys/UseKeyModal\.vue$	SUB2API_	legacy client configuration examples
+^frontend/src/components/keys/UseKeyModal\.vue$	(?:Sub2API|sub2api)	legacy client configuration examples
+^frontend/src/components/modelPlaza/PlazaNavBar\.vue$	sub2api	legacy site-name scrub
+^frontend/src/components/admin/AdminComplianceDialog\.vue$	Sub2API	legacy compliance document scrub
+^frontend/src/components/admin/TLSFingerprintProfilesModal\.vue$	tls\.sub2api\.org	legacy fingerprint reference link
+^frontend/src/components/common/ProxyAdBanner\.vue$	sub2api\.io	legacy proxy reference link
+^frontend/src/components/account/UpstreamBillingRateCell\.vue$	sub2api	legacy upstream capability text
+^frontend/src/components/layout/README\.md$	Sub2API	historical component documentation
+^frontend/src/i18n/	(?:Sub2API|sub2api)	translated legacy product labels
+^frontend/src/api/tokenRefresh\.ts$	sub2api	persisted browser refresh lock name
+^frontend/index\.html$	Sub2API	existing document title
+^frontend/public/logo\.svg$	Sub2API	existing asset title
+^frontend/src/api/index\.ts$	Sub2API	historical file header
+^frontend/src/api/admin/groups\.ts$	Sub2API	historical comment
+^frontend/src/api/admin/ops\.ts$	sub2api-admin	negotiated admin websocket protocol
+^frontend/src/main\.ts$	Sub2API	default site-name compatibility
+^frontend/src/router/	(?:Sub2API|sub2api)	historical router documentation and fallback title
+^frontend/src/stores/	(?:Sub2API|sub2api)	legacy site-name and compliance fallbacks
+^frontend/src/types/admin\.ts$	sub2api\.key_billing	persisted billing object name
+^frontend/src/utils/ipGeoLookup\.ts$	sub2api:ip-geo-cache	persisted cache key
+^frontend/src/views/HomeView\.vue$	(?:Sub2API|sub2api)	legacy site-name scrub and default copy
+^frontend/src/views/KeyUsageView\.vue$	sub2api	legacy site-name scrub
+^frontend/src/views/admin/AccountsView\.vue$	(?:Sub2API|sub2api)	legacy export name and copy scrub
+^frontend/src/views/admin/GroupsView\.vue$	sub2api	legacy copy scrub
+^frontend/src/views/admin/PluginsView\.vue$	(?:Sub2API|sub2api)	plugin protocol compatibility
+^frontend/src/views/admin/ops/utils/opsFormatters\.ts$	docs/sub2api	historical design reference
+^frontend/src/views/admin/settings/PaymentSettings\.vue$	(?:Sub2API|sub2api)	legacy payment defaults
+^frontend/src/views/admin/settings/useGeneralSettingsForm\.ts$	Sub2API	legacy site-name default
+^frontend/src/views/auth/EmailVerifyView\.vue$	Sub2API	legacy site-name fallback
+^frontend/src/views/auth/LoginView\.vue$	sub2api	persisted agreement storage key
+^frontend/src/views/auth/RegisterView\.vue$	sub2api	persisted agreement storage key
+^frontend/src/views/auth/.*\.md$	Sub2API	historical authentication documentation
+^frontend/src/views/public/LegalDocumentView\.vue$	sub2api	legacy document scrub
+^frontend/src/views/setup/SetupWizardView\.vue$	(?:Sub2API|sub2api)	legacy setup defaults
+^frontend/src/views/user/BatchImageGuideView\.vue$	sub2api	persisted preview cache and request identifiers
+```
