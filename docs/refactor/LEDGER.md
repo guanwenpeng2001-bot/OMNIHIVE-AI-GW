@@ -8,14 +8,18 @@ Status legend: todo / doing / review / merged / blocked
 | A0 | Backend current state, target architecture, work packages, API contracts | gpt-6.2-astra | codex/architecture | merged | 874358e84 |
 | BE-02 | Exact Money, rate and historical fixtures | gpt-6.2-astra | codex/be-02-money | merged | 555a92ab7 |
 | BE-01 | Identity, projects and access | gpt-6.2-astra | codex/be-01-identity | merged | 43daedeb8; integrated 66510a70b (smoke pass) |
-| INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | idle | BE-01, BE-04 integrated |
+| INT | Backend integration coordinator (wire/router/openapi/types) | gpt-6.2-sol | codex/refactor | idle | BE-01, BE-04, BE-05, BE-06, BE-09 integrated |
 | BE-04 | Connections, credentials and pools | gpt-6.2-astra | codex/be-04-connections | merged | b58c783e7 → fd601fcb6; integrated c7c7d0961 (smoke pass) |
-| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | merged | c6270bee6 merged (module + tests pass); composition/wire/openapi integration in progress on same branch |
+| BE-05 | Capability evidence and public catalog projection | gpt-6.2-sol | codex/be-05-catalog | merged | c6270bee6 module; 660e876e6 integration (wire/router/openapi/v2.d.ts) merged; smoke pass (public+scoped list, detail, compare, snapshot) |
 | BE-03 | Attempt controller and stream lifecycle | gpt-6.2-astra | codex/be-03-attempt | merged | 712c2b6c6 → 50e4f9cf9 (tests pass) |
-| BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | doing | based on 50e4f9cf9 (resumed after interruption) |
-| BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | doing | based on 1e5012626 |
+| BE-06 | Durable execution journal and idempotency | gpt-6.2-astra | codex/be-06-journal | merged | 39b054030 → integrated 146fc5cdb (journal middleware in router; build/vet/unit pass) |
+| BE-07 | Exact pricing authority, quotes and comparisons | gpt-6.2-astra | codex/be-07-pricing | doing | from 2637e9e59 |
+| BE-08 | Shared routing planner and production trace | gpt-6.2-astra | codex/be-08-routing | doing | from 2637e9e59 |
+| BE-24A | Release verification scaffold (OpenAPI freeze + J01–J06 fixtures + runbooks) | cloud (C5) | codex/cloud-c5-be24a | merged | 8bb24d441 → merged; verify.sh exit 0 at tip (OpenAPI pass, 6 journeys pass; HTTP/MATRIX/FINANCE/ACCESS/MIGRATION/LOAD pending) |
+| RV-2 | Review round 2 (BE-05/06/09, wiring, identity sweep) | deepseek-v4-pro | codex/review-1 | doing | report only |
+| BE-09 | Restore operation identity and fencing | gpt-6.2-astra | codex/be-09-restore | merged | d06cd4333 → integrated 988c4f942 (router/worker lifecycle/openapi/types) |
 | RV-1 | Review round 1 (B0, BE-01..04, integration, design system) | deepseek-v4-pro | codex/review-1 | merged | 34fc1c6bd; 2×P0 + 5×P1 routed (FE-WP1, ID-SWEEP, DS-A11Y, BE-20) |
-| ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | doing | RV-1 P0/P1 outside WP1 |
+| ID-SWEEP | Residual identity: onboarding snippets, external links, dbname default, WS subprotocol/header dual-accept | gpt-6.2-sol | codex/identity-sweep | merged | cbcc3c23f → 259df733d; NOTICE + IDENTITY_ALLOWLIST (740 lines classified); handoffs to FE-WP1/FE-WP4; gate green (5296 tests) |
 | DS-A11Y | Design-system contrast and IconButton a11y fixes | gemini-3.8-flash | codex/ds-a11y | merged | 20c2875c8; tokens AA-verified by tokens-contrast.spec.ts; IconButton ariaLabel now required |
 | QG | One-command quality gate + baseline | deepseek-v4.1-flash | codex/test-gate | doing | scripts/quality-gate.sh, QUALITY_GATE.md |
 | D0 | Reference review, UI audit, design system v1, ui component library | gemini-4-carbon | codex/design-system | merged | 66717d700 → 960fbb04e |

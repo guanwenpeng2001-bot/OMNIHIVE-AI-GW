@@ -24,6 +24,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/admin/restores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Queue the specified target. Production requires a verified isolated operation, a subsequent production preview and a current TOTP session grant. Requires ops.restore.execute. */
+        post: operations["executeRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/restores/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Read the journaled operation. Requires ops.restore.execute. */
+        get: operations["getRestore"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/admin/restores/previews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Verify the requested archive digest and inspect its contents. Requires ops.restore.preview. */
+        post: operations["previewRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/me/scopes": {
         parameters: {
             query?: never;
@@ -35,6 +86,56 @@ export interface paths {
         get: operations["identityScopes"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPublicModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/models/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogModelID"];
+            };
+            cookie?: never;
+        };
+        get: operations["getPublicModel"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/public/models/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["comparePublicModels"];
         delete?: never;
         options?: never;
         head?: never;
@@ -369,6 +470,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get: operations["listProjectModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/models/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["CatalogModelID"];
+            };
+            cookie?: never;
+        };
+        get: operations["getProjectModel"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/models/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["compareProjectModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/provider-schemas": {
         parameters: {
             query?: never;
@@ -391,6 +550,186 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery. */
+        AdmittedExecution: {
+            /** Format: uuid */
+            request_id: string;
+            scope: components["schemas"]["ExecutionAuthorizedScope"];
+            attempt_budget: number;
+            /** Format: date-time */
+            deadline: string;
+            versions: {
+                model: string;
+                price: string;
+                /** Format: date-time */
+                pricing_at: string;
+            };
+            reservation_ref: string;
+        };
+        CatalogBenchmark: {
+            benchmark_id: string;
+            unit: string;
+            source: string;
+            value: string;
+            /** Format: date-time */
+            verified_at: string;
+        };
+        CatalogCapability: {
+            source: string;
+            /** @enum {string} */
+            maturity: "unknown" | "stable" | "experimental" | "deprecated";
+            observed_at: string | null;
+            expires_at: string | null;
+            /** @enum {string} */
+            state: "fresh" | "stale" | "unknown";
+            action: string;
+            protocol: string;
+            /** @enum {string} */
+            mode: "native" | "bridge" | "unknown";
+            /** @enum {string} */
+            tools: "supported" | "unsupported" | "unknown";
+            /** @enum {string} */
+            stream: "supported" | "unsupported" | "unknown";
+            verified_at: string | null;
+            adapter_version: string | null;
+            limitations: string[];
+        };
+        CatalogCompareInput: {
+            model_ids: string[];
+            protocol?: string;
+            action?: string;
+            scenario?: components["schemas"]["CatalogPriceScenario"];
+            /** Format: date-time */
+            price_at?: string;
+        };
+        CatalogCompareResult: {
+            catalog_version: string;
+            /** Format: date-time */
+            as_of: string;
+            rows: components["schemas"]["CatalogCompareRow"][];
+        };
+        CatalogCompareRow: {
+            model_id: string;
+            capabilities: {
+                /** @enum {string} */
+                tools: "supported" | "unsupported" | "unknown";
+                /** @enum {string} */
+                stream: "supported" | "unsupported" | "unknown";
+            };
+            metrics: components["schemas"]["CatalogMetrics"];
+            benchmarks: components["schemas"]["CatalogBenchmark"][];
+            quote: components["schemas"]["CatalogEstimate"];
+        };
+        CatalogEndpoint: {
+            id: string;
+            provider: string;
+            training: string;
+            content_retention: string;
+            regions: string[];
+            safety_retention_days: string | null;
+            region_evidence: components["schemas"]["CatalogEvidence"] | null;
+            privacy_evidence: components["schemas"]["CatalogEvidence"] | null;
+            capabilities: components["schemas"]["CatalogCapability"][];
+        };
+        CatalogEstimate: {
+            /** @enum {string} */
+            state: "estimated" | "unpriced";
+            price_version: string | null;
+            estimated_charge: components["schemas"]["CatalogMoney"] | null;
+            components: components["schemas"]["CatalogEstimateComponent"][];
+            rounding_adjustment: string | null;
+        };
+        CatalogEstimateComponent: {
+            kind: string;
+            quantity: string;
+            raw_amount: string;
+        };
+        CatalogEvidence: {
+            source: string;
+            /** @enum {string} */
+            maturity: "unknown" | "stable" | "experimental" | "deprecated";
+            observed_at: string | null;
+            expires_at: string | null;
+            /** @enum {string} */
+            state: "fresh" | "stale" | "unknown";
+        };
+        CatalogMetrics: {
+            /** Format: date-time */
+            window_start: string;
+            /** Format: date-time */
+            window_end: string;
+            source: string;
+            requests: string | null;
+            ttft_samples: string | null;
+            speed_samples: string | null;
+            success_rate: number | null;
+            ttft_p50_ms: number | null;
+            output_tokens_per_second: number | null;
+            /** @enum {string} */
+            state: "insufficient_samples" | "partial" | "available" | "unavailable" | "withheld";
+        };
+        CatalogModelFacts: {
+            source: string;
+            /** @enum {string} */
+            maturity: "unknown" | "stable" | "experimental" | "deprecated";
+            observed_at: string | null;
+            expires_at: string | null;
+            /** @enum {string} */
+            state: "fresh" | "stale" | "unknown";
+            context_tokens: string | null;
+            max_output_tokens: string | null;
+            embedding_dimensions: string | null;
+            /** @enum {string} */
+            context_kind: "input" | "total" | "unspecified" | "";
+            tools: boolean | null;
+            vision: boolean | null;
+            reasoning: boolean | null;
+            prompt_caching: boolean | null;
+            pdf: boolean | null;
+            modalities: string[] | null;
+        };
+        CatalogModelPage: {
+            items: components["schemas"]["ModelSummary"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
+            catalog_version: string;
+        };
+        CatalogMoney: {
+            currency: string;
+            amount: string;
+        };
+        CatalogPriceScenario: {
+            input_tokens?: string;
+            cached_input_tokens?: string;
+            output_tokens?: string;
+            requests?: string;
+        };
+        CatalogRate: {
+            currency: string;
+            amount: string;
+            unit: string;
+            per: string;
+        };
+        CatalogRateBand: {
+            rate: components["schemas"]["CatalogRate"];
+            kind: string;
+            min_tokens: string | null;
+            max_tokens: string | null;
+            label?: string;
+        };
+        CatalogScope: {
+            workspace_id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+            scope_version: components["schemas"]["IdentityID"];
+        };
+        CatalogTimeBand: {
+            timezone: string;
+            start_time: string;
+            end_time: string;
+            weekdays_only: boolean;
+            multiplier: string;
+        };
         ConnectionActivate: {
             /** Format: uuid */
             preview_id: string;
@@ -622,6 +961,28 @@ export interface components {
             credential_version: string;
         };
         ConnectionWriteResult: components["schemas"]["ConnectionResource"] | components["schemas"]["ConnectionRedacted"];
+        ExecutionAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            request_id: string;
+            ordinal: number;
+            account_id?: components["schemas"]["ExecutionIdentityNumber"];
+            /** @enum {string} */
+            acceptance: "not_sent" | "accepted" | "unknown";
+            /** @enum {string} */
+            outcome: "intent" | "dispatching" | "not_sent" | "rejected" | "transport_response" | "unknown";
+        };
+        ExecutionAuthorizedScope: {
+            workspace_id: components["schemas"]["ExecutionIdentityNumber"];
+            project_id: components["schemas"]["ExecutionIdentityNumber"];
+            actor_id: components["schemas"]["ExecutionIdentityNumber"];
+            api_key_id: components["schemas"]["ExecutionIdentityNumber"];
+            key_owner_id: components["schemas"]["ExecutionIdentityNumber"];
+            funding_user_id: components["schemas"]["ExecutionIdentityNumber"];
+            authorization_version: components["schemas"]["ExecutionIdentityNumber"];
+        };
+        ExecutionIdentityNumber: string;
         IdentityAccess: {
             actor_id: components["schemas"]["IdentityID"];
             workspace_id: components["schemas"]["IdentityID"];
@@ -713,9 +1074,101 @@ export interface components {
             /** Format: date-time */
             as_of: string;
         };
+        ModelDetail: {
+            model: components["schemas"]["ModelSummary"];
+            aliases: string[];
+            model_facts: components["schemas"]["CatalogModelFacts"][];
+            capabilities: components["schemas"]["CatalogCapability"][];
+            endpoints: components["schemas"]["CatalogEndpoint"][];
+            price_version: string | null;
+            price_source: string;
+            additional_rates: components["schemas"]["CatalogRateBand"][];
+            context_basis?: string;
+            time_bands: components["schemas"]["CatalogTimeBand"][];
+            metrics: components["schemas"]["CatalogMetrics"];
+            benchmarks: components["schemas"]["CatalogBenchmark"][];
+            documentation_url: string | null;
+            redactions: string[];
+        };
+        ModelSummary: {
+            id: string;
+            model: string;
+            display_name: string;
+            provider: string;
+            catalog_version: string;
+            modalities: string[];
+            protocols: string[];
+            actions: string[];
+            regions: string[];
+            context_tokens: string | null;
+            /** @enum {string} */
+            maturity: "unknown" | "stable" | "experimental" | "deprecated";
+            /** @enum {string} */
+            catalog_state: "listed";
+            /** @enum {string} */
+            access_state: "allowed" | "denied" | "unknown" | "requires_scope";
+            /** @enum {string} */
+            route_state: "eligible" | "ineligible" | "unknown" | "requires_scope";
+            /** @enum {string} */
+            price_state: "priced" | "free" | "unpriced" | "error";
+            input_rate: components["schemas"]["CatalogRate"] | null;
+            output_rate: components["schemas"]["CatalogRate"] | null;
+            observed_at: string | null;
+            /** @enum {string} */
+            evidence_state: "fresh" | "stale" | "unknown";
+            effective_scope?: components["schemas"]["CatalogScope"];
+        };
+        RestoreExecuteInput: {
+            preview_id: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            rehearsal_id?: string | null;
+        };
+        RestoreOperation: {
+            id: string;
+            generation: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            /** @enum {unknown} */
+            state: "queued" | "running" | "succeeded" | "failed" | "unknown";
+            /** @enum {unknown} */
+            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "verified";
+            report: null | components["schemas"]["RestoreReport"];
+        };
+        RestorePreview: {
+            id: string;
+            verified: boolean;
+            /** Format: date-time */
+            expires_at: string;
+            impact: {
+                databases: string;
+                source_digest: string;
+                users: string;
+                api_keys: string;
+                billing_usage_entries: string;
+                upstream_jobs: string;
+            };
+        };
+        RestorePreviewInput: {
+            backup_id: string;
+            /** @enum {string} */
+            target: "isolated" | "production";
+            expected_digest?: string;
+        };
+        RestoreReport: {
+            source_digest?: string;
+            counts?: {
+                users?: string;
+                api_keys?: string;
+                billing_usage_entries?: string;
+                upstream_jobs?: string;
+            };
+            reason?: string;
+        };
     };
     responses: never;
     parameters: {
+        CatalogModelID: string;
         ConnectionID: components["schemas"]["IdentityID"];
         IdentityCursor: string;
         IdentityIdempotency: string;
@@ -727,7 +1180,12 @@ export interface components {
         IdentityWorkspaceID: components["schemas"]["IdentityID"];
     };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Server-generated identity of the admitted execution, including a matching idempotent resubmission. */
+        GatewayExecutionID: string;
+        /** @description Present on a matching keyed Responses resubmission with its original execution ID and an empty 204 body. */
+        GatewayExecutionReplayed: "true";
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -777,6 +1235,125 @@ export interface operations {
             };
         };
     };
+    executeRestore: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreExecuteInput"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "accepted";
+                        data: components["schemas"]["RestoreOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RestoreOperation"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    previewRestore: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdentityIdempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestorePreviewInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["RestorePreview"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
     identityScopes: {
         parameters: {
             query?: {
@@ -801,6 +1378,131 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["IdentityWorkspacePage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    listPublicModels: {
+        parameters: {
+            query?: {
+                q?: string;
+                provider?: string[];
+                protocol?: string[];
+                action?: string[];
+                modality?: string[];
+                region?: string[];
+                retention?: string[];
+                stability?: string[];
+                sort?: "name" | "price_input" | "context" | "ttft";
+                limit?: components["parameters"]["IdentityLimit"];
+                cursor?: components["parameters"]["IdentityCursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogModelPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getPublicModel: {
+        parameters: {
+            query?: {
+                catalog_version?: string;
+            };
+            header?: never;
+            path: {
+                id: components["parameters"]["CatalogModelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ModelDetail"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    comparePublicModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogCompareInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogCompareResult"];
                     };
                 };
             };
@@ -1813,6 +2515,141 @@ export interface operations {
                         /** @constant */
                         message: "success";
                         data: components["schemas"]["IdentityKey"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    listProjectModels: {
+        parameters: {
+            query?: {
+                q?: string;
+                provider?: string[];
+                protocol?: string[];
+                action?: string[];
+                modality?: string[];
+                region?: string[];
+                retention?: string[];
+                stability?: string[];
+                sort?: "name" | "price_input" | "context" | "ttft";
+                limit?: components["parameters"]["IdentityLimit"];
+                cursor?: components["parameters"]["IdentityCursor"];
+                accessible?: boolean;
+                routable?: boolean;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogModelPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    getProjectModel: {
+        parameters: {
+            query?: {
+                catalog_version?: string;
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["parameters"]["CatalogModelID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["ModelDetail"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    compareProjectModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CatalogCompareInput"];
+            };
+        };
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["CatalogCompareResult"];
                     };
                 };
             };

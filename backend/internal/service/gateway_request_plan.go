@@ -11,11 +11,16 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
 )
 
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
 // Route describes the inbound contract; attempts retain their own upstream route.
 type GatewayRequestSpec struct {
+	Registration                                      *journal.Registration
 	UpstreamAccountID                                 int64
 	WorkspaceID                                       int64
 	Action, UpstreamModel, ExecutionKind, ExecutionID string
@@ -44,6 +49,12 @@ type gatewayRequestPlanKey struct{}
 // GatewayRequestPlan owns one HTTP execution. A websocket adapter must create a
 // new plan per turn, never reuse the connection's usage claim across turns.
 type GatewayRequestPlan struct {
+	store            journal.Store
+	execution        journal.AdmittedExecution
+	response         *lifecycle.Response
+	admissionErr     error
+	journalErr       error
+	abandoned        map[int64]bool
 	registrySnapshot *ModelRegistrySnapshot
 	spec             GatewayRequestSpec
 	forwarding       *gatewayForwardingSettingsResult
@@ -112,6 +123,9 @@ func WithGatewayRequestPlan(ctx context.Context, p *GatewayRequestPlan) context.
 	}
 	if p != nil {
 		ctx = WithModelRegistrySnapshot(ctx, p.registrySnapshot)
+		if p.store != nil {
+			ctx = attempt.WithRecorder(ctx, p)
+		}
 	}
 	return context.WithValue(ctx, gatewayRequestPlanKey{}, p)
 }
@@ -162,6 +176,11 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 		p.releaseBudgetHold(hold)
 	}
 	p.finalizeTPMAttempts()
+	if p.store != nil && p.admissionErr == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		p.logJournalError(p.store.Finish(ctx, p.execution.RequestID, p.response.State(), canceled))
+	}
 }
 
 // releaseBudgetHold refunds an unconsumed request hold with a detached context:
@@ -277,6 +296,11 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 		return nil
 	}
 	p.mu.Lock()
+	if p.admissionErr != nil {
+		err := p.admissionErr
+		p.mu.Unlock()
+		return err
+	}
 	if p.budgetAdmitted {
 		p.mu.Unlock()
 		return nil
@@ -289,11 +313,15 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 	if spec.APIKeyID <= 0 || spec.UserID <= 0 || strings.TrimSpace(spec.ExecutionID) == "" {
 		return ErrAPIKeyBudgetUnavailable
 	}
+	payer := spec.UserID
+	if p.store != nil {
+		payer = p.execution.Scope.FundingUserID
+	}
 	hold := p.estimateBudgetHold(estimate)
 	outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
 		RequestID:       spec.ExecutionID,
 		APIKeyID:        spec.APIKeyID,
-		UserID:          spec.UserID,
+		UserID:          payer,
 		HoldAmount:      hold,
 		SkipBalanceHold: estimate.SkipBalanceHold,
 	})
@@ -305,7 +333,12 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 	if outcome != nil {
 		p.budgetHold = outcome.Reservation
 	}
+	late := p.state.Finalized
+	reservation := p.budgetHold
 	p.mu.Unlock()
+	if late {
+		p.releaseBudgetHold(reservation)
+	}
 	return nil
 }
 
@@ -403,7 +436,6 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		prices.mu.RLock()
 		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
 		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
-		p.spec.ModelVersion = p.registrySnapshot.Version()
 		prices.mu.RUnlock()
 		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
 	}
@@ -412,30 +444,165 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	return WithGatewayRequestPlan(ctx, p), p
 }
 
-func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
-	if s == nil {
-		return captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
-	}
+type gatewayPlanFactory struct {
+	settings   *SettingService
+	billing    *BillingService
+	channels   *ChannelService
+	settlement *UsageSettlementService
+	catalog    AccountRepository
+}
+
+func (f gatewayPlanFactory) capture(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
 	if existing := GatewayRequestPlanFromContext(ctx); existing != nil {
 		return ctx, existing
 	}
-	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
-	plan.settlement = s.usageSettlement
-	plan.catalogRepo = s.accountRepo
-	return ctx, plan
+	ctx, p := captureGatewayRequestPlan(ctx, spec, f.settings, f.billing, f.channels)
+	p.settlement, p.catalogRepo = f.settlement, f.catalog
+	return p.admitExecution(ctx, spec.ExecutionID)
+}
+
+func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
+	var factory gatewayPlanFactory
+	if s != nil {
+		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo}
+	}
+	return factory.capture(ctx, spec)
 }
 
 func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
-	if s == nil {
-		return captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
+	var factory gatewayPlanFactory
+	if s != nil {
+		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo}
 	}
-	if existing := GatewayRequestPlanFromContext(ctx); existing != nil {
-		return ctx, existing
+	return factory.capture(ctx, spec)
+}
+
+func (p *GatewayRequestPlan) admitExecution(ctx context.Context, legacyID string) (context.Context, *GatewayRequestPlan) {
+	p.store = journal.From(ctx)
+	if p.store == nil {
+		return ctx, p
 	}
-	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
-	plan.settlement = s.usageSettlement
-	plan.catalogRepo = s.accountRepo
-	return ctx, plan
+	frozen, ok := scope.From(ctx)
+	if !ok || frozen.KeyID != p.spec.APIKeyID || frozen.KeyOwnerID != p.spec.UserID || (p.spec.WorkspaceID != 0 && frozen.WorkspaceID != p.spec.WorkspaceID) {
+		p.admissionErr = journal.ErrScope
+		return ctx, p
+	}
+	if legacyID == "" && p.spec.ExecutionKind != "job" {
+		legacyID = p.spec.ExecutionID
+	}
+	p.response = p.budget.Response()
+	if p.response == nil {
+		p.admissionErr = journal.ErrDispatch
+		return ctx, p
+	}
+	p.spec.WorkspaceID = frozen.WorkspaceID
+	route := p.spec.Route
+	if route == "" {
+		route = p.spec.Action
+	}
+	in := journal.Admission{RequestID: journal.NewID(), Kind: p.spec.ExecutionKind, Route: route, Model: p.spec.Model, LegacyID: legacyID, AttemptBudget: p.spec.GenerationAttempts, Deadline: p.spec.Deadline,
+		Versions: journal.Versions{Model: p.spec.ModelVersion, Price: p.spec.PriceVersion, PricingAt: p.spec.PricingAt}, Registration: p.spec.Registration}
+	var replay bool
+	p.execution, replay, p.admissionErr = p.store.Admit(ctx, in)
+	if p.admissionErr == nil {
+		p.spec.ExecutionID = p.execution.RequestID
+	}
+	if replay {
+		p.admissionErr = journal.ErrReplay
+	}
+	return WithGatewayRequestPlan(ctx, p), p
+}
+
+func (p *GatewayRequestPlan) AdmittedExecution() (journal.AdmittedExecution, error) {
+	if p == nil {
+		return journal.AdmittedExecution{}, journal.ErrDispatch
+	}
+	return p.execution, p.admissionErr
+}
+
+func (p *GatewayRequestPlan) logJournalError(err error) {
+	if err != nil {
+		p.mu.Lock()
+		p.journalErr = err
+		p.mu.Unlock()
+		slog.Error("execution journal write failed", "request_id", p.execution.RequestID, "error", err)
+	}
+}
+
+func (p *GatewayRequestPlan) journalDispatch(ctx context.Context, accountID int64, number int) (journal.Attempt, error) {
+	if p == nil || p.store == nil {
+		return journal.Attempt{}, nil
+	}
+	p.mu.Lock()
+	failed := p.journalErr
+	p.mu.Unlock()
+	if p.admissionErr != nil {
+		return journal.Attempt{}, p.admissionErr
+	}
+	if failed != nil {
+		return journal.Attempt{}, failed
+	}
+	if err := journal.Authorize(ctx, p.execution.Scope, p.spec.Model); err != nil {
+		p.logJournalError(err)
+		return journal.Attempt{}, err
+	}
+	a, err := p.store.Dispatch(ctx, p.execution, number, accountID)
+	p.logJournalError(err)
+	return a, err
+}
+
+func (p *GatewayRequestPlan) observeJournalAttempt(a journal.Attempt, outcome string) {
+	if a.ID == "" {
+		return
+	}
+	a.Outcome = outcome
+	switch outcome {
+	case "transport_response":
+		a.Acceptance = attempt.Accepted
+	case "not_sent", "rejected":
+		a.Acceptance = attempt.NotSent
+	default:
+		a.Acceptance = attempt.Unknown
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	p.logJournalError(p.store.Observe(ctx, a))
+}
+
+func (p *GatewayRequestPlan) RecordAttemptDecision(ctx context.Context, d attempt.AttemptDecision) {
+	if p.admissionErr != nil {
+		return
+	}
+	if d.AbandonedUncertain {
+		records := p.budget.Snapshot()
+		if d.AttemptNumber > 0 && d.AttemptNumber <= len(records) {
+			p.mu.Lock()
+			if p.abandoned == nil {
+				p.abandoned = make(map[int64]bool)
+			}
+			p.abandoned[records[d.AttemptNumber-1].AccountID] = true
+			p.mu.Unlock()
+		}
+	}
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	p.logJournalError(p.store.Decision(writeCtx, p.execution.RequestID, d))
+}
+
+func (p *GatewayRequestPlan) journalIdentity() string {
+	if p == nil || p.store == nil || p.admissionErr != nil {
+		return ""
+	}
+	return p.execution.RequestID
+}
+
+func (p *GatewayRequestPlan) journalReceiptAllowed(accountID int64) bool {
+	if p == nil || p.store == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.admissionErr == nil && !p.abandoned[accountID]
 }
 
 // CaptureAsyncImageTaskPlan transfers an accepted task out of its submission
@@ -584,6 +751,7 @@ func CaptureGatewayJobPlan(ctx context.Context, spec GatewayRequestSpec) (contex
 		plan.spec.PricingAt = parent.spec.PricingAt
 		ctx = WithGatewayRequestPlan(ctx, plan)
 	}
+	ctx, plan = plan.admitExecution(ctx, spec.ExecutionID)
 	return ctx, func() { plan.Finalize(false); cancel() }
 }
 

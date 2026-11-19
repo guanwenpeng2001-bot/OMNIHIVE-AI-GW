@@ -132,6 +132,14 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		spec.MaxAccountSwitches = h.openAI.maxAccountSwitches
 	}
 	executionCtx, cancel := gateway.CaptureAsyncImageTaskPlan(c.Request.Context(), spec, h.tasks.ExecutionTimeout())
+	if admission, err := service.GatewayRequestPlanFromContext(executionCtx).AdmittedExecution(); err != nil {
+		cancel()
+		h.failTask(task.ID, http.StatusServiceUnavailable, imageTaskErrorPayload("server_error", "Execution admission unavailable"))
+		imageTaskError(c, service.ErrImageTaskUnavailable)
+		return
+	} else if admission.RequestID != "" {
+		c.Header("X-Execution-ID", admission.RequestID)
+	}
 	taskCtx, recorder := newAsyncImageContext(c, body, executionCtx)
 
 	h.poolOnce.Do(func() {

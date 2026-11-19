@@ -2,13 +2,16 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
@@ -28,6 +31,8 @@ func SetupRouter(
 	handlers *handler.Handlers,
 	identityHandler *identityhttp.Handler,
 	connectionsHandler *connectionshttp.Handler,
+	modelsHandler *modelshttp.Handler,
+	restoreHandler *restorehttp.Handler,
 	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
@@ -42,6 +47,7 @@ func SetupRouter(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	db *sql.DB,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -80,6 +86,7 @@ func SetupRouter(
 	r.Use(middleware2.GatewayUnknownRouteProtocol())
 	// Gin captures middleware when routes are registered.
 	r.Use(middleware2.InstallProjectScopes(gatewayScopes, cfg))
+	r.Use(handler.InstallExecutionJournal(db, gatewayScopes))
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
@@ -108,7 +115,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, identityHandler, connectionsHandler, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -119,6 +126,8 @@ func registerRoutes(
 	h *handler.Handlers,
 	identityHandler *identityhttp.Handler,
 	connectionsHandler *connectionshttp.Handler,
+	modelsHandler *modelshttp.Handler,
+	restoreHandler *restorehttp.Handler,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
@@ -153,6 +162,13 @@ func registerRoutes(
 	identityhttp.Register(v2, identityHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	connectionshttp.Register(v2, connectionsHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	catalogGuard := middleware2.BackendModeUserGuard(settingService)
+	modelshttp.Register(v2, modelsHandler,
+		[]gin.HandlerFunc{panelRateLimiter.PublicIP(), catalogGuard},
+		[]gin.HandlerFunc{gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), catalogGuard, gin.HandlerFunc(auditLog)},
+	)
+	restorehttp.Register(v2, restoreHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	connectionshttp.RegisterAuthorization(v1, connectionsHandler,
 		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))

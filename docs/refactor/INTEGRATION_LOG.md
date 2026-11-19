@@ -91,3 +91,13 @@ The BE-01 and BE-04 production smokes passed against the standard-mode binary an
 | `POST /api/v2/workspaces/{workspace}/connections/{id}/rotations` | The successful rotation and malformed request both omitted the request body. |
 | `PUT /api/v1/workspaces/{workspace}/connections/{id}/authorization` | The legacy OAuth start route issued an HttpOnly cookie scoped to the workspace path. The bridge consumed a synthetic draft with that cookie and rejected an attempt without the cookie. Consumption removed the access token from the pending draft. Successful, rejected and malformed requests omitted their audit bodies. |
 | Member without `connections.read` | Connection inventory, detail and event reads returned `403`. A member reading their own existing operation received `result: null` and `resource_id: null`. Disposable secret values were absent from the checked responses, audit rows and server logs. |
+
+## Baseline gate at 5ed388cbd (coordinator)
+
+After merging BE-06 (146fc5cdb), BE-09 (988c4f942) and the C5 release scaffold (c732ba3ee), the merged integration tip was checked:
+
+| Check | Result |
+| --- | --- |
+| `cd backend && go test ./...` | Pass (EXIT=0, 71 packages ok) |
+| `go run ./api/v2/compose` then `git diff` | No drift |
+| `contracts/release/backend/verify.sh` | exit 0 — OpenAPI pass, J01–J06 pass; HTTP/MATRIX/FINANCE/ACCESS/MIGRATION/LOAD marked pending |

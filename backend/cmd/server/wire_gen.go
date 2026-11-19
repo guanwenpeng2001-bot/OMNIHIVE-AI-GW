@@ -10,10 +10,16 @@ import (
 	"context"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-05"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
@@ -357,16 +363,25 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	store := postgres.New(db)
 	connectionsStore := connections.New(db, store, aesEncryptor, accountTestService, configConfig)
-	operations := provideIdentityOperations(connectionsStore)
+	runtime, err := be09.New(db, configConfig, backupService, store, totpService, userService)
+	if err != nil {
+		return nil, err
+	}
+	operations := provideIdentityOperations(connectionsStore, runtime)
 	identityHandler := identity.New(store, operations, configConfig)
 	connectionsHandler := connections2.New(connectionsStore)
+	postgresStore := postgres2.New(db)
+	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
+	reader := catalog.NewReader(source, postgresStore)
+	modelsHandler := models.New(reader, store, configConfig)
+	restoreHandler := restore.New(runtime)
 	jwtAuthMiddleware := middleware.NewJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	optionalJWTAuthMiddleware := middleware.NewOptionalJWTAuthMiddleware(authService, userService, settingService, auditLogService)
 	adminAuthMiddleware := middleware.NewAdminAuthMiddleware(authService, userService, settingService, auditLogService)
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient)
+	engine := server.ProvideRouter(configConfig, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, store, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
@@ -393,6 +408,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		Cleanup:       v,
 		UpstreamJobs:  upstreamJobService,
 		OpsMetrics:    opsMetricsCollector,
+		Restores:      runtime,
 	}
 	return application, nil
 }
@@ -400,6 +416,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 // wire.go:
 
 type Application struct {
+	Restores      *be09.Runtime
 	OpsMetrics    *service.OpsMetricsCollector
 	UpstreamJobs  *service.UpstreamJobService
 	Server        *http.Server
@@ -408,8 +425,8 @@ type Application struct {
 	Cleanup       func()
 }
 
-func provideIdentityOperations(store *connections.Store) identity2.Operations {
-	return identity2.Operations{Readers: []identity2.OperationReader{store}}
+func provideIdentityOperations(store *connections.Store, restores *be09.Runtime) identity2.Operations {
+	return identity2.Operations{Readers: []identity2.OperationReader{store, restores}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {

@@ -341,6 +341,13 @@ func (p *GatewayRequestPlan) finishTPMSend(sequence int, err error) {
 	if !errors.As(err, &networkError) || networkError.Op != "dial" {
 		return
 	}
+	p.releaseUnsentTPM(sequence)
+}
+
+func (p *GatewayRequestPlan) releaseUnsentTPM(sequence int) {
+	if p == nil || sequence == 0 {
+		return
+	}
 	p.mu.Lock()
 	attempt := p.tpmAttempts[sequence]
 	if attempt != nil {

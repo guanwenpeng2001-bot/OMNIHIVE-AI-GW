@@ -1,0 +1,81 @@
+{
+  "preview_request": {
+    "backup_id": "bk1",
+    "target": "isolated",
+    "expected_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "preview": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "id": "rp1",
+      "verified": true,
+      "impact": {
+        "databases": "1",
+        "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "users": "1",
+        "api_keys": "1",
+        "billing_usage_entries": "1",
+        "upstream_jobs": "1"
+      },
+      "expires_at": "2026-11-19T11:00:00Z"
+    }
+  },
+  "isolated_request": {
+    "preview_id": "rp1",
+    "target": "isolated",
+    "rehearsal_id": null
+  },
+  "accepted": {
+    "code": 0,
+    "message": "accepted",
+    "data": {
+      "id": "rs1",
+      "generation": "1",
+      "state": "queued",
+      "stage": "queued",
+      "target": "isolated",
+      "report": null
+    }
+  },
+  "verified": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "id": "rs1",
+      "generation": "2",
+      "state": "succeeded",
+      "stage": "verified",
+      "target": "isolated",
+      "report": {
+        "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "counts": {
+          "users": "1",
+          "api_keys": "1",
+          "billing_usage_entries": "1",
+          "upstream_jobs": "1"
+        }
+      }
+    }
+  },
+  "production_request": {
+    "preview_id": "rp2",
+    "target": "production",
+    "rehearsal_id": "rs1"
+  },
+  "review": {
+    "code": 0,
+    "message": "success",
+    "data": {
+      "id": "rs2",
+      "generation": "1",
+      "state": "unknown",
+      "stage": "applying",
+      "target": "production",
+      "report": {
+        "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": "RESTORE_REVIEW_REQUIRED"
+      }
+    }
+  }
+}

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	identitycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-01"
+	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-06"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"net/http"
 	"strings"
@@ -196,6 +198,13 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 			}
 		}
 		ctx = scope.With(ctx, a)
+		if journal.From(ctx) != nil {
+			var group int64
+			if key.GroupID != nil {
+				group = *key.GroupID
+			}
+			ctx = executioncompat.BindCredential(ctx, service.APIKeyCredentialDigest(secret), projectKeyAction(c), ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), policy != nil, group)
+		}
 	}
 	ctx, err = keys.AttachModelAccessPolicy(ctx, key.ID)
 	if err != nil {

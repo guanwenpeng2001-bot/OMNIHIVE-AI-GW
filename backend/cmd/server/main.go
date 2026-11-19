@@ -177,6 +177,11 @@ func runMainServer() {
 		}
 	}
 
+	stopRestores := func() {}
+	if app.Restores != nil {
+		stopRestores = app.Restores.StartWorker(context.Background())
+	}
+
 	readyHandler := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.UpstreamJobs.Ready)
 	originalHandler := app.Server.Handler
 	app.Server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +217,8 @@ func runMainServer() {
 	<-quit
 
 	log.Println("Shutting down server...")
+
+	stopRestores()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

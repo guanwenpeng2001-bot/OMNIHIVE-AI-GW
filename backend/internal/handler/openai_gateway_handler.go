@@ -529,7 +529,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "responses", h.maxAccountSwitches)()
+	finishExecution, admitted := beginResponsesExecution(c, h.gatewayService, apiKey, reqModel, sessionHashBody, h.maxAccountSwitches, h.errorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -2582,6 +2586,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		wsSpec.BillingGroupID = *apiKey.GroupID
 	}
 	ctx, firstPlan := h.gatewayService.CaptureRequestTurn(ctx, wsSpec)
+	if _, err := firstPlan.AdmittedExecution(); err != nil {
+		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "Execution admission unavailable")
+		return
+	}
 	var activePlan atomic.Pointer[service.GatewayRequestPlan]
 	activePlan.Store(firstPlan)
 	defer func() {
@@ -2900,6 +2908,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					spec.Model = model
 					spec.ExecutionID = fmt.Sprintf("%s:turn:%d", firstPlan.Snapshot().ExecutionID, logicalTurn)
 					_, plan := h.gatewayService.CaptureRequestTurn(ctx, spec)
+					if _, err := plan.AdmittedExecution(); err != nil {
+						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "Execution admission unavailable", err)
+					}
 					activePlan.Store(plan)
 				}
 				c.Request = c.Request.WithContext(service.WithGatewayRequestPlan(ctx, activePlan.Load()))
