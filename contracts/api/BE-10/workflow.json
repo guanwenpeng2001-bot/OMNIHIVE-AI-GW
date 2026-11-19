@@ -1,0 +1,41 @@
+{
+  "create": {
+    "name": "EU fallback",
+    "scope": {"type": "project", "id": "2"},
+    "constraints": {
+      "regions": {"mode": "allow_list", "values": ["DE", "FR"]},
+      "retention": "strict_zero",
+      "training": "prohibited",
+      "required_capabilities": ["tools"],
+      "max_input_rate": {"currency": "USD", "amount": "2", "unit": "input_token", "per": "1000000"}
+    },
+    "candidates": {"pool_ids": ["45"], "denied_provider_ids": [], "allow_expansion": false},
+    "preferences": {"template": "stable", "ordered_provider_ids": []},
+    "fallback": {"endpoint": true, "model_ids": [], "byok_to_platform": false}
+  },
+  "simulate": {
+    "version": "1df83738-4b87-4f4b-bd16-5d22d69ce52b",
+    "compare_version": null,
+    "project_id": "2",
+    "api_key_id": "5",
+    "model_id": "m1",
+    "protocol": "openai_chat",
+    "action": "text.chat",
+    "required_capabilities": ["tools"],
+    "input_token_bound": "1000",
+    "output_token_bound": "128",
+    "snapshot_id": null,
+    "seed": "9041"
+  },
+  "publish": {
+    "draft_version": "1df83738-4b87-4f4b-bd16-5d22d69ce52b",
+    "base_version": "",
+    "simulation_id": "value-returned-by-simulate",
+    "change_note": "Limit primary and fallback endpoints to DE and FR"
+  },
+  "rollback": {
+    "from_version": "25263b2d-f42e-4440-aade-3dd925f5177c",
+    "restore_version": "63420b98-c8cc-4db6-853a-7cbaa8255e44",
+    "change_note": "Restore the previously published routing definition"
+  }
+}
