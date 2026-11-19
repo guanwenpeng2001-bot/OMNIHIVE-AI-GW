@@ -340,7 +340,9 @@ func WeightedOrder[T any](pool []T, seed uint64, score func(T) float64) []T {
 	}
 	minScore := score(pool[0])
 	for _, c := range pool[1:] {
-		minScore = min(minScore, score(c))
+		if value := score(c); value < minScore {
+			minScore = value
+		}
 	}
 	weights := make([]float64, len(pool))
 	for i, c := range pool {

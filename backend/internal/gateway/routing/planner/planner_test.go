@@ -129,3 +129,16 @@ func TestReplayAndTraceJSON(t *testing.T) {
 	}
 	simulate(ctx)
 }
+
+func TestWeightedOrderZeroSeed(t *testing.T) {
+	pool := []int{5, 4, 3, 2, 1}
+	score := func(v int) float64 { return float64(v) }
+	order := WeightedOrder(pool, 0, score)
+	again := WeightedOrder(pool, 0, score)
+	if !slices.Equal(order, again) {
+		t.Fatalf("seed-zero ordering diverged: %v / %v", order, again)
+	}
+	if slices.Sort(order); !slices.Equal(order, []int{1, 2, 3, 4, 5}) {
+		t.Fatalf("seed zero lost candidates: %v", order)
+	}
+}

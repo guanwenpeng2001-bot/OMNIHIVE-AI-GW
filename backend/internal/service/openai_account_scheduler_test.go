@@ -3575,15 +3575,6 @@ func TestBuildOpenAIWeightedSelectionOrder_HandlesInvalidScores(t *testing.T) {
 	require.Len(t, seen, len(candidates))
 }
 
-func TestOpenAISelectionRNG_SeedZeroStillWorks(t *testing.T) {
-	rng := newOpenAISelectionRNG(0)
-	v1 := rng.nextUint64()
-	v2 := rng.nextUint64()
-	require.NotEqual(t, v1, v2)
-	require.GreaterOrEqual(t, rng.nextFloat64(), 0.0)
-	require.Less(t, rng.nextFloat64(), 1.0)
-}
-
 func TestOpenAIAccountCandidateHeap_PushPopAndInvalidType(t *testing.T) {
 	h := openAIAccountCandidateHeap{}
 	h.Push(openAIAccountCandidateScore{
