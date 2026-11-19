@@ -27,10 +27,19 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
+		nil, nil, nil, nil, middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
 		nil, nil, nil, settings, nil, cfg, nil)
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, path := range []string{"/api/v2/public/models", "/api/v2/workspaces/:workspace_id/projects/:project_id/models"} {
+		require.Contains(t, registered, "GET "+path)
+		require.Contains(t, registered, "GET "+path+"/:id")
+		require.Contains(t, registered, "POST "+path+"/compare")
+	}
 	router.NoRoute(func(c *gin.Context) { c.Data(200, "text/html", []byte("<html>frontend</html>")) })
 	for _, test := range []struct{ method, path string }{
 		{"POST", "/v1"}, {"POST", "/v1/"}, {"POST", "/"},
