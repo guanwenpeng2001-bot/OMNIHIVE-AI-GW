@@ -93,6 +93,9 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	if input == nil {
 		return s.persistenceError(UsageSettlementKey{}, fmt.Errorf("usage settlement receipt is nil"))
 	}
+	if !GatewayRequestPlanFromContext(ctx).journalReceiptAllowed(input.Command.AccountID) {
+		return ErrAttemptOutcomeUnknown
+	}
 	// Legacy producers cannot distinguish absent usage from explicit zero.
 	// Preserve the hold in that ambiguous case; never turn cancellation into a
 	// zero-token proof merely because the monetary receipt contains zero fields.

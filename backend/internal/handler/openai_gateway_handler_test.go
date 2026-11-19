@@ -2066,6 +2066,8 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
+	route                 string
+	middleware            gin.HandlerFunc
 	firstTurnInFlight     bool
 	secondTurnInterrupted bool
 	responseModels        []string
@@ -3228,13 +3230,20 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		apiKey.Group = tc.group
 	}
 	handlerDone := make(chan struct{})
+	route := tc.route
+	if route == "" {
+		route = "/openai/v1/responses"
+	}
 	router := gin.New()
+	if tc.middleware != nil {
+		router.Use(tc.middleware)
+	}
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
 		c.Next()
 	})
-	router.GET("/openai/v1/responses", func(c *gin.Context) {
+	router.GET(route, func(c *gin.Context) {
 		defer close(handlerDone)
 		h.ResponsesWebSocket(c)
 	})
@@ -3248,7 +3257,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	dialCtx, cancelDial := context.WithTimeout(context.Background(), 3*time.Second)
 	clientConn, _, err := coderws.Dial(
 		dialCtx,
-		"ws"+strings.TrimPrefix(handlerServer.URL, "http")+"/openai/v1/responses",
+		"ws"+strings.TrimPrefix(handlerServer.URL, "http")+route,
 		&coderws.DialOptions{HTTPHeader: headers, CompressionMode: coderws.CompressionContextTakeover},
 	)
 	cancelDial()

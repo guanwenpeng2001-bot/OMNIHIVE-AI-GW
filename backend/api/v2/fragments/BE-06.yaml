@@ -1,0 +1,58 @@
+paths: {}
+components:
+  headers:
+    GatewayExecutionID:
+      description: Server-generated identity of the admitted execution, including a matching idempotent resubmission.
+      schema: {type: string, format: uuid}
+    GatewayExecutionReplayed:
+      description: Present on a matching keyed Responses resubmission with its original execution ID and an empty 204 body.
+      schema: {type: string, const: 'true'}
+  schemas:
+    ExecutionIdentityNumber:
+      type: string
+      pattern: '^[1-9][0-9]*$'
+    ExecutionAuthorizedScope:
+      x-internal: true
+      type: object
+      additionalProperties: false
+      required: [workspace_id, project_id, actor_id, api_key_id, key_owner_id, funding_user_id, authorization_version]
+      properties:
+        workspace_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        project_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        actor_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        api_key_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        key_owner_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        funding_user_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        authorization_version: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+    AdmittedExecution:
+      x-internal: true
+      description: Frozen server admission metadata. Readers apply project authorization and their field-level projection before delivery.
+      type: object
+      additionalProperties: false
+      required: [request_id, scope, attempt_budget, deadline, versions, reservation_ref]
+      properties:
+        request_id: {type: string, format: uuid}
+        scope: {$ref: '#/components/schemas/ExecutionAuthorizedScope'}
+        attempt_budget: {type: integer, minimum: 1}
+        deadline: {type: string, format: date-time}
+        versions:
+          type: object
+          additionalProperties: false
+          required: [model, price, pricing_at]
+          properties:
+            model: {type: string}
+            price: {type: string}
+            pricing_at: {type: string, format: date-time}
+        reservation_ref: {type: string, minLength: 1}
+    ExecutionAttempt:
+      x-internal: true
+      type: object
+      additionalProperties: false
+      required: [id, request_id, ordinal, acceptance, outcome]
+      properties:
+        id: {type: string, format: uuid}
+        request_id: {type: string, format: uuid}
+        ordinal: {type: integer, minimum: 1}
+        account_id: {$ref: '#/components/schemas/ExecutionIdentityNumber'}
+        acceptance: {type: string, enum: [not_sent, accepted, unknown]}
+        outcome: {type: string, enum: [intent, dispatching, not_sent, rejected, transport_response, unknown]}

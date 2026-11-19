@@ -141,6 +141,9 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 		}
 	}
 	if ctx != nil {
+		if id := GatewayRequestPlanFromContext(ctx).journalIdentity(); id != "" {
+			return id
+		}
 		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
 			return "client:" + strings.TrimSpace(clientRequestID)
 		}

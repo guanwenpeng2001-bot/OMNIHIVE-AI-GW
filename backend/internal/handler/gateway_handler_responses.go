@@ -75,7 +75,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "responses", h.maxAccountSwitches)()
+	finishExecution, admitted := beginResponsesExecution(c, h.gatewayService, apiKey, reqModel, body, h.maxAccountSwitches, h.responsesErrorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
