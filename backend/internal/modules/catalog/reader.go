@@ -82,6 +82,7 @@ func Project(p Perspective, input Input, window Window, asOf time.Time) Snapshot
 	for _, m := range input.Models {
 		id := StableID(m.Provider, m.Model)
 		detail := projectModel(p, m, registry[id], window, input.Metrics[id])
+		detail.Compatibility = input.Compatibility[id]
 		canonical := canonicalModel(m.Model, registry[id])
 		key := StableID(m.Provider, canonical)
 		if visible[key] {

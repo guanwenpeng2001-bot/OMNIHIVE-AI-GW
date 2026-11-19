@@ -115,6 +115,7 @@ type Input struct {
 	Registry        []RegistryModel
 	Models          []Candidate
 	Metrics         map[string]Metrics
+	Compatibility   map[string][]Compatibility
 }
 
 type Window struct{ Start, End time.Time }
@@ -190,21 +191,22 @@ type Benchmark struct {
 }
 
 type Detail struct {
-	EligibleGroups   []int64      `json:"-"`
-	Model            Summary      `json:"model"`
-	Aliases          []string     `json:"aliases"`
-	Facts            []ModelFacts `json:"model_facts"`
-	Capabilities     []Capability `json:"capabilities"`
-	Endpoints        []Endpoint   `json:"endpoints"`
-	PriceVersion     *string      `json:"price_version"`
-	PriceSource      string       `json:"price_source"`
-	AdditionalRates  []RateBand   `json:"additional_rates"`
-	ContextBasis     string       `json:"context_basis,omitempty"`
-	TimeBands        []TimeBand   `json:"time_bands"`
-	Metrics          Metrics      `json:"metrics"`
-	Benchmarks       []Benchmark  `json:"benchmarks"`
-	DocumentationURL *string      `json:"documentation_url"`
-	Redactions       []string     `json:"redactions"`
+	EligibleGroups   []int64         `json:"-"`
+	Model            Summary         `json:"model"`
+	Aliases          []string        `json:"aliases"`
+	Facts            []ModelFacts    `json:"model_facts"`
+	Capabilities     []Capability    `json:"capabilities"`
+	Endpoints        []Endpoint      `json:"endpoints"`
+	PriceVersion     *string         `json:"price_version"`
+	PriceSource      string          `json:"price_source"`
+	AdditionalRates  []RateBand      `json:"additional_rates"`
+	ContextBasis     string          `json:"context_basis,omitempty"`
+	TimeBands        []TimeBand      `json:"time_bands"`
+	Metrics          Metrics         `json:"metrics"`
+	Benchmarks       []Benchmark     `json:"benchmarks"`
+	Compatibility    []Compatibility `json:"compatibility,omitempty"`
+	DocumentationURL *string         `json:"documentation_url"`
+	Redactions       []string        `json:"redactions"`
 }
 
 type Snapshot struct {
