@@ -11,17 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/url"
+
 	"os"
-	"strconv"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/restore/testfixture"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -42,12 +40,13 @@ func (grants) Evaluate(_ context.Context, actor, w, _ int64, _ string) (identity
 	if actor != 9 {
 		return identity.Access{}, fault.Forbidden
 	}
-	return identity.Access{ActorID: actor, WorkspaceID: w}, nil
+	return identity.Access{ActorID: actor, WorkspaceID: w, Actions: []string{PreviewAction, ExecuteAction}}, nil
 }
 
 type archives struct {
-	data      []byte
-	snapshots map[string][]byte
+	data         []byte
+	snapshots    map[string][]byte
+	failSnapshot bool
 }
 
 func (a *archives) Record(context.Context, string) (json.RawMessage, error) {
@@ -61,48 +60,13 @@ func (a *archives) Snapshot(_ context.Context, k string, raw io.ReadCloser) (Sna
 	if err = errors.Join(err, raw.Close()); err != nil {
 		return Snapshot{}, err
 	}
+	if a.failSnapshot {
+		return Snapshot{}, errors.New("fixture snapshot unavailable")
+	}
 	a.snapshots[k] = b
 	return Snapshot{Key: k, Digest: "sha256:" + strings.Repeat("1", 64)}, nil
 }
 
-func fixtureDatabase(t *testing.T, env, expected string) (*sql.DB, *config.Config) {
-	t.Helper()
-	dsn := os.Getenv(env)
-	if dsn == "" {
-		t.Skip("requires " + env)
-	}
-	u, e := url.Parse(dsn)
-	require.NoError(t, e)
-	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)
-	require.Equal(t, "/"+expected, u.Path)
-	require.Equal(t, "sslmode=disable", u.RawQuery)
-	require.Empty(t, u.Fragment)
-	require.Contains(t, []string{"localhost", "127.0.0.1"}, u.Hostname())
-	require.NotNil(t, u.User)
-	_, p, e := net.SplitHostPort(u.Host)
-	require.NoError(t, e)
-	port, e := strconv.Atoi(p)
-	require.NoError(t, e)
-	for _, k := range []string{"PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS"} {
-		require.Empty(t, os.Getenv(k))
-	}
-	maintenance, e := sql.Open("postgres", dsn)
-	require.NoError(t, e)
-	t.Cleanup(func() { maintenance.Close() })
-	var actual string
-	require.NoError(t, maintenance.QueryRow("SELECT current_database()").Scan(&actual))
-	require.Equal(t, expected, actual)
-	name := "be09_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	_, e = maintenance.Exec("CREATE DATABASE " + name + " TEMPLATE template0")
-	require.NoError(t, e)
-	t.Cleanup(func() { _, e := maintenance.Exec("DROP DATABASE " + name + " WITH (FORCE)"); require.NoError(t, e) })
-	u.Path = "/" + name
-	db, e := sql.Open("postgres", u.String())
-	require.NoError(t, e)
-	t.Cleanup(func() { db.Close() })
-	pass, _ := u.User.Password()
-	return db, &config.Config{Database: config.DatabaseConfig{Host: u.Hostname(), Port: port, DBName: name, User: u.User.Username(), Password: pass, SSLMode: "disable"}}
-}
 func compress(t *testing.T, raw io.ReadCloser) []byte {
 	t.Helper()
 	var b bytes.Buffer
@@ -126,12 +90,26 @@ func (d alterAfterRestore) Restore(ctx context.Context, r io.Reader) error {
 	_, e := d.db.ExecContext(ctx, "UPDATE users SET value='different users, same count'")
 	return e
 }
+
+type crashAfterCommit struct {
+	Database
+	stop context.CancelFunc
+}
+
+func (d crashAfterCommit) Restore(ctx context.Context, script io.Reader) error {
+	if err := d.Database.Restore(ctx, script); err != nil {
+		return err
+	}
+	d.stop()
+	return nil
+}
+
 func TestFencedRestore(t *testing.T) {
 	ctx := t.Context()
-	journal, jcfg := fixtureDatabase(t, "BE09_TEST_JOURNAL_DSN", "be09_journal_test")
-	isolated, icfg := fixtureDatabase(t, "BE09_TEST_ISOLATED_DSN", "be09_rehearsal_test")
+	journal, jcfg := testfixture.Database(t, "BE09_TEST_JOURNAL_DSN", "be09_journal_test")
+	isolated, icfg := testfixture.Database(t, "BE09_TEST_ISOLATED_DSN", "be09_rehearsal_test")
 	require.NoError(t, testresources.ValidatePostgres(os.Getenv("UPSTREAM_JOB_TEST_DSN"), "job_test"))
-	prod, pcfg := fixtureDatabase(t, "UPSTREAM_JOB_TEST_DSN", "job_test")
+	prod, pcfg := testfixture.Database(t, "UPSTREAM_JOB_TEST_DSN", "job_test")
 	for _, table := range tables {
 		_, e := prod.Exec("CREATE TABLE " + table + " (id bigint PRIMARY KEY, value text NOT NULL); INSERT INTO " + table + " VALUES(1,'original')")
 		require.NoError(t, e)
@@ -202,7 +180,7 @@ func TestFencedRestore(t *testing.T) {
 	require.Equal(t, "succeeded", current.State)
 	require.EqualValues(t, 2, current.Generation)
 	stale.Stage = "verify_counts"
-	require.ErrorIs(t, s.finish(ctx, stale, stale.Counts, ""), ErrLeaseLost)
+	require.ErrorIs(t, s.finish(ctx, stale, stale.Evidence, ""), ErrLeaseLost)
 	require.ErrorIs(t, s.renew(ctx, stale), ErrLeaseLost)
 	require.Contains(t, archive.snapshots, fmt.Sprintf("%s/2", stale.ID))
 	var value string
@@ -241,20 +219,35 @@ func TestFencedRestore(t *testing.T) {
 	_, e = s.Execute(ctx, a, "unverified", ExecuteInput{preview("refuse", Production).ID, Production, badOp.ID})
 	require.ErrorIs(t, e, prerequisite)
 	s.Targets[Isolated] = iso
-	crash := execute(preview("crash", Isolated), "crash", Isolated, "")
-	l, e := s.claim(ctx)
+	archive.failSnapshot = true
+	noSnapshot := execute(preview("no-snapshot", Isolated), "no-snapshot", Isolated, "")
+	worked, e = s.Work(ctx)
+	require.True(t, worked)
 	require.NoError(t, e)
-	require.Equal(t, crash.ID, l.ID)
-	require.NoError(t, s.stage(ctx, &l, "snapshot", nil))
-	require.NoError(t, s.stage(ctx, &l, "applying", &Snapshot{Key: "snapshot", Digest: "sha256:" + strings.Repeat("2", 64)}))
-	expire(l.ID)
+	noSnapshot, e = s.Get(ctx, a, noSnapshot.ID)
+	require.NoError(t, e)
+	require.Equal(t, "failed", noSnapshot.State)
+	require.Equal(t, "SNAPSHOT_FAILED", noSnapshot.Report.Reason)
+	archive.failSnapshot = false
+	require.NoError(t, isolated.QueryRow("SELECT value FROM users").Scan(&value))
+	require.Equal(t, "different users, same count", value)
+	crash := execute(preview("crash", Isolated), "crash", Isolated, "")
+	interrupted, stop := context.WithCancel(ctx)
+	defer stop()
+	s.Targets[Isolated] = Target{iso.DB, crashAfterCommit{iso.Database, stop}}
+	worked, e = s.Work(interrupted)
+	require.True(t, worked)
+	require.ErrorIs(t, e, context.Canceled)
+	require.NoError(t, isolated.QueryRow("SELECT value FROM users").Scan(&value))
+	require.Equal(t, "original", value)
+	expire(crash.ID)
 	_, e = peer.claim(ctx)
 	require.ErrorIs(t, e, sql.ErrNoRows)
 	uncertain, e := peer.Get(ctx, a, crash.ID)
 	require.NoError(t, e)
 	require.Equal(t, "unknown", uncertain.State)
 	require.Equal(t, "applying", uncertain.Stage)
-	require.ErrorIs(t, s.stage(ctx, &l, "verify_counts", nil), ErrLeaseLost)
+
 	_, e = s.Execute(ctx, a, "blocked", ExecuteInput{preview("blocked", Isolated).ID, Isolated, ""})
 	require.ErrorIs(t, e, busy)
 	require.NoError(t, journal.QueryRow("SELECT count(*) FROM restore_journal.events WHERE operation_id=$1 AND state='succeeded'", crash.ID).Scan(&n))
@@ -262,6 +255,10 @@ func TestFencedRestore(t *testing.T) {
 	op, e := peer.ReadOperation(ctx, 1, 9, current.ID)
 	require.NoError(t, e)
 	require.EqualValues(t, 9, op.OwnerID)
+	require.NotNil(t, op.Result)
+	require.NoError(t, s.Import(ctx, "legacy-interrupted", json.RawMessage(`{"id":"legacy-interrupted","status":"completed","restore_status":"review_required"}`), true))
+	_, e = s.Execute(ctx, a, "legacy-review", ExecuteInput{preview("legacy-review", Production).ID, Production, current.ID})
+	require.ErrorIs(t, e, busy)
 	expired := preview("expired", Production)
 	_, e = journal.Exec("UPDATE restore_journal.previews SET expires_at=$2 WHERE id=$1", expired.ID, time.Now().Add(-time.Hour))
 	require.NoError(t, e)

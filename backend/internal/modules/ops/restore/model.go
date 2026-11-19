@@ -52,7 +52,7 @@ type Preview struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 type Report struct {
-	Digest string            `json:"source_digest"`
+	Digest string            `json:"source_digest,omitempty"`
 	Counts map[string]string `json:"counts,omitempty"`
 	Reason string            `json:"reason,omitempty"`
 }
@@ -96,5 +96,5 @@ type lease struct {
 	Actor         Actor
 	Owner, Digest string
 	Record        json.RawMessage
-	Counts        map[string]string
+	Evidence      map[string]string
 }

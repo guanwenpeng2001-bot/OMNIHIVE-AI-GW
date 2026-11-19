@@ -34,7 +34,7 @@ func (s *Service) claim(ctx context.Context) (lease, error) {
  UPDATE restore_journal.operations o SET state='running',stage='check_source',owner=$1,lease_until=clock_timestamp()+$2*interval '1 second',
  generation=CASE WHEN o.state='queued' THEN generation ELSE generation+1 END,updated_at=clock_timestamp()
  FROM candidate c WHERE o.id=c.id RETURNING o.*
- ) SELECT c.id,c.workspace_id,c.actor_id,c.session_key,c.generation,c.target,p.digest,p.record,p.counts FROM claimed c
+ ) SELECT c.id,c.workspace_id,c.actor_id,c.session_key,c.generation,c.target,p.digest,p.record,p.evidence FROM claimed c
  JOIN restore_journal.previews p ON p.id=c.preview_id`, l.Owner, ttl.Seconds()).Scan(
 		&l.ID, &l.Actor.Workspace, &l.Actor.ID, &l.Actor.Session, &l.Generation, &l.Target, &l.Digest, &rec, &counts)
 	if err != nil {
@@ -42,7 +42,7 @@ func (s *Service) claim(ctx context.Context) (lease, error) {
 	}
 	l.Record = rec
 	l.Stage = "check_source"
-	return l, json.Unmarshal(counts, &l.Counts)
+	return l, json.Unmarshal(counts, &l.Evidence)
 }
 
 const fence = ` WHERE id=$1 AND generation=$2 AND owner=$3 AND state='running' AND lease_until>clock_timestamp()`
@@ -78,7 +78,7 @@ func (s *Service) stage(ctx context.Context, l *lease, to string, snapshot *Snap
 func (s *Service) finish(ctx context.Context, l lease, counts map[string]string, reason string) error {
 	state, stage := "failed", l.Stage
 	if reason == "" {
-		if l.Stage != "verify_counts" || len(counts) == 0 || !maps.Equal(counts, l.Counts) {
+		if l.Stage != "verify_counts" || len(counts) == 0 || !maps.Equal(counts, l.Evidence) {
 			return errors.New("restore verification evidence missing")
 		}
 		state, stage = "succeeded", "verified"
@@ -145,7 +145,7 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	}
 	digest, expected, err := inspectArchive(ctx, raw, script)
 	err = errors.Join(err, raw.Close())
-	if err != nil || digest != l.Digest || !maps.Equal(expected, l.Counts) {
+	if err != nil || digest != l.Digest || !maps.Equal(expected, l.Evidence) {
 		return nil, "RESTORE_SOURCE_CHANGED"
 	}
 	if _, err = script.Seek(0, io.SeekStart); err != nil {
@@ -185,7 +185,7 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 	}
 	counts, err := inspectSQL(ctx, restored)
 	err = errors.Join(err, restored.Close())
-	if err != nil || !maps.Equal(counts, l.Counts) {
+	if err != nil || !maps.Equal(counts, l.Evidence) {
 		return counts, "VERIFICATION_FAILED"
 	}
 	return counts, ""

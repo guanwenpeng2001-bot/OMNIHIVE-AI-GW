@@ -258,6 +258,4 @@ components:
           additionalProperties: false
         reason:
           type: string
-      required:
-      - source_digest
       additionalProperties: false

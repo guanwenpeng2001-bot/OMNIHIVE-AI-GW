@@ -14,7 +14,8 @@ BEGIN
  CREATE TABLE IF NOT EXISTS restore_journal.previews (
    id text PRIMARY KEY, workspace_id bigint NOT NULL, actor_id bigint NOT NULL, request_key text NOT NULL,
    fingerprint text NOT NULL, backup_id text NOT NULL REFERENCES restore_journal.backups(id),
-   record jsonb NOT NULL, target text NOT NULL REFERENCES restore_journal.targets(name), digest text NOT NULL, counts jsonb NOT NULL,
+   record jsonb NOT NULL, target text NOT NULL REFERENCES restore_journal.targets(name), digest text NOT NULL, evidence jsonb NOT NULL,
+   created_at timestamptz NOT NULL DEFAULT now(),
    expires_at timestamptz NOT NULL DEFAULT now()+interval '30 minutes',
    UNIQUE(workspace_id,actor_id,request_key)
  );

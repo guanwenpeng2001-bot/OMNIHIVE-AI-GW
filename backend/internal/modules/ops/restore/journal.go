@@ -69,8 +69,10 @@ func (s *Service) Initialize(ctx context.Context) error {
 }
 func (s *Service) Import(ctx context.Context, id string, record json.RawMessage, review bool) error {
 	_, err := s.Journal.ExecContext(ctx, `INSERT INTO restore_journal.backups(id,record,review_required) VALUES($1,$2,$3)
- ON CONFLICT(id) DO UPDATE SET review_required=true,record=excluded.record
- WHERE excluded.review_required AND coalesce(restore_journal.backups.record->>'restore_status','') NOT IN ('running','review_required')`, id, string(record), review)
+ ON CONFLICT(id) DO UPDATE SET
+ record=excluded.record, review_required=restore_journal.backups.review_required OR excluded.review_required
+ WHERE (excluded.review_required AND coalesce(restore_journal.backups.record->>'restore_status','') NOT IN ('running','review_required'))
+ OR (restore_journal.backups.record->>'status'<>'completed' AND excluded.record->>'status'='completed')`, id, string(record), review)
 	return err
 }
 func (s *Service) authorize(ctx context.Context, a Actor, action string) error {
@@ -112,7 +114,7 @@ func (s *Service) Preview(ctx context.Context, a Actor, key string, cmd PreviewI
 		var p Preview
 		var existing, digest string
 		var counts []byte
-		err := s.Journal.QueryRowContext(ctx, `SELECT id,fingerprint,digest,counts,expires_at FROM restore_journal.previews WHERE workspace_id=$1 AND actor_id=$2 AND request_key=$3`, a.Workspace, a.ID, key).Scan(&p.ID, &existing, &digest, &counts, &p.ExpiresAt)
+		err := s.Journal.QueryRowContext(ctx, `SELECT id,fingerprint,digest,evidence,expires_at FROM restore_journal.previews WHERE workspace_id=$1 AND actor_id=$2 AND request_key=$3`, a.Workspace, a.ID, key).Scan(&p.ID, &existing, &digest, &counts, &p.ExpiresAt)
 		if err != nil {
 			return p, err
 		}
@@ -152,7 +154,7 @@ func (s *Service) Preview(ctx context.Context, a Actor, key string, cmd PreviewI
 		return Preview{}, err
 	}
 	data, _ := json.Marshal(counts)
-	_, err = s.Journal.ExecContext(ctx, `INSERT INTO restore_journal.previews(id,workspace_id,actor_id,request_key,fingerprint,backup_id,target,digest,counts,record)
+	_, err = s.Journal.ExecContext(ctx, `INSERT INTO restore_journal.previews(id,workspace_id,actor_id,request_key,fingerprint,backup_id,target,digest,evidence,record)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(workspace_id,actor_id,request_key) DO NOTHING`, "rp_"+uuid.NewString(), a.Workspace, a.ID, key, string(fp), cmd.BackupID, cmd.Target, digest, string(data), string(record))
 	if err != nil {
 		return Preview{}, err
@@ -164,10 +166,11 @@ const columns = "id,generation,state,stage,target,report"
 
 type scanner interface{ Scan(...any) error }
 
-func scanOperation(row scanner) (Operation, error) {
+func scanOperation(row scanner, extra ...any) (Operation, error) {
 	var op Operation
 	var report []byte
-	err := row.Scan(&op.ID, &op.Generation, &op.State, &op.Stage, &op.Target, &report)
+	dest := []any{&op.ID, &op.Generation, &op.State, &op.Stage, &op.Target, &report}
+	err := row.Scan(append(dest, extra...)...)
 	if len(report) > 0 && err == nil {
 		err = json.Unmarshal(report, &op.Report)
 	}
@@ -220,7 +223,7 @@ func (s *Service) Execute(ctx context.Context, a Actor, key string, cmd ExecuteI
  AND NOT EXISTS(SELECT FROM restore_journal.operations o WHERE o.preview_id=p.id)
  AND (p.target='isolated' OR EXISTS(SELECT FROM restore_journal.operations r JOIN restore_journal.previews rp ON rp.id=r.preview_id
  WHERE r.id=$5 AND r.workspace_id=p.workspace_id AND r.state='succeeded' AND r.target='isolated'
- AND rp.backup_id=p.backup_id AND rp.digest=p.digest AND r.updated_at < p.expires_at - interval '30 minutes'))
+ AND rp.backup_id=p.backup_id AND rp.digest=p.digest AND r.updated_at <= p.created_at))
  FROM restore_journal.previews p WHERE p.id=$1 AND p.workspace_id=$2 AND p.actor_id=$3`, cmd.PreviewID, a.Workspace, a.ID, cmd.Target, cmd.RehearsalID).Scan(&valid)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Operation{}, fault.NotFound
@@ -251,24 +254,46 @@ func (s *Service) Get(ctx context.Context, a Actor, id string) (Operation, error
 	if err := s.authorize(ctx, a, ExecuteAction); err != nil {
 		return Operation{}, err
 	}
-	return scanOperation(s.Journal.QueryRowContext(ctx, "SELECT "+columns+" FROM restore_journal.operations WHERE workspace_id=$1 AND id=$2", a.Workspace, id))
+	op, _, err := s.lookup(ctx, a.Workspace, id)
+	return op, err
 }
+
+func (s *Service) lookup(ctx context.Context, w int64, id string) (Operation, int64, error) {
+	query := "SELECT " + columns + ",actor_id FROM restore_journal.operations WHERE workspace_id=$1 AND id=$2"
+	if strings.HasPrefix(id, "ri_") {
+		query = `SELECT r.id,coalesce(o.generation,1),coalesce(o.state, CASE r.state WHEN 'pending' THEN 'queued' ELSE 'failed' END),
+  coalesce(o.stage,'queued'),'production',coalesce(o.report,CASE WHEN r.reason IS NOT NULL THEN jsonb_build_object('reason',r.reason) END),r.actor_id
+  FROM restore_journal.legacy_requests r LEFT JOIN restore_journal.operations o ON o.id=r.production_id WHERE r.workspace_id=$1 AND r.id=$2`
+	}
+	var owner int64
+	op, err := scanOperation(s.Journal.QueryRowContext(ctx, query, w, id), &owner)
+	return op, owner, err
+}
+
 func (s *Service) ReadOperation(ctx context.Context, w, actor int64, id string) (identity.Operation, error) {
-	if !strings.HasPrefix(id, "rs_") {
+	if !strings.HasPrefix(id, "rs_") && !strings.HasPrefix(id, "ri_") {
 		return identity.Operation{}, fault.NotFound
 	}
-	op, err := s.Get(ctx, Actor{Workspace: w, ID: actor}, id)
-	if errors.Is(err, fault.Forbidden) {
-		return identity.Operation{}, fault.NotFound
+	if s.Journal == nil {
+		return identity.Operation{}, Unavailable
 	}
+	access, err := s.Access.Evaluate(ctx, actor, w, 0, "")
 	if err != nil {
 		return identity.Operation{}, err
 	}
-	var owner int64
-	if err = s.Journal.QueryRowContext(ctx, "SELECT actor_id FROM restore_journal.operations WHERE workspace_id=$1 AND id=$2", w, id).Scan(&owner); err != nil {
+	result, owner, err := s.lookup(ctx, w, id)
+	if err != nil {
 		return identity.Operation{}, err
 	}
-	return identity.Operation{ID: id, OwnerID: owner, State: op.State, DelegatedAction: ExecuteAction, StatusURL: fmt.Sprintf("/api/v2/workspaces/%d/operations/%s", w, id), Result: op}, nil
+	op := identity.Operation{ID: id, OwnerID: owner, State: result.State, DelegatedAction: ExecuteAction, StatusURL: fmt.Sprintf("/api/v2/workspaces/%d/operations/%s", w, id)}
+	if access.Require(ExecuteAction) != nil {
+		if owner != actor {
+			return identity.Operation{}, fault.NotFound
+		}
+		return op, nil
+	}
+	op.Result = result
+	return op, nil
 }
 
 func (s *Service) RequireStepUp(ctx context.Context, a Actor) error {

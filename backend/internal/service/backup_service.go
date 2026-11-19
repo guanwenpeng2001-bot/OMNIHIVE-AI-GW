@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -870,7 +871,7 @@ func (s *BackupService) buildBackupPartKey(root string, index int) string {
 
 // RestoreBackup 从 S3 下载备份并流式恢复到数据库
 func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) error {
-	if s.boundRestoreControl() != nil {
+	if s.db != nil || s.boundRestoreControl() != nil {
 		return infraerrors.Forbidden("RESTORE_AUTHORIZATION_REQUIRED", "Use the authorized restore operation.")
 	}
 	s.opMu.Lock()
@@ -936,7 +937,7 @@ func (s *BackupService) RestoreBackup(ctx context.Context, backupID string) erro
 
 // StartRestore 异步恢复备份，立即返回
 func (s *BackupService) StartRestore(ctx context.Context, backupID string) (*BackupRecord, error) {
-	if s.boundRestoreControl() != nil {
+	if s.db != nil || s.boundRestoreControl() != nil {
 		return nil, infraerrors.Forbidden("RESTORE_AUTHORIZATION_REQUIRED", "Use the authorized restore operation.")
 	}
 	if s.shuttingDown.Load() {
@@ -1543,19 +1544,16 @@ func (s *BackupService) StartAuthorizedRestore(ctx context.Context, actor int64,
 	return control.StartAuthorized(ctx, actor, backupID, key, session)
 }
 
-func (s *BackupService) restoreArchiveStore(ctx context.Context) (BackupObjectStore, string, error) {
+func (s *BackupService) restoreArchiveStore(ctx context.Context) (BackupObjectStore, *BackupS3Config, error) {
 	cfg, err := s.loadS3Config(ctx)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
-	store, err := s.getOrCreateStore(ctx, cfg)
-	if err != nil {
-		return nil, "", err
+	if cfg == nil || !cfg.IsConfigured() {
+		return nil, nil, ErrBackupS3NotConfigured
 	}
-	if cfg == nil {
-		return nil, "", ErrBackupS3NotConfigured
-	}
-	return store, cfg.Prefix, nil
+	store, err := s.storeFactory(ctx, cfg)
+	return store, cfg, err
 }
 
 func (s *BackupService) OpenRestoreArchive(ctx context.Context, record *BackupRecord) (io.ReadCloser, error) {
@@ -1578,7 +1576,7 @@ func (s *BackupService) OpenRestoreArchive(ctx context.Context, record *BackupRe
 }
 
 func (s *BackupService) SnapshotArchive(ctx context.Context, key string, dump io.ReadCloser) (string, string, error) {
-	store, prefix, err := s.restoreArchiveStore(ctx)
+	store, cfg, err := s.restoreArchiveStore(ctx)
 	if err != nil {
 		return "", "", errors.Join(err, dump.Close())
 	}
@@ -1600,7 +1598,7 @@ func (s *BackupService) SnapshotArchive(ctx context.Context, key string, dump io
 	for _, part := range parts {
 		defer os.Remove(part.Path)
 	}
-	root := strings.Trim(strings.TrimRight(prefix, "/")+"/pre-restore/"+key, "/")
+	root := strings.Trim(strings.TrimRight(cfg.Prefix, "/")+"/pre-restore/"+key, "/")
 	manifest := make([]BackupPart, 0, len(parts))
 	for _, part := range parts {
 		k := s.buildBackupPartKey(root, part.Index)
@@ -1625,5 +1623,6 @@ func (s *BackupService) SnapshotArchive(ctx context.Context, key string, dump io
 	if size != int64(len(data)) {
 		return "", "", errors.New("incomplete snapshot manifest")
 	}
-	return manifestKey, "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
+	locator := url.URL{Scheme: "s3", Host: cfg.Bucket, Path: "/" + manifestKey}
+	return locator.String(), "sha256:" + hex.EncodeToString(hash.Sum(nil)), nil
 }

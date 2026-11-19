@@ -36,6 +36,11 @@ func New(db *sql.DB, cfg *config.Config, backup *service.BackupService, access i
 		backup.SetRestoreControl(r)
 		return r, nil
 	}
+	for _, key := range []string{"PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS"} {
+		if os.Getenv(key) != "" {
+			return nil, errors.New("restore cannot verify PostgreSQL targets with connection overrides")
+		}
+	}
 	isoCfg, err := isolatedConfig(isolated)
 	if err != nil {
 		return nil, err
@@ -91,7 +96,7 @@ func isolatedConfig(dsn string) (config.DatabaseConfig, error) {
 	var cfg config.DatabaseConfig
 	u, err := url.Parse(dsn)
 	invalid := errors.New("isolated restore requires an explicit PostgreSQL URL with host, port, database, user and sslmode")
-	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() == "" || u.Hostname() == "" || len(u.Path) < 2 || strings.Contains(u.Path[1:], "/") || u.Fragment != "" {
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || u.User == nil || u.User.Username() == "" || u.Hostname() == "" || len(u.Path) < 2 || strings.ContainsAny(u.Path[1:], "/=") || u.Fragment != "" {
 		return cfg, invalid
 	}
 	q, err := url.ParseQuery(u.RawQuery)
@@ -170,8 +175,9 @@ func (r *Runtime) Project(ctx context.Context, records []service.BackupRecord, f
 		return records, nil
 	}
 	rows, err := r.Journal.QueryContext(ctx, `SELECT DISTINCT ON(id) id,record,operation,state,stamp,reason FROM (
- SELECT b.id,p.record,o.id AS operation,o.state,o.updated_at AS stamp,o.report->>'reason' AS reason,o.created_at
+ SELECT b.id,p.record,coalesce(l.id,o.id) AS operation,o.state,o.updated_at AS stamp,o.report->>'reason' AS reason,o.created_at
  FROM restore_journal.operations o JOIN restore_journal.previews p ON p.id=o.preview_id JOIN restore_journal.backups b ON b.id=p.backup_id
+ LEFT JOIN restore_journal.legacy_requests l ON l.production_id=o.id
  WHERE o.target='production' AND b.removed_at IS NULL AND ($1='' OR b.id=$1) UNION ALL SELECT b.id,b.record,r.id,CASE WHEN r.state='pending' THEN 'queued' ELSE 'failed' END,r.created_at,r.reason,r.created_at
  FROM restore_journal.legacy_requests r JOIN restore_journal.backups b ON b.id=r.backup_id
  WHERE r.state<>'submitted' AND b.removed_at IS NULL AND ($1='' OR b.id=$1)) history ORDER BY id,created_at DESC`, filter)
