@@ -99,10 +99,23 @@ jobs:
           PROMPT_AUDIT_TEST_REDIS_ADDR: localhost:6379
           SCHEDULER_RESOURCES_REDIS_ADDR: localhost:6379
           TEST_REDIS_URL: redis://localhost:6379/0
-        # Integration packages share the disposable job_test database. Running
-        # packages in parallel makes count-based assertions race across suites;
-        # the quality gate serializes them for the same reason.
-        run: go test -p 1 -mod=readonly -tags=integration -count=1 ./...
+        # Integration packages share the disposable job_test database. Serialize
+        # packages, then reset the two state-sensitive suites exactly as the
+        # local quality gate does before running them.
+        run: |
+          set -e
+          reset_db() {
+            docker exec "${{ job.services.postgres.id }}" dropdb -U postgres --if-exists job_test
+            docker exec "${{ job.services.postgres.id }}" createdb -U postgres job_test
+            docker exec "${{ job.services.postgres.id }}" dropdb -U postgres --if-exists stats_test
+            docker exec "${{ job.services.postgres.id }}" createdb -U postgres stats_test
+          }
+          packages=$(go list -tags=integration ./... | grep -vE '/(internal/control/status|internal/repository)$')
+          go test -p 1 -mod=readonly -tags=integration -count=1 $packages
+          reset_db
+          go test -p 1 -mod=readonly -tags=integration -count=1 ./internal/control/status
+          reset_db
+          go test -p 1 -mod=readonly -tags=integration -count=1 ./internal/repository
 
   postgres:
     name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.test-case.test }}
