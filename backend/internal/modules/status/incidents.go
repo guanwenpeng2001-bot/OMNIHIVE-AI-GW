@@ -175,8 +175,8 @@ func (s *Store) PostUpdate(ctx context.Context, actor int64, id string, expected
 			return "", 0, badTransition
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE public_status_incidents SET
-		    state = $2, updated_at = $3, version = version + 1,
-		    resolved_at = CASE WHEN $2 = 'resolved' THEN $3 ELSE NULL END
+		    state = $2, updated_at = $3::timestamptz, version = version + 1,
+		    resolved_at = CASE WHEN $2 = 'resolved' THEN $3::timestamptz ELSE NULL END
 		    WHERE id = $1`, id, in.State, at)
 		if err != nil {
 			return "", 0, err

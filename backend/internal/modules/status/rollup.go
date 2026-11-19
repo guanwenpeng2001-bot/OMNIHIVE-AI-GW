@@ -127,10 +127,11 @@ func (s *Store) Run(ctx context.Context, enabled func(context.Context) bool) {
 			return
 		case <-timer.C:
 		}
-		delay := time.Until(ViewTime(time.Now()).Add(time.Minute))
+		catchingUp := false
 		if enabled == nil || enabled(ctx) {
 			work, cancel := context.WithTimeout(ctx, 20*time.Second)
-			catchingUp, err := s.Refresh(work, time.Now())
+			var err error
+			catchingUp, err = s.Refresh(work, time.Now())
 			cancel()
 			if err == nil && !catchingUp {
 				work, cancel = context.WithTimeout(ctx, 20*time.Second)
@@ -140,9 +141,10 @@ func (s *Store) Run(ctx context.Context, enabled func(context.Context) bool) {
 			if err != nil && ctx.Err() == nil {
 				slog.WarnContext(ctx, "public status aggregation failed", "error", err)
 			}
-			if catchingUp {
-				delay = time.Second
-			}
+		}
+		delay := time.Until(ViewTime(time.Now()).Add(time.Minute))
+		if catchingUp {
+			delay = time.Second
 		}
 		timer.Reset(max(time.Millisecond, delay))
 	}

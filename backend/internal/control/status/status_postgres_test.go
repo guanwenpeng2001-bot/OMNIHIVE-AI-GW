@@ -315,7 +315,7 @@ func (f *fixture) execution(at time.Time, correlation string, canceled bool, sta
 	id := uuid.NewString()
 	f.exec(`INSERT INTO gateway_executions (request_id,workspace_id,project_id,actor_id,api_key_id,owner_id,funding_user_id,authorization_version,
 	  kind,route,model,legacy_id,reservation_ref,attempt_budget,deadline,model_version,price_version,pricing_at,admitted_at,finished_at,response_state,canceled)
-	  VALUES ($1,1,$2,$3,$4,$3,$3,1,'request','/v1/responses','pvt-model-m78',$5,$1,3,$6,$7,$7,$8,$8,$9,$10)`,
+	  VALUES ($1::uuid,1,$2,$3,$4,$3,$3,1,'request','/v1/responses','pvt-model-m78',$5,($1::uuid)::text,3,$6,$7,$7,$8,$8,$8,$9,$10)`,
 		id, f.project, f.member, f.key, "client:"+correlation, at.Add(time.Minute), "pvt-version-v78", at, state, canceled)
 	return id
 }
