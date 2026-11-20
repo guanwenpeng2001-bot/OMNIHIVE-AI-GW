@@ -167,7 +167,72 @@ import Icon from '@/components/icons/Icon.vue'
 import type { Account } from '@/types'
 import { formatCountdown, formatDateTime, formatDateTimeToMinute, formatCountdownWithSuffix, formatTime } from '@/utils/format'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+
+const ACCOUNT_STATUS_FALLBACKS: Record<string, { zh: string; en: string }> = {
+  disabled: { zh: '已停用', en: 'Disabled' },
+  draft: { zh: '草稿', en: 'Draft' },
+  unverified: { zh: '待验证', en: 'Unverified' },
+  pending: { zh: '待处理', en: 'Pending' },
+  suspended: { zh: '已暂停', en: 'Suspended' },
+  archived: { zh: '已归档', en: 'Archived' },
+  active: { zh: '正常', en: 'Active' },
+  inactive: { zh: '停用', en: 'Inactive' },
+  expired: { zh: '已过期', en: 'Expired' },
+  error: { zh: '错误', en: 'Error' },
+  cooldown: { zh: '冷却中', en: 'Cooldown' },
+  paused: { zh: '暂停', en: 'Paused' },
+  limited: { zh: '限流', en: 'Limited' }
+}
+
+const LEGACY_MOCK_STATUS_KEYS = new Set([
+  'active',
+  'inactive',
+  'expired',
+  'error',
+  'cooldown',
+  'paused',
+  'limited'
+])
+
+const isZhLocale = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) {
+    return String(rawLocale).toLowerCase().startsWith('zh')
+  }
+  const activeText = t('admin.accounts.status.active')
+  if (activeText && activeText !== 'admin.accounts.status.active') {
+    return /[\u4e00-\u9fa5]/.test(activeText)
+  }
+  if (typeof document !== 'undefined' && document.documentElement?.lang) {
+    return document.documentElement.lang.toLowerCase().startsWith('zh')
+  }
+  return true
+})
+
+const resolveAccountStatusText = (status: string): string => {
+  const normalized = String(status || '').trim()
+  if (!normalized) {
+    return isZhLocale.value ? '未知' : 'Unknown'
+  }
+  const key = `admin.accounts.status.${normalized}`
+  const translated = t(key)
+  if (translated && translated !== key && !translated.startsWith('admin.accounts.status.')) {
+    return translated
+  }
+  const hasLocaleRef = Boolean(typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value)
+  if (!hasLocaleRef && LEGACY_MOCK_STATUS_KEYS.has(normalized)) {
+    return translated
+  }
+  const fallback = ACCOUNT_STATUS_FALLBACKS[normalized]
+  if (fallback) {
+    return isZhLocale.value ? fallback.zh : fallback.en
+  }
+  return normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
 
 const props = defineProps<{
   account: Account
@@ -373,7 +438,7 @@ const statusText = computed(() => {
     return t('admin.accounts.status.tempUnschedulable')
   }
   if (props.account.status !== 'active') {
-    return t(`admin.accounts.status.${props.account.status}`)
+    return resolveAccountStatusText(props.account.status)
   }
   if (isQuotaExceeded.value) {
     return t('admin.accounts.status.quotaExceeded')
@@ -381,7 +446,7 @@ const statusText = computed(() => {
   if (!props.account.schedulable) {
     return t('admin.accounts.status.paused')
   }
-  return t(`admin.accounts.status.${props.account.status}`)
+  return resolveAccountStatusText(props.account.status)
 })
 
 const handleTempUnschedClick = () => {

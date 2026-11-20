@@ -76,19 +76,19 @@
       <div class="h-48 w-48 shrink-0">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
+      <div class="w-full min-w-0 flex-1 overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('usage.endpoint') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
+              <th class="pb-2 text-right">{{ tokensHeaderLabel }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="(item, index) in displayEndpointStats" :key="item.endpoint">
+            <template v-for="(item, index) in visibleEndpointStats" :key="item.endpoint">
               <tr
                 class="border-t border-[var(--border)] transition-colors"
                 :class="enableBreakdown ? 'cursor-pointer hover:bg-[var(--surface-2)] ' : ''"
@@ -126,6 +126,15 @@
             </template>
           </tbody>
         </table>
+        <div v-if="displayEndpointStats.length > 10" class="mt-2 flex justify-end">
+          <button
+            type="button"
+            class="text-xs font-medium text-[var(--brand-text,#d97706)] hover:underline"
+            @click="showAllEndpoints = !showAllEndpoints"
+          >
+            {{ showAllEndpoints ? (isZh ? '收起' : 'Show less') : (isZh ? `展开更多 (${displayEndpointStats.length - 10})` : `Show more (${displayEndpointStats.length - 10})`) }}
+          </button>
+        </div>
       </div>
     </div>
     <div v-else class="flex h-48 flex-col justify-center gap-4 text-sm text-[var(--muted-foreground)]" role="status">
@@ -149,7 +158,16 @@ import { getUserBreakdown } from '@/api/admin/dashboard'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  const probe = t('admin.dashboard.requests')
+  return Boolean(probe && probe !== 'admin.dashboard.requests' && /[\u4e00-\u9fa5]/.test(probe))
+})
+const tokensHeaderLabel = computed(() => (isZh.value ? '总 Token' : t('admin.dashboard.tokens')))
+const showAllEndpoints = ref(false)
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -229,6 +247,9 @@ const displayEndpointStats = computed(() => {
   const metricKey = props.metric === 'actual_cost' ? 'actual_cost' : 'total_tokens'
   return [...sourceStats].sort((a, b) => b[metricKey] - a[metricKey])
 })
+const visibleEndpointStats = computed(() =>
+  showAllEndpoints.value ? displayEndpointStats.value : displayEndpointStats.value.slice(0, 10)
+)
 
 const chartData = computed(() => {
   if (!displayEndpointStats.value?.length) return null

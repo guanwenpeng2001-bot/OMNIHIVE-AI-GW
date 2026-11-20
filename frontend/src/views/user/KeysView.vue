@@ -937,6 +937,32 @@
               />
             </template>
           </Select>
+          <div
+            v-if="!showEditModal && !groupsLoading && !groupsLoadFailed && recommendedDefaultGroup"
+            data-testid="key-group-binding-guide"
+            class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] px-3 py-2 text-xs"
+          >
+            <span class="text-[var(--foreground)]">
+              {{
+                formData.group_id
+                  ? isZh
+                    ? `已绑定至可用路由分组：${selectedFormGroupLabel}`
+                    : `Bound to routing group: ${selectedFormGroupLabel}`
+                  : isZh
+                    ? `默认绑定至可用路由分组：推荐绑定「${recommendedDefaultGroup.label}」以防止无分组密钥触发 403`
+                    : `Default routing group binding: bind "${recommendedDefaultGroup.label}" to prevent ungrouped 403 errors`
+              }}
+            </span>
+            <button
+              v-if="!formData.group_id"
+              type="button"
+              data-testid="key-apply-recommended-group"
+              class="font-semibold text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline underline-offset-2"
+              @click="applyRecommendedGroup"
+            >
+              {{ isZh ? `一键绑定「${recommendedDefaultGroup.label}」` : `Bind "${recommendedDefaultGroup.label}"` }}
+            </button>
+          </div>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1460,7 +1486,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || !formData.group_id || !groups.some(group => group.id === formData.group_id)))"
+            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (!issueProjectPolicyCredential && (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1675,6 +1701,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import {
   identityApi,
   readPersistedConsoleScope,
+  resolveDefaultRoutingGroupId,
   SCOPE_CHANGED_EVENT as CONSOLE_SCOPE_CHANGED_EVENT,
   type ConsoleScopeSelection,
   type IdentityKey
@@ -2194,6 +2221,33 @@ const formGroupOptions = computed(() => showEditModal.value
   : groupOptions.value.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value)
 )
 
+const recommendedDefaultGroup = computed<GroupOption | null>(() => {
+  const candidates = formGroupOptions.value.length > 0 ? formGroupOptions.value : groupOptions.value
+  if (candidates.length === 0) return null
+  const defaultId = resolveDefaultRoutingGroupId(
+    candidates.map((item) => ({ id: item.value, subscription_type: item.subscriptionType }))
+  )
+  return candidates.find((item) => item.value === defaultId) ?? candidates[0] ?? null
+})
+
+const selectedFormGroupLabel = computed(() => {
+  if (!formData.value.group_id) return ''
+  return (
+    groupOptions.value.find((item) => item.value === formData.value.group_id)?.label ??
+    `#${formData.value.group_id}`
+  )
+})
+
+const applyRecommendedGroup = () => {
+  const target = recommendedDefaultGroup.value
+  if (!target) return
+  const targetProvider = getKeyGroupProvider(target.platform)
+  if (createProvider.value !== targetProvider) {
+    createProvider.value = targetProvider
+  }
+  formData.value.group_id = target.value
+}
+
 const selectCreateProvider = (provider: KeyGroupProvider) => {
   if (createProvider.value === provider) return
   createProvider.value = provider
@@ -2208,6 +2262,9 @@ watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen])
   }
   if (!formGroupOptions.value.some((group) => group.value === formData.value.group_id)) {
     formData.value.group_id = null
+  }
+  if (groups.value.length === 1 && formData.value.group_id === null) {
+    formData.value.group_id = groups.value[0]!.id
   }
 })
 
@@ -2589,12 +2646,15 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
-  if (!showEditModal.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
+  if (!showEditModal.value && issueProjectPolicyCredential.value && formData.value.group_id === null && recommendedDefaultGroup.value) {
+    formData.value.group_id = recommendedDefaultGroup.value.value
+  }
+  if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
     return
   }
   // Validate group_id is required
-  if (formData.value.group_id === null) {
+  if (formData.value.group_id === null && !issueProjectPolicyCredential.value) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -2674,10 +2734,15 @@ const handleSubmit = async () => {
       activeConsoleScope.value.workspaceId &&
       activeConsoleScope.value.projectId
     ) {
+      const projectGroupId =
+        formData.value.group_id ??
+        recommendedDefaultGroup.value?.value ??
+        resolveDefaultRoutingGroupId(groups.value)
       const created = await identityApi.createProjectKey(
         activeConsoleScope.value.workspaceId,
         activeConsoleScope.value.projectId,
         {
+          ...(projectGroupId ? { group_id: String(projectGroupId) } : {}),
           name: formData.value.name.trim(),
           model_access: { mode: 'inherit', ids: [] },
           actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],

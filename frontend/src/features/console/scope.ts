@@ -65,6 +65,18 @@ export function generateIdempotencyKey(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
 }
 
+export function resolveDefaultRoutingGroupId(
+  groups: ReadonlyArray<{ id: number | string; subscription_type?: string | null }> | null | undefined
+): number | null {
+  if (!Array.isArray(groups) || groups.length === 0) return null
+  const standardGroup = groups.find(
+    (g) => !g.subscription_type || g.subscription_type === 'standard'
+  )
+  const target = standardGroup ?? groups[0]
+  const parsed = Number(target?.id)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
 export function readPersistedConsoleScope(): ConsoleScopeSelection {
   if (typeof window === 'undefined') {
     return { mode: 'personal', workspaceId: null, projectId: null }
@@ -276,9 +288,25 @@ export const identityApi = {
     idempotencyKey = generateIdempotencyKey()
   ): Promise<IdentityKey> {
     const apiClient = await getApiClient()
+    let resolvedGroupId = input.group_id
+    if (!resolvedGroupId) {
+      try {
+        const { userGroupsAPI } = await import('@/api')
+        const available = await userGroupsAPI.getAvailable()
+        const fallbackId = resolveDefaultRoutingGroupId(available)
+        if (fallbackId) {
+          resolvedGroupId = String(fallbackId)
+        }
+      } catch {
+        // Ignore fallback lookup errors and submit provided input
+      }
+    }
+    const payload: IdentityKeyInput = resolvedGroupId
+      ? { ...input, group_id: resolvedGroupId }
+      : input
     const { data } = await apiClient.post<IdentityKey>(
       v2Url(`/workspaces/${workspaceId}/projects/${projectId}/keys`),
-      input,
+      payload,
       { baseURL: '', headers: { 'Idempotency-Key': idempotencyKey } }
     )
     return data

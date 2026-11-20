@@ -425,8 +425,8 @@ function cancelDelete() {
       {{ t('admin.ops.alertRules.empty') }}
     </div>
 
-    <div v-else class="max-h-[520px] overflow-hidden rounded-xl border border-[var(--border)]">
-      <div class="max-h-[520px] overflow-y-auto">
+    <div v-else class="overflow-visible rounded-xl border border-[var(--border)]">
+      <div class="overflow-x-auto overflow-y-visible">
         <div v-if="!isDesktopViewport" class="divide-y divide-[var(--border)] ">
           <div v-for="row in sortedRules" :key="row.id" class="space-y-2 p-4">
             <div class="flex items-start justify-between gap-2">
