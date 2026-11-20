@@ -35,7 +35,7 @@ type dashboardSnapshotResponse struct {
 	EndDate     string `json:"end_date"`
 	Granularity string `json:"granularity"`
 
-	Stats      *dashboardSnapshotStats        `json:"stats,omitempty"`
+	Stats      *dashboardSnapshotStats          `json:"stats,omitempty"`
 	Trend      []usagestats.TrendDataPoint      `json:"trend,omitempty"`
 	Models     []usagestats.ModelStat           `json:"models,omitempty"`
 	Groups     []usagestats.GroupStat           `json:"groups,omitempty"`

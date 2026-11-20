@@ -3,8 +3,10 @@ package connections
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"slices"
 	"strconv"
@@ -132,7 +134,7 @@ func (r *Session) List(kind string, q url.Values) (any, error) {
 		query = `SELECT id,type,version,at,actor_id::text FROM connection_events WHERE workspace_id=$1 AND id>$2 AND at<=$3 AND account_id=$5 ORDER BY id LIMIT $4`
 		args = append(args, r.ID)
 	case "pools":
-		query = `SELECT id,name,max_concurrency,version,ARRAY(SELECT m.account_id::text FROM connection_pool_members m JOIN accounts a ON a.id=m.account_id AND a.workspace_id=m.workspace_id AND a.deleted_at IS NULL WHERE m.pool_id=p.id AND m.workspace_id=p.workspace_id ORDER BY m.account_id) FROM connection_pools p WHERE workspace_id=$1 AND id>$2 AND created_at<=$3 ORDER BY id LIMIT $4`
+		query = poolSelection + ` WHERE p.workspace_id=$1 AND p.id>$2 AND p.created_at<=$3 ORDER BY p.id LIMIT $4`
 	default:
 		return nil, fault.NotFound
 	}
@@ -156,12 +158,9 @@ func (r *Session) List(kind string, q url.Values) (any, error) {
 			}
 			add(strconv.FormatInt(v.ID, 10), v)
 		case "pools":
-			var v Pool
-			if e = rows.Scan(&v.ID, &v.Name, &v.Max, &v.Version, pq.Array(&v.Connections)); e != nil {
-				return nil, e
-			}
-			if r.access.Require("connections.read") != nil {
-				v.Connections = []string{}
+			v, err := r.scanPool(rows)
+			if err != nil {
+				return nil, err
 			}
 			add(strconv.FormatInt(v.ID, 10), v)
 		}
@@ -221,4 +220,88 @@ func (r *Session) CreatePool(in NewPool) (any, error) {
 		out.Connections = append(out.Connections, in.Connections...)
 	}
 	return out, nil
+}
+
+const poolSelection = `SELECT p.id,p.name,p.max_concurrency,p.version,ARRAY(
+ SELECT m.account_id::text FROM connection_pool_members m
+ JOIN accounts a ON a.id=m.account_id AND a.workspace_id=m.workspace_id AND a.deleted_at IS NULL
+ WHERE m.pool_id=p.id AND m.workspace_id=p.workspace_id ORDER BY m.account_id
+ ) FROM connection_pools p`
+
+func (r *Session) scanPool(row interface{ Scan(...any) error }) (Pool, error) {
+	var p Pool
+	err := row.Scan(&p.ID, &p.Name, &p.Max, &p.Version, pq.Array(&p.Connections))
+	if r.access.Require("connections.read") != nil {
+		p.Connections = []string{}
+	}
+	return p, err
+}
+
+type PoolUpdate struct {
+	Name *string `json:"name,omitempty"`
+	Max  *int    `json:"max_concurrency,omitempty"`
+}
+
+func (r *Session) UpdatePool(in PoolUpdate) (any, error) {
+	if in.Name == nil && in.Max == nil {
+		return nil, fault.Invalid("/pool")
+	}
+	if in.Name != nil && !ValidText(*in.Name, 100) {
+		return nil, fault.Invalid("/name")
+	}
+	if in.Max != nil && (*in.Max < 1 || *in.Max > 10000) {
+		return nil, fault.Invalid("/max_concurrency")
+	}
+	var id int64
+	err := r.tx.QueryRowContext(r.ctx, `UPDATE connection_pools
+ SET name=coalesce($3,name),max_concurrency=coalesce($4,max_concurrency),version=version+1
+ WHERE workspace_id=$1 AND id=$2 RETURNING id`, r.Workspace, r.ID, in.Name, in.Max).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fault.NotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r.scanPool(r.tx.QueryRowContext(r.ctx, poolSelection+` WHERE p.workspace_id=$1 AND p.id=$2`, r.Workspace, id))
+}
+
+func (r *Session) DeletePool() (any, error) {
+	var id int64
+	err := r.tx.QueryRowContext(r.ctx, `SELECT id FROM connection_pools WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, r.Workspace, r.ID).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fault.NotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Holding the pool row fences new assignments. Use NOWAIT on accounts
+	// because connection edits lock the account before taking pool row locks.
+	var inUse bool
+	err = r.tx.QueryRowContext(r.ctx, `SELECT coalesce(bool_or(deleted_at IS NULL AND
+ (state='active' OR (published AND status='active' AND schedulable))),false)
+ FROM (
+  SELECT c.state,a.deleted_at,a.status,a.schedulable,m.account_id IS NOT NULL AS published
+  FROM provider_connections c JOIN accounts a ON a.workspace_id=c.workspace_id AND a.id=c.account_id
+  LEFT JOIN connection_pool_members m ON m.workspace_id=c.workspace_id AND m.account_id=c.account_id AND m.pool_id=$2
+  WHERE c.workspace_id=$1 AND ($2=ANY(c.pool_ids) OR m.account_id IS NOT NULL)
+  ORDER BY c.account_id FOR UPDATE OF a,c NOWAIT
+ ) bindings`, r.Workspace, id).Scan(&inUse)
+	var pgErr *pq.Error
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+		return nil, &fault.Fault{Status: 409, Reason: "POOL_ASSIGNMENT_BUSY", Message: "A connection assigned to this pool is being edited. Retry shortly."}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if inUse {
+		return nil, &fault.Fault{Status: 409, Reason: "POOL_IN_USE", Message: "Remove active connections from this pool before deleting it."}
+	}
+	if _, err = r.tx.ExecContext(r.ctx, `UPDATE provider_connections
+ SET pool_ids=array_remove(pool_ids,$2::bigint),version=version+1
+ WHERE workspace_id=$1 AND $2=ANY(pool_ids)`, r.Workspace, id); err != nil {
+		return nil, err
+	}
+	_, err = r.tx.ExecContext(r.ctx, `DELETE FROM connection_pools WHERE workspace_id=$1 AND id=$2`, r.Workspace, id)
+	return nil, err
 }

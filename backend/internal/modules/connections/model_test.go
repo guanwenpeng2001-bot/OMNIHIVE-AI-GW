@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -80,4 +81,22 @@ func TestConnectionHeaderOverrideValidationAndProjection(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"header_overrides":{}}`), &patch))
 	require.Equal(t, map[string]any{"header_overrides": map[string]string{}}, patch.Snapshot())
 	require.NotContains(t, Patch{}.Snapshot(), "header_overrides")
+}
+
+func TestCreateReportsSchemaFields(t *testing.T) {
+	for _, tc := range []struct {
+		provider, auth, version, field string
+	}{
+		{"unregistered", "api_key", SchemaVersion, "/provider"},
+		{"", "api_key", SchemaVersion, "/provider"},
+		{"a6api", "", SchemaVersion, "/auth_type"},
+		{"a6api", "oauth", SchemaVersion, "/auth_type"},
+		{"a6api", "api_key", "0", "/schema_version"},
+	} {
+		err := (Create{Provider: tc.provider, AuthType: tc.auth, SchemaVersion: tc.version}).validateSchema()
+		var f *fault.Fault
+		require.ErrorAs(t, err, &f)
+		require.Equal(t, tc.field, f.Field)
+	}
+	require.NoError(t, (Create{Provider: "a6api", AuthType: "api_key", SchemaVersion: SchemaVersion}).validateSchema())
 }

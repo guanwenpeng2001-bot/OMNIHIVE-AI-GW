@@ -872,11 +872,12 @@ func registerChannelTelemetryRoutes(admin *gin.RouterGroup, h *handler.Handlers,
 				config.GET("/config", h.ChannelTelemetry.GetConfig)
 				config.PUT("/config", h.ChannelTelemetry.UpdateConfig)
 			}
+			// Administrators can inspect stored telemetry while active probes are selected.
+			monitor.GET("/snapshot", featureGuard, h.ChannelTelemetry.AdminSnapshot)
 			reads := monitor.Group("")
 			reads.Use(modeV2Guard)
 			{
 				reads.GET("/dimensions", h.ChannelTelemetry.Dimensions)
-				reads.GET("/snapshot", h.ChannelTelemetry.AdminSnapshot)
 				reads.GET("/models", h.ChannelTelemetry.AdminModels)
 				reads.GET("/matrix", h.ChannelTelemetry.AdminMatrix)
 				reads.GET("/errors", h.ChannelTelemetry.Errors)

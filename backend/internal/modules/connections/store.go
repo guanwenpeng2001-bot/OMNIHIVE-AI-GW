@@ -34,6 +34,9 @@ type Store struct {
 }
 
 func New(db *sql.DB, access identity.AccessEvaluator, enc service.SecretEncryptor, probe Prober, cfg *config.Config) *Store {
+	if native, ok := probe.(*service.AccountTestService); ok {
+		probe = compatibleEndpointProber{native: native, policy: cfg.Security.URLAllowlist}
+	}
 	return &Store{db, access, enc, probe, []byte(cfg.JWT.Secret)}
 }
 
@@ -300,8 +303,8 @@ func (r *Session) current(lock bool) (Connection, error) {
 }
 func (r *Session) Get() (any, error) { c, e := r.current(false); return c.Project(r.access), e }
 func (r *Session) Create(in Create) (any, error) {
-	if len(Schemas(in.Provider, in.AuthType)) == 0 || in.AuthType == "" || in.Provider == "" || in.SchemaVersion != SchemaVersion {
-		return nil, fault.Invalid("/provider")
+	if e := in.validateSchema(); e != nil {
+		return nil, e
 	}
 	if e := validatePatch(Patch{Name: &in.Name, Endpoint: &in.Endpoint, NetworkPolicyID: &in.NetworkPolicyID}); e != nil {
 		return nil, e

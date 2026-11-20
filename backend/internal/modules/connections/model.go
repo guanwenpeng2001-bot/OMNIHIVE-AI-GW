@@ -103,6 +103,24 @@ type Create struct {
 	NetworkPolicyID string            `json:"network_policy_id"`
 	HeaderOverrides map[string]string `json:"header_overrides,omitempty"`
 }
+
+func (in Create) validateSchema() error {
+	if in.Provider == "" {
+		return fault.Invalid("/provider")
+	}
+	schemas := Schemas(in.Provider, "")
+	if len(schemas) == 0 {
+		return fault.Invalid("/provider")
+	}
+	if !slices.Contains(schemas[0].AuthTypes, in.AuthType) {
+		return fault.Invalid("/auth_type")
+	}
+	if in.SchemaVersion != schemas[0].Version {
+		return fault.Invalid("/schema_version")
+	}
+	return nil
+}
+
 type Patch struct {
 	Name            *string           `json:"name,omitempty"`
 	Endpoint        *string           `json:"endpoint,omitempty"`

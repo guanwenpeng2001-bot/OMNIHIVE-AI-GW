@@ -250,7 +250,19 @@ func (s *Service) Execute(ctx context.Context, a Actor, key string, cmd ExecuteI
 	}
 	return op, tx.Commit()
 }
+func validOperationID(id string) bool {
+	prefix, value, ok := strings.Cut(id, "_")
+	if !ok || (prefix != "rs" && prefix != "ri") {
+		return false
+	}
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed.String() == value
+}
+
 func (s *Service) Get(ctx context.Context, a Actor, id string) (Operation, error) {
+	if !validOperationID(id) {
+		return Operation{}, fault.NotFound
+	}
 	if err := s.authorize(ctx, a, ExecuteAction); err != nil {
 		return Operation{}, err
 	}
@@ -271,7 +283,7 @@ func (s *Service) lookup(ctx context.Context, w int64, id string) (Operation, in
 }
 
 func (s *Service) ReadOperation(ctx context.Context, w, actor int64, id string) (identity.Operation, error) {
-	if !strings.HasPrefix(id, "rs_") && !strings.HasPrefix(id, "ri_") {
+	if !validOperationID(id) {
 		return identity.Operation{}, fault.NotFound
 	}
 	if s.Journal == nil {

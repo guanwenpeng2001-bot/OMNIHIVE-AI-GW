@@ -136,6 +136,7 @@ func TestRestoreHTTPAndLegacy(t *testing.T) {
 	}
 	request("GET", "/rs_missing", nil, "", 401)
 	actor = member
+	request("GET", "/rs_missing", nil, "", 404)
 	request("POST", "/previews", map[string]any{"backup_id": b.ID, "target": "isolated"}, "preview", 403)
 	actor = admin
 	p := request("POST", "/previews", map[string]any{"backup_id": b.ID, "target": "isolated"}, "p", 201)["data"].(map[string]any)

@@ -163,6 +163,24 @@ func TestConnectionWorkflow(t *testing.T) {
 		return call(200, "GET", op["status_url"].(string), nil, "")
 	}
 	pool := call(201, "POST", base+"/pools", obj{"name": "Fixture pool", "max_concurrency": 4, "connection_ids": []string{}}, "")["id"].(string)
+	poolPath := base + "/pools/" + pool
+	updatedPool := call(200, "PUT", poolPath, obj{"name": "Renamed pool", "max_concurrency": 5}, "")
+	require.Equal(t, "Renamed pool", updatedPool["name"])
+	require.Equal(t, float64(5), updatedPool["max_concurrency"])
+	require.Equal(t, "2", updatedPool["version"])
+	updatedPool = call(200, "PATCH", poolPath, obj{"max_concurrency": 6}, "")
+	require.Equal(t, "Renamed pool", updatedPool["name"])
+	require.Equal(t, float64(6), updatedPool["max_concurrency"])
+
+	temporaryPool := call(201, "POST", base+"/pools", obj{"name": "Temporary pool", "max_concurrency": 1}, "")["id"].(string)
+	draftPath := cpath + "/" + oauth["id"].(string)
+	draftWithPool := call(200, "PATCH", draftPath, obj{"pool_ids": []string{temporaryPool}}, attached["version"].(string))
+	require.Equal(t, []any{temporaryPool}, draftWithPool["pool_ids"])
+	temporaryPoolPath := base + "/pools/" + temporaryPool
+	code, _ := do("DELETE", temporaryPoolPath, nil, "", "")
+	require.Equal(t, http.StatusNoContent, code)
+	require.Empty(t, call(200, "GET", draftPath, nil, "")["pool_ids"])
+	call(404, "PATCH", temporaryPoolPath, obj{"name": "Removed"}, "")
 	setup := func(provider, key, model string) (string, string, string) {
 		t.Helper()
 		spec := obj{"provider": provider, "schema_version": "1", "auth_type": "api_key", "name": "fixture", "endpoint": server.URL}
@@ -196,6 +214,7 @@ func TestConnectionWorkflow(t *testing.T) {
 	require.Len(t, schemas["items"], 1)
 	a, aid, av := setup("openai", aliceKey, "model-a")
 	b, bid, bv := setup("mistral", bobKey, "model-b")
+	require.Equal(t, "POOL_IN_USE", call(409, "DELETE", poolPath, nil, "")["reason"])
 	both := call(200, "POST", cpath+"/bulk-previews", obj{"ids": []string{aid, bid}, "patch": obj{"limits": obj{"concurrency": 5}}}, "")
 	bv = call(200, "PATCH", b, obj{"name": "reviewed name"}, bv)["version"].(string)
 	partial := call(202, "POST", cpath+"/bulk-apply", obj{"preview_id": both["preview_id"], "selected_ids": []string{aid, bid}}, "")["result"].(obj)["items"].([]any)

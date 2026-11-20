@@ -28,15 +28,15 @@ func (c Change) Payload(auth string) (map[string]any, error) {
 		}
 		return nil, nil
 	case "set":
-		if auth != c.Type || strings.TrimSpace(c.Secret) == "" || len(c.Secret) > 262144 {
-			return nil, fault.Invalid("/secret")
-		}
 	default:
 		return nil, fault.Invalid("/operation")
 	}
 	key := map[string]string{"api_key": "api_key", "oauth": "access_token", "setup-token": "access_token", "service_account": "service_account_json", "bedrock": "api_key"}[auth]
-	if key == "" {
+	if key == "" || auth != c.Type {
 		return nil, fault.Invalid("/type")
+	}
+	if strings.TrimSpace(c.Secret) == "" || len(c.Secret) > 262144 {
+		return nil, fault.Invalid("/secret")
 	}
 	result := map[string]any{key: c.Secret}
 	if c.RefreshToken != "" {

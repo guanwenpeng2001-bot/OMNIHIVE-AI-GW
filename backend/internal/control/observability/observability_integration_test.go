@@ -97,7 +97,7 @@ func TestWorkspaceTelemetryRoutes(t *testing.T) {
 	}
 	read := func(name string) string {
 		t.Helper()
-		b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "api", "BE-29", name+".json"))
+		b, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "contracts", "api", "observability", name+".json"))
 		require.NoError(t, err)
 		return string(b)
 	}

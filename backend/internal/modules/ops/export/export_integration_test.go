@@ -228,8 +228,12 @@ func TestWorkspaceTelemetryPostgres(t *testing.T) {
 		require.Equal(t, maxPending, f.detail(t).QueueDepth)
 		require.EqualValues(t, 4, f.store.Dropped())
 		for range maxAttempts {
-			_, err = db.Exec("UPDATE telemetry_export_jobs SET ready_at=now()-interval '1 second' WHERE id=$1", first)
+			// Keep the same job first regardless of how long filling the queue took.
+			res, err := db.Exec("UPDATE telemetry_export_jobs SET ready_at='-infinity' WHERE id=$1", first)
 			require.NoError(t, err)
+			updated, err := res.RowsAffected()
+			require.NoError(t, err)
+			require.EqualValues(t, 1, updated)
 			require.NoError(t, f.store.deliverOne(t.Context()))
 		}
 		require.Len(t, attempts, maxAttempts)

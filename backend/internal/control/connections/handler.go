@@ -70,7 +70,7 @@ func (h *Handler) serve(code int, r route, bind func(*gin.Context, []byte) (doma
 			}
 		}
 		var body []byte
-		if c.Request.Method != http.MethodGet {
+		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodDelete {
 			body, e = io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
 			if e != nil {
 				fail(c, invalidJSON)
@@ -113,6 +113,10 @@ func (h *Handler) serve(code int, r route, bind func(*gin.Context, []byte) (doma
 			fail(c, e)
 			return
 		}
+		if code == http.StatusNoContent {
+			c.Status(code)
+			return
+		}
 		message := "success"
 		if code == 202 {
 			message = "accepted"
@@ -141,6 +145,12 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	w.GET("/provider-schemas", h.serve(200, route{action: "connections.read"}, page("schemas")))
 	w.GET("/pools", h.serve(200, route{action: "pools.read"}, page("pools")))
 	w.POST("/pools", h.serve(201, route{"pools.edit", false, true}, input((*domain.Session).CreatePool)))
+	poolUpdate := h.serve(http.StatusOK, route{action: "pools.edit"}, input((*domain.Session).UpdatePool))
+	w.PUT("/pools/:id", poolUpdate)
+	w.PATCH("/pools/:id", poolUpdate)
+	w.DELETE("/pools/:id", h.serve(http.StatusNoContent, route{action: "pools.edit"}, func(*gin.Context, []byte) (domain.Work, error) {
+		return (*domain.Session).DeletePool, nil
+	}))
 	c := w.Group("/connections")
 	c.GET("", h.serve(200, route{action: "connections.read"}, page("connections")))
 	c.GET("/:id", h.serve(200, route{action: "connections.read"}, func(*gin.Context, []byte) (domain.Work, error) { return (*domain.Session).Get, nil }))
