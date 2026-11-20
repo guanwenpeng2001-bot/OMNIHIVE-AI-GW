@@ -16,7 +16,7 @@ func (r keyGroupCatalog) Snapshot(context.Context, catalog.Perspective, time.Tim
 	return catalog.Snapshot{Details: r.details}, nil
 }
 
-func TestDefaultKeyGroupRequiresUniqueCommonOffer(t *testing.T) {
+func TestCatalogKeyGroupsRestrictsAutomaticSelection(t *testing.T) {
 	first, second, denied := catalog.StableID("openai", "a"), catalog.StableID("openai", "b"), catalog.StableID("openai", "c")
 	store := NewWithCatalog(nil, keyGroupCatalog{[]catalog.Detail{
 		{Model: catalog.Summary{ID: first, Model: "a"}, EligibleGroups: []int64{3, 7}},
@@ -26,24 +26,20 @@ func TestDefaultKeyGroupRequiresUniqueCommonOffer(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		ids  []string
-		want int64
+		want []int64
 	}{
-		{"single", []string{second}, 7},
-		{"intersection", []string{first, second}, 7},
-		{"mixed native and catalog identifiers", []string{"a", second}, 7},
-		{"ambiguous", []string{first}, 0},
-		{"unavailable", []string{second, denied}, 0},
-		{"unknown", []string{second, "unknown"}, 0},
-		{"legacy issuance", []string{"b"}, 0},
+		{"single", []string{second}, []int64{7}},
+		{"intersection", []string{first, second}, []int64{7}},
+		{"mixed native and catalog identifiers", []string{"a", second}, []int64{7}},
+		{"ambiguous", []string{first}, []int64{3, 7}},
+		{"unavailable", []string{second, denied}, []int64{}},
+		{"unknown", []string{second, "unknown"}, []int64{}},
+		{"legacy issuance", []string{"b"}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			group, err := store.defaultKeyGroup(context.Background(), identity.Access{}, identity.ModelAccess{Mode: "allow_list", IDs: tc.ids})
+			group, err := store.catalogKeyGroups(context.Background(), identity.Access{}, identity.ModelAccess{Mode: "allow_list", IDs: tc.ids})
 			require.NoError(t, err)
-			if tc.want == 0 {
-				require.Nil(t, group)
-			} else {
-				require.Equal(t, &tc.want, group)
-			}
+			require.Equal(t, tc.want, group)
 		})
 	}
 }

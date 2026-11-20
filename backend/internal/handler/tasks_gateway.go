@@ -19,8 +19,9 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
-	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
+	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/tasks"
@@ -236,6 +237,7 @@ func (g *ImageTaskGateway) Prepare(ctx context.Context, a tasks.Scope, w tasks.W
 		ctx = service.WithMediaTaskBinding(ctx, service.MediaTaskBinding{Request: w.Request, Model: model, Kind: p.Kind, Account: proof.Account})
 	}
 	spec := service.GatewayRequestSpec{WorkspaceID: a.WorkspaceID, UserID: k.UserID, APIKeyID: k.ID, BillingGroupID: group, Model: model, Route: route, Protocol: protocol, ExecutionID: w.ID}
+	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	planctx, closePlan := g.Images.gatewayService.CaptureAsyncImageTaskPlan(journal.WithStore(ctx, js), spec, 30*time.Minute)
 	ex, e := service.GatewayRequestPlanFromContext(planctx).AdmittedExecution()
 	if e != nil || ex.RequestID != w.Request {

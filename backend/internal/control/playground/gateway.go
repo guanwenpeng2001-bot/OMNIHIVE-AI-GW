@@ -20,8 +20,9 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
-	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	execcompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
+	keycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	pg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/playground"
@@ -243,7 +244,7 @@ func (j runJournal) Dispatch(ctx context.Context, e journal.AdmittedExecution, n
 		return journal.Attempt{}, err
 	}
 	// Migration 302 locks the run inside the same transaction as the
-	// ordinary BE-06 permit. A concurrent cancel cannot slip between them.
+	// ordinary dispatch permit. A concurrent cancel cannot slip between them.
 	a, err := j.Store.Dispatch(ctx, e, n, account)
 	if err != nil {
 		return a, err
@@ -272,6 +273,7 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 		return nil
 	}}
 	ctx, stop := service.WithAttemptBudget(journal.WithStore(p.ctx, j), 1, service.DefaultGenerationDeadline)
+	ctx = service.WithProjectBudgetCoordinator(ctx, readmodel.Store{DB: g.DB})
 	ctx = service.WithPrefetchedStickySession(ctx, p.account, p.key.Group.ID, true)
 
 	spec := service.GatewayRequestSpec{ExecutionKind: "playground", Registration: reg, WorkspaceID: p.frozen.WorkspaceID, UserID: p.key.UserID, APIKeyID: p.key.ID, BillingGroupID: p.key.Group.ID, Route: strings.Split(p.native.Path, "?")[0], Action: "text.chat", Protocol: p.native.Protocol, Model: p.model, ModelVersion: p.decision.CatalogVersion, PriceVersion: p.decision.PriceVersion}
@@ -280,9 +282,8 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 	closePlan := func() {
 		if ctx.Err() != nil {
 			plan.Cancel()
-		} else {
-			plan.Finalize(false)
 		}
+		plan.Finalize(false)
 		stop()
 	}
 	if err == nil && ex.RequestID != r.Request {
@@ -292,7 +293,7 @@ func (g *Gateway) admit(p prepared, r pg.Summary, reg *journal.Registration) (co
 		err = trace.NewPostgres(g.DB).Record(ctx, ex, p.decision)
 	}
 	if err == nil {
-		err = plan.ReserveBudget(ctx, service.RequestBudgetEstimate{Model: p.model, InputTokens: p.native.InputBound, OutputTokens: p.native.OutputBound, RateMultiplier: p.key.Group.RateMultiplier, SkipBalanceHold: p.funding != nil})
+		err = plan.ReserveBudget(ctx, service.RequestBudgetEstimate{Model: p.model, InputTokens: p.native.InputBound, OutputTokens: p.native.OutputBound, RateMultiplier: p.key.Group.RateMultiplier, SkipBalanceHold: p.funding != nil, SkipKeyBudget: !p.key.HasPeriodBudget()})
 	}
 	if err != nil {
 		closePlan()

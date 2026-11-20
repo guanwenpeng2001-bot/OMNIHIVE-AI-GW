@@ -344,8 +344,24 @@ func TestProjectKeyGroupBinding(t *testing.T) {
 	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", group, w, p)
 	_, err = store.CreateKey(ctx, user, w, p, in, "exclusive")
 	require.ErrorIs(t, err, fault.NotFound)
+	auto := in
+	auto.GroupID = nil
+	withoutGroup, err := store.CreateKey(ctx, user, w, p, auto, "auto-no-permission")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), id("SELECT count(*) FROM api_keys WHERE id=$1 AND group_id IS NULL", withoutGroup.ID))
 	exec("INSERT INTO user_allowed_groups(user_id,group_id) VALUES($1,$2)", user, group)
 	key, err := store.CreateKey(ctx, user, w, p, in, "permitted")
+	require.NoError(t, err)
+	require.Equal(t, group, id("SELECT group_id FROM api_keys WHERE id=$1", key.ID))
+
+	standard := id("INSERT INTO groups(workspace_id,name,platform,is_exclusive) VALUES($1,$2,'openai',false) RETURNING id", w, uuid.NewString())
+	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", standard, w, p)
+	key, err = store.CreateKey(ctx, user, w, p, auto, "auto-standard")
+	require.NoError(t, err)
+	require.Equal(t, standard, id("SELECT group_id FROM api_keys WHERE id=$1", key.ID))
+	account := id("INSERT INTO accounts(workspace_id,name,platform,type,status,schedulable) VALUES($1,'available','openai','apikey','active',true) RETURNING id", w)
+	exec("INSERT INTO account_groups(account_id,group_id) VALUES($1,$2)", account, group)
+	key, err = store.CreateKey(ctx, user, w, p, auto, "auto-with-account")
 	require.NoError(t, err)
 	require.Equal(t, group, id("SELECT group_id FROM api_keys WHERE id=$1", key.ID))
 

@@ -2666,6 +2666,12 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
+	if err := reserveRequestBudget(ctx, apiKey, reqModel, firstMessage); err != nil {
+		_, _, message := gatewayBudgetErrorResponse(err)
+		_ = closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, message)
+		return
+	}
+
 	var sessionHash string
 	if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
 		sessionHash = h.gatewayService.GenerateRequestSessionHash(c, firstMessage)
@@ -2890,6 +2896,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
 		turnBase := logicalTurn - 1
+		var turnBudgetEstimate service.RequestBudgetEstimate
 		hooks := &service.OpenAIWSIngressHooks{
 			RequestPlan:                 activePlan.Load,
 			ClientLifecycleContext:      clientLifecycleCtx,
@@ -2918,6 +2925,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "Execution admission unavailable", err)
 					}
 					activePlan.Store(plan)
+					if apiKey.HasPeriodBudget() || plan.HasProjectBudgetCoordinator() {
+						turnBudgetEstimate = gatewayRequestBudgetEstimate(plan, apiKey, model, payload)
+					}
 				}
 				c.Request = c.Request.WithContext(service.WithGatewayRequestPlan(ctx, activePlan.Load()))
 				if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
@@ -2998,6 +3008,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				turnPricing.freeze(turnAt)
 				if turn == 1 {
 					return nil
+				}
+				if err := h.billingCacheService.CheckBillingEligibility(turnCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(turnCtx, apiKey)); err != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
+				}
+				if plan := activePlan.Load(); apiKey.HasPeriodBudget() || plan.HasProjectBudgetCoordinator() {
+					if err := plan.ReserveBudget(turnCtx, turnBudgetEstimate); err != nil {
+						_, _, message := gatewayBudgetErrorResponse(err)
+						return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, message, err)
+					}
 				}
 				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
 				releaseTurnSlots()

@@ -9,6 +9,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 )
 
 type Budget struct {
@@ -90,15 +91,19 @@ func projectRule(ctx context.Context, q queryer, sc Scope, currency string, at t
 	r.Reset = &end
 	r.AllowExtra = r.Mode == "soft"
 	err = q.QueryRowContext(ctx, `WITH used AS (
- SELECT coalesce(sum(c.charge),0) AS u FROM billing_cost_evidence c
- LEFT JOIN billing_project_holds h ON (h.workspace_id,h.project_id,h.currency,h.request_id)=(c.workspace_id,c.project_id,c.currency,c.request_id)
+ SELECT coalesce(sum(CASE WHEN c.pricing_state='priced' AND rc.billing_command->'charged_amount'->>'currency'=c.currency
+   THEN (rc.billing_command->'charged_amount'->>'amount')::numeric ELSE c.charge END),0) AS u
+ FROM billing_cost_evidence c
+ LEFT JOIN usage_settlement_receipts rc ON rc.id=c.settlement_id
+ LEFT JOIN billing_project_holds h ON (h.workspace_id,h.project_id,h.currency,h.request_id)=(c.workspace_id,c.project_id,c.currency,coalesce(rc.billing_command->>'project_reservation_ref',c.request_id))
  WHERE c.workspace_id=$1 AND c.project_id=$2 AND c.currency=$3 AND coalesce(h.admitted_at,c.at)>=$4
  AND coalesce(h.admitted_at,c.at)<$5 AND c.settled_at<=$6),
  held AS (
  SELECT coalesce(sum(h.amount),0) AS h FROM billing_project_holds h
  WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND admitted_at>=$4 AND admitted_at<$5 AND admitted_at<=$6
  AND (released_at IS NULL OR released_at>$6) AND NOT EXISTS (
- SELECT 1 FROM billing_cost_evidence c WHERE (c.workspace_id,c.project_id,c.currency,c.request_id)=(h.workspace_id,h.project_id,h.currency,h.request_id)
+ SELECT 1 FROM billing_cost_evidence c LEFT JOIN usage_settlement_receipts rc ON rc.id=c.settlement_id
+ WHERE (c.workspace_id,c.project_id,c.currency,coalesce(rc.billing_command->>'project_reservation_ref',c.request_id))=(h.workspace_id,h.project_id,h.currency,h.request_id)
  AND c.settled_at<=$6))
  SELECT round(u,8)::text,round(h,8)::text,round(greatest($7::numeric-u-h,0),8)::text,round(greatest(u+h-$7::numeric,0),8)::text FROM used,held`,
 		sc.Workspace, sc.Project, currency, start, end, at, *r.Limit).Scan(&r.Used, &r.Reserved, &r.Available, &r.Overrun)
@@ -152,49 +157,90 @@ var Exhausted = &fault.Fault{Status: 402, Reason: "BUDGET_EXHAUSTED", Message: "
 // the same request ID for the journal and this hold. Receipt settlement then
 // supersedes the hold. Release an unused hold on a known no-dispatch outcome.
 func Reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, amount money.Money) error {
-	if request == "" || amount.Amount().Compare(money.Amount{}) < 0 {
-		return fault.Invalid("/reservation")
+	_, err := reserve(ctx, tx, sc, request, amount.Currency(), &amount)
+	return err
+}
+
+func reserve(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency, amount *money.Money) (bool, error) {
+	if request == "" || (amount != nil && (amount.Currency() != currency || amount.Amount().Compare(money.Amount{}) < 0)) {
+		return false, fault.Invalid("/reservation")
 	}
-	var version int64
-	err := tx.QueryRowContext(ctx, `SELECT version FROM billing_project_budgets WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 FOR UPDATE`, sc.Workspace, sc.Project, amount.Currency()).Scan(&version)
+	var mode string
+	err := tx.QueryRowContext(ctx, `SELECT mode FROM billing_project_budgets WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 FOR UPDATE`, sc.Workspace, sc.Project, currency).Scan(&mode)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
+	}
+	// An unknown tariff cannot establish a bound on hard-budget spending.
+	if amount == nil {
+		if mode == "hard" {
+			return false, errors.New("project budget estimate unavailable")
+		}
+		return false, nil
 	}
 	var same, active bool
-	err = tx.QueryRowContext(ctx, `SELECT amount=$5,released_at IS NULL FROM billing_project_holds WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND request_id=$4`, sc.Workspace, sc.Project, amount.Currency(), request, amount.String()).Scan(&same, &active)
+	err = tx.QueryRowContext(ctx, `SELECT amount=$5,released_at IS NULL FROM billing_project_holds WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND request_id=$4`, sc.Workspace, sc.Project, currency, request, amount.String()).Scan(&same, &active)
 	if err == nil {
 		if same && active {
-			return nil
+			return true, nil
 		}
-		return fault.Conflict
+		return false, fault.Conflict
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 	var at time.Time
 	if err = tx.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&at); err != nil {
-		return err
+		return false, err
 	}
-	r, err := projectRule(ctx, tx, sc, string(amount.Currency()), at, false)
+	r, err := projectRule(ctx, tx, sc, string(currency), at, false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if r.Mode == "hard" {
-		available, err := money.NewMoney(amount.Currency(), *r.Available)
+		available, err := money.NewMoney(currency, *r.Available)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if amount.Amount().Compare(available.Amount()) > 0 {
-			return Exhausted
+			return false, Exhausted
 		}
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO billing_project_holds(workspace_id,project_id,currency,request_id,amount,admitted_at) VALUES($1,$2,$3,$4,$5,$6)`, sc.Workspace, sc.Project, amount.Currency(), request, amount.String(), at)
+	_, err = tx.ExecContext(ctx, `INSERT INTO billing_project_holds(workspace_id,project_id,currency,request_id,amount,admitted_at) VALUES($1,$2,$3,$4,$5,$6)`, sc.Workspace, sc.Project, currency, request, amount.String(), at)
+	return err == nil, err
+}
+
+const releaseProjectHoldSQL = `UPDATE billing_project_holds SET released_at=clock_timestamp()
+ WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND request_id=$4 AND released_at IS NULL`
+
+func Release(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency) error {
+	_, err := tx.ExecContext(ctx, releaseProjectHoldSQL, sc.Workspace, sc.Project, currency, request)
 	return err
 }
-func Release(ctx context.Context, tx *sql.Tx, sc Scope, request string, currency money.Currency) error {
-	_, err := tx.ExecContext(ctx, `UPDATE billing_project_holds SET released_at=clock_timestamp() WHERE workspace_id=$1 AND project_id=$2 AND currency=$3 AND request_id=$4 AND released_at IS NULL`, sc.Workspace, sc.Project, currency, request)
+
+// ReserveProjectBudget returns whether the project has a matching budget hold.
+func (s Store) ReserveProjectBudget(ctx context.Context, owner scope.Authorized, request string, amount *money.Money) (bool, error) {
+	if s.DB == nil {
+		return false, nil
+	}
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	held, err := reserve(ctx, tx, Scope{Workspace: owner.WorkspaceID, Project: owner.ProjectID}, request, "USD", amount)
+	if err != nil {
+		return false, err
+	}
+	return held, tx.Commit()
+}
+
+func (s Store) ReleaseProjectBudget(ctx context.Context, owner scope.Authorized, request string) error {
+	if s.DB == nil {
+		return nil
+	}
+	_, err := s.DB.ExecContext(ctx, releaseProjectHoldSQL, owner.WorkspaceID, owner.ProjectID, "USD", request)
 	return err
 }

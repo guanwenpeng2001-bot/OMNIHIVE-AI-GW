@@ -91,7 +91,7 @@ func (r *projectKeyCreateRepo) CreateInProject(ctx context.Context, key *APIKey,
 	if project != r.project || domain.ResourceWorkspaceID(ctx) != r.projectWorkspace {
 		return ErrWorkspaceNotFound
 	}
-	return r.keyCreateRepo.Create(ctx, key)
+	return r.Create(ctx, key)
 }
 
 func TestAPIKeyCreateInSelectedProject(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
@@ -18,8 +19,16 @@ func InstallExecutionJournal(db *sql.DB, scopes identity.GatewayScopes) gin.Hand
 	store := journal.New(db)
 	validator := executioncompat.Validator{DB: db, Scopes: scopes}
 	return func(c *gin.Context) {
+		if db == nil {
+			c.Next()
+			return
+		}
+		ctx := service.WithProjectBudgetCoordinator(c.Request.Context(), readmodel.Store{DB: db})
+		c.Request = c.Request.WithContext(ctx)
 		switch c.FullPath() {
-		case "/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/images/generations/async", "/images/generations/async",
+		case "/v1/responses/*subpath", "/responses/*subpath", "/backend-api/codex/responses/*subpath",
+			"/v1beta/models/*modelAction", "/antigravity/v1beta/models/*modelAction",
+			"/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/images/generations/async", "/images/generations/async",
 			"/v1/chat/completions", "/chat/completions", "/v1/messages", "/messages", "/antigravity/v1/messages":
 			if journal.From(c.Request.Context()) == nil {
 				ctx := journal.WithStore(c.Request.Context(), store)

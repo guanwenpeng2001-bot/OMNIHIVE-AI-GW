@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const UsageSettlementRecoveryBoundary = "Recovery starts only after the first receipt commits; process death or database failure before that point can lose upstream usage and requires manual review."
@@ -100,14 +102,24 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	// Preserve the hold in that ambiguous case; never turn cancellation into a
 	// zero-token proof merely because the monetary receipt contains zero fields.
 	observedTokens := input.Usage.InputTokens > 0 || input.Usage.OutputTokens > 0 || input.Usage.CacheCreationTokens > 0 || input.Usage.CacheReadTokens > 0
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && input.TPMReservation == nil && observedTokens {
-		copy := *input
-		copy.TPMReservation = plan.TPMReceiptIdentity(input.Command.AccountID)
-		input = &copy
+	copy := *input
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if copy.TPMReservation == nil && observedTokens {
+			copy.TPMReservation = plan.TPMReceiptIdentity(input.Command.AccountID)
+		}
+		plan.bindBudgetReceipt(&copy.Command)
 	}
+	input = &copy
 	prepared, err := PrepareUsageSettlementReceipt(input)
 	if err != nil {
 		return s.persistenceError(input.Key, err)
+	}
+	if prepared.State == UsageSettlementPending {
+		charge, err := frozenReceiptCharge(prepared.Usage.PricingSnapshot)
+		if err != nil {
+			return s.persistenceError(prepared.Key, err)
+		}
+		prepared.Command.ChargedAmount = charge
 	}
 	writeCtx, cancel := detachedBillingContext(ctx)
 	stored, err := s.repo.Persist(writeCtx, prepared)
@@ -302,26 +314,38 @@ func (s *UsageSettlementService) Recover(ctx context.Context) error {
 	}
 }
 
+// Preserve the original decimal when adding provider and account metadata to
+// a frozen snapshot. Some legacy producers adjust the customer charge before
+// submission, so a changed amount must come from the refreshed snapshot.
+func freezeSettlementPricing(cost *CostBreakdown, model, provider string, accountMultiplier float64, stats *float64) error {
+	original := gjson.Get(cost.PricingSnapshot, "charged_amount")
+	if err := FreezeUsagePricing(cost, model, provider, accountMultiplier, stats); err != nil {
+		return err
+	}
+	current := gjson.Get(cost.PricingSnapshot, "charged_amount")
+	if original.Type == gjson.Number && current.Type == gjson.Number &&
+		original.Raw != current.Raw && original.Float() == current.Float() {
+		snapshot, err := sjson.SetRaw(cost.PricingSnapshot, "charged_amount", original.Raw)
+		if err != nil {
+			return err
+		}
+		cost.PricingSnapshot = snapshot
+	}
+	return nil
+}
+
 func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage *UsageLog, p *postUsageBillingParams, deps *billingDeps, interrupted bool) error {
 	if s == nil || s.repo == nil {
 		return fmt.Errorf("usage settlement repository is required")
 	}
 	if p.Cost.PricingState != PricingStateUnpriced && p.Cost.PricingState != PricingStateError {
-		if err := FreezeUsagePricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
+		if err := freezeSettlementPricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
 			p.Cost.PricingState = PricingStateError
 		}
 	}
 	cmd := buildUsageBillingCommand(usage.RequestID, usage, p)
 	if cmd == nil {
 		return ErrUsageBillingRequestIDRequired
-	}
-	// A request-level budget hold belongs to this settlement: consuming it keeps
-	// the estimated hold and the actual cost in one transaction. When the hold is
-	// gone (released/expired) the repository falls back to the ordinary deduction.
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-		if hold := plan.BudgetHold(); hold != nil {
-			cmd.BudgetReservationID = hold.ID
-		}
 	}
 	completion := "complete"
 	if interrupted {

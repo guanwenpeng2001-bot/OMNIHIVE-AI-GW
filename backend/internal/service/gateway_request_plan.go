@@ -11,10 +11,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
+	"github.com/shopspring/decimal"
 )
 
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
@@ -46,6 +48,20 @@ type GatewayRequestState struct {
 
 type gatewayRequestPlanKey struct{}
 
+type ProjectBudgetCoordinator interface {
+	ReserveProjectBudget(context.Context, scope.Authorized, string, *money.Money) (bool, error)
+	ReleaseProjectBudget(context.Context, scope.Authorized, string) error
+}
+
+type projectBudgetKey struct{}
+
+func WithProjectBudgetCoordinator(ctx context.Context, coordinator ProjectBudgetCoordinator) context.Context {
+	if coordinator == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, projectBudgetKey{}, coordinator)
+}
+
 // GatewayRequestPlan owns one HTTP execution. A websocket adapter must create a
 // new plan per turn, never reuse the connection's usage claim across turns.
 type GatewayRequestPlan struct {
@@ -73,6 +89,11 @@ type GatewayRequestPlan struct {
 	// 同一个逻辑请求重复计成多次（T3-2.13）。
 	rateLimitCounted atomic.Bool
 	rateLimitScopes  map[int64]struct{}
+	projectBudget    ProjectBudgetCoordinator
+	budgetScope      scope.Authorized
+	projectRef       string
+	projectHold      *money.Money
+	projectReleased  bool
 	budgetHold       *KeyBudgetReservation
 	budgetAdmitted   bool
 	tpmAttempts      map[int]*tpmPlanAttempt
@@ -165,15 +186,26 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	leases := p.leases
 	p.leases = make(map[*gatewayPlanLease]struct{})
 	hold := p.budgetHold
-	settled := p.state.ReceiptState == UsageSettlementSettled
+	// Once a financial producer owns the request, settlement (including
+	// recovery) consumes the hold. Pending work must still count as reserved.
+	release := !p.usage.Load() && p.state.ReceiptState == ""
+	// A context cancellation may race the adapter handing its observed usage
+	// to the worker. Only the final adapter unwind can prove there is no producer.
+	project := !canceled && release && p.projectHold != nil && !p.projectReleased
+	if project {
+		p.projectReleased = true
+	}
 	p.mu.Unlock()
 	for lease := range leases {
 		lease.once.Do(lease.release)
 	}
 	// A hold that never settled must be refunded here; the expiry sweep is only
 	// the crash fallback. A settled receipt already consumed its hold.
-	if hold != nil && !settled {
+	if hold != nil && release {
 		p.releaseBudgetHold(hold)
+	}
+	if project {
+		p.releaseProjectBudget()
 	}
 	p.finalizeTPMAttempts()
 	if p.store != nil && p.admissionErr == nil {
@@ -196,6 +228,35 @@ func (p *GatewayRequestPlan) releaseBudgetHold(hold *KeyBudgetReservation) {
 	}
 }
 
+func (p *GatewayRequestPlan) bindBudgetReceipt(command *UsageBillingCommand) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.projectHold != nil {
+		command.ProjectReservationRef = p.projectRef
+		command.Estimate, command.Reserved = p.projectHold, p.projectHold
+	}
+	if hold := p.budgetHold; hold != nil {
+		command.BudgetReservationID = hold.ID
+		if command.Reserved == nil {
+			amount, err := money.NewMoney("USD", quantizedBillingDecimal(hold.HoldAmount).StringFixed(UsageBillingMonetaryScale))
+			if err == nil {
+				command.Estimate, command.Reserved = &amount, &amount
+			}
+		}
+	}
+}
+
+func (p *GatewayRequestPlan) releaseProjectBudget() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.projectBudget.ReleaseProjectBudget(ctx, p.budgetScope, p.projectRef); err != nil {
+		slog.Warn("release project budget hold", "request_id", p.spec.ExecutionID, "error", err)
+		p.mu.Lock()
+		p.projectReleased = false
+		p.mu.Unlock()
+	}
+}
+
 // RequestBudgetEstimate is the bounded cost estimate used to reserve budget
 // before a request is forwarded. Token counts are upper bounds, never usage.
 type RequestBudgetEstimate struct {
@@ -205,6 +266,7 @@ type RequestBudgetEstimate struct {
 	RateMultiplier float64
 	// SkipBalanceHold keeps the reservation on the period budget only.
 	SkipBalanceHold bool
+	SkipKeyBudget   bool
 }
 
 // Conservative token bounds keep the reservation meaningful when a caller
@@ -286,8 +348,11 @@ func (p *GatewayRequestPlan) BudgetAdmitted() bool {
 	return p.budgetAdmitted
 }
 
-// ReserveBudget admits one request against the key's period budget and payer
-// balance. It is idempotent per plan: failover retries reuse the first hold.
+func (p *GatewayRequestPlan) HasProjectBudgetCoordinator() bool {
+	return p != nil && p.projectBudget != nil
+}
+
+// ReserveBudget admits one request against its configured project and key budgets. It is idempotent per plan: failover retries reuse the first hold.
 //
 // The estimate is priced with the plan's frozen pricing snapshot, so a price
 // reload cannot change what this request reserved.
@@ -296,69 +361,85 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 		return nil
 	}
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.admissionErr != nil {
-		err := p.admissionErr
-		p.mu.Unlock()
-		return err
+		return p.admissionErr
 	}
 	if p.budgetAdmitted {
-		p.mu.Unlock()
 		return nil
 	}
-	p.mu.Unlock()
-	if p.settlement == nil {
+	if estimate.SkipKeyBudget && p.projectBudget == nil {
+		p.budgetAdmitted = true
+		return nil
+	}
+	if p.state.Finalized || p.spec.APIKeyID <= 0 || p.spec.UserID <= 0 || strings.TrimSpace(p.spec.ExecutionID) == "" {
 		return ErrAPIKeyBudgetUnavailable
 	}
-	spec := p.Snapshot()
-	if spec.APIKeyID <= 0 || spec.UserID <= 0 || strings.TrimSpace(spec.ExecutionID) == "" {
-		return ErrAPIKeyBudgetUnavailable
+	hold, amount := p.estimateBudgetHold(estimate)
+	// Acquire the key hold first. If project admission fails the request's
+	// finalizer refunds it, including after client cancellation.
+	if !estimate.SkipKeyBudget && p.budgetHold == nil {
+		if p.settlement == nil {
+			return ErrAPIKeyBudgetUnavailable
+		}
+		payer := p.spec.UserID
+		if p.store != nil {
+			payer = p.execution.Scope.FundingUserID
+		}
+		outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
+			RequestID: p.spec.ExecutionID, APIKeyID: p.spec.APIKeyID, UserID: payer,
+			HoldAmount: hold, SkipBalanceHold: estimate.SkipBalanceHold,
+		})
+		if err != nil {
+			return err
+		}
+		if outcome != nil {
+			p.budgetHold = outcome.Reservation
+		}
 	}
-	payer := spec.UserID
-	if p.store != nil {
-		payer = p.execution.Scope.FundingUserID
+	if p.projectBudget != nil {
+		if p.projectRef == "" {
+			p.projectRef = p.execution.RequestID
+			if p.projectRef == "" {
+				p.projectRef = journal.NewID()
+			}
+		}
+		held, err := p.projectBudget.ReserveProjectBudget(ctx, p.budgetScope, p.projectRef, amount)
+		if held {
+			// A lost commit acknowledgement still needs a scoped release on failure.
+			p.projectHold = amount
+		}
+		if err != nil {
+			return err
+		}
 	}
-	hold := p.estimateBudgetHold(estimate)
-	outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
-		RequestID:       spec.ExecutionID,
-		APIKeyID:        spec.APIKeyID,
-		UserID:          payer,
-		HoldAmount:      hold,
-		SkipBalanceHold: estimate.SkipBalanceHold,
-	})
-	if err != nil {
-		return err
-	}
-	p.mu.Lock()
 	p.budgetAdmitted = true
-	if outcome != nil {
-		p.budgetHold = outcome.Reservation
-	}
-	late := p.state.Finalized
-	reservation := p.budgetHold
-	p.mu.Unlock()
-	if late {
-		p.releaseBudgetHold(reservation)
-	}
 	return nil
 }
 
-// estimateBudgetHold prices the request bound with the frozen snapshot. An
-// unpriced model yields no hold: the existing pricing-error path owns that case
-// and must not be replaced by an admission error here.
-func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) float64 {
+// estimateBudgetHold keeps an unpriced bound distinct from an explicitly free
+// model. The legacy key budget port still takes a float.
+func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) (float64, *money.Money) {
 	if p.billing == nil {
-		return 0
+		return 0, nil
 	}
 	input, output, multiplier := NormalizeBudgetEstimateBounds(estimate)
 	cost, err := p.billing.CalculateCost(estimate.Model, UsageTokens{InputTokens: input, OutputTokens: output}, multiplier)
 	if err != nil || cost == nil {
-		return 0
+		return 0, nil
 	}
 	hold := cost.ActualCost
 	if hold < 0 || math.IsNaN(hold) || math.IsInf(hold, 0) {
-		return 0
+		return 0, nil
 	}
-	return QuantizeUsageBillingAmount(hold)
+	bound := decimal.NewFromFloat(hold)
+	text := bound.RoundCeil(UsageBillingMonetaryScale).StringFixed(UsageBillingMonetaryScale)
+	amount, err := money.NewMoney("USD", text)
+	if err != nil {
+		return 0, nil
+	}
+	legacy, _ := bound.Round(UsageBillingMonetaryScale).Float64()
+	return legacy, &amount
 }
 
 func (p *GatewayRequestPlan) Finalize(clientCommitted bool) { p.finish(false, clientCommitted) }
@@ -431,6 +512,7 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		settings := settings.getGatewayForwardingSettingsCached(ctx)
 		p.forwarding = &settings
 	}
+	p.billing = billing
 	if billing != nil && billing.pricingService != nil {
 		prices := billing.pricingService
 		prices.mu.RLock()
@@ -478,6 +560,11 @@ func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec Gate
 }
 
 func (p *GatewayRequestPlan) admitExecution(ctx context.Context, legacyID string) (context.Context, *GatewayRequestPlan) {
+	if owner, ok := scope.From(ctx); ok && owner.ProjectID > 0 && owner.KeyID == p.spec.APIKeyID &&
+		owner.KeyOwnerID == p.spec.UserID && (p.spec.WorkspaceID == 0 || p.spec.WorkspaceID == owner.WorkspaceID) {
+		p.projectBudget, _ = ctx.Value(projectBudgetKey{}).(ProjectBudgetCoordinator)
+		p.budgetScope = owner
+	}
 	p.store = journal.From(ctx)
 	if p.store == nil {
 		return ctx, p

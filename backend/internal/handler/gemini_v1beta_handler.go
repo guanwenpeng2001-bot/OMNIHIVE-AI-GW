@@ -196,7 +196,11 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, modelName, "gemini", h.maxAccountSwitches)()
+	finish, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "gemini", body, h.maxAccountSwitches, func(c *gin.Context, status int, _ string, message string) { googleError(c, status, message) })
+	defer finish()
+	if !admitted {
+		return
+	}
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
 
