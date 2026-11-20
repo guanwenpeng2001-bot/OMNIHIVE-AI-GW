@@ -293,7 +293,7 @@ addresses stay fixed; the listed tunables use shell/Compose interpolation. LOG_*
 LinuxDo/OIDC and other backend options in `.env` now reach the application as well.
 `REDIS_MAXCLIENTS` configures the Redis server command, not the application connection pool.
 
-Default application pools match the backend: PostgreSQL open/idle 256/128 and Redis
+Default application pools match the backend: PostgreSQL open/idle 32/8 and Redis
 pool/min-idle 1024/128. The bundled PostgreSQL stock `max_connections=100` is a separate
 server ceiling: budget all replicas and maintenance clients before increasing load,
 and explicitly raise that ceiling or reduce application pools to suit your resources.

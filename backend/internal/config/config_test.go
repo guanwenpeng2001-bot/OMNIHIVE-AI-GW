@@ -2667,3 +2667,10 @@ func TestLoad_DefaultGatewayImageStreamConfig(t *testing.T) {
 		t.Fatalf("image stream timeout = %d, want greater than ordinary stream timeout %d", cfg.Gateway.ImageStreamDataIntervalTimeout, cfg.Gateway.StreamDataIntervalTimeout)
 	}
 }
+
+func TestDefaultDatabasePoolBudget(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	setDefaults()
+	require.Equal(t, 32, viper.GetInt("database.max_open_conns"))
+	require.Equal(t, 8, viper.GetInt("database.max_idle_conns"))
+}
