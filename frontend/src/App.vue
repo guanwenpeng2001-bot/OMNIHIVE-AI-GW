@@ -4,6 +4,7 @@ import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { i18n } from '@/i18n'
 import SiteICPFooter from '@/components/layout/SiteICPFooter.vue'
 import ShellCommandPalette from '@/components/layout/ShellCommandPalette.vue'
+import { activeConsoleShellCount, activePublicShellCount } from '@/components/layout/shellState'
 import Toast from '@/components/common/Toast.vue'
 import UiToastViewport from '@/components/ui/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
@@ -85,6 +86,14 @@ function onAdminComplianceRequired(event: Event) {
 
 // 订阅功能开关（opt-out）。关闭后不再预加载/轮询订阅接口；开关在登录后才到达时补启动，反向则清空。
 const subscriptionFeatureEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.subscription))
+const showGlobalICPFooter = computed(() => activePublicShellCount.value === 0)
+const globalICPFooterClass = computed(() => {
+  if (activeConsoleShellCount.value <= 0) return ''
+  return [
+    'transition-[margin] duration-150 motion-reduce:transition-none',
+    appStore.sidebarCollapsed ? 'lg:ml-[64px]' : 'lg:ml-[240px]'
+  ].join(' ')
+})
 
 function startSubscriptionSync() {
   subscriptionStore.fetchActiveSubscriptions().catch((error) => {
@@ -199,7 +208,7 @@ onMounted(async () => {
 <template>
   <NavigationProgress />
   <RouterView />
-  <SiteICPFooter />
+  <SiteICPFooter v-if="showGlobalICPFooter" :class="globalICPFooterClass" />
   <Toast />
   <UiToastViewport />
   <AnnouncementPopup />

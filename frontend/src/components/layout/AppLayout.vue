@@ -144,13 +144,13 @@
       <!-- Main Console Canvas -->
       <main
         :class="[
-          'flex w-full flex-1 flex-col',
+          'flex min-w-0 w-full flex-1 flex-col',
           resolvedFullBleed ? 'p-0' : 'p-4 pb-12 sm:p-5 sm:pb-14 lg:p-6 lg:pb-16'
         ]"
       >
         <div
           :class="[
-            'w-full flex-1',
+            'min-w-0 w-full flex-1',
             resolvedContained ? 'mx-auto max-w-[1600px]' : ''
           ]"
         >
@@ -218,6 +218,7 @@ import type { AdminPulseDTO } from '@/api/mcp'
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 import PublicShell from './PublicShell.vue'
+import { activeConsoleShellCount } from './shellState'
 
 const SHELL_MOUNTED_KEY: InjectionKey<boolean> = Symbol('omnihive-shell-mounted')
 
@@ -307,7 +308,7 @@ const pulseLinks = [
   { labelZh: '实时监控', labelEn: 'Ops', path: '/admin/ops' },
   { labelZh: '健康探测', labelEn: 'Probes', path: '/admin/channels/monitor' },
   { labelZh: '上游连接', labelEn: 'Connections', path: '/admin/accounts' },
-  { labelZh: '全局账本', labelEn: 'Ledger', path: '/admin/usage' },
+  { labelZh: '全局账本', labelEn: 'Ledger', path: '/admin/billing' },
   { labelZh: '系统设置', labelEn: 'Settings', path: '/admin/settings' }
 ]
 
@@ -318,11 +319,25 @@ function navigatePulse(path: string): void {
   }
 }
 
+let registeredConsoleShell = false
+function syncConsoleShellRegistration(shouldRegister: boolean): void {
+  if (shouldRegister && !registeredConsoleShell) {
+    registeredConsoleShell = true
+    activeConsoleShellCount.value += 1
+  } else if (!shouldRegister && registeredConsoleShell) {
+    registeredConsoleShell = false
+    activeConsoleShellCount.value = Math.max(0, activeConsoleShellCount.value - 1)
+  }
+}
+
 watch(() => route.fullPath, cancelTour, { flush: 'sync' })
 watch(sidebarCollapsed, cancelTour, { flush: 'sync' })
 watch(
   () => resolvedTier.value,
   (tier) => {
+    if (!isNestedShell) {
+      syncConsoleShellRegistration(tier !== 'public')
+    }
     if (tier === 'admin') void refreshPulse()
   },
   { immediate: true }
@@ -344,6 +359,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  syncConsoleShellRegistration(false)
   if (isNestedShell) return
   onboardingStore.setReplayCallback(null)
   if (pulseTimer) {

@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { PURCHASE_ROUTE_NAME, resolveDocumentTitle, resolveRouteDocumentTitle, resolveRouteMetaKeys } from '@/router/title'
 
 // 语言包在测试环境是懒加载的，这里只提供本文件用到的几个 key，其余原样返回 key（触发 meta.title 回退）。
+const mockLocale = vi.hoisted(() => ({ value: 'en' }))
 vi.mock('@/i18n', () => {
   const messages: Record<string, string> = {
     'nav.recharge': '充值',
     'nav.subscribe': '订阅',
     'nav.buySubscription': '充值/订阅',
   }
-  return { i18n: { global: { t: (key: string) => messages[key] ?? key } } }
+  return { i18n: { global: { locale: mockLocale, t: (key: string) => messages[key] ?? key } } }
 })
 
 describe('resolveDocumentTitle', () => {
@@ -118,5 +119,28 @@ describe('resolveRouteDocumentTitle 站点类型', () => {
   it('充值 & 订阅时保留原标题', () => {
     const title = resolveRouteDocumentTitle(purchaseRoute, 'EzouAPI', [], { billingMode: 'recharge_and_subscription' })
     expect(title).toBe('充值/订阅 - EzouAPI')
+  })
+})
+
+describe('resolveRouteDocumentTitle 双语 titleZh 支持', () => {
+  it('按当前语言动态生成公开路由与资源池的中英文标题', () => {
+    const pricingRoute = {
+      name: 'PublicPricing',
+      params: {},
+      meta: { title: 'Pricing', titleZh: '定价方案' }
+    }
+    const poolsRoute = {
+      name: 'AdminPools',
+      params: {},
+      meta: { title: 'Resource Pools', titleZh: '资源池' }
+    }
+
+    mockLocale.value = 'zh'
+    expect(resolveRouteDocumentTitle(pricingRoute, 'OmniHive')).toBe('定价方案 - OmniHive')
+    expect(resolveRouteDocumentTitle(poolsRoute, 'OmniHive')).toBe('资源池 - OmniHive')
+
+    mockLocale.value = 'en'
+    expect(resolveRouteDocumentTitle(pricingRoute, 'OmniHive')).toBe('Pricing - OmniHive')
+    expect(resolveRouteDocumentTitle(poolsRoute, 'OmniHive')).toBe('Resource Pools - OmniHive')
   })
 })

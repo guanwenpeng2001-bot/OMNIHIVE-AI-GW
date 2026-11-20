@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { i18n as globalI18n } from '@/i18n'
 import type { UiSize } from './types'
 import { cn } from './utils'
 
@@ -17,10 +19,10 @@ export interface CopyButtonProps {
 }
 
 const props = withDefaults(defineProps<CopyButtonProps>(), {
-  label: 'Copy',
-  copiedLabel: 'Copied',
-  failedLabel: 'Copy failed',
-  ariaLabel: 'Copy to clipboard',
+  label: undefined,
+  copiedLabel: undefined,
+  failedLabel: undefined,
+  ariaLabel: undefined,
   variant: 'ghost',
   size: 'sm',
   disabled: false,
@@ -33,14 +35,40 @@ const emit = defineEmits<{
   error: [reason: unknown]
 }>()
 
+let i18nLocale: { value?: string } | string | undefined
+try {
+  const composer = useI18n()
+  i18nLocale = composer?.locale
+} catch {
+  i18nLocale = undefined
+}
+
+const isZh = computed(() => {
+  const raw =
+    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
+    globalI18n?.global?.locale?.value ||
+    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
+    'en'
+  return String(raw).toLowerCase().startsWith('zh')
+})
+
+const resolvedLabel = computed(() => props.label ?? (isZh.value ? '复制' : 'Copy'))
+const resolvedCopiedLabel = computed(() => props.copiedLabel ?? (isZh.value ? '已复制' : 'Copied'))
+const resolvedFailedLabel = computed(
+  () => props.failedLabel ?? (isZh.value ? '复制失败' : 'Copy failed')
+)
+const resolvedAriaLabel = computed(
+  () => props.ariaLabel ?? (isZh.value ? '复制到剪贴板' : 'Copy to clipboard')
+)
+
 const status = ref<'idle' | 'copied' | 'failed'>('idle')
 const inFlight = ref(false)
 let resetTimer: ReturnType<typeof setTimeout> | null = null
 
 const currentText = computed(() => {
-  if (status.value === 'copied') return props.copiedLabel
-  if (status.value === 'failed') return props.failedLabel
-  return props.label
+  if (status.value === 'copied') return resolvedCopiedLabel.value
+  if (status.value === 'failed') return resolvedFailedLabel.value
+  return resolvedLabel.value
 })
 
 function scheduleReset(): void {
@@ -100,7 +128,7 @@ onBeforeUnmount(() => {
   <button
     type="button"
     :disabled="disabled || inFlight"
-    :aria-label="iconOnly ? currentText || ariaLabel : ariaLabel"
+    :aria-label="iconOnly ? currentText || resolvedAriaLabel : resolvedAriaLabel"
     :title="currentText"
     :class="
       cn(

@@ -27,6 +27,11 @@ declare module 'vue-router' {
     title?: string
 
     /**
+     * Localized Chinese page title fallback when no i18n titleKey is configured
+     */
+    titleZh?: string
+
+    /**
      * Optional breadcrumb items for navigation
      */
     breadcrumbs?: Array<{

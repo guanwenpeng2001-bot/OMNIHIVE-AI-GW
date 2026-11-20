@@ -44,30 +44,30 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* 桌面端：Flexbox 布局 */
+/* 自然文档流纵向伸展布局：彻底消除页面级 + 表格内双纵向滚动条冲突与平板挤压 */
 .table-page-layout {
-  @apply flex flex-col gap-4;
-  height: calc(100vh - 64px - 4rem); /* 减去 header + lg:p-8 的上下padding */
+  @apply flex flex-col gap-4 min-w-0;
 }
 
 .layout-section-fixed {
-  @apply flex-shrink-0;
+  @apply flex-shrink-0 min-w-0;
 }
 
 .layout-section-scrollable {
-  @apply flex-1 min-h-0 flex flex-col;
+  @apply flex flex-col min-w-0;
 }
 
 /* 表格滚动容器 - OmniHive 细边框高密度工作台表格外壳 */
 .table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full rounded-xl border shadow-sm;
-  background: var(--card, #ffffff);
-  border-color: var(--border, #e9e9ee);
-  color: var(--card-foreground, #131316);
+  @apply flex flex-col min-w-0 overflow-hidden rounded-oh-lg border;
+  background: var(--oh-bg-surface);
+  border-color: var(--oh-border-default);
+  color: var(--oh-fg-primary);
+  box-shadow: var(--oh-shadow-xs);
 }
 
 .table-scroll-container :deep(.table-wrapper) {
-  @apply flex-1 overflow-x-auto overflow-y-auto;
+  @apply w-full overflow-x-auto;
   /* 确保横向滚动条显示在最底部 */
   scrollbar-gutter: stable;
 }
@@ -80,7 +80,7 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(thead) {
   @apply backdrop-blur-sm;
-  background: color-mix(in srgb, var(--surface-2, #f4f4f5) 68%, var(--card, #ffffff));
+  background: color-mix(in srgb, var(--oh-bg-subtle) 68%, var(--oh-bg-surface));
 }
 
 .table-scroll-container :deep(tbody) {
@@ -92,7 +92,7 @@ onUnmounted(() => {
 }
 
 .table-scroll-container :deep(tbody tr:hover) {
-  background: color-mix(in srgb, var(--brand, #f59e0b) 4.5%, transparent);
+  background: color-mix(in srgb, var(--oh-accent) 4.5%, transparent);
 }
 
 .table-scroll-container :deep(th) {
@@ -100,20 +100,20 @@ onUnmounted(() => {
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--muted-foreground, #6f6f78);
-  border-color: var(--border, #e9e9ee);
+  color: var(--oh-fg-muted);
+  border-color: var(--oh-border-default);
   user-select: none;
 }
 
 .table-scroll-container :deep(td) {
   @apply px-4 py-3 text-sm border-b;
-  color: var(--foreground, #131316);
-  border-color: var(--border, #e9e9ee);
+  color: var(--oh-fg-primary);
+  border-color: var(--oh-border-subtle);
 }
 
 /* 移动端：恢复正常滚动 */
 .table-page-layout.mobile-mode .table-scroll-container {
-  @apply h-auto overflow-visible border-none shadow-none bg-transparent;
+  @apply h-auto border-none shadow-none bg-transparent;
 }
 
 .table-page-layout.mobile-mode .layout-section-scrollable {

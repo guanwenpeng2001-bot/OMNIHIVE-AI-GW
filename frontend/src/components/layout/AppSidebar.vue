@@ -30,56 +30,123 @@
     </div>
 
     <!-- Scrollable Navigation Rail -->
-    <nav
-      ref="sidebarNavRef"
-      class="sidebar-nav flex-1 overflow-y-auto px-2 py-3"
-    >
-      <div class="space-y-4">
-        <section
-          v-for="group in visibleGroups"
-          :key="group.key"
-          class="space-y-1"
-        >
-          <button
-            v-if="!sidebarCollapsed"
-            type="button"
-            :aria-expanded="isSectionExpanded(group.key)"
-            class="oh-focus-ring flex w-full items-center justify-between rounded-oh-sm px-2.5 py-0.5 text-left"
-            @click="toggleSection(group.key)"
+    <div class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+      <nav
+        ref="sidebarNavRef"
+        class="sidebar-nav flex-1 overflow-y-auto px-2 py-3"
+        @scroll.passive="updateSidebarScrollShadow"
+      >
+        <div class="space-y-4">
+          <section
+            v-for="group in visibleGroups"
+            :key="group.key"
+            class="space-y-1"
           >
-            <span class="oh-eyebrow">{{ group.label }}</span>
-            <Icon
-              name="chevronDown"
-              size="xs"
-              class="text-oh-muted transition-transform"
-              :class="{ '-rotate-90': !isSectionExpanded(group.key) }"
-            />
-          </button>
-          <div v-else class="mx-2 my-1.5 border-t border-oh-subtle" :title="group.label" />
+            <button
+              v-if="!sidebarCollapsed"
+              type="button"
+              :aria-expanded="isSectionExpanded(group.key)"
+              class="oh-focus-ring flex w-full items-center justify-between rounded-oh-sm px-2.5 py-0.5 text-left"
+              @click="toggleSection(group.key)"
+            >
+              <span class="oh-eyebrow">{{ group.label }}</span>
+              <Icon
+                name="chevronDown"
+                size="xs"
+                class="text-oh-muted transition-transform"
+                :class="{ '-rotate-90': !isSectionExpanded(group.key) }"
+              />
+            </button>
+            <div v-else class="mx-2 my-1.5 border-t border-oh-subtle" :title="group.label" />
 
-          <div
-            v-if="sidebarCollapsed || isSectionExpanded(group.key)"
-            :id="`nav-${group.key}`"
-            class="space-y-0.5"
-          >
-            <template v-for="item in group.items" :key="item.path">
-              <!-- Expandable Parent Item -->
-              <div v-if="item.children && item.children.length > 0" class="space-y-0.5">
-                <button
-                  type="button"
+            <div
+              v-if="sidebarCollapsed || isSectionExpanded(group.key)"
+              :id="`nav-${group.key}`"
+              class="space-y-0.5"
+            >
+              <template v-for="item in group.items" :key="item.path">
+                <!-- Expandable Parent Item -->
+                <div v-if="item.children && item.children.length > 0" class="space-y-0.5">
+                  <button
+                    type="button"
+                    :title="sidebarCollapsed ? item.label : undefined"
+                    :aria-expanded="isItemExpanded(item)"
+                    :class="[
+                      'oh-focus-ring relative flex w-full items-center gap-2.5 rounded-oh-md px-2.5 py-1.5 text-[13px] transition-colors',
+                      sidebarCollapsed ? 'justify-center px-0' : '',
+                      isGroupActive(item)
+                        ? 'bg-oh-selected font-medium text-oh-primary'
+                        : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
+                    ]"
+                    @click="toggleItemChildren(item)"
+                  >
+                    <span
+                      v-if="isGroupActive(item)"
+                      class="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-[var(--oh-accent)]"
+                      aria-hidden="true"
+                    />
+                    <span
+                      v-if="item.iconSvg"
+                      class="sidebar-svg-icon h-4 w-4 shrink-0"
+                      aria-hidden="true"
+                      v-html="sanitizeSvg(item.iconSvg)"
+                    />
+                    <Icon v-else :name="item.icon" size="sm" class="shrink-0" />
+                    <span v-if="!sidebarCollapsed" class="min-w-0 flex-1 truncate text-left">
+                      {{ item.label }}
+                    </span>
+                    <Icon
+                      v-if="!sidebarCollapsed"
+                      name="chevronDown"
+                      size="xs"
+                      class="shrink-0 text-oh-muted transition-transform"
+                      :class="{ '-rotate-90': !isItemExpanded(item) }"
+                    />
+                  </button>
+
+                  <div
+                    v-if="!sidebarCollapsed && isItemExpanded(item)"
+                    class="ml-4 space-y-0.5 border-l border-oh-subtle pl-2"
+                  >
+                    <router-link
+                      v-for="child in item.children"
+                      :id="tourIds[child.path]"
+                      :key="child.path"
+                      :to="child.path"
+                      :aria-current="isActive(child.path) ? 'page' : undefined"
+                      :class="[
+                        'oh-focus-ring relative flex items-center gap-2 rounded-oh-md px-2.5 py-1.5 text-[12.5px] transition-colors',
+                        isActive(child.path)
+                          ? 'bg-oh-selected font-medium text-oh-primary'
+                          : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
+                      ]"
+                      @click="handleMenuItemClick(child.path)"
+                    >
+                      <span class="min-w-0 truncate">{{ child.label }}</span>
+                    </router-link>
+                  </div>
+                </div>
+
+                <!-- Direct Route Item -->
+                <router-link
+                  v-else
+                  :id="tourIds[item.path]"
+                  :to="item.path"
+                  :aria-current="isActive(item.path) ? 'page' : undefined"
+                  :aria-label="item.label"
                   :title="sidebarCollapsed ? item.label : undefined"
-                  :aria-expanded="isItemExpanded(item)"
+                  :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
                   :class="[
-                    'oh-focus-ring relative flex w-full items-center gap-2.5 rounded-oh-md px-2.5 py-1.5 text-[13px] transition-colors',
+                    'oh-focus-ring relative flex items-center gap-2.5 rounded-oh-md px-2.5 py-1.5 text-[13px] transition-colors',
                     sidebarCollapsed ? 'justify-center px-0' : '',
-                    isGroupActive(item)
+                    isActive(item.path)
                       ? 'bg-oh-selected font-medium text-oh-primary'
                       : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
                   ]"
-                  @click="toggleItemChildren(item)"
+                  @click="handleMenuItemClick(item.path)"
                 >
                   <span
-                    v-if="isGroupActive(item)"
+                    v-if="isActive(item.path)"
                     class="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-[var(--oh-accent)]"
                     aria-hidden="true"
                   />
@@ -90,95 +157,38 @@
                     v-html="sanitizeSvg(item.iconSvg)"
                   />
                   <Icon v-else :name="item.icon" size="sm" class="shrink-0" />
-                  <span v-if="!sidebarCollapsed" class="min-w-0 flex-1 truncate text-left">
-                    {{ item.label }}
-                  </span>
-                  <Icon
-                    v-if="!sidebarCollapsed"
-                    name="chevronDown"
-                    size="xs"
-                    class="shrink-0 text-oh-muted transition-transform"
-                    :class="{ '-rotate-90': !isItemExpanded(item) }"
-                  />
-                </button>
+                  <span v-if="!sidebarCollapsed" class="min-w-0 truncate">{{ item.label }}</span>
+                </router-link>
+              </template>
+            </div>
+          </section>
 
-                <div
-                  v-if="!sidebarCollapsed && isItemExpanded(item)"
-                  class="ml-4 space-y-0.5 border-l border-oh-subtle pl-2"
-                >
-                  <router-link
-                    v-for="child in item.children"
-                    :id="tourIds[child.path]"
-                    :key="child.path"
-                    :to="child.path"
-                    :aria-current="isActive(child.path) ? 'page' : undefined"
-                    :class="[
-                      'oh-focus-ring relative flex items-center gap-2 rounded-oh-md px-2.5 py-1.5 text-[12.5px] transition-colors',
-                      isActive(child.path)
-                        ? 'bg-oh-selected font-medium text-oh-primary'
-                        : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
-                    ]"
-                    @click="handleMenuItemClick(child.path)"
-                  >
-                    <span class="min-w-0 truncate">{{ child.label }}</span>
-                  </router-link>
-                </div>
-              </div>
-
-              <!-- Direct Route Item -->
-              <router-link
-                v-else
-                :id="tourIds[item.path]"
-                :to="item.path"
-                :aria-current="isActive(item.path) ? 'page' : undefined"
-                :aria-label="item.label"
-                :title="sidebarCollapsed ? item.label : undefined"
-                :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-                :class="[
-                  'oh-focus-ring relative flex items-center gap-2.5 rounded-oh-md px-2.5 py-1.5 text-[13px] transition-colors',
-                  sidebarCollapsed ? 'justify-center px-0' : '',
-                  isActive(item.path)
-                    ? 'bg-oh-selected font-medium text-oh-primary'
-                    : 'text-oh-secondary hover:bg-oh-hover hover:text-oh-primary'
-                ]"
-                @click="handleMenuItemClick(item.path)"
-              >
-                <span
-                  v-if="isActive(item.path)"
-                  class="absolute bottom-1.5 left-0 top-1.5 w-[2px] rounded-r bg-[var(--oh-accent)]"
-                  aria-hidden="true"
-                />
-                <span
-                  v-if="item.iconSvg"
-                  class="sidebar-svg-icon h-4 w-4 shrink-0"
-                  aria-hidden="true"
-                  v-html="sanitizeSvg(item.iconSvg)"
-                />
-                <Icon v-else :name="item.icon" size="sm" class="shrink-0" />
-                <span v-if="!sidebarCollapsed" class="min-w-0 truncate">{{ item.label }}</span>
-              </router-link>
-            </template>
-          </div>
-        </section>
-
-        <!-- Zero-Filter Empty State -->
-        <div
-          v-if="visibleGroups.length === 0"
-          role="status"
-          class="px-3 py-6 text-center text-xs text-oh-muted"
-        >
-          <p>{{ isZh ? '没有匹配的导航页面' : 'No matching navigation items' }}</p>
-          <button
-            v-if="sidebarSearchQuery"
-            type="button"
-            class="oh-focus-ring mt-2 rounded-oh-sm border border-oh-default bg-oh-surface px-2.5 py-1 font-mono text-[11px] text-oh-secondary hover:text-oh-primary"
-            @click="sidebarSearchQuery = ''"
+          <!-- Zero-Filter Empty State -->
+          <div
+            v-if="visibleGroups.length === 0"
+            role="status"
+            class="px-3 py-6 text-center text-xs text-oh-muted"
           >
-            {{ isZh ? '清除筛选' : 'Clear filter' }}
-          </button>
+            <p>{{ isZh ? '没有匹配的导航页面' : 'No matching navigation items' }}</p>
+            <button
+              v-if="sidebarSearchQuery"
+              type="button"
+              class="oh-focus-ring mt-2 rounded-oh-sm border border-oh-default bg-oh-surface px-2.5 py-1 font-mono text-[11px] text-oh-secondary hover:text-oh-primary"
+              @click="sidebarSearchQuery = ''"
+            >
+              {{ isZh ? '清除筛选' : 'Clear filter' }}
+            </button>
+          </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+
+      <div
+        v-if="hasBottomOverflow"
+        data-testid="sidebar-scroll-fade"
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-x-0 bottom-0 h-7 bg-gradient-to-t from-[var(--oh-bg-subtle)] to-transparent"
+      />
+    </div>
 
     <!-- Footer Rail: Tier Switcher + Brand Status + Collapse -->
     <div class="shrink-0 border-t border-oh-default p-2.5">
@@ -305,7 +315,36 @@ const activeTier = computed<NavDomain>(() =>
 
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
-const sectionExpandOverrides = ref<Map<string, boolean>>(new Map())
+const SIDEBAR_SECTIONS_STORAGE_KEY = 'omnihive.sidebar.sections.v1'
+
+function readPersistedSectionOverrides(): Map<string, boolean> {
+  try {
+    if (typeof localStorage === 'undefined') return new Map()
+    const raw = localStorage.getItem(SIDEBAR_SECTIONS_STORAGE_KEY)
+    if (!raw) return new Map()
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const entries: Array<[string, boolean]> = []
+    for (const [k, v] of Object.entries(parsed || {})) {
+      if (typeof v === 'boolean') entries.push([k, v])
+    }
+    return new Map(entries)
+  } catch {
+    return new Map()
+  }
+}
+
+function persistSectionOverrides(map: Map<string, boolean>): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.setItem(SIDEBAR_SECTIONS_STORAGE_KEY, JSON.stringify(Object.fromEntries(map.entries())))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+const sectionExpandOverrides = ref<Map<string, boolean>>(readPersistedSectionOverrides())
+const hasBottomOverflow = ref(false)
+let navResizeObserver: ResizeObserver | null = null
 const sidebarSearchQuery = ref('')
 const tourRunning = computed(() => Boolean(onboardingStore.getDriverInstance?.()))
 
@@ -325,7 +364,6 @@ const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
-const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 
@@ -499,6 +537,7 @@ const navigationGroups = computed((): NavGroup[] => [
     label: isZh.value ? '系统与治理' : 'GOVERNANCE & SYSTEM',
     items: [
       { path: '/admin/users', label: t('nav.users'), icon: 'users', hideInSimpleMode: true },
+      { path: '/admin/members', label: isZh.value ? '工作空间成员与授权' : 'Members & Access', icon: 'users', hideInSimpleMode: true },
       { path: '/admin/audit', label: isZh.value ? '项目审计' : 'Project Audit', icon: 'shield' },
       { path: '/admin/audit-logs', label: label('nav.auditLogs', '审计日志'), icon: 'shield', hideInSimpleMode: true },
       {
@@ -513,9 +552,10 @@ const navigationGroups = computed((): NavGroup[] => [
         ]
       },
       { path: '/admin/announcements', label: t('nav.announcements'), icon: 'bell' },
-      { path: '/admin/plugins', label: t('nav.plugins'), icon: 'cube', featureFlag: flagPluginManagement },
+      { path: '/admin/plugins', label: t('nav.plugins'), icon: 'cube' },
       { path: '/admin/backup', label: isZh.value ? '备份与恢复' : 'Backup & Restore', icon: 'download' },
       { path: '/admin/settings', label: t('nav.settings'), icon: 'cog' },
+      { path: '/admin/settings/general', label: isZh.value ? '分区设置工作台' : 'Settings Workbench', icon: 'cog' },
       ...customMenuItemsForAdmin.value.map((item): NavItem => ({ path: `/custom/${item.id}`, label: item.label, icon: 'globe', iconSvg: item.icon_svg })),
       ...extensionItemsFor('admin', 'settings')
     ]
@@ -598,9 +638,15 @@ function isItemExpanded(item: NavItem): boolean {
 }
 
 function toggleItemChildren(item: NavItem): void {
+  if (sidebarCollapsed.value) {
+    const targetPath = item.children?.[0]?.path || item.path
+    void router.push(targetPath)
+    return
+  }
   const next = new Map(groupExpandOverrides.value)
   next.set(item.path, !isItemExpanded(item))
   groupExpandOverrides.value = next
+  void nextTick(updateSidebarScrollShadow)
 }
 
 function isSectionExpanded(key: string): boolean {
@@ -612,6 +658,45 @@ function toggleSection(key: string): void {
   const next = new Map(sectionExpandOverrides.value)
   next.set(key, !isSectionExpanded(key))
   sectionExpandOverrides.value = next
+  persistSectionOverrides(next)
+  void nextTick(updateSidebarScrollShadow)
+}
+
+function ensureActiveSectionExpanded(): void {
+  const currentActive = activePath.value
+  if (!currentActive) return
+  const owningGroup = availableGroups.value.find((group) =>
+    group.items.some(
+      (item) =>
+        item.path === currentActive ||
+        Boolean(item.children?.some((child) => child.path === currentActive))
+    )
+  )
+  if (owningGroup && sectionExpandOverrides.value.get(owningGroup.key) === false) {
+    const next = new Map(sectionExpandOverrides.value)
+    next.set(owningGroup.key, true)
+    sectionExpandOverrides.value = next
+    persistSectionOverrides(next)
+  }
+}
+
+function updateSidebarScrollShadow(): void {
+  const nav = sidebarNavRef.value
+  if (!nav) {
+    hasBottomOverflow.value = false
+    return
+  }
+  hasBottomOverflow.value = nav.scrollHeight - nav.scrollTop - nav.clientHeight > 6
+}
+
+function scrollActiveItemIntoView(): void {
+  const nav = sidebarNavRef.value
+  if (!nav) return
+  const activeEl = nav.querySelector<HTMLElement>('[aria-current="page"]')
+  if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+    activeEl.scrollIntoView({ block: 'nearest' })
+  }
+  updateSidebarScrollShadow()
 }
 
 function closeMobile(): void {
@@ -656,6 +741,17 @@ watch(
   () => route.path,
   () => {
     if (mobileOpen.value) closeMobile()
+    ensureActiveSectionExpanded()
+    void nextTick(() => {
+      scrollActiveItemIntoView()
+    })
+  }
+)
+
+watch(
+  [sidebarCollapsed, () => visibleGroups.value.length],
+  () => {
+    void nextTick(updateSidebarScrollShadow)
   }
 )
 
@@ -663,14 +759,24 @@ onMounted(() => {
   void refreshBatchImageAccess()
   mobileQuery?.addEventListener('change', updateMobile)
   window.addEventListener('keydown', handleKeydown)
+  ensureActiveSectionExpanded()
   void nextTick(() => {
-    if (sidebarNavRef.value) sidebarNavRef.value.scrollTop = appStore.sidebarScrollTop
+    if (sidebarNavRef.value) {
+      sidebarNavRef.value.scrollTop = appStore.sidebarScrollTop
+      if (typeof ResizeObserver !== 'undefined') {
+        navResizeObserver = new ResizeObserver(() => updateSidebarScrollShadow())
+        navResizeObserver.observe(sidebarNavRef.value)
+      }
+    }
+    scrollActiveItemIntoView()
   })
 })
 
 onBeforeUnmount(() => {
   mobileQuery?.removeEventListener('change', updateMobile)
   window.removeEventListener('keydown', handleKeydown)
+  navResizeObserver?.disconnect()
+  navResizeObserver = null
   if (sidebarNavRef.value) appStore.sidebarScrollTop = sidebarNavRef.value.scrollTop
 })
 </script>

@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
+import { routeUsesConsoleScope } from '@/stores/consoleScope'
 import {
   useThemeDirection,
   type DensityPreference,
@@ -18,6 +19,7 @@ import BrandMark from './BrandMark.vue'
 import ScopeSwitcher from './ScopeSwitcher.vue'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
+import { resolveNavigationBreadcrumb } from '@/router/navigationRegistry'
 import { resolveRouteMetaKeys } from '@/router/title'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 
@@ -41,6 +43,7 @@ const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWi
 const user = computed(() => authStore.user)
 const isAdmin = computed(() => Boolean(authStore.isAdmin || user.value?.role === 'admin'))
 const isAdminRoute = computed(() => Boolean(route.path?.startsWith('/admin')))
+const showScopeSwitcher = computed(() => Boolean(user.value) && routeUsesConsoleScope(route.path))
 
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -104,39 +107,10 @@ const routeMetaKeys = computed(() =>
   })
 )
 
+const navBreadcrumb = computed(() => resolveNavigationBreadcrumb(route.path))
+
 const pageDomainLabel = computed(() => {
-  const p = route.path || ''
-  if (p.startsWith('/admin')) {
-    if (
-      p.startsWith('/admin/dashboard') ||
-      p.startsWith('/admin/ops') ||
-      p.startsWith('/admin/channels/monitor') ||
-      p.startsWith('/admin/audit-logs')
-    ) {
-      return isZh.value ? '管理 · 运行观测' : 'ADMIN · OPS'
-    }
-    if (
-      p.startsWith('/admin/accounts') ||
-      p.startsWith('/admin/groups') ||
-      p.startsWith('/admin/proxies') ||
-      p.startsWith('/admin/proxy-groups') ||
-      p.startsWith('/admin/channels')
-    ) {
-      return isZh.value ? '管理 · 连接与路由' : 'ADMIN · CONNECTIONS'
-    }
-    if (
-      p.startsWith('/admin/orders') ||
-      p.startsWith('/admin/subscriptions') ||
-      p.startsWith('/admin/redeem') ||
-      p.startsWith('/admin/promo-codes') ||
-      p.startsWith('/admin/affiliates') ||
-      p.startsWith('/admin/usage')
-    ) {
-      return isZh.value ? '管理 · 结算与账本' : 'ADMIN · SETTLEMENT'
-    }
-    return isZh.value ? '管理 · 系统与治理' : 'ADMIN · GOVERNANCE'
-  }
-  return isZh.value ? '开发者台' : 'CONSOLE'
+  return isZh.value ? navBreadcrumb.value.domainLabelZh : navBreadcrumb.value.domainLabelEn
 })
 
 const pageTitle = computed(() => {
@@ -153,6 +127,17 @@ const pageTitle = computed(() => {
   if (titleKey) {
     const translated = t(titleKey)
     if (translated && translated !== titleKey) return translated
+  }
+  if (isZh.value && typeof route.meta?.titleZh === 'string' && route.meta.titleZh.trim()) {
+    return route.meta.titleZh.trim()
+  }
+  const matchedItem = navBreadcrumb.value.item
+  if (matchedItem && matchedItem.path === route.path) {
+    if (matchedItem.labelKey) {
+      const translated = t(matchedItem.labelKey)
+      if (translated && translated !== matchedItem.labelKey) return translated
+    }
+    return isZh.value ? matchedItem.fallbackLabelZh : matchedItem.fallbackLabelEn
   }
   return (route.meta?.title as string) || siteName.value
 })
@@ -220,7 +205,7 @@ onBeforeUnmount(() => {
     @keydown.esc="closeMenus"
   >
     <div class="flex h-full items-center justify-between gap-1.5 px-2 sm:gap-2 sm:px-4 lg:px-5">
-      <!-- Left Rail: Mobile Drawer + Collapse + Brand + ScopeSwitcher + Breadcrumb -->
+      <!-- Left Rail: Mobile Drawer + Collapse + Brand + Breadcrumb -->
       <div class="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2.5">
         <button
           type="button"
@@ -271,11 +256,7 @@ onBeforeUnmount(() => {
           <VersionBadge :version="appStore.siteVersion" />
         </div>
 
-        <span class="hidden text-oh-muted sm:inline" aria-hidden="true">/</span>
-
-        <ScopeSwitcher v-if="user" />
-
-        <div class="hidden min-w-0 items-center gap-1.5 text-xs md:flex">
+        <div class="hidden min-w-0 items-center gap-1.5 text-xs sm:flex">
           <span class="text-oh-muted" aria-hidden="true">/</span>
           <span class="shrink-0 font-mono text-[10.5px] uppercase tracking-wider text-oh-muted">
             {{ pageDomainLabel }}
@@ -285,8 +266,10 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Right Controls: ⌘K + Tier Switch + Model Plaza + Docs + Telemetry + Appearance + User -->
+      <!-- Right Controls: ScopeSwitcher + ⌘K + Tier Switch + Model Plaza + Docs + Telemetry + Appearance + User -->
       <div class="flex shrink-0 items-center gap-1 sm:gap-2">
+        <ScopeSwitcher v-if="showScopeSwitcher" align="right" />
+
         <button
           type="button"
           data-testid="console-cmdk-trigger"

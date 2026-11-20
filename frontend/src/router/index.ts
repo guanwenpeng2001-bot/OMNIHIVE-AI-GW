@@ -48,7 +48,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/setup/SetupWizardView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Setup'
+      title: 'Setup',
+      titleZh: '初始化向导'
     }
   },
 
@@ -59,7 +60,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/PublicHomeView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Home'
+      title: 'Home',
+      titleZh: '首页'
     }
   },
   {
@@ -88,7 +90,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/EmailVerifyView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Verify Email'
+      title: 'Verify Email',
+      titleZh: '验证邮箱'
     }
   },
   {
@@ -186,8 +189,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/ResetPasswordView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Reset Password'
+      title: 'Reset Password',
+      titleZh: '重置密码'
     }
+  },
+  {
+    path: '/quota',
+    redirect: '/key-usage'
   },
   {
     path: '/key-usage',
@@ -196,6 +204,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Key Usage',
+      titleZh: '密钥额度查询'
     }
   },
   {
@@ -204,7 +213,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/LegalDocumentView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Legal Document'
+      title: 'Legal Document',
+      titleZh: '法律条款'
     }
   },
   {
@@ -214,7 +224,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Model Plaza',
-      titleKey: 'modelPlaza.title'
+      titleZh: '模型广场',
+      titleKey: 'nav.modelPlaza'
     }
   },
   {
@@ -223,16 +234,18 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/PublicCompareView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Compare Models'
+      title: 'Compare Models',
+      titleZh: '模型对比'
     }
   },
   {
-    path: '/model-plaza/:id',
+    path: '/model-plaza/:id(.+)',
     name: 'PublicModelDetail',
     component: () => import('@/views/public/PublicModelDetailView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Model Detail'
+      title: 'Model Detail',
+      titleZh: '模型详情'
     }
   },
   {
@@ -241,7 +254,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/PublicPricingView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Pricing'
+      title: 'Pricing',
+      titleZh: '定价方案'
     }
   },
   {
@@ -250,7 +264,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/PublicStatusView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Service Status'
+      title: 'Service Status',
+      titleZh: '服务状态'
     }
   },
 
@@ -258,6 +273,28 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     redirect: '/home'
+  },
+  {
+    path: '/channels/probe',
+    redirect: '/monitor'
+  },
+  {
+    path: '/channels/telemetry',
+    redirect: '/monitor'
+  },
+  {
+    path: '/workspaces/:id/keys',
+    redirect: (to) => {
+      const wsId = String(to.params.id ?? '')
+      if (/^[1-9]\d*$/.test(wsId)) {
+        try {
+          useAppStore().selectWorkspaceScope(wsId)
+        } catch {
+          // Store may not be active during pure static resolution in tests.
+        }
+      }
+      return { path: '/keys', query: to.query }
+    }
   },
   {
     path: '/dashboard',
@@ -471,7 +508,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'MCP 授权'
+      title: 'MCP Authorization',
+      titleZh: 'MCP 授权'
     }
   },
   {
@@ -589,6 +627,18 @@ const routes: RouteRecordRaw[] = [
     redirect: '/admin/dashboard'
   },
   {
+    path: '/admin/pricing',
+    redirect: '/admin/channels/pricing'
+  },
+  {
+    path: '/admin/reconciliation',
+    redirect: '/admin/billing'
+  },
+  {
+    path: '/admin/project-audit',
+    redirect: '/admin/audit'
+  },
+  {
     path: '/admin/dashboard',
     name: 'AdminDashboard',
     component: () => import('@/views/admin/DashboardView.vue'),
@@ -631,8 +681,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
-      title: 'Scoped Audit',
-      titleKey: 'admin.audit.title',
+      title: 'Project Audit',
+      titleZh: '项目审计',
       descriptionKey: 'admin.audit.description'
     }
   },
@@ -646,6 +696,17 @@ const routes: RouteRecordRaw[] = [
       title: 'User Management',
       titleKey: 'admin.users.title',
       descriptionKey: 'admin.users.description'
+    }
+  },
+  {
+    path: '/admin/members',
+    name: 'AdminMembers',
+    component: () => import('@/views/admin/members/MembersAccessView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Members & Access',
+      titleZh: '工作空间成员与授权'
     }
   },
   {
@@ -669,7 +730,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Resource Pools',
-      titleKey: 'admin.groups.title',
+      titleZh: '资源池',
       descriptionKey: 'admin.groups.description'
     }
   },
@@ -757,7 +818,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'New Upstream Connection',
-      titleKey: 'admin.accounts.title',
+      titleZh: '新建上游连接',
       descriptionKey: 'admin.accounts.description'
     }
   },
@@ -769,7 +830,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Edit Upstream Connection',
-      titleKey: 'admin.accounts.title',
+      titleZh: '编辑上游连接',
       descriptionKey: 'admin.accounts.description'
     }
   },
@@ -858,13 +919,28 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/settings/:section',
+    name: 'AdminSettingsSection',
+    props: true,
+    component: () => import('@/views/admin/settings/SettingsSectionView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'System Settings',
+      titleZh: '系统设置',
+      titleKey: 'admin.settings.title',
+      descriptionKey: 'admin.settings.description'
+    }
+  },
+  {
     path: '/admin/backup',
     name: 'AdminBackup',
     component: () => import('@/views/admin/BackupView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
-      title: '备份与归档'
+      title: 'Backup & Restore',
+      titleZh: '备份与归档'
     }
   },
   {
@@ -883,6 +959,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/prompt-audit',
     name: 'AdminPromptAudit',
+    alias: ['/admin/security-audit'],
     component: () => import('@/features/prompt-audit/PromptAuditView.vue'),
     meta: {
       requiresAuth: true,
@@ -1010,7 +1087,7 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/monitor'])
 for (const resourceRoute of [...routes]) {
   if (!workspaceResourcePaths.has(resourceRoute.path)) continue
   const suffix = resourceRoute.path.replace(/^\/admin/, '')

@@ -53,13 +53,10 @@ export const USER_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
 ]
 
 export const ADMIN_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
-  { id: 'overview', eyebrowEn: 'OVERVIEW', eyebrowZh: '运行概览' },
-  { id: 'models', eyebrowEn: 'CATALOG', eyebrowZh: '模型与目录' },
-  { id: 'access', eyebrowEn: 'CONNECTIONS & POOLS', eyebrowZh: '连接与资源池' },
-  { id: 'policies', eyebrowEn: 'POLICIES', eyebrowZh: '策略与治理' },
-  { id: 'requests', eyebrowEn: 'DIAGNOSTICS & OPS', eyebrowZh: '诊断与监控' },
-  { id: 'billing', eyebrowEn: 'SETTLEMENT', eyebrowZh: '结算与套餐' },
-  { id: 'settings', eyebrowEn: 'SYSTEM', eyebrowZh: '用户与系统' }
+  { id: 'ops', eyebrowEn: 'OPERATIONS', eyebrowZh: '运行观测' },
+  { id: 'connections', eyebrowEn: 'CONNECTIONS & ROUTING', eyebrowZh: '连接与路由' },
+  { id: 'settlement', eyebrowEn: 'SETTLEMENT & PLANS', eyebrowZh: '结算与套餐' },
+  { id: 'settings', eyebrowEn: 'GOVERNANCE & SYSTEM', eyebrowZh: '系统与治理' }
 ]
 
 const registeredExtensionItems = ref<ShellNavItemSpec[]>([])
@@ -120,6 +117,28 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'chart',
     order: 30,
     keywords: ['key', 'quota', 'inspector', 'balance', '额度查询']
+  },
+  {
+    id: 'public-pricing',
+    path: '/pricing',
+    tier: 'public',
+    section: 'public',
+    fallbackLabelEn: 'Pricing',
+    fallbackLabelZh: '定价方案',
+    icon: 'dollar',
+    order: 40,
+    keywords: ['pricing', 'plans', 'rates', '定价', '价格']
+  },
+  {
+    id: 'public-status',
+    path: '/status',
+    tier: 'public',
+    section: 'public',
+    fallbackLabelEn: 'Service Status',
+    fallbackLabelZh: '服务状态',
+    icon: 'shield',
+    order: 50,
+    keywords: ['status', 'uptime', 'health', '服务状态', '健康']
   },
 
   // ==================== User Console Tier ====================
@@ -390,7 +409,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-dashboard',
     path: '/admin/dashboard',
     tier: 'admin',
-    section: 'overview',
+    section: 'ops',
     labelKey: 'nav.dashboard',
     fallbackLabelEn: 'Control Overview',
     fallbackLabelZh: '运行总览',
@@ -402,20 +421,20 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-channels-pricing',
     path: '/admin/channels/pricing',
     tier: 'admin',
-    section: 'models',
+    section: 'connections',
     labelKey: 'nav.channelPricing',
     fallbackLabelEn: 'Model Catalog & Pricing',
     fallbackLabelZh: '模型目录与定价',
     icon: 'dollar',
     hideInSimpleMode: true,
-    order: 10,
+    order: 28,
     keywords: ['catalog', 'models', 'mapping', 'pricing', '渠道定价', '模型目录']
   },
   {
     id: 'admin-accounts',
     path: '/admin/accounts',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     labelKey: 'nav.accounts',
     fallbackLabelEn: 'Upstream Connections',
     fallbackLabelZh: '上游连接与凭据',
@@ -428,7 +447,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-connections-new',
     path: '/admin/connections/new',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     fallbackLabelEn: 'New Upstream Connection',
     fallbackLabelZh: '新建上游连接',
     icon: 'plus',
@@ -439,7 +458,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-groups',
     path: '/admin/groups',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     labelKey: 'nav.groups',
     fallbackLabelEn: 'Resource Pools & Routing',
     fallbackLabelZh: '资源池与路由策略',
@@ -452,7 +471,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-pools',
     path: '/admin/pools',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     fallbackLabelEn: 'Resource Pools',
     fallbackLabelZh: '资源池',
     icon: 'server',
@@ -463,7 +482,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-routing',
     path: '/admin/routing',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     fallbackLabelEn: 'Routing Workbench',
     fallbackLabelZh: '路由工作台',
     icon: 'swap',
@@ -474,7 +493,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-proxies',
     path: '/admin/proxies',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     labelKey: 'nav.ipNodes',
     fallbackLabelEn: 'Egress Proxies',
     fallbackLabelZh: '出口代理节点',
@@ -486,7 +505,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-proxy-groups',
     path: '/admin/proxy-groups',
     tier: 'admin',
-    section: 'access',
+    section: 'connections',
     labelKey: 'nav.ipGroups',
     fallbackLabelEn: 'Egress Pools',
     fallbackLabelZh: '出口代理池',
@@ -498,21 +517,21 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-security-audit',
     path: '/admin/security-audit',
     tier: 'admin',
-    section: 'policies',
+    section: 'settings',
     labelKey: 'nav.securityAudit',
     fallbackLabelEn: 'Safety & Content Policy',
     fallbackLabelZh: '安全与内容治理',
     icon: 'shield',
     expandOnly: true,
     featureFlag: 'riskControl',
-    order: 10,
+    order: 25,
     keywords: ['policy', 'risk', 'prompt', 'audit', 'moderation', '风控'],
     children: [
       {
         id: 'admin-risk-control',
         path: '/admin/risk-control',
         tier: 'admin',
-        section: 'policies',
+        section: 'settings',
         labelKey: 'nav.contentModeration',
         fallbackLabelEn: 'Risk & Rate Policy',
         fallbackLabelZh: '风控策略中心',
@@ -524,7 +543,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
         id: 'admin-prompt-audit',
         path: '/admin/prompt-audit',
         tier: 'admin',
-        section: 'policies',
+        section: 'settings',
         labelKey: 'nav.promptAudit',
         fallbackLabelEn: 'Prompt Audit',
         fallbackLabelZh: '提示词审计',
@@ -538,7 +557,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-project-audit',
     path: '/admin/audit',
     tier: 'admin',
-    section: 'policies',
+    section: 'settings',
     fallbackLabelEn: 'Project Audit',
     fallbackLabelZh: '项目审计',
     icon: 'shield',
@@ -549,7 +568,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-ops',
     path: '/admin/ops',
     tier: 'admin',
-    section: 'requests',
+    section: 'ops',
     labelKey: 'nav.ops',
     fallbackLabelEn: 'Realtime Operations',
     fallbackLabelZh: '实时运维监控',
@@ -562,7 +581,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-channel-monitor',
     path: '/admin/channels/monitor',
     tier: 'admin',
-    section: 'requests',
+    section: 'ops',
     labelKey: 'nav.channelMonitor',
     fallbackLabelEn: 'Upstream Health Probes',
     fallbackLabelZh: '上游健康探测',
@@ -576,7 +595,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-usage',
     path: '/admin/usage',
     tier: 'admin',
-    section: 'requests',
+    section: 'ops',
     labelKey: 'nav.usage',
     fallbackLabelEn: 'Request & Usage Ledger',
     fallbackLabelZh: '全局请求与账本',
@@ -588,7 +607,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-requests',
     path: '/admin/requests',
     tier: 'admin',
-    section: 'requests',
+    section: 'ops',
     fallbackLabelEn: 'Request Diagnostics',
     fallbackLabelZh: '请求诊断',
     icon: 'document',
@@ -599,7 +618,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-orders-dashboard',
     path: '/admin/orders/dashboard',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.paymentDashboard',
     fallbackLabelEn: 'Revenue & Settlement',
     fallbackLabelZh: '营收与结算大盘',
@@ -613,7 +632,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-billing',
     path: '/admin/billing',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     fallbackLabelEn: 'Reconciliation & Ledger',
     fallbackLabelZh: '对账与账本',
     icon: 'calculator',
@@ -624,7 +643,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-orders',
     path: '/admin/orders',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.orderManagement',
     fallbackLabelEn: 'Orders',
     fallbackLabelZh: '支付订单管理',
@@ -638,7 +657,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-orders-plans',
     path: '/admin/orders/plans',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.paymentPlans',
     fallbackLabelEn: 'Subscription Plans',
     fallbackLabelZh: '订阅套餐配置',
@@ -652,7 +671,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-subscriptions',
     path: '/admin/subscriptions',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.subscriptions',
     fallbackLabelEn: 'Assigned Subscriptions',
     fallbackLabelZh: '用户订阅分配',
@@ -666,7 +685,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-redeem',
     path: '/admin/redeem',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.redeemCodes',
     fallbackLabelEn: 'Redeem Codes',
     fallbackLabelZh: '兑换码管理',
@@ -680,7 +699,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-promo',
     path: '/admin/promo-codes',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.promoCodes',
     fallbackLabelEn: 'Promo Codes',
     fallbackLabelZh: '优惠码管理',
@@ -693,7 +712,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-affiliates-invites',
     path: '/admin/affiliates/invites',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.affiliateInviteRecords',
     fallbackLabelEn: 'Affiliate Invites',
     fallbackLabelZh: '联盟邀请记录',
@@ -706,7 +725,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-affiliates-rebates',
     path: '/admin/affiliates/rebates',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.affiliateRebateRecords',
     fallbackLabelEn: 'Affiliate Rebates',
     fallbackLabelZh: '联盟返利记录',
@@ -719,7 +738,7 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     id: 'admin-affiliates-transfers',
     path: '/admin/affiliates/transfers',
     tier: 'admin',
-    section: 'billing',
+    section: 'settlement',
     labelKey: 'nav.affiliateTransferRecords',
     fallbackLabelEn: 'Payout Reviews',
     fallbackLabelZh: '提现审核',
@@ -740,6 +759,18 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     hideInSimpleMode: true,
     order: 10,
     keywords: ['users', 'members', 'roles', 'balance', '用户管理']
+  },
+  {
+    id: 'admin-members',
+    path: '/admin/members',
+    tier: 'admin',
+    section: 'settings',
+    fallbackLabelEn: 'Members & Access',
+    fallbackLabelZh: '工作空间成员与授权',
+    icon: 'users',
+    hideInSimpleMode: true,
+    order: 12,
+    keywords: ['members', 'access', 'workspaces', 'grants', 'permissions', '成员', '授权']
   },
   {
     id: 'admin-audit-logs',
@@ -786,7 +817,6 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     fallbackLabelEn: 'Extensions & Plugins',
     fallbackLabelZh: '扩展与插件',
     icon: 'cube',
-    featureFlag: 'pluginManagement',
     order: 50,
     keywords: ['plugins', 'extensions', '插件']
   },
@@ -801,8 +831,136 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'cog',
     order: 60,
     keywords: ['settings', 'system', 'branding', 'oauth', 'smtp', '系统设置']
+  },
+  {
+    id: 'admin-settings-workbench',
+    path: '/admin/settings/general',
+    tier: 'admin',
+    section: 'settings',
+    fallbackLabelEn: 'Settings Workbench',
+    fallbackLabelZh: '分区设置工作台',
+    icon: 'cog',
+    order: 65,
+    keywords: ['settings', 'workbench', 'sections', 'security', 'smtp', '分区设置']
   }
 ]
+
+export interface ResolvedNavigationBreadcrumb {
+  tier: Exclude<ShellTier, 'bare'>
+  section: NavSectionId
+  domainLabelEn: string
+  domainLabelZh: string
+  item: ShellNavItemSpec | null
+}
+
+function flattenRegistryEntries(entries: readonly ShellNavItemSpec[]): ShellNavItemSpec[] {
+  return entries.flatMap((entry) =>
+    entry.children && entry.children.length > 0
+      ? [entry, ...flattenRegistryEntries(entry.children)]
+      : [entry]
+  )
+}
+
+function mapAdminSectionMeta(section: NavSectionId): ShellNavSectionMeta {
+  switch (section) {
+    case 'ops':
+    case 'overview':
+    case 'requests':
+      return ADMIN_CONSOLE_SECTIONS[0]
+    case 'connections':
+    case 'models':
+    case 'access':
+      return ADMIN_CONSOLE_SECTIONS[1]
+    case 'settlement':
+    case 'billing':
+      return ADMIN_CONSOLE_SECTIONS[2]
+    default:
+      return ADMIN_CONSOLE_SECTIONS[3]
+  }
+}
+
+function mapUserSectionMeta(section: NavSectionId): ShellNavSectionMeta {
+  const normalized: NavSectionId = section === 'activity' ? 'requests' : section
+  return (
+    USER_CONSOLE_SECTIONS.find((item) => item.id === normalized) ?? USER_CONSOLE_SECTIONS[0]
+  )
+}
+
+/**
+ * Resolves the canonical navigation section and item metadata from `navigationRegistry`
+ * as the single source of truth for breadcrumbs in `AppHeader`.
+ */
+export function resolveNavigationBreadcrumb(rawPath: string | null | undefined): ResolvedNavigationBreadcrumb {
+  const cleanPath = String(rawPath || '').split(/[?#]/)[0] || '/'
+  const wsNormalizedPath = cleanPath.replace(/^\/workspaces\/[^/]+(?=\/|$)/, '') || '/workspaces'
+  const isAdminPath = cleanPath.startsWith('/admin')
+  const targetTier: Exclude<ShellTier, 'bare'> = isAdminPath ? 'admin' : 'user'
+  const lookupPath = isAdminPath ? cleanPath : wsNormalizedPath
+
+  const allEntries = flattenRegistryEntries([
+    ...CORE_NAVIGATION_ITEMS,
+    ...registeredExtensionItems.value
+  ]).filter((entry) => entry.tier === targetTier)
+
+  const matched =
+    allEntries
+      .filter(
+        (entry) => lookupPath === entry.path || lookupPath.startsWith(`${entry.path}/`)
+      )
+      .sort((a, b) => {
+        if (a.expandOnly !== b.expandOnly) return a.expandOnly ? 1 : -1
+        return b.path.length - a.path.length
+      })[0] ?? null
+
+  if (isAdminPath) {
+    let resolvedSection: NavSectionId = matched?.section ?? 'settings'
+    if (!matched) {
+      if (/^\/admin\/(connections|channels)(\/|$)/.test(lookupPath)) {
+        resolvedSection = 'connections'
+      } else if (/^\/admin\/affiliates(\/|$)/.test(lookupPath)) {
+        resolvedSection = 'settlement'
+      }
+    }
+    const secMeta = mapAdminSectionMeta(resolvedSection)
+    return {
+      tier: 'admin',
+      section: secMeta.id,
+      domainLabelEn: `ADMIN · ${secMeta.eyebrowEn}`,
+      domainLabelZh: `管理 · ${secMeta.eyebrowZh}`,
+      item: matched
+    }
+  }
+
+  if (matched) {
+    const secMeta = mapUserSectionMeta(matched.section)
+    return {
+      tier: 'user',
+      section: secMeta.id,
+      domainLabelEn: `CONSOLE · ${secMeta.eyebrowEn}`,
+      domainLabelZh: `开发者台 · ${secMeta.eyebrowZh}`,
+      item: matched
+    }
+  }
+
+  if (/^\/payment(\/|$)/.test(lookupPath)) {
+    const billingMeta = mapUserSectionMeta('billing')
+    return {
+      tier: 'user',
+      section: 'billing',
+      domainLabelEn: `CONSOLE · ${billingMeta.eyebrowEn}`,
+      domainLabelZh: `开发者台 · ${billingMeta.eyebrowZh}`,
+      item: null
+    }
+  }
+
+  return {
+    tier: 'user',
+    section: 'overview',
+    domainLabelEn: 'CONSOLE',
+    domainLabelZh: '开发者台',
+    item: null
+  }
+}
 
 export function resolveVisibleTierNavItems(
   tier: Exclude<ShellTier, 'bare'>,

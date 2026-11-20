@@ -3,9 +3,20 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
+import { SCOPE_CHANGED_EVENT } from '@/stores/app'
+import { readPersistedGlobalScope } from '@/stores/consoleScope'
 import { workspaceIDFromPath } from '@/api/workspaceScope'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Badge from '@/components/ui/Badge.vue'
+
+withDefaults(
+  defineProps<{
+    align?: 'left' | 'right'
+  }>(),
+  {
+    align: 'right'
+  }
+)
 
 const { locale } = useI18n()
 const route = useRoute()
@@ -293,12 +304,35 @@ function handleDocumentPointerDown(event: MouseEvent): void {
   }
 }
 
+function handleExternalScopeChanged(): void {
+  const persisted = readPersistedGlobalScope()
+  const current = activeScope.value
+  if (
+    current.mode === persisted.mode &&
+    current.workspaceId === persisted.workspaceId &&
+    current.projectId === persisted.projectId
+  ) {
+    return
+  }
+  if (persisted.mode === 'workspace' && persisted.workspaceId) {
+    appStore.selectWorkspaceScope?.(persisted.workspaceId, persisted.projectId)
+  } else {
+    appStore.selectPersonalScope?.()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('mousedown', handleDocumentPointerDown)
+  if (typeof window !== 'undefined') {
+    window.addEventListener(SCOPE_CHANGED_EVENT, handleExternalScopeChanged)
+  }
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleDocumentPointerDown)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(SCOPE_CHANGED_EVENT, handleExternalScopeChanged)
+  }
 })
 </script>
 
@@ -324,7 +358,7 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       aria-haspopup="dialog"
       :aria-label="isZh ? '切换工作空间与项目作用域' : 'Switch workspace and project scope'"
-      class="oh-focus-ring inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-oh-md border border-oh-default bg-oh-surface px-1.5 text-left text-[13px] transition-colors hover:border-oh-strong hover:bg-oh-hover sm:gap-1.5 sm:max-w-[300px] sm:px-2.5"
+      class="oh-focus-ring inline-flex h-8 max-w-[168px] min-w-0 items-center gap-1 rounded-oh-md border border-oh-default bg-oh-surface px-1.5 text-left text-xs transition-colors hover:border-oh-strong hover:bg-oh-hover sm:max-w-[232px] sm:gap-1.5 sm:px-2.5"
       @click="togglePopover"
       @keydown.esc="closePopover(true)"
     >
@@ -373,7 +407,10 @@ onBeforeUnmount(() => {
       role="dialog"
       data-testid="scope-switcher-popover"
       :aria-label="isZh ? '选择工作空间与项目' : 'Select workspace and project'"
-      class="max-sm:fixed max-sm:left-3 max-sm:right-3 max-sm:top-14 max-sm:w-auto sm:absolute sm:left-0 sm:top-full z-50 mt-1.5 sm:w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-oh-lg border border-oh-default bg-oh-elevated text-oh-primary shadow-oh-md"
+      :class="[
+        'max-sm:fixed max-sm:left-3 max-sm:right-3 max-sm:top-14 max-sm:w-auto sm:absolute sm:top-full z-50 mt-1.5 sm:w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-oh-lg border border-oh-default bg-oh-elevated text-oh-primary shadow-oh-md',
+        align === 'left' ? 'sm:left-0' : 'sm:right-0'
+      ]"
       @keydown="handleKeydown"
     >
       <div class="flex items-center gap-2 border-b border-oh-subtle px-3 py-2">

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { i18n as globalI18n } from '@/i18n'
 import Button from './Button.vue'
 import CopyButton from './CopyButton.vue'
 import { cn } from './utils'
@@ -16,7 +19,7 @@ export interface ErrorStateProps {
   compact?: boolean
 }
 
-withDefaults(defineProps<ErrorStateProps>(), {
+const props = withDefaults(defineProps<ErrorStateProps>(), {
   message: undefined,
   variant: 'error',
   code: undefined,
@@ -24,13 +27,32 @@ withDefaults(defineProps<ErrorStateProps>(), {
   requiredRole: undefined,
   lastSyncedAt: undefined,
   retryable: true,
-  retryLabel: 'Retry',
+  retryLabel: undefined,
   compact: false
 })
 
 const emit = defineEmits<{
   retry: []
 }>()
+
+let i18nLocale: { value?: string } | string | undefined
+try {
+  const composer = useI18n()
+  i18nLocale = composer?.locale
+} catch {
+  i18nLocale = undefined
+}
+
+const isZh = computed(() => {
+  const raw =
+    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
+    globalI18n?.global?.locale?.value ||
+    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
+    'en'
+  return String(raw).toLowerCase().startsWith('zh')
+})
+
+const resolvedRetryLabel = computed(() => props.retryLabel ?? (isZh.value ? '重试' : 'Retry'))
 </script>
 
 <template>
@@ -101,11 +123,12 @@ const emit = defineEmits<{
           </p>
 
           <p v-if="variant === 'permission' && requiredRole" class="mt-1.5 text-xs text-oh-muted">
-            Required access scope: <span class="font-mono text-oh-primary">{{ requiredRole }}</span>
+            {{ isZh ? '所需权限范围：' : 'Required access scope:' }}
+            <span class="font-mono text-oh-primary">{{ requiredRole }}</span>
           </p>
 
           <p v-if="variant === 'stale' && lastSyncedAt" class="mt-1.5 font-mono text-xs text-oh-status-warn-fg">
-            Last verified sync: {{ lastSyncedAt }}
+            {{ isZh ? '最近验证同步：' : 'Last verified sync:' }} {{ lastSyncedAt }}
           </p>
 
           <div
@@ -116,7 +139,7 @@ const emit = defineEmits<{
             <code class="font-mono text-[11px] text-oh-primary">{{ requestId }}</code>
             <CopyButton
               :value="requestId"
-              aria-label="Copy request ID"
+              :aria-label="isZh ? '复制请求 ID' : 'Copy request ID'"
               variant="inline"
               size="xs"
               icon-only
@@ -128,7 +151,7 @@ const emit = defineEmits<{
       <div v-if="$slots.actions || (retryable && variant !== 'permission')" class="flex shrink-0 items-center gap-2">
         <slot name="actions">
           <Button variant="secondary" size="sm" @click="emit('retry')">
-            {{ retryLabel }}
+            {{ resolvedRetryLabel }}
           </Button>
         </slot>
       </div>
