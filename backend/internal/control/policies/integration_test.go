@@ -313,3 +313,61 @@ func testConnectionRevocation(t *testing.T, ctx context.Context, db *sql.DB, c p
 	_, err = st.Simulate(ctx, c, policyID, in)
 	require.ErrorIs(t, err, policy.Expired)
 }
+
+func TestWorkbenchFirstSimulationCanPublish(t *testing.T) {
+	ctx := t.Context()
+	db, _, _ := testutil.NewCapabilityPostgres(t)
+	id := func(statement string, args ...any) int64 {
+		t.Helper()
+		var id int64
+		require.NoError(t, db.QueryRowContext(ctx, statement, args...).Scan(&id))
+		return id
+	}
+	exec := func(statement string, args ...any) {
+		t.Helper()
+		_, err := db.ExecContext(ctx, statement, args...)
+		require.NoError(t, err)
+	}
+	w := id("INSERT INTO workspaces(name) VALUES('routing workbench') RETURNING id")
+	p := id("SELECT id FROM projects WHERE workspace_id=$1 AND is_default", w)
+	actor := id("INSERT INTO users(email,password_hash) VALUES($1,'fixture') RETURNING id", uuid.NewString()+"@example.test")
+	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", w, actor)
+	account := id(`INSERT INTO accounts(workspace_id,name,platform,type,status,schedulable,extra)
+	 VALUES($1,'route','openai','apikey','active',true,'{"upstream_model_catalog":{"eligible_models":[{"id":"local-model","endpoints":["chat_completions"]}]}}') RETURNING id`, w)
+	verification := uuid.NewString()
+	exec(`INSERT INTO provider_connections(account_id,workspace_id,provider,auth_type,name,concurrency,state,verified_id)
+	 VALUES($1,$2,'openai','api_key','route',1,'active',$3)`, account, w, verification)
+	exec(`INSERT INTO connection_verifications(id,workspace_id,account_id,base_version,credential_version,proxy_revision,eligible,snapshot,expires_at)
+	 VALUES($1,$2,$3,1,1,'',true,'{"models":["local-model"]}',now()+interval '1 hour')`, verification, w, account)
+	exec("INSERT INTO connection_credential_versions(account_id,workspace_id,reference,version) VALUES($1,$2,'metadata',1)", account, w)
+	c := policy.Caller{Actor: actor, Workspace: w, AccessVersion: id("SELECT scope_version FROM workspaces WHERE id=$1", w)}
+	store := policy.NewStore(db, []byte("workbench-proof"))
+	project := strconv.FormatInt(p, 10)
+	d := policy.Definition{Name: "first publication", Scope: policy.Scope{Type: "project", ID: project}, Candidates: policy.Candidates{DeniedProviders: []string{"anthropic"}}}
+	h, err := store.Create(ctx, c, "create", d)
+	require.NoError(t, err)
+	s := policy.Scenario{Project: project, Model: "local-model", Protocol: "openai_chat", Action: "text.chat", Input: "10", Output: "5"}
+	in := policy.SimulationInput{Scenario: s, Version: h.Draft, Seed: "0", Snapshot: "missing"}
+	_, err = store.Simulate(ctx, c, h.ID, in)
+	require.ErrorIs(t, err, policy.Expired)
+	in.Snapshot = ""
+	sim, err := store.Simulate(ctx, c, h.ID, in)
+	require.NoError(t, err)
+	require.NotNil(t, sim.Trace.Selected)
+	again, err := store.Simulate(ctx, c, h.ID, in)
+	require.NoError(t, err)
+	require.Equal(t, sim.ID, again.ID)
+	a := scope.Authorized{ActorID: actor, WorkspaceID: w, ProjectID: p, Version: c.AccessVersion}
+	_, err = store.PlanExecution(ctx, a, s, nil, 0)
+	require.ErrorIs(t, err, policy.Expired)
+	allowed, err := store.NativeAccounts(ctx, a, s.Model)
+	require.NoError(t, err)
+	require.Nil(t, allowed)
+	_, err = store.Publish(ctx, c, h.ID, "publish", h.ETag, policy.Publish{Draft: h.Draft, Simulation: sim.ID, Note: "publish from workbench"})
+	require.NoError(t, err)
+	denied := id("INSERT INTO accounts(workspace_id,name,platform,type,status,schedulable) VALUES($1,'denied','anthropic','apikey','active',true) RETURNING id", w)
+	allowed, err = store.NativeAccounts(ctx, a, s.Model)
+	require.NoError(t, err)
+	require.True(t, allowed[account])
+	require.False(t, allowed[denied])
+}

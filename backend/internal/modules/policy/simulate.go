@@ -128,6 +128,17 @@ func readAccess(ctx context.Context, q queryer, c Caller, s Scenario) error {
 }
 
 func (s *Store) Simulate(ctx context.Context, c Caller, id string, in SimulationInput) (Simulation, error) {
+	out, err := s.simulate(ctx, c, id, in)
+	if !errors.Is(err, needWorkbenchGraph) {
+		return out, err
+	}
+	if err = s.captureWorkbench(ctx, c, in.Scenario); err != nil {
+		return out, err
+	}
+	return s.simulate(ctx, c, id, in)
+}
+
+func (s *Store) simulate(ctx context.Context, c Caller, id string, in SimulationInput) (Simulation, error) {
 	var out Simulation
 	if err := in.validate(); err != nil {
 		return out, err
@@ -156,20 +167,30 @@ func (s *Store) Simulate(ctx context.Context, c Caller, id string, in Simulation
 	if err != nil {
 		return out, err
 	}
-	g, err := currentGraph(ctx, tx, c, in.Scenario, in.Snapshot)
+	draft, err := revision(ctx, tx, h, in.Version, false)
 	if err != nil {
 		return out, err
 	}
-	simulate := func(version string) (trace.DecisionTrace, error) {
-		l, err := revision(ctx, tx, h, version, false)
+	var comparison Layer
+	if in.Compare != "" {
+		comparison, err = revision(ctx, tx, h, in.Compare, false)
 		if err != nil {
-			return trace.DecisionTrace{}, err
+			return out, err
 		}
+	}
+	g, err := currentGraph(ctx, tx, c, in.Scenario, in.Snapshot, true)
+	if needsWorkbenchGraph(in, g, err) {
+		return out, needWorkbenchGraph
+	}
+	if err != nil {
+		return out, err
+	}
+	simulate := func(l Layer) (trace.DecisionTrace, error) {
 		e, err := Compose(t, withLayer(chain, l))
 		if err != nil {
 			return trace.DecisionTrace{}, err
 		}
-		e.Planner.Version = version
+		e.Planner.Version = l.Version
 		features := planner.Features{Mode: trace.Simulation, ModelID: in.Model, Seed: seed}
 		d := planner.Plan(features, e.Planner, e.Prepare(g, in.Scenario))
 		// Stable opaque labels across baseline and draft, specific to this graph.
@@ -182,12 +203,12 @@ func (s *Store) Simulate(ctx context.Context, c Caller, id string, in Simulation
 		}
 		return d, nil
 	}
-	out.Trace, err = simulate(in.Version)
+	out.Trace, err = simulate(draft)
 	if err != nil {
 		return out, err
 	}
 	if in.Compare != "" {
-		baseline, err := simulate(in.Compare)
+		baseline, err := simulate(comparison)
 		if err != nil {
 			return out, err
 		}
@@ -286,7 +307,7 @@ func (s *Store) PlanExecution(ctx context.Context, a scope.Authorized, scenario 
 	if err != nil {
 		return result, err
 	}
-	graph, err := currentGraph(ctx, tx, c, scenario, "")
+	graph, err := currentGraph(ctx, tx, c, scenario, "", false)
 	if err != nil {
 		return result, err
 	}
@@ -316,7 +337,7 @@ func (s *Store) checkProof(ctx context.Context, tx *sql.Tx, c Caller, h Head, to
 	if currentImpact != p.Impact {
 		return StaleSimulation
 	}
-	g, err := currentGraph(ctx, tx, p.Caller, p.Scenario, p.Snapshot)
+	g, err := currentGraph(ctx, tx, p.Caller, p.Scenario, p.Snapshot, true)
 	if errors.Is(err, Expired) {
 		return StaleSimulation
 	}

@@ -192,7 +192,9 @@ func TestVerificationLifecycleHTTPPostgres(t *testing.T) {
 	require.Equal(t, entry, target.EntryID)
 	path := targetRoute + "/" + target.ID
 	var detail verification.TargetDetail
-	ok(call(http.MethodGet, path, admin, "", "", nil), 200, &detail)
+	detailResponse := call(http.MethodGet, path, admin, "", "", nil)
+	ok(detailResponse, 200, &detail)
+	require.Equal(t, versionTag(detail.ScheduleVersion), detailResponse.Header().Get("ETag"))
 	require.NotNil(t, detail.LastSuccess)
 	require.Equal(t, "connection_verification", detail.LastSuccess.Source)
 	require.Nil(t, detail.LastSuccess.FixtureID)

@@ -88,3 +88,26 @@ func TestProjectionRedactsPrivateEvidenceAndPreservesUnknown(t *testing.T) {
 	p.EndpointMetadata = false
 	require.Empty(t, Project(p, input, Window{}, now).Details[0].Endpoints)
 }
+
+func TestPublicBuiltinMethodPairsAndUnknownModels(t *testing.T) {
+	now := time.Now().UTC()
+	in := Input{Models: []Candidate{{Provider: "openai", Model: "gpt-5"}, {Provider: "openai", Model: "unlisted-gpt-5"}, {Provider: "other", Model: "gpt-5"}}}
+	for _, detail := range Project(Perspective{}, in, Window{}, now).Details {
+		if detail.Model.Provider != "openai" || detail.Model.Model != "gpt-5" {
+			require.Nil(t, detail.Model.Context)
+			require.Empty(t, detail.Model.Protocols)
+			continue
+		}
+		require.Equal(t, int64(400000), *detail.Model.Context)
+		require.Contains(t, detail.Model.Modalities, "text")
+		require.Contains(t, detail.Model.Protocols, "openai_chat")
+		require.Contains(t, detail.Model.Protocols, "openai_responses")
+		require.Contains(t, detail.Model.Actions, "text.chat")
+		require.NotEmpty(t, detail.Capabilities)
+		for _, capability := range detail.Capabilities {
+			require.Equal(t, "approved_registry", capability.Source)
+			require.Nil(t, capability.VerifiedAt)
+		}
+		require.Equal(t, "requires_scope", detail.Model.RouteState)
+	}
+}

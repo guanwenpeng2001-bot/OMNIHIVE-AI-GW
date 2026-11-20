@@ -18,6 +18,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type Handler struct {
@@ -29,7 +30,9 @@ func New(store *policy.Store, access identity.AccessEvaluator) *Handler {
 	return &Handler{store, access}
 }
 func NewStore(db *sql.DB, cfg *config.Config) *policy.Store {
-	return policy.NewStore(db, []byte(cfg.JWT.Secret))
+	store := policy.NewStore(db, []byte(cfg.JWT.Secret))
+	service.BindNativeRoutingPolicies(cfg, store)
+	return store
 }
 
 var ProviderSet = wire.NewSet(NewStore, New)

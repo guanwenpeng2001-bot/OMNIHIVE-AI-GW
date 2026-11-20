@@ -31,3 +31,14 @@ func TestMeasurementSampleAndFreshness(t *testing.T) {
 	b.GatewayErrors = 10
 	require.Equal(t, Outage, measure(b, "").State)
 }
+
+func TestOverallUsesInferenceAndIncidentSeverity(t *testing.T) {
+	components := []Component{{ID: "console_auth", Measurement: Measurement{State: Unknown}}, {ID: "inference", Measurement: Measurement{State: Unknown}}, {ID: "async_workers", Measurement: Measurement{State: Unknown}}}
+	require.Equal(t, Unknown, overallState(components))
+	components[1].State = Operational
+	require.Equal(t, Operational, overallState(components))
+	components[0].State = Maintenance
+	require.Equal(t, Maintenance, overallState(components))
+	components[2].State = Outage
+	require.Equal(t, Outage, overallState(components))
+}

@@ -52,7 +52,8 @@ func TestModelCatalogBindingUsesSameAccountFinalTarget(t *testing.T) {
 
 func TestOpenAIAPIKeyChatOnlyCatalogUsesChatCompletionsBridge(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "chat-only")
-	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
 	snapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointChatCompletions}
 
 	require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&account))
@@ -61,12 +62,14 @@ func TestOpenAIAPIKeyChatOnlyCatalogUsesChatCompletionsBridge(t *testing.T) {
 	}).Supported)
 
 	responsesOnly := catalogEvidenceAccount(2, PlatformOpenAI, "responses-only")
-	responsesSnapshot := responsesOnly.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	responsesSnapshot, ok := responsesOnly.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
 	responsesSnapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointResponses}
 	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&responsesOnly))
 
 	mixed := catalogEvidenceAccount(3, PlatformOpenAI, "chat", "responses")
-	mixedSnapshot := mixed.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	mixedSnapshot, ok := mixed.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	require.True(t, ok)
 	mixedSnapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointChatCompletions}
 	mixedSnapshot.EligibleModels[1].Endpoints = []string{CompositeRouteEndpointResponses}
 	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(&mixed),

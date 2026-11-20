@@ -186,7 +186,6 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 	for _, f := range d.Facts {
 		d.Model.Modalities = append(d.Model.Modalities, f.Modalities...)
 	}
-	d.Facts = unique(d.Facts)
 	d.Model.Context = commonContext(contexts)
 	for _, c := range d.Capabilities {
 		if c.State != "stale" {
@@ -194,6 +193,8 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 			d.Model.Actions = append(d.Model.Actions, c.Action)
 		}
 	}
+	fillBuiltinFacts(&d, contexts)
+	d.Facts = unique(d.Facts)
 	d.Capabilities = unique(d.Capabilities)
 	d.Endpoints = mergeEndpoints(d.Endpoints)
 	d.Model.Protocols = stringsSorted(d.Model.Protocols)

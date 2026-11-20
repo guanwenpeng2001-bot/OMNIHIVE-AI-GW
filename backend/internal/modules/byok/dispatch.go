@@ -408,5 +408,9 @@ func (g Gateway) commitSend(ctx context.Context, tx *sql.Tx, a scope.Authorized,
 		}
 	}()
 	defer func() { stop(); <-done }()
-	return send(transport, Funding{v.cost, at, hold}, secret)
+	sendCtx := transport
+	if d.Source == "byok" {
+		sendCtx = service.WithTenantCredentialTransport(transport, d.AccountID)
+	}
+	return send(sendCtx, Funding{v.cost, at, hold}, secret)
 }

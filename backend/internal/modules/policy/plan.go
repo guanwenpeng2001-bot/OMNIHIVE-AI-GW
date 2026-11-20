@@ -175,9 +175,10 @@ type Evidence struct {
 	TTFTMillis, SuccessPPM                       *int64
 }
 type Graph struct {
-	Snapshot  snapshot.CandidateSnapshot
-	ExpiresAt time.Time
-	Facts     map[string]Evidence
+	SimulationOnly bool `json:"simulation_only,omitempty"`
+	Snapshot       snapshot.CandidateSnapshot
+	ExpiresAt      time.Time
+	Facts          map[string]Evidence
 }
 
 type Scenario struct {
@@ -191,7 +192,7 @@ type Scenario struct {
 	Output   string   `json:"output_token_bound"`
 }
 
-func (e Effective) rejection(c snapshot.Candidate, f Evidence, s Scenario) string {
+func (e Effective) rejection(c snapshot.Candidate, f Evidence, s Scenario, checkMethod bool) string {
 	switch {
 	case c.Rejection != "":
 		return c.Rejection
@@ -199,7 +200,7 @@ func (e Effective) rejection(c snapshot.Candidate, f Evidence, s Scenario) strin
 		return "MODEL_DENIED"
 	case c.ModelID != s.Model && !slices.Contains(e.FallbackModels, c.ModelID):
 		return "MODEL_DENIED"
-	case !slices.Contains(f.Protocols, s.Protocol) || !slices.Contains(f.Actions, s.Action):
+	case checkMethod && (!slices.Contains(f.Protocols, s.Protocol) || !slices.Contains(f.Actions, s.Action)):
 		return "ACTION_UNSUPPORTED"
 	case e.NoTraining && !f.VerifiedNoTraining:
 		return "TRAINING_UNVERIFIED"
@@ -241,11 +242,15 @@ func compareObservation(a, b *int64, higher bool) int {
 // Prepare projects policy fields absent from the BE-08 input into candidate
 // rejection codes and ranking tiers. Both planner modes use this same projection.
 func (e Effective) Prepare(g Graph, s Scenario) snapshot.CandidateSnapshot {
+	return e.prepare(g, s, true)
+}
+
+func (e Effective) prepare(g Graph, s Scenario, checkMethod bool) snapshot.CandidateSnapshot {
 	in := g.Snapshot
 	in.Candidates = slices.Clone(in.Candidates)
 	for i := range in.Candidates {
 		c := &in.Candidates[i]
-		c.Rejection = e.rejection(*c, g.Facts[c.ID], s)
+		c.Rejection = e.rejection(*c, g.Facts[c.ID], s, checkMethod)
 	}
 	pos := func(id string) int {
 		rank := slices.Index(e.OrderedProviders, g.Facts[id].Provider)

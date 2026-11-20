@@ -8,16 +8,62 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/planner"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/snapshot"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
 )
+
+// Each server configuration identifies its gateway and control-plane instance.
+var nativePolicyStores sync.Map
+
+func BindNativeRoutingPolicies(cfg *config.Config, store *policy.Store) {
+	if cfg != nil && store != nil {
+		nativePolicyStores.Store(cfg, store)
+	}
+}
+
+type nativePolicyAccountsKey struct{}
+type nativePolicyAccounts map[int64]bool
+
+func withNativePolicyAccounts(ctx context.Context, cfg *config.Config, model string) (context.Context, error) {
+	auth, ok := scope.From(ctx)
+	if !ok || cfg == nil {
+		return ctx, nil
+	}
+	if _, loaded := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts); loaded {
+		return ctx, nil
+	}
+	value, ok := nativePolicyStores.Load(cfg)
+	if !ok {
+		return ctx, nil
+	}
+	store, ok := value.(*policy.Store)
+	if !ok {
+		return ctx, fmt.Errorf("invalid routing policy store")
+	}
+	if p := GatewayRequestPlanFromContext(ctx); p != nil && p.spec.Model != "" {
+		model = p.spec.Model
+	}
+	accounts, err := store.NativeAccounts(ctx, auth, model)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, nativePolicyAccountsKey{}, nativePolicyAccounts(accounts)), nil
+}
+
+func nativePolicyAllows(ctx context.Context, a *Account) bool {
+	allowed, _ := ctx.Value(nativePolicyAccountsKey{}).(nativePolicyAccounts)
+	return allowed == nil || a != nil && allowed[a.ID]
+}
 
 // SelectAccount 选择账号（粘性会话+优先级）
 func (s *GatewayService) SelectAccount(ctx context.Context, groupID *int64, sessionHash string) (*Account, error) {
@@ -38,6 +84,11 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // Keep the context that actually selected the account, including the exact composite
 // target after session-limit exclusions advance the ordered target walk.
 func (s *GatewayService) selectAccountForModelWithSelectionContext(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, context.Context, error) {
+	var policyErr error
+	ctx, policyErr = withNativePolicyAccounts(ctx, s.cfg, requestedModel)
+	if policyErr != nil {
+		return nil, ctx, policyErr
+	}
 	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
@@ -108,6 +159,10 @@ func (s *GatewayService) selectAccountForModelWithSelectionContext(ctx context.C
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // gatewayUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, gatewayUserID int64) (selection *AccountSelectionResult, err error) {
+	ctx, err = withNativePolicyAccounts(ctx, s.cfg, requestedModel)
+	if err != nil {
+		return nil, err
+	}
 	evidence := newOpenAIRoutingEvidence(ctx, OpenAIAccountScheduleRequest{
 		GroupID: groupID, SessionHash: sessionHash, RequestedModel: requestedModel,
 	}, time.Now())
@@ -1165,7 +1220,7 @@ func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool
 }
 
 func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Context, account *Account, requestedModel string) bool {
-	if !accountAllowedByHostedRequest(ctx, account) {
+	if !nativePolicyAllows(ctx, account) || !accountAllowedByHostedRequest(ctx, account) {
 		return false
 	}
 	return account.IsSchedulableForModelWithContext(ctx, requestedModel)

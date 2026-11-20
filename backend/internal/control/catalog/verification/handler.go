@@ -77,7 +77,11 @@ func (h *Handler) createTarget(c *gin.Context, actor int64) (any, error) {
 }
 
 func (h *Handler) target(c *gin.Context, actor int64) (any, error) {
-	return h.store.Target(c.Request.Context(), actor, c.Param("id"))
+	out, err := h.store.Target(c.Request.Context(), actor, c.Param("id"))
+	if err == nil {
+		c.Header("ETag", versionTag(out.ScheduleVersion))
+	}
+	return out, err
 }
 
 func (h *Handler) schedule(c *gin.Context, actor int64) (any, error) {

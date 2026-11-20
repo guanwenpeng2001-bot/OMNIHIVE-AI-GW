@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
@@ -314,10 +315,22 @@ func retire(ctx context.Context, tx *sql.Tx, c Credential) error {
 	return e
 }
 
+var defaultProviders = []string{"openai", "anthropic", "gemini", "deepseek", "openrouter"}
+
 func (s *Store) create(ctx context.Context, tx *sql.Tx, t Target, in CreateInput) (Credential, error) {
 	var c Credential
 	if !classes.Supported(in.Provider, in.Auth) {
 		return c, fault.Invalid("/provider")
+	}
+	// Materialize the default enrollment with the first credential. An
+	// existing enrollment (including an explicit disable) always wins.
+	if in.Auth == "api_key" && slices.Contains(defaultProviders, in.Provider) {
+		_, err := tx.ExecContext(ctx, `INSERT INTO byok_pilot_providers(workspace_id,provider,enabled)
+			SELECT id,$2,true FROM workspaces WHERE id=$1 AND is_default
+			ON CONFLICT(workspace_id,provider) DO NOTHING`, t.Workspace, in.Provider)
+		if err != nil {
+			return c, err
+		}
 	}
 	if _, e := enabled(ctx, tx, t.Workspace, in.Provider, in.Auth); e != nil {
 		return c, e

@@ -84,6 +84,18 @@ func ExactInputRate(v pricing.Version, at time.Time, inputBound, label string) (
 type SnapshotWriter struct{ DB *sql.DB }
 
 func (w SnapshotWriter) Capture(ctx context.Context, c Caller, s Scenario, g Graph) error {
+	tx, err := w.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err = capture(ctx, tx, c, s, g); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func capture(ctx context.Context, tx *sql.Tx, c Caller, s Scenario, g Graph) error {
 	if err := s.validate(); err != nil {
 		return err
 	}
@@ -109,11 +121,6 @@ func (w SnapshotWriter) Capture(ctx context.Context, c Caller, s Scenario, g Gra
 	if err != nil {
 		return err
 	}
-	tx, err := w.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	if err = readAccess(ctx, tx, c, s); err != nil {
 		return err
 	}
@@ -140,10 +147,10 @@ func (w SnapshotWriter) Capture(ctx context.Context, c Caller, s Scenario, g Gra
 			return Conflict
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
-func currentGraph(ctx context.Context, q queryer, c Caller, s Scenario, requested string) (Graph, error) {
+func currentGraph(ctx context.Context, q queryer, c Caller, s Scenario, requested string, simulation bool) (Graph, error) {
 	var g Graph
 	hash, err := s.fingerprint()
 	if err != nil {
@@ -152,7 +159,8 @@ func currentGraph(ctx context.Context, q queryer, c Caller, s Scenario, requeste
 	var raw []byte
 	err = q.QueryRowContext(ctx, `SELECT graph FROM routing_candidate_snapshots WHERE workspace_id=$1 AND project_id=$2 AND actor_id=$3 AND coalesce(key_id,0)=$4
  AND scope_version=$5 AND scenario_digest=$6 AND as_of<=clock_timestamp()
- ORDER BY as_of DESC,id DESC LIMIT 1`, c.Workspace, ID(s.Project), c.Actor, ID(s.Key), c.AccessVersion, hash).Scan(&raw)
+ AND ($7 OR NOT (graph ? 'simulation_only'))
+ ORDER BY as_of DESC,id DESC LIMIT 1`, c.Workspace, ID(s.Project), c.Actor, ID(s.Key), c.AccessVersion, hash, simulation).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return g, Expired
 	}
@@ -199,6 +207,11 @@ func keyOwner(ctx context.Context, q queryer, w, p, k int64) (int64, error) {
 	return owner, missing(err)
 }
 
+const verifiedProxy = `(pc.proxy_id IS NULL AND v.proxy_revision='' OR EXISTS(
+ SELECT FROM proxies p WHERE p.id=pc.proxy_id AND p.workspace_id=pc.workspace_id
+ AND p.status='active' AND p.deleted_at IS NULL AND (p.expires_at IS NULL OR p.expires_at>clock_timestamp())
+ AND p.updated_at::text=v.proxy_revision))`
+
 // Recheck current BE-04 metadata without selecting a reference, secret or URL.
 // Scope, verification, proxy and credential changes invalidate the frozen graph.
 func checkConnections(ctx context.Context, q queryer, c Caller, s Scenario, g Graph) error {
@@ -234,7 +247,7 @@ func checkConnections(ctx context.Context, q queryer, c Caller, s Scenario, g Gr
  JOIN connection_credential_versions cv ON cv.workspace_id=v.workspace_id AND cv.account_id=v.account_id AND cv.version=v.credential_version AND cv.revoked_at IS NULL
  WHERE pc.account_id=b.account AND pc.workspace_id=$2 AND pc.state='active' AND NOT pc.legacy_dirty AND v.id=b.verification AND coalesce(r.project_id,d.id)=$3
  AND NOT EXISTS(SELECT FROM identity_scope_quarantine q WHERE q.kind='accounts' AND q.resource_id=pc.account_id)
- AND (pc.proxy_id IS NULL AND v.proxy_revision='' OR EXISTS(SELECT FROM proxies p WHERE p.id=pc.proxy_id AND p.workspace_id=pc.workspace_id AND p.status='active' AND p.deleted_at IS NULL AND (p.expires_at IS NULL OR p.expires_at>clock_timestamp()) AND p.updated_at::text=v.proxy_revision))
+ AND `+verifiedProxy+`
  AND coalesce(b.pools,'{}') <@ ARRAY(SELECT m.pool_id::text FROM connection_pool_members m WHERE m.workspace_id=pc.workspace_id AND m.account_id=pc.account_id)))`,
 		string(raw), c.Workspace, ID(s.Project)).Scan(&stale)
 	if err != nil {

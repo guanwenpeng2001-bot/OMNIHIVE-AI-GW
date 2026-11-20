@@ -107,3 +107,16 @@ func TestExactRateUsesUnroundedInput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0.000001", value.String())
 }
+
+func TestWorkbenchCapturePreservesHistoricalGraphs(t *testing.T) {
+	missing := Graph{}
+	expired := Graph{Snapshot: snapshot.CandidateSnapshot{ID: "previous"}, ExpiresAt: time.Now().Add(-time.Minute)}
+	require.True(t, needsWorkbenchGraph(SimulationInput{}, missing, Expired))
+	require.False(t, needsWorkbenchGraph(SimulationInput{Snapshot: "previous"}, missing, Expired))
+	require.False(t, needsWorkbenchGraph(SimulationInput{}, expired, Expired))
+	expired.SimulationOnly = true
+	require.True(t, needsWorkbenchGraph(SimulationInput{}, expired, Expired))
+	require.False(t, needsWorkbenchGraph(SimulationInput{Snapshot: "previous"}, expired, Expired))
+	expired.ExpiresAt = time.Now().Add(time.Minute)
+	require.False(t, needsWorkbenchGraph(SimulationInput{}, expired, Expired))
+}

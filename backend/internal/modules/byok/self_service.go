@@ -134,8 +134,10 @@ func (s *Store) Classes(ctx context.Context, t Target) ([]classes.Class, error) 
 	if _, err := s.access.Evaluate(ctx, t.Actor, t.Workspace, t.Project, Manage); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT provider,'api_key',enabled FROM byok_pilot_providers p WHERE workspace_id=$1 AND NOT EXISTS(SELECT FROM byok_provider_classes c WHERE c.workspace_id=p.workspace_id AND c.provider=p.provider AND c.auth_type='api_key')
- UNION ALL SELECT provider,auth_type,enabled FROM byok_provider_classes WHERE workspace_id=$1`, t.Workspace)
+	rows, err := s.db.QueryContext(ctx, `SELECT defaults.provider,'api_key',true FROM workspaces w CROSS JOIN unnest($2::text[]) defaults(provider)
+ WHERE w.id=$1 AND w.is_default AND NOT EXISTS(SELECT FROM byok_pilot_providers p WHERE p.workspace_id=w.id AND p.provider=defaults.provider)
+ UNION ALL SELECT provider,'api_key',enabled FROM byok_pilot_providers p WHERE workspace_id=$1 AND NOT EXISTS(SELECT FROM byok_provider_classes c WHERE c.workspace_id=p.workspace_id AND c.provider=p.provider AND c.auth_type='api_key')
+ UNION ALL SELECT provider,auth_type,enabled FROM byok_provider_classes WHERE workspace_id=$1`, t.Workspace, pq.Array(defaultProviders))
 	if err != nil {
 		return nil, err
 	}

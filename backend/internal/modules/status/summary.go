@@ -49,7 +49,6 @@ func (s *Store) Summary(ctx context.Context, now time.Time, window time.Duration
 		return result, time.Time{}, err
 	}
 	result.AsOf, result.WindowStart, result.WindowEnd = end, start, end
-	result.Overall = Operational
 	result.Incidents, result.ActiveIncidentCount = active, count
 	result.Components = make([]Component, 0, len(components))
 	for _, spec := range components {
@@ -102,9 +101,9 @@ func (s *Store) Summary(ctx context.Context, now time.Time, window time.Duration
 		if severity, ok := impacts[c.ID]; ok {
 			c.State = worse(c.State, severity)
 		}
-		result.Overall = worse(result.Overall, c.State)
 		result.Components = append(result.Components, c)
 	}
+	result.Overall = overallState(result.Components)
 	result.Definitions = Definitions{
 		SuccessRate:               "successful completed logical requests / admitted non-client-canceled logical requests with recorded final outcomes, as a percentage",
 		StreamCompletionRate:      "successful observed streaming logical requests / observed streaming logical requests with a known outcome, as a percentage",
@@ -114,6 +113,22 @@ func (s *Store) Summary(ctx context.Context, now time.Time, window time.Duration
 		AttemptsCountedSeparately: true, AggregationIntervalSeconds: 60, PublicationDelaySeconds: int(publicationLag / time.Second),
 	}
 	return result, maxTime(view, updatedAt, checkpoint.updatedAt), tx.Commit()
+}
+
+// Inference aggregates all measured gateway requests. An unmeasured
+// component retains its own unknown state. An incident can still elevate
+// overall severity even when that component has no observation source.
+func overallState(components []Component) string {
+	result := Unknown
+	for _, c := range components {
+		if result == Unknown && c.ID == "inference" && c.State == Operational {
+			result = Operational
+		}
+		if c.State != Unknown {
+			result = worse(result, c.State)
+		}
+	}
+	return result
 }
 
 func latestTime(a, b *time.Time) *time.Time {
