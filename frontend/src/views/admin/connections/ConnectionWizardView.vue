@@ -772,7 +772,13 @@ async function handleRunVerification() {
         pageAsyncState.value = null
         return
       }
-      const rawOpMessage = typeof finalOp.error?.message === 'string' ? finalOp.error.message.trim() : ''
+      const opError = finalOp.error as Record<string, unknown> | null | undefined
+      const rawOpMessage =
+        typeof opError?.message === 'string'
+          ? opError.message.trim()
+          : typeof opError?.reason === 'string'
+            ? opError.reason.trim()
+            : ''
       const localizedFailureMessage =
         isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
           ? '上游连通性或凭据鉴权探测未通过，请查看下方检查项详情并核对配置。'
