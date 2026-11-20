@@ -248,6 +248,9 @@ func beginRegisteredGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCaptu
 	return func() {
 		defer finishBudget()
 		stop()
+		if streamTransportCommitted(c) && c.Writer.Size() > 0 && !gatewayStreamHasOnlyHeartbeats(c) {
+			plan.ReviewInterruptedStream(context.WithoutCancel(ctx))
+		}
 		if ctx.Err() != nil {
 			plan.Cancel()
 		}

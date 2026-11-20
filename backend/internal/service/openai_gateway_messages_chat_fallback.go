@@ -299,7 +299,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 			Stream:                      true,
 			Duration:                    time.Since(startTime),
 			FirstTokenMs:                scan.FirstTokenMs,
-			ClientDisconnect:            clientDisconnected,
+			ClientDisconnect:            clientDisconnected || c.Request.Context().Err() != nil,
 		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
 
@@ -339,6 +339,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		Stream:                      true,
 		Duration:                    time.Since(startTime),
 		FirstTokenMs:                scan.FirstTokenMs,
-		ClientDisconnect:            clientDisconnected,
+		ClientDisconnect:            clientDisconnected || c.Request.Context().Err() != nil,
 	}, nil
 }
