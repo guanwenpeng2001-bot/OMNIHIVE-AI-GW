@@ -285,6 +285,7 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 			archive := updateTestArchive(t, "omnihive", "new-binary")
 			client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 			svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
+			prepareRollbackService(t, svc)
 			svc.executablePath = func() (string, error) { return exe, nil }
 			require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 			content, err := os.ReadFile(current)
@@ -446,11 +447,12 @@ func TestUpdateServiceDirectRollback(t *testing.T) {
 	require.NoError(t, os.WriteFile(exe, []byte("new"), 0755))
 	require.NoError(t, os.WriteFile(exe+".backup", []byte("old"), 0755))
 	svc := NewUpdateService(nil, nil, "0.2.5", "release")
+	prepareRollbackService(t, svc)
 	svc.executablePath = func() (string, error) { return exe, nil }
-	require.NoError(t, svc.Rollback())
+	require.Error(t, svc.Rollback())
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)
-	require.Equal(t, "old", string(content))
+	require.Equal(t, "new", string(content))
 }
 
 func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
@@ -464,6 +466,7 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	archive := updateTestArchive(t, "omnihive", "updated")
 	client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
+	prepareRollbackService(t, svc)
 	svc.executablePath = func() (string, error) { return exe, nil }
 	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 	content, err := os.ReadFile(exe)
@@ -477,4 +480,41 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	content, err = os.ReadFile(current)
 	require.NoError(t, err)
 	require.Equal(t, "original", string(content))
+}
+
+func prepareRollbackService(t *testing.T, svc *UpdateService) {
+	t.Helper()
+	svc.currentVersion = "v0.2.23-omnihive.2"
+	svc.backupKey = []byte("test-backup-key-32-bytes-long-value")
+	svc.runningBinary = svc.executablePath
+	svc.readRollbackFloor = func(context.Context) (string, error) { return "v0.2.23-omnihive.2", nil }
+}
+
+func TestUpdateServiceDirectRollbackVerifiesManifestDigestAndFloor(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("OMNIHIVE_DATA_DIR", filepath.Join(root, "absent"))
+	exe := filepath.Join(root, "omnihive")
+	require.NoError(t, os.WriteFile(exe, []byte("new"), 0755))
+	backup := exe + ".backup"
+	require.NoError(t, os.WriteFile(backup, []byte("old"), 0755))
+	svc := NewUpdateService(nil, nil, "v0.2.23-omnihive.2", "release")
+	prepareRollbackService(t, svc)
+	svc.executablePath = func() (string, error) { return exe, nil }
+	require.NoError(t, svc.prepareBackupManifest(backup))
+	require.NoError(t, svc.Rollback())
+	content, err := os.ReadFile(exe)
+	require.NoError(t, err)
+	require.Equal(t, "old", string(content))
+
+	require.NoError(t, os.WriteFile(exe, []byte("new"), 0755))
+	require.NoError(t, os.WriteFile(backup, []byte("tampered"), 0755))
+	require.ErrorContains(t, svc.Rollback(), "checksum mismatch")
+	content, err = os.ReadFile(exe)
+	require.NoError(t, err)
+	require.Equal(t, "new", string(content))
+
+	require.NoError(t, os.WriteFile(backup, []byte("old"), 0755))
+	svc.currentVersion = "v0.2.5"
+	require.NoError(t, svc.prepareBackupManifest(backup))
+	require.ErrorIs(t, svc.Rollback(), ErrRollbackVersionNotAllowed)
 }

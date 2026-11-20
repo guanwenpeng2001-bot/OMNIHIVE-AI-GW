@@ -64,8 +64,15 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient,
 }
 
 // ProvideUpdateService creates UpdateService with BuildInfo
-func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo) *UpdateService {
-	return NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo, db *sql.DB, cfg *config.Config) *UpdateService {
+	service := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
+	service.backupKey = []byte(cfg.Totp.EncryptionKey)
+	service.readRollbackFloor = func(ctx context.Context) (string, error) {
+		var floor string
+		err := db.QueryRowContext(ctx, "SELECT minimum_rollback_version FROM release_schema_compatibility WHERE singleton").Scan(&floor)
+		return floor, err
+	}
+	return service
 }
 
 // ProvideEmailQueueService creates EmailQueueService with default worker count

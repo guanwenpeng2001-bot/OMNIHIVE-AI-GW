@@ -71,17 +71,26 @@ type GitHubReleaseClient interface {
 
 // UpdateService handles software updates
 type UpdateService struct {
-	executablePath func() (string, error)
-	cache          UpdateCache
-	githubClient   GitHubReleaseClient
-	currentVersion string
-	buildType      string // "source" for manual builds, "release" for CI builds
+	executablePath    func() (string, error)
+	runningBinary     func() (string, error)
+	backupKey         []byte
+	readRollbackFloor func(context.Context) (string, error)
+	cache             UpdateCache
+	githubClient      GitHubReleaseClient
+	currentVersion    string
+	buildType         string // "source" for manual builds, "release" for CI builds
 }
 
 // NewUpdateService creates a new UpdateService
 func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
 	return &UpdateService{
 		executablePath: os.Executable,
+		runningBinary: func() (string, error) {
+			if runtime.GOOS == "linux" {
+				return "/proc/self/exe", nil
+			}
+			return os.Executable()
+		},
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
@@ -210,7 +219,7 @@ func copyUpdateBinary(source, target string) error {
 	return os.Rename(out.Name(), target)
 }
 
-func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
+func (s *UpdateService) stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 	dataDir := resolveDockerDataDir()
 	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
 		return false, nil
@@ -232,6 +241,9 @@ func stagePersistentBinary(exePath, newBinaryPath string) (bool, error) {
 		return false, err
 	}
 	if err := copyUpdateBinary(previous, filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
+		return false, err
+	}
+	if err := s.prepareBackupManifest(filepath.Join(updatesDir, "backup", updateBinaryName)); err != nil {
 		return false, err
 	}
 	if err := copyUpdateBinary(newBinaryPath, current); err != nil {
@@ -387,7 +399,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		return fmt.Errorf("chmod failed: %w", err)
 	}
 
-	staged, err := stagePersistentBinary(exePath, newBinaryPath)
+	staged, err := s.stagePersistentBinary(exePath, newBinaryPath)
 	if err != nil {
 		return fmt.Errorf("persistent staging failed: %w", err)
 	}
@@ -403,6 +415,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	// 2. Rename new -> current (atomic on Unix, same filesystem)
 	// If step 2 fails, restore backup
 	backupPath := exePath + ".backup"
+	manifest, err := s.runningManifest()
+	if err != nil {
+		return fmt.Errorf("backup manifest failed: %w", err)
+	}
 
 	// Remove old backup if exists
 	_ = os.Remove(backupPath)
@@ -413,6 +429,12 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 			return nil
 		}
 		return fmt.Errorf("backup failed: %w", err)
+	}
+	if err := writeBackupManifest(backupPath, manifest); err != nil {
+		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
+			return fmt.Errorf("backup manifest failed and restore failed: %w (restore error: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("backup manifest failed: %w", err)
 	}
 
 	// Step 2: Move new binary to target location (atomic, same filesystem)
@@ -434,6 +456,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
+	return s.rollback(context.Background())
+}
+
+func (s *UpdateService) rollback(ctx context.Context) error {
 	exePath, err := s.executablePath()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
@@ -443,6 +469,10 @@ func (s *UpdateService) Rollback() error {
 		return fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
+	floor, err := s.databaseRollbackFloor(ctx)
+	if err != nil {
+		return fmt.Errorf("rollback database compatibility check failed: %w", err)
+	}
 	persistentBackup := filepath.Join(resolveDockerDataDir(), ".updates", "backup", updateBinaryName)
 	persistentCurrent := filepath.Join(resolveDockerDataDir(), ".updates", "current", updateBinaryName)
 	if _, err := os.Stat(persistentBackup); os.IsNotExist(err) {
@@ -457,6 +487,9 @@ func (s *UpdateService) Rollback() error {
 		if err := os.MkdirAll(filepath.Dir(persistentCurrent), 0755); err != nil {
 			return err
 		}
+		if err := s.verifyBackup(persistentBackup, floor); err != nil {
+			return fmt.Errorf("persistent rollback verification failed: %w", err)
+		}
 		if err := os.Rename(persistentBackup, persistentCurrent); err != nil {
 			return fmt.Errorf("persistent rollback failed: %w", err)
 		}
@@ -470,6 +503,9 @@ func (s *UpdateService) Rollback() error {
 
 	backupFile := exePath + ".backup"
 	if _, err := os.Stat(backupFile); err == nil {
+		if err := s.verifyBackup(backupFile, floor); err != nil {
+			return fmt.Errorf("rollback verification failed: %w", err)
+		}
 		if err := os.Rename(backupFile, exePath); err != nil && !staged {
 			return fmt.Errorf("rollback failed: %w", err)
 		}
@@ -627,6 +663,14 @@ func releaseVersion(version string) string {
 		return ""
 	}
 	return tag
+}
+
+func backupVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if releaseVersion(version) == "" {
+		return ""
+	}
+	return "v" + strings.TrimPrefix(version, "v")
 }
 
 func rollbackBelowFloor(version, floor string) error {
