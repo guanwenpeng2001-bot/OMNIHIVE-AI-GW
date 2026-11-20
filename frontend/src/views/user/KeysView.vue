@@ -2394,13 +2394,45 @@ async function loadAuxiliary<Result>(
   }
 }
 
+const isProjectKeyCreateMode = computed(
+  () =>
+    showCreateModal.value &&
+    !showEditModal.value &&
+    issueProjectPolicyCredential.value &&
+    Boolean(activeConsoleScope.value.workspaceId) &&
+    Boolean(activeConsoleScope.value.projectId)
+)
+
+function isGroupInSelectedScope(group: Group, workspaceId: string, projectId: string): boolean {
+  const candidate = group as Group & {
+    workspace_id?: number | string | null
+    project_id?: number | string | null
+  }
+  if (candidate.workspace_id != null && String(candidate.workspace_id) !== workspaceId) {
+    return false
+  }
+  if (candidate.project_id != null && String(candidate.project_id) !== projectId) {
+    return false
+  }
+  return true
+}
+
 const loadGroups = async () => {
+  const scopedWorkspaceId = isProjectKeyCreateMode.value ? activeConsoleScope.value.workspaceId : null
+  const scopedProjectId = isProjectKeyCreateMode.value ? activeConsoleScope.value.projectId : null
   groupsLoading.value = true
   groupsLoadFailed.value = false
   await loadAuxiliary('groups', async options => {
     try {
-      // This endpoint returns all active groups the current user may bind, without pagination.
-      return await userGroupsAPI.getAvailable(options)
+      const requestOptions =
+        scopedWorkspaceId && scopedProjectId
+          ? { ...options, workspaceId: scopedWorkspaceId, projectId: scopedProjectId }
+          : options
+      const result = await userGroupsAPI.getAvailable(requestOptions)
+      if (scopedWorkspaceId && scopedProjectId) {
+        return result.filter(group => isGroupInSelectedScope(group, scopedWorkspaceId, scopedProjectId))
+      }
+      return result
     } catch (error) {
       if (!options.signal.aborted && !disposed) groupsLoadFailed.value = true
       throw error
@@ -2415,8 +2447,44 @@ const loadGroups = async () => {
     }
   })
 }
-watch(showCreateModal, open => { if (open) void loadGroups() })
-const loadUserGroupRates = () => loadAuxiliary('group rates', userGroupsAPI.getUserGroupRates, result => { userGroupRates.value = result })
+watch(
+  [
+    showCreateModal,
+    issueProjectPolicyCredential,
+    () => activeConsoleScope.value.workspaceId,
+    () => activeConsoleScope.value.projectId
+  ],
+  ([isOpen, isProjectKey, wsId, projId], [wasOpen, wasProjectKey, prevWsId, prevProjId]) => {
+    if (!isOpen || showEditModal.value) return
+    const scopeChanged =
+      isProjectKey !== wasProjectKey ||
+      (isProjectKey && (wsId !== prevWsId || projId !== prevProjId))
+    if (scopeChanged) {
+      groups.value = []
+      userGroupRates.value = {}
+      formData.value.group_id = null
+    }
+    if (!wasOpen || scopeChanged) {
+      void loadGroups()
+      if (scopeChanged || isProjectKey) {
+        void loadUserGroupRates()
+      }
+    }
+  }
+)
+const loadUserGroupRates = () => {
+  const scopedWorkspaceId = isProjectKeyCreateMode.value ? activeConsoleScope.value.workspaceId : null
+  return loadAuxiliary(
+    'group rates',
+    options =>
+      userGroupsAPI.getUserGroupRates(
+        scopedWorkspaceId ? { ...options, workspaceId: scopedWorkspaceId } : options
+      ),
+    result => {
+      userGroupRates.value = result
+    }
+  )
+}
 const loadPublicSettings = () => loadAuxiliary('public settings', authAPI.getPublicSettings, result => { publicSettings.value = result })
 
 const openUseKeyModal = (key: ApiKey) => {
@@ -2846,6 +2914,7 @@ const handleDelete = async () => {
 }
 
 const closeModals = () => {
+  const hadProjectScope = isProjectKeyCreateMode.value
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
@@ -2875,6 +2944,12 @@ const closeModals = () => {
     enable_expiration: false,
     expiration_preset: '30',
     expiration_date: ''
+  }
+  if (hadProjectScope) {
+    groups.value = []
+    userGroupRates.value = {}
+    void loadGroups()
+    void loadUserGroupRates()
   }
 }
 

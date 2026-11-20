@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   listProjectKeys: vi.fn(),
   createProjectKey: vi.fn(),
   listScopes: vi.fn(),
+  consoleScope: { mode: 'workspace' as const, workspaceId: '10', projectId: '20' },
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -82,7 +83,7 @@ vi.mock('@/features/console/scope', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/features/console/scope')>()
   return {
     ...actual,
-    readPersistedConsoleScope: () => ({ workspaceId: '10', projectId: '20' }),
+    readPersistedConsoleScope: () => ({ ...mocks.consoleScope }),
     identityApi: {
       ...actual.identityApi,
       listScopes: mocks.listScopes,
@@ -129,6 +130,7 @@ const stubs = {
 describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.consoleScope = { mode: 'workspace', workspaceId: '10', projectId: '20' }
     mocks.listKeys.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
     mocks.getPublicSettings.mockResolvedValue({ api_base_url: 'https://api.example.com', site_name: 'OmniHive' })
     mocks.getDashboardApiKeysUsage.mockResolvedValue({ stats: {} })
@@ -210,5 +212,176 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
       })
     )
     expect(mocks.showSuccess).toHaveBeenCalledWith('keys.keyCreatedSuccess')
+  })
+
+  it('loads workspace/project-scoped groups instead of account-level group #1 for new workspace default project keys (E2-5)', async () => {
+    mocks.consoleScope = { mode: 'workspace', workspaceId: '4', projectId: '5' }
+    const accountGroup = {
+      id: 1,
+      name: 'default',
+      platform: 'anthropic',
+      status: 'active',
+      subscription_type: 'standard',
+      rate_multiplier: 1,
+      is_exclusive: false,
+    }
+    const workspace4OpenAIGroup = {
+      id: 42,
+      name: 'ws4-openai',
+      platform: 'openai',
+      status: 'active',
+      subscription_type: 'standard',
+      rate_multiplier: 1,
+      is_exclusive: false,
+    }
+    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+      if (options?.workspaceId === '4' && options?.projectId === '5') {
+        return [workspace4OpenAIGroup]
+      }
+      return [accountGroup]
+    })
+    mocks.createProjectKey.mockResolvedValue({
+      id: 'pk_42',
+      name: 'fe-e2e-restricted',
+      credential: 'sk-proj-secret',
+    })
+
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+
+    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
+    await checkbox.setValue(true)
+    await flushPromises()
+
+    expect(mocks.getAvailableGroups).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceId: '4', projectId: '5' })
+    )
+    expect(wrapper.get<HTMLInputElement>('input[name="key-provider"][value="anthropic"]').element.disabled).toBe(true)
+    expect(wrapper.get<HTMLInputElement>('input[name="key-provider"][value="openai"]').element.checked).toBe(true)
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('fe-e2e-restricted')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(mocks.createProjectKey).toHaveBeenCalledWith(
+      '4',
+      '5',
+      expect.objectContaining({
+        group_id: '42',
+        name: 'fe-e2e-restricted',
+      })
+    )
+  })
+
+  it('clears workspace 1 default group and blocks submit when workspace 4 default project 5 has no scoped groups (E2-5)', async () => {
+    mocks.consoleScope = { mode: 'workspace', workspaceId: '4', projectId: '5' }
+    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+      if (options?.workspaceId === '4' && options?.projectId === '5') {
+        return []
+      }
+      return [
+        {
+          id: 1,
+          name: 'default',
+          platform: 'anthropic',
+          status: 'active',
+          subscription_type: 'standard',
+          rate_multiplier: 1,
+          is_exclusive: false,
+        },
+      ]
+    })
+
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+
+    const checkbox = wrapper.get('#key-form input[type="checkbox"]')
+    await checkbox.setValue(true)
+    await flushPromises()
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('fe-e2e-restricted')
+    expect(wrapper.get('[data-testid="project-key-group-required-alert"]').text()).toContain(
+      'keys.projectGroupRequired'
+    )
+    expect(wrapper.get('[data-tour="key-form-submit"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(mocks.createProjectKey).not.toHaveBeenCalled()
+  })
+
+  it('filters out any foreign-workspace group returned in a scoped project lookup (E2-5)', async () => {
+    mocks.consoleScope = { mode: 'workspace', workspaceId: '4', projectId: '5' }
+    // Provide an account-level group so unpatched code would still see group #1.
+    mocks.getAvailableGroups.mockImplementation(async (options?: { workspaceId?: string; projectId?: string }) => {
+      if (options?.workspaceId === '4' && options?.projectId === '5') {
+        return [
+          {
+            id: 1,
+            workspace_id: 1,
+            name: 'foreign-default',
+            platform: 'anthropic',
+            status: 'active',
+            subscription_type: 'standard',
+            rate_multiplier: 1,
+            is_exclusive: false,
+          },
+          {
+            id: 42,
+            workspace_id: 4,
+            name: 'ws4-openai',
+            platform: 'openai',
+            status: 'active',
+            subscription_type: 'standard',
+            rate_multiplier: 1,
+            is_exclusive: false,
+          },
+        ]
+      }
+      return [
+        {
+          id: 1,
+          name: 'default',
+          platform: 'anthropic',
+          status: 'active',
+          subscription_type: 'standard',
+          rate_multiplier: 1,
+          is_exclusive: false,
+        },
+      ]
+    })
+    mocks.createProjectKey.mockResolvedValue({
+      id: 'pk_42',
+      name: 'ws4-only-key',
+      credential: 'sk-proj-secret',
+    })
+
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
+    await flushPromises()
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('ws4-only-key')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(mocks.createProjectKey).toHaveBeenCalledWith(
+      '4',
+      '5',
+      expect.objectContaining({
+        group_id: '42',
+      })
+    )
   })
 })
