@@ -3,6 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -200,4 +202,27 @@ func EncryptVerifiedCredential(ctx context.Context, enc SecretEncryptor, m Crede
 		return "", ErrCredentialSecretInvalid
 	}
 	return cipher, nil
+}
+
+func AccountAPIKeyDigest(credentials map[string]any) string {
+	key, _ := credentials["api_key"].(string)
+	if key == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
+}
+
+// StoredCredentialDocument returns the JSON used by row-level compare-and-swap.
+func StoredCredentialDocument(credentials map[string]any) map[string]any {
+	if _, ok := CredentialReference(credentials); !ok {
+		return credentials
+	}
+	result := make(map[string]any, len(credentials))
+	for k, v := range credentials {
+		if !IsSensitiveCredentialKey(k) {
+			result[k] = v
+		}
+	}
+	return result
 }

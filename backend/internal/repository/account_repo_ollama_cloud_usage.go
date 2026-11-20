@@ -19,11 +19,12 @@ const (
 	// 镜像：Ollama Cloud key 允许挂在 openai/anthropic 与国产 OpenAI 兼容平台
 	// 下复用。所有平台白名单 SQL 只允许引用本常量，不得各处重写字面量，防止漂移。
 	ollamaCloudUsagePlatformsSQL = "'openai', 'anthropic', 'kimi', 'zhipu', 'deepseek', 'minimax'"
+	ollamaKeyDigestSQL           = `(SELECT NULLIF(cs.api_key_digest,'') FROM credential_secrets cs WHERE cs.account_id=accounts.id AND cs.revoked_at IS NULL)`
 	ollamaCloudUsageEligibleSQL  = `
 	platform IN (` + ollamaCloudUsagePlatformsSQL + `)
 	AND type = 'apikey'
 	AND ` + ollamaCloudBaseURLMatchSQLPrefix + `credentials ->> 'base_url'` + ollamaCloudBaseURLMatchSQLSuffix + `
-	AND jsonb_typeof(credentials -> 'api_key') = 'string'
+	AND ` + ollamaKeyDigestSQL + ` IS NOT NULL
 `
 )
 
@@ -52,7 +53,7 @@ func (r *accountRepository) ListOllamaCloudUsageGroupAccounts(ctx context.Contex
 			continue
 		}
 		seen[apiKey] = struct{}{}
-		keys = append(keys, apiKey)
+		keys = append(keys, service.AccountAPIKeyDigest(account.Credentials))
 	}
 	if len(keys) == 0 {
 		return []service.Account{}, nil
@@ -62,7 +63,7 @@ func (r *accountRepository) ListOllamaCloudUsageGroupAccounts(ctx context.Contex
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND `+ollamaCloudUsageEligibleSQL+`
-			AND credentials ->> 'api_key' = ANY($1)
+			AND `+ollamaKeyDigestSQL+` = ANY($1)
 		ORDER BY id
 	`, pq.Array(keys))
 	if err != nil {
@@ -248,9 +249,9 @@ func (r *accountRepository) updateOllamaCloudUsageGroup(
 				updated_at = NOW()
 			WHERE deleted_at IS NULL
 				AND `+ollamaCloudUsageEligibleSQL+`
-				AND credentials ->> 'api_key' = $2
+				AND `+ollamaKeyDigestSQL+` = $2
 				AND id = ANY($3)
-		`, string(encoded), apiKey, pq.Array(memberIDs))
+		`, string(encoded), service.AccountAPIKeyDigest(account.Credentials), pq.Array(memberIDs))
 		if err != nil {
 			return err
 		}
@@ -287,7 +288,7 @@ func lockOllamaCloudUsageGroup(
 	account *service.Account,
 	apiKey string,
 ) ([]lockedOllamaCloudUsageMember, error) {
-	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
+	credentials, err := json.Marshal(service.StoredCredentialDocument(account.Credentials))
 	if err != nil {
 		return nil, err
 	}
@@ -309,10 +310,10 @@ func lockOllamaCloudUsageGroup(
 		FROM accounts
 		WHERE deleted_at IS NULL
 			AND `+ollamaCloudUsageEligibleSQL+`
-			AND credentials ->> 'api_key' = $1
+			AND `+ollamaKeyDigestSQL+` = $1
 		ORDER BY id
 		FOR NO KEY UPDATE
-	`, apiKey, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
+	`, service.AccountAPIKeyDigest(account.Credentials), account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +430,7 @@ func (r *accountRepository) ListDueOllamaCloudUsageAccounts(
 	rows, err := r.sql.QueryContext(ctx, `
 		WITH eligible AS (
 			SELECT id,
-				credentials ->> 'api_key' AS api_key,
+				`+ollamaKeyDigestSQL+` AS api_key,
 				last_used_at,
 				extra -> 'ollama_cloud_usage_snapshot' AS snapshot
 			FROM accounts
@@ -439,13 +440,12 @@ func (r *accountRepository) ListDueOllamaCloudUsageAccounts(
 				AND jsonb_typeof(extra -> 'ollama_cloud_usage_session') = 'string'
 				AND extra @> '{"ollama_cloud_usage_auto_refresh": true}'::jsonb
 		), group_activity AS (
-			SELECT credentials ->> 'api_key' AS api_key,
+			SELECT `+ollamaKeyDigestSQL+` AS api_key,
 				MAX(last_used_at) AS group_last_used_at
 			FROM accounts
 			WHERE deleted_at IS NULL
 				AND `+ollamaCloudUsageEligibleSQL+`
-				AND jsonb_typeof(credentials -> 'api_key') = 'string'
-			GROUP BY credentials ->> 'api_key'
+			GROUP BY 1
 		), joined AS (
 			SELECT e.id, e.api_key, e.snapshot, g.group_last_used_at,
 				e.snapshot #>> '{status}' AS status,

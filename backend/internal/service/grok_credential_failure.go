@@ -542,7 +542,7 @@ func grokCredentialMutationSnapshot(account *Account) GrokCredentialMutationSnap
 		return GrokCredentialMutationSnapshot{}
 	}
 	credentialsJSON := "null"
-	if encoded, err := json.Marshal(account.Credentials); err == nil {
+	if encoded, err := json.Marshal(StoredCredentialDocument(account.Credentials)); err == nil {
 		credentialsJSON = string(encoded)
 	}
 	snapshot := GrokCredentialMutationSnapshot{

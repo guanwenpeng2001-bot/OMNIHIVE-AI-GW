@@ -128,7 +128,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	if account != nil && (hasManagementQuerySecrets(account.Credentials) || service.IsStagedAccountImport(ctx)) {
+	if account != nil && (hasCredentialSecrets(account.Credentials) || service.IsStagedAccountImport(ctx)) {
 		return r.CreateWithAccountGroups(ctx, account, nil)
 	}
 	if transaction := dbent.TxFromContext(ctx); transaction != nil {
@@ -596,7 +596,7 @@ func (r *accountRepository) updateAccount(
 	}
 
 	account.UpdatedAt = updated.UpdatedAt
-	if hasManagementQuerySecrets(account.Credentials) {
+	if hasCredentialSecrets(account.Credentials) {
 		// Return the committed encrypted revision alongside the resolved values,
 		// so the next edit does not submit the pre-rotation reference version.
 		for _, key := range []string{service.CredentialSecretReferenceKey, service.CredentialSecretVersionKey} {
@@ -822,7 +822,7 @@ func lockAndMergeAccountProbeExtra(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 ) (map[string]any, error) {
-	credentials, err := json.Marshal(normalizeJSONMap(account.Credentials))
+	credentials, err := json.Marshal(normalizeJSONMap(service.StoredCredentialDocument(account.Credentials)))
 	if err != nil {
 		return nil, err
 	}
@@ -841,7 +841,8 @@ func lockAndMergeAccountProbeExtra(
 				AND $2 IN (`+ollamaCloudUsagePlatformsSQL+`)
 				AND type = 'apikey'
 				AND $3 = 'apikey'
-				AND credentials -> 'api_key' IS NOT DISTINCT FROM $4::jsonb -> 'api_key'
+				AND (`+ollamaKeyDigestSQL+` IS NOT DISTINCT FROM NULLIF($7,''))
+ AND credentials -> 'api_key' IS NOT DISTINCT FROM $4::jsonb -> 'api_key'
 				AND `+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
 				AND `+ollamaCloudBaseURLMatchesSQL("$4::jsonb ->> 'base_url'")+`,
 				false
@@ -856,7 +857,7 @@ func lockAndMergeAccountProbeExtra(
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
-	`, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID)
+	`, account.ID, account.Platform, account.Type, string(credentials), proxyID, account.ProxyGroupID, service.AccountAPIKeyDigest(account.Credentials))
 	if err != nil {
 		return nil, err
 	}
@@ -1065,7 +1066,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			client = tx.Client()
 		}
 	}
-	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasManagementQuerySecrets(credentials) {
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" || hasCredentialSecrets(credentials) {
 		var err error
 		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
 		if err != nil {
@@ -1090,7 +1091,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					AND type = 'apikey'
 					AND credentials IS DISTINCT FROM $1::jsonb
 					AND (
-						credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
+						credentials -> 'credential_secret_version' IS DISTINCT FROM $1::jsonb -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
 						OR NOT (
 							`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
 							AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
@@ -3422,7 +3423,7 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
-	if hasManagementQuerySecrets(updates.Credentials) {
+	if hasCredentialSecrets(updates.Credentials) {
 		return 0, service.ErrCredentialSecretInvalid
 	}
 	defer invalidateCatalogAfterWrite(ctx)

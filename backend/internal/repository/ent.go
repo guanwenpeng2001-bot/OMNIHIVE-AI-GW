@@ -104,6 +104,9 @@ func isTransientDatabaseInitializationError(err error) bool {
 //   - *sql.DB: 底层的 SQL 数据库连接，可用于直接执行原生 SQL
 //   - error: 初始化过程中的错误
 func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
+	if cfg.Server.Mode == "release" && !cfg.Totp.EncryptionKeyConfigured {
+		return nil, nil, fmt.Errorf("release mode requires a persistent TOTP_ENCRYPTION_KEY (32 bytes, hex-encoded)")
+	}
 	// 优先初始化时区设置，确保所有时间操作使用统一的时区。
 	// 这对于跨时区部署和日志时间戳的一致性至关重要。
 	if err := timezone.Init(cfg.Timezone); err != nil {
@@ -148,6 +151,15 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 	if err := cfg.Validate(); err != nil {
 		_ = client.Close()
 		return nil, nil, fmt.Errorf("validate config after secret bootstrap: %w", err)
+	}
+
+	enc, err := NewAESEncryptor(cfg)
+	if err == nil {
+		err = backfillAccountSecrets(migrationCtx, drv.DB(), enc)
+	}
+	if err != nil {
+		_ = client.Close()
+		return nil, nil, err
 	}
 
 	// SIMPLE 模式：启动时补齐各平台默认分组。

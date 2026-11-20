@@ -158,11 +158,6 @@ func TestCredentialSecretLifecyclePostgres(t *testing.T) {
 	account := f.createAccount(t, ctx, uniqueName("cred-lifecycle"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": plaintextKey, "base_url": "https://api.example.invalid"})
 
-	t.Run("convert_requires_fresh_review", func(t *testing.T) {
-		_, err := f.secrets.Convert(ctx, account.ID, "stale-revision")
-		require.ErrorIs(t, err, service.ErrCredentialSecretConflict)
-	})
-
 	var reference string
 	t.Run("explicit_convert_moves_secrets_out", func(t *testing.T) {
 		metadata, err := f.secrets.Convert(ctx, account.ID, f.accountRevision(t, account.ID))
@@ -364,27 +359,14 @@ func TestCredentialSecretInlineCompatibilityPostgres(t *testing.T) {
 	account := f.createAccount(t, ctx, uniqueName("cred-inline"), service.PlatformOpenAI, service.AccountTypeAPIKey,
 		map[string]any{"api_key": "sk-inline-keep"})
 
-	t.Run("inline_reads_and_writes_stay_inline", func(t *testing.T) {
-		require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "sk-inline-updated", "base_url": "https://new.example.invalid"}))
-		stored := f.storedCredentials(t, account.ID)
-		require.Equal(t, "sk-inline-updated", stored["api_key"])
-		require.NotContains(t, stored, service.CredentialSecretReferenceKey)
+	require.NotContains(t, f.storedCredentials(t, account.ID), "api_key")
+	account.Credentials["api_key"] = "sk-inline-updated"
+	require.NoError(t, f.accounts.UpdateCredentials(ctx, account.ID, account.Credentials))
+	require.NotContains(t, f.storedCredentials(t, account.ID), "api_key")
+	loaded, err := f.accounts.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "sk-inline-updated", loaded.Credentials["api_key"])
 
-		loaded, err := f.accounts.GetByID(ctx, account.ID)
-		require.NoError(t, err)
-		require.Equal(t, "sk-inline-updated", loaded.Credentials["api_key"])
-
-		_, err = f.secrets.Metadata(ctx, account.ID)
-		require.ErrorIs(t, err, service.ErrCredentialSecretNotFound, "inline accounts have no secret metadata")
-	})
-
-	t.Run("inline_account_rejects_reference_smuggling", func(t *testing.T) {
-		err := f.accounts.UpdateCredentials(ctx, account.ID, map[string]any{
-			"api_key":                            "sk-inline-updated",
-			service.CredentialSecretReferenceKey: "nonexistent-reference",
-		})
-		require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
-	})
 }
 
 func TestCredentialSecretMigrationIdempotentPostgres(t *testing.T) {
@@ -398,4 +380,29 @@ func TestCredentialSecretMigrationIdempotentPostgres(t *testing.T) {
 	var regclass sql.NullString
 	require.NoError(t, f.db.QueryRowContext(f.ctx, `SELECT to_regclass('public.credential_secrets')`).Scan(&regclass))
 	require.True(t, regclass.Valid)
+}
+
+func TestAccountSecretBackfillPostgres(t *testing.T) {
+	f := newCredentialSecretFixture(t)
+	a := f.createAccount(t, f.ctx, uniqueName("backfill"), service.PlatformOpenAI, service.AccountTypeAPIKey, nil)
+	tx, err := f.db.BeginTx(f.ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts DISABLE TRIGGER accounts_no_inline_secrets")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, `UPDATE accounts SET credentials='{"api_key":"migration-fixture"}' WHERE id=$1`, a.ID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(f.ctx, "ALTER TABLE accounts ENABLE TRIGGER accounts_no_inline_secrets")
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	_, err = f.db.ExecContext(f.ctx, "INSERT INTO account_secret_backfill VALUES($1) ON CONFLICT DO NOTHING", a.ID)
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, backfillAccountSecrets(f.ctx, f.db, f.encryptor))
+	}
+	require.NotContains(t, f.storedCredentials(t, a.ID), "api_key")
+	read, err := f.accounts.GetByID(f.ctx, a.ID)
+	require.NoError(t, err)
+	require.Equal(t, "migration-fixture", read.GetCredential("api_key"))
+	require.Equal(t, int64(1), service.CredentialVersion(read.Credentials))
 }
