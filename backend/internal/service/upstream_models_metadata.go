@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+	"time"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 
 	"github.com/tidwall/gjson"
 )
@@ -203,4 +206,87 @@ func (model *qianfanModel) UnmarshalJSON(body []byte) error {
 		"prompt_tokens": &model.PromptTokens, "architecture": &model.Architecture,
 	})
 	return nil
+}
+
+func knownCatalogLimit(n int64) *int64 {
+	if n <= 0 {
+		return nil
+	}
+	return &n
+}
+
+func catalogModalities(groups ...[]string) []string {
+	result := []string{}
+	for _, values := range groups {
+		for _, value := range values {
+			switch value {
+			case "text", "image", "audio", "video", "pdf", "embedding":
+				result = append(result, value)
+			}
+		}
+	}
+	return result
+}
+
+func (b PlazaCatalogBinding) CatalogModelFacts(expires, now time.Time) []catalog.ModelFacts {
+	m := b.Metadata
+	fields := []struct {
+		name  string
+		apply func(*catalog.Facts) bool
+	}{
+		{"context_window", func(f *catalog.Facts) bool {
+			f.Context = knownCatalogLimit(m.ContextWindow)
+			if AuthoritativeCatalogModelField(m, "context_limit_kind") {
+				f.ContextKind = m.ContextLimitKind
+			}
+			return f.Context != nil
+		}},
+		{"max_output_tokens", func(f *catalog.Facts) bool { f.Output = knownCatalogLimit(m.MaxOutputTokens); return f.Output != nil }},
+		{"embedding_dimensions", func(f *catalog.Facts) bool {
+			f.EmbeddingDimensions = knownCatalogLimit(m.EmbeddingDimensions)
+			return f.EmbeddingDimensions != nil
+		}},
+		{"supports_function_calling", func(f *catalog.Facts) bool { f.Tools = m.SupportsFunctionCalling; return f.Tools != nil }},
+		{"supports_vision", func(f *catalog.Facts) bool { f.Vision = m.SupportsVision; return f.Vision != nil }},
+		{"reasoning", func(f *catalog.Facts) bool { f.Reasoning = m.Reasoning; return f.Reasoning != nil }},
+		{"supports_prompt_caching", func(f *catalog.Facts) bool { f.Cache = m.SupportsPromptCaching; return f.Cache != nil }},
+		{"supports_pdf", func(f *catalog.Facts) bool { f.PDF = m.SupportsPDF; return f.PDF != nil }},
+		{"input_modalities", func(f *catalog.Facts) bool {
+			f.Modalities = append(f.Modalities, catalogModalities(m.InputModalities)...)
+			return m.InputModalities != nil
+		}},
+		{"output_modalities", func(f *catalog.Facts) bool {
+			f.Modalities = append(f.Modalities, catalogModalities(m.OutputModalities)...)
+			return m.OutputModalities != nil
+		}},
+	}
+	byEvidence := make(map[string]catalog.ModelFacts)
+	for _, field := range fields {
+		if !AuthoritativeCatalogModelField(m, field.name) {
+			continue
+		}
+		e := m.FieldEvidence[field.name]
+		observed, _ := time.Parse(time.RFC3339Nano, e.ObservedAt)
+		if observed.IsZero() && e.Source == "upstream" {
+			observed, _ = time.Parse(time.RFC3339Nano, b.EvidenceObservedAt)
+		}
+		source := "upstream_discovery"
+		if e.Source == "account-declaration" {
+			source = "account_declaration"
+		}
+		evidence := catalog.Observation(source, "unknown", observed, expires, now)
+		key := catalog.Digest(evidence)
+		f, ok := byEvidence[key]
+		if !ok {
+			f = catalog.ModelFacts{Facts: catalog.Facts{Modalities: []string{}}, Evidence: evidence}
+		}
+		if field.apply(&f.Facts) {
+			byEvidence[key] = f
+		}
+	}
+	out := make([]catalog.ModelFacts, 0, len(byEvidence))
+	for _, facts := range byEvidence {
+		out = append(out, facts)
+	}
+	return out
 }

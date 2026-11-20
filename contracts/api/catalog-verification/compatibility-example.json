@@ -1,0 +1,35 @@
+{
+  "fixture_id": "openai_chat_responses_v1",
+  "adapter_version": "ad_openai_chat_responses_v1",
+  "provider": "openai",
+  "action": "text.chat",
+  "protocol": "openai_chat",
+  "account_mode": "api_key",
+  "request": {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "body": {
+      "model": "fixture-model",
+      "messages": [
+        {"role": "user", "content": "Reply with OK."}
+      ],
+      "stream": false
+    }
+  },
+  "terminal_output": {
+    "object": "chat.completion",
+    "model": "fixture-model",
+    "choices": [
+      {
+        "index": 0,
+        "message": {"role": "assistant", "content": "OK"},
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 5,
+      "completion_tokens": 1,
+      "total_tokens": 6
+    }
+  }
+}

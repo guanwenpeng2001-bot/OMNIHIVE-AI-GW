@@ -1,0 +1,8 @@
+{
+  "request_id": "<historical-request-id>",
+  "trace": null,
+  "data_completeness": {
+    "state": "partial",
+    "missing": [{"section": "route", "reason": "LEGACY_NOT_RECORDED"}]
+  }
+}

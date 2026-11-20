@@ -1,6 +1,24 @@
 package service
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+	"sync/atomic"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
+)
+
+type tenantTransportKey struct{}
+type tenantTransport struct {
+	accountID int64
+	used      atomic.Bool
+}
+
+// WithTenantCredentialTransport confines an enrolled tenant secret to one
+// native account send. It grants no additional dispatch or billing authority.
+func WithTenantCredentialTransport(ctx context.Context, accountID int64) context.Context {
+	return context.WithValue(ctx, tenantTransportKey{}, &tenantTransport{accountID: accountID})
+}
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
@@ -9,6 +27,10 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 // doOpenAIUpstream 只在 OpenAI OAuth 能力绑定已启用时把真实请求交给插件。
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	tenant, _ := request.Context().Value(tenantTransportKey{}).(*tenantTransport)
+	if tenant != nil && (account == nil || account.ID <= 0 || account.ID != tenant.accountID || !tenant.used.CompareAndSwap(false, true)) {
+		return nil, journal.ErrDispatch
+	}
 	if account != nil {
 		if err := applyCompatibleRequestAuth(account, request); err != nil {
 			return nil, err
@@ -24,14 +46,24 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err := validateOpenAIForwardRequest(s.accountRepo, account, request); err != nil {
 		return nil, err
 	}
+	native := func(r *http.Request) (*http.Response, error) {
+		return generationDo(accountHTTPUpstream(s.httpUpstream, account), r, proxyURL, account.ID, account.Concurrency)
+	}
+	if tenant != nil {
+		response, err := native(request)
+		return compatibleCheckedResponse(account, response, resolveUpstreamResponseReadLimit(s.cfg)), err
+	}
+	send := func(r *http.Request) (*http.Response, error) {
+		response, err := s.pluginManager.forwardAction(r, account, native)
+		return compatibleCheckedResponse(account, response, resolveUpstreamResponseReadLimit(s.cfg)), err
+	}
 	if s.pluginManager != nil {
-		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
+		response, handled, err := s.pluginManager.roundTripOpenAIOAuth(request.Context(), request, proxyURL, account, send)
 		if handled {
 			return response, err
 		}
 	}
-	response, err := generationDo(accountHTTPUpstream(s.httpUpstream, account), request, proxyURL, account.ID, account.Concurrency)
-	return compatibleCheckedResponse(account, response, resolveUpstreamResponseReadLimit(s.cfg)), err
+	return send(request)
 }
 
 // doOpenAIAccountTestUpstream 让 OpenAI OAuth 账号测试与真实转发使用同一插件路径。
@@ -49,20 +81,18 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		}
 		proxyURL = resolved
 	}
+	send := func(r *http.Request) (*http.Response, error) {
+		upstream := accountHTTPUpstream(s.httpUpstream, account)
+		if useTLSFallback {
+			return upstream.DoWithTLS(r, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		}
+		return upstream.Do(r, proxyURL, account.ID, account.Concurrency)
+	}
 	if s.pluginManager != nil {
-		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
+		response, handled, err := s.pluginManager.roundTripOpenAIOAuth(request.Context(), request, proxyURL, account, send)
 		if handled {
 			return response, err
 		}
 	}
-	if useTLSFallback {
-		return accountHTTPUpstream(s.httpUpstream, account).DoWithTLS(
-			request,
-			proxyURL,
-			account.ID,
-			account.Concurrency,
-			s.tlsFPProfileService.ResolveTLSProfile(account),
-		)
-	}
-	return accountHTTPUpstream(s.httpUpstream, account).Do(request, proxyURL, account.ID, account.Concurrency)
+	return send(request)
 }

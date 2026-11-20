@@ -15,9 +15,9 @@ import (
 	"testing/synctest"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )

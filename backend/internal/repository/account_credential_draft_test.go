@@ -10,10 +10,10 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/accountgroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,11 +29,20 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 	require.NoError(t, ApplyMigrations(ctx, database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
-	group, err := client.Group.Create().SetName("credential-draft-test").SetPlatform(service.PlatformAnthropic).Save(ctx)
+	fixture := uniqueName("credential-draft-test")
+	t.Cleanup(func() {
+		_, err := database.ExecContext(ctx, "DELETE FROM pending_auth_sessions WHERE browser_session_key=$1", fixture)
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM accounts WHERE name LIKE $1", fixture+"-%")
+		require.NoError(t, err)
+		_, err = database.ExecContext(ctx, "DELETE FROM groups WHERE name=$1", fixture)
+		require.NoError(t, err)
+	})
+	group, err := client.Group.Create().SetName(fixture).SetPlatform(service.PlatformAnthropic).Save(ctx)
 	require.NoError(t, err)
 	for _, withGroups := range []bool{false, true} {
 		for _, callerTransaction := range []bool{false, true} {
-			candidate := &service.Account{Name: "draft-transaction-test", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "secret"}}
+			candidate := &service.Account{Name: fixture + "-transaction", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "secret"}}
 			writeContext := ctx
 			var transaction *dbent.Tx
 			if callerTransaction {
@@ -62,12 +71,12 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 	}
 
 	pending := service.NewAuthPendingIdentityService(client)
-	draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", service.PlatformAnthropic, service.AccountTypeOAuth, map[string]any{"access_token": "secret"})
+	draft, err := pending.IssueAccountCredentialDraft(ctx, fixture, service.PlatformAnthropic, service.AccountTypeOAuth, map[string]any{"access_token": "secret"})
 	require.NoError(t, err)
 	failure := errors.New("failure after account and group writes")
 	var failedID int64
-	_, err = pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, "submission", func(txCtx context.Context, candidate *service.Account) (int64, error) {
-		candidate.Name, candidate.Status = "failed-confirmation", service.StatusActive
+	_, err = pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, fixture, draft.Revision, "submission", func(txCtx context.Context, candidate *service.Account) (int64, error) {
+		candidate.Name, candidate.Status = fixture+"-failed", service.StatusActive
 		if err := repository.CreateWithAccountGroups(txCtx, candidate, []service.AccountGroup{{GroupID: group.ID, Priority: 1}}); err != nil {
 			return 0, err
 		}
@@ -77,7 +86,7 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 	require.ErrorIs(t, err, failure)
 	require.Positive(t, failedID)
 	require.Zero(t, client.Account.Query().Where(account.IDEQ(failedID)).CountX(ctx))
-	_, err = pending.PreviewAccountCredentialDraft(ctx, draft.Reference, "browser")
+	_, err = pending.PreviewAccountCredentialDraft(ctx, draft.Reference, fixture)
 	require.NoError(t, err)
 	var workers sync.WaitGroup
 	results := make(chan int64, 8)
@@ -86,8 +95,8 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			confirmedID, confirmErr := pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, "submission", func(txCtx context.Context, candidate *service.Account) (int64, error) {
-				candidate.Name, candidate.Status = "concurrent-confirmation", service.StatusActive
+			confirmedID, confirmErr := pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, fixture, draft.Revision, "submission", func(txCtx context.Context, candidate *service.Account) (int64, error) {
+				candidate.Name, candidate.Status = fixture+"-concurrent", service.StatusActive
 				writeErr := repository.CreateWithAccountGroups(txCtx, candidate, []service.AccountGroup{{GroupID: group.ID, Priority: 1}})
 				return candidate.ID, writeErr
 			})
@@ -108,11 +117,11 @@ func TestCredentialDraftRepositoryTransactionOwnership(t *testing.T) {
 		}
 		require.Equal(t, winner, result)
 	}
-	require.Equal(t, 1, client.Account.Query().Where(account.NameEQ("concurrent-confirmation")).CountX(ctx))
+	require.Equal(t, 1, client.Account.Query().Where(account.NameEQ(fixture+"-concurrent")).CountX(ctx))
 
 	admin := &credentialGuardAdmin{repository: repository}
 	for _, platform := range []string{service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformGemini, service.PlatformAntigravity, service.PlatformGrok} {
-		candidate := &service.Account{Name: "refresh-" + platform, Platform: platform, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "old", "base_url": "https://old.example"}}
+		candidate := &service.Account{Name: fixture + "-refresh-" + platform, Platform: platform, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{"access_token": "old", "base_url": "https://old.example"}}
 		require.NoError(t, repository.Create(ctx, candidate))
 		baseline, err := repository.GetByID(ctx, candidate.ID)
 		require.NoError(t, err)

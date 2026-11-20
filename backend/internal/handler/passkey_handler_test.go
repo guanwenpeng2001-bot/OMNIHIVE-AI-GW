@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -117,7 +117,7 @@ func newTencentProtectedPasskeyHandler(t *testing.T) (*PasskeyHandler, *passkeyC
 	t.Helper()
 	cfg := &config.Config{WebAuthn: config.WebAuthnConfig{
 		Enabled:       true,
-		RPDisplayName: "Sub2API",
+		RPDisplayName: "OmniHive",
 		RPID:          "sub2api.example.com",
 		RPOrigins:     []string{"https://sub2api.example.com"},
 	}}

@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <p role="note" class="mb-4 rounded-xl bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--brand-text)]">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
+    <p role="note" class="mb-4 rounded-xl bg-[var(--surface-2)] px-4 py-3 text-sm text-[var(--brand-text)]">{{ t('channelTelemetry.cursorProbeUnsupported') }}</p>
     <div class="w-full min-w-0 space-y-6 pb-8 text-[var(--foreground)] tabular-nums">
       <header
         class="page-header mb-0 rounded-xl bg-[var(--card)] p-5 shadow-none border border-[var(--border)] sm:p-6"
@@ -14,41 +14,41 @@
         <p class="page-description mt-1.5 text-xs text-[var(--muted-foreground)]">
           {{
             isV1Mode
-              ? t('channelMonitorV2.admin.descriptionV1')
-              : t('channelMonitorV2.admin.descriptionV2')
+              ? t('channelTelemetry.admin.descriptionProbe')
+              : t('channelTelemetry.admin.descriptionTelemetry')
           }}
         </p>
         <div v-if="!workspaceScoped" class="mt-4 border-t border-[var(--border)] pt-4">
           <div
             class="tabs segmented inline-flex w-full flex-wrap sm:w-auto"
             role="tablist"
-            :aria-label="t('channelMonitorV2.admin.tabAria')"
+            :aria-label="t('channelTelemetry.admin.tabAria')"
           >
             <button
               type="button"
               role="tab"
               class="tab seg-btn flex-1 sm:flex-none"
-              :class="adminMonitorTab === 'v2' ? 'tab-active seg-active' : ''"
-              :aria-selected="adminMonitorTab === 'v2'"
-              @click="adminMonitorTab = 'v2'"
+              :class="adminMonitorTab === 'telemetry' ? 'tab-active seg-active' : ''"
+              :aria-selected="adminMonitorTab === 'telemetry'"
+              @click="adminMonitorTab = 'telemetry'"
             >
-              {{ t('channelMonitorV2.admin.tabV2') }}
+              {{ t('channelTelemetry.admin.tabTelemetry') }}
             </button>
             <button
               type="button"
               role="tab"
               class="tab seg-btn flex-1 sm:flex-none"
-              :class="adminMonitorTab === 'legacy' ? 'tab-active seg-active' : ''"
-              :aria-selected="adminMonitorTab === 'legacy'"
-              @click="adminMonitorTab = 'legacy'"
+              :class="adminMonitorTab === 'probes' ? 'tab-active seg-active' : ''"
+              :aria-selected="adminMonitorTab === 'probes'"
+              @click="adminMonitorTab = 'probes'"
             >
-              {{ isV1Mode ? t('channelMonitorV2.admin.tabV1Active') : t('channelMonitorV2.admin.tabV1History') }}
+              {{ isV1Mode ? t('channelTelemetry.admin.tabProbeActive') : t('channelTelemetry.admin.tabProbeHistory') }}
             </button>
           </div>
         </div>
       </header>
 
-      <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
+      <MonitorSettingsPanel v-if="adminMonitorTab === 'telemetry'" />
 
       <TablePageLayout v-else>
       <template #filters>
@@ -98,7 +98,7 @@
           </template>
 
           <template #cell-enabled="{ row }">
-            <span v-if="String(row.provider) === 'cursor'" class="text-xs text-[var(--muted-foreground)]">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</span>
+            <span v-if="String(row.provider) === 'cursor'" class="text-xs text-[var(--muted-foreground)]">{{ t('channelTelemetry.cursorLegacyReadOnly') }}</span>
             <Toggle v-else :modelValue="row.enabled" @update:modelValue="toggleEnabled(row)" />
           </template>
 
@@ -202,14 +202,14 @@ import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryMo
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
-import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
-import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
+import MonitorSettingsPanel from '@/features/channel-telemetry/MonitorSettingsPanel.vue'
+import { isChannelProbeMode } from '@/utils/featureFlags'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const isV1Mode = computed(() => isChannelMonitorV1Mode())
+const isV1Mode = computed(() => isChannelProbeMode())
 const workspaceScoped = !!workspaceIDFromPath(window.location.pathname)
-const adminMonitorTab = ref<'v2' | 'legacy'>(workspaceScoped || isChannelMonitorV1Mode() ? 'legacy' : 'v2')
+const adminMonitorTab = ref<'telemetry' | 'probes'>(workspaceScoped || isChannelProbeMode() ? 'probes' : 'telemetry')
 const {
   providerLabel,
   providerBadgeClass,
@@ -388,10 +388,10 @@ async function confirmDelete() {
 }
 
 watch(adminMonitorTab, (tab) => {
-  if (tab === 'legacy' && monitors.value.length === 0) void reload()
+  if (tab === 'probes' && monitors.value.length === 0) void reload()
 })
 onMounted(() => {
-  if (adminMonitorTab.value === 'legacy') void reload()
+  if (adminMonitorTab.value === 'probes') void reload()
 })
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)

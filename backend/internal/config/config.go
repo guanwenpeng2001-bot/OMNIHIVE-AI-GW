@@ -10,12 +10,15 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/spf13/viper"
 	"golang.org/x/net/http/httpguts"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
 )
 
 const (
@@ -1829,6 +1832,11 @@ func LoadForBootstrap() (*Config, error) {
 	return load(true)
 }
 
+const (
+	DefaultDatabaseName = "omnihive"
+	legacyDatabaseName  = "sub2api"
+)
+
 func load(allowMissingJWTSecret bool) (*Config, error) {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
@@ -1848,11 +1856,16 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	// 默认值
 	setDefaults()
 
-	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, fmt.Errorf("read config error: %w", err)
+	configErr := viper.ReadInConfig()
+	if configErr != nil {
+		if _, ok := configErr.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("read config error: %w", configErr)
 		}
-		// 配置文件不存在时使用默认值
+	} else {
+		warnLegacyConfig(viper.ConfigFileUsed())
+	}
+	if configErr == nil || runtimeenv.HasInstallLock() || runtimeenv.SkipSetupEnabled() {
+		viper.SetDefault("database.dbname", legacyDatabaseName)
 	}
 	trustedProxiesEnv, trustedProxiesEnvConfigured := os.LookupEnv("SERVER_TRUSTED_PROXIES")
 	forwardedClientIPHeadersEnv, forwardedClientIPHeadersEnvConfigured := os.LookupEnv("SECURITY_FORWARDED_CLIENT_IP_HEADERS")
@@ -2025,13 +2038,33 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 	}
 
 	// Add config paths in priority order.
-	if dataDir := strings.TrimSpace(os.Getenv("DATA_DIR")); dataDir != "" {
+	if dataDir := runtimeenv.DataDir(); dataDir != "" {
 		addConfigPath(dataDir)
 	}
-	addConfigPath("/app/data")
+	addConfigPath(runtimeenv.ContainerDataDir)
 	addConfigPath(".")
 	addConfigPath("./config")
-	addConfigPath("/etc/sub2api")
+	addConfigPath(runtimeenv.SystemConfigDir)
+	addConfigPath(runtimeenv.LegacyConfigDir)
+}
+
+func warnLegacyConfig(configFile string) {
+	if filepath.Dir(configFile) == runtimeenv.LegacyConfigDir {
+		runtimeenv.WarnLegacy(runtimeenv.LegacyConfigDir, runtimeenv.SystemConfigDir)
+	}
+}
+
+func HasSystemConfig() bool {
+	if strings.TrimSpace(os.Getenv("CONFIG_FILE")) != "" {
+		return false
+	}
+	for _, dir := range []string{runtimeenv.SystemConfigDir, runtimeenv.LegacyConfigDir} {
+		_, err := os.Stat(filepath.Join(dir, "config.yaml"))
+		if !os.IsNotExist(err) {
+			return true
+		}
+	}
+	return false
 }
 
 func setDefaults() {
@@ -2058,7 +2091,7 @@ func setDefaults() {
 	// Log
 	viper.SetDefault("log.level", "info")
 	viper.SetDefault("log.format", "console")
-	viper.SetDefault("log.service_name", "sub2api")
+	viper.SetDefault("log.service_name", "omnihive")
 	viper.SetDefault("log.env", "production")
 	viper.SetDefault("log.caller", true)
 	viper.SetDefault("log.stacktrace_level", "error")
@@ -2081,7 +2114,7 @@ func setDefaults() {
 	// WebAuthn / Passkeys are opt-in because every deployment must explicitly
 	// declare its relying-party domain and trusted browser origins.
 	viper.SetDefault("webauthn.enabled", false)
-	viper.SetDefault("webauthn.rp_display_name", "Sub2API")
+	viper.SetDefault("webauthn.rp_display_name", "OmniHive")
 	viper.SetDefault("webauthn.rp_id", "")
 	viper.SetDefault("webauthn.rp_origins", []string{})
 
@@ -2206,7 +2239,7 @@ func setDefaults() {
 	viper.SetDefault("database.port", 5432)
 	viper.SetDefault("database.user", "postgres")
 	viper.SetDefault("database.password", "postgres")
-	viper.SetDefault("database.dbname", "sub2api")
+	viper.SetDefault("database.dbname", DefaultDatabaseName)
 	viper.SetDefault("database.sslmode", "prefer")
 	viper.SetDefault("database.max_open_conns", 256)
 	viper.SetDefault("database.max_idle_conns", 128)
@@ -3848,7 +3881,9 @@ func GetServerAddress() string {
 	v.SetDefault("server.port", 8080)
 
 	// Try to read config file (ignore errors if not found)
-	_ = v.ReadInConfig()
+	if v.ReadInConfig() == nil {
+		warnLegacyConfig(v.ConfigFileUsed())
+	}
 
 	host := v.GetString("server.host")
 	port := v.GetInt("server.port")

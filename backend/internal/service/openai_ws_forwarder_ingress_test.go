@@ -9,8 +9,8 @@ import (
 	"net"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	coderws "github.com/coder/websocket"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )

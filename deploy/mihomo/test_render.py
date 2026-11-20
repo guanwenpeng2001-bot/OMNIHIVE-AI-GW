@@ -312,9 +312,9 @@ grep -q '192.0.2.50' /tmp/lookup.txt
                 self.assertEqual(result.returncode, 0, result.stderr)
                 document = json.loads(result.stdout)
                 sidecar = document["services"]["node-proxy"]
-                self.assertIn("sub2api-network", sidecar["networks"])
-                self.assertIn("sub2api-network", document["services"]["sub2api"]["networks"])
-                self.assertEqual(document["networks"]["sub2api-network"]["name"], "synthetic-node-proxy_sub2api-network")
+                self.assertIn("omnihive-network", sidecar["networks"])
+                self.assertIn("omnihive-network", document["services"]["omnihive"]["networks"])
+                self.assertEqual(document["networks"]["omnihive-network"]["name"], "synthetic-node-proxy_omnihive-network")
                 self.assertEqual(Path(sidecar["volumes"][0]["source"]), config)
                 self.assertTrue(sidecar["volumes"][0]["read_only"])
                 self.assertNotIn("network_mode", sidecar)

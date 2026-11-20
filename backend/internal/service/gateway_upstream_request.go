@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
@@ -205,7 +205,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 	account.ApplyHeaderOverrides(req.Header)
 
 	// === DEBUG: 打印上游转发请求（headers + body 摘要），与 CLIENT_ORIGINAL 对比 ===
-	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, map[string]string{
+	s.debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD", req.Header, body, map[string]string{
 		"url":                 req.URL.String(),
 		"token_type":          tokenType,
 		"mimic_claude_code":   strconv.FormatBool(mimicClaudeCode),
@@ -341,7 +341,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 		setHeaderRaw(req.Header, "anthropic-beta", finalBeta)
 	}
 
-	s.debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
+	s.debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, map[string]string{
 		"url":        req.URL.String(),
 		"token_type": "service_account",
 		"model":      modelID,

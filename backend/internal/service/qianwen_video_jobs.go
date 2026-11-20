@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -13,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
 	"github.com/tidwall/gjson"
 )
 
@@ -142,6 +143,9 @@ func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 	if count.Type != gjson.Number || count.Float() != 1 || seconds.Type != gjson.Number || !finitePositive(seconds.Float()) || resolution != billingSnapshot.Resolution || upstreamJob.ResultRef == "" {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
+	if billingSnapshot.TaskPriceVersion != "" && seconds.Float() > 5 {
+		return nil, nil, ErrUpstreamJobUnsupportedUsage
+	}
 	total := QuantizeUsageBillingAmount(seconds.Float() * billingSnapshot.UnitPrice)
 	actual := QuantizeUsageBillingAmount(total * billingSnapshot.RateMultiplier)
 	if !finitePositive(total) || !finitePositive(actual) {
@@ -150,6 +154,9 @@ func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 	mode := "video"
 	source := "group_video_model_prices"
 	version := "upstream-job-v1"
+	if billingSnapshot.TaskPriceVersion != "" {
+		version = billingSnapshot.TaskPriceVersion
+	}
 	log := &UsageLog{UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, RequestID: upstreamJob.PublicRequestID, Model: billingSnapshot.Model, RequestedModel: billingSnapshot.RequestedModel, UpstreamModel: &billingSnapshot.Model, GroupID: upstreamJob.GroupID, SubscriptionID: billingSnapshot.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: billingSnapshot.RateMultiplier, AccountRateMultiplier: &billingSnapshot.AccountRateMultiplier, VideoCount: 1, VideoResolution: &billingSnapshot.Resolution, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	// Existing audit column is integer; retain fractional official duration only in
 	// usage_json instead of rounding a billing quantity into misleading metadata.
@@ -275,6 +282,8 @@ func qianwenResultDownloadClient(ctx context.Context, account *Account, timeout 
 	return &http.Client{Transport: transport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
+var ErrQianwenVideoResultGone = errors.New("video result expired or removed")
+
 func openQianwenVideoContent(ctx context.Context, account *Account, rawURL string) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Scheme != "https" || u.User != nil || strings.Contains(rawURL, "#") || u.Host != u.Hostname() || !isQianwenVideoResultHost(u.Hostname()) {
@@ -294,6 +303,9 @@ func openQianwenVideoContent(ctx context.Context, account *Account, rawURL strin
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
+			return nil, ErrQianwenVideoResultGone
+		}
 		return nil, fmt.Errorf("video result HTTP %d", resp.StatusCode)
 	}
 	const maxVideoContentBytes = 256 << 20
@@ -386,7 +398,8 @@ func (s *OpenAIGatewayService) qianwenVideoRequest(ctx context.Context, account 
 	if results := output.Get("results"); update.ResultRef == "" && results.IsArray() {
 		update.ResultRef = results.Raw
 	}
-	switch output.Get("task_status").String() {
+	update.ProviderStatus = output.Get("task_status").String()
+	switch update.ProviderStatus {
 	case "PENDING":
 		update.Status = "submitted"
 	case "RUNNING":

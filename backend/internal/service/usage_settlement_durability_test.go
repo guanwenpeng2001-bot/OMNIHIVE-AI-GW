@@ -219,3 +219,34 @@ func TestSettlementRejectsInvalidPersistenceAcknowledgement(t *testing.T) {
 		})
 	}
 }
+
+type lostSettlementAcknowledgementStore struct {
+	*durableReceiptStore
+}
+
+func (r lostSettlementAcknowledgementStore) Settle(ctx context.Context, key UsageSettlementKey, fingerprint string) (*UsageSettlementResult, error) {
+	if _, err := r.durableReceiptStore.Settle(ctx, key, fingerprint); err != nil {
+		return nil, err
+	}
+	return nil, errors.New("settlement commit acknowledgement lost")
+}
+
+func TestSettlementReadsBackCommittedEffectAfterLostAcknowledgement(t *testing.T) {
+	store := lostSettlementAcknowledgementStore{&durableReceiptStore{}}
+	service := NewUsageSettlementService(store, nil, nil)
+	receipt := durableReceiptFixture()
+	callbacks := 0
+	require.NoError(t, service.Submit(t.Context(), receipt, func(context.Context, *UsageSettlementResult) {
+		callbacks++
+	}))
+	require.Equal(t, 1, store.applied)
+	require.Zero(t, callbacks)
+
+	stored, err := store.Get(t.Context(), receipt.Key)
+	require.NoError(t, err)
+	result, err := service.settle(t.Context(), stored)
+	require.NoError(t, err)
+	require.Equal(t, UsageSettlementSettled, result.Receipt.State)
+	require.False(t, result.Billing.Applied)
+	require.Equal(t, 1, store.applied)
+}

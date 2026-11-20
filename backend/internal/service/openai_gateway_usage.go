@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"go.uber.org/zap"
 )
 
@@ -359,7 +359,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
-	if result.OpenAIWSMode {
+	if result.OpenAIWSMode && GatewayRequestPlanFromContext(ctx).journalIdentity() == "" {
 		if upstreamRequestID := strings.TrimSpace(result.RequestID); upstreamRequestID != "" {
 			requestID = upstreamRequestID
 		}
@@ -402,7 +402,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		imageSizeBreakdown["image_cache_read_tokens"] = result.Usage.ImageCacheReadTokens
 	}
 	usageLog := &UsageLog{
-		PricingState: cost.PricingState, PricingSnapshot: cost.PricingSnapshot,
+		TokenUsageObservation: result.TokenUsageObservation,
+		PricingState:          cost.PricingState, PricingSnapshot: cost.PricingSnapshot,
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,

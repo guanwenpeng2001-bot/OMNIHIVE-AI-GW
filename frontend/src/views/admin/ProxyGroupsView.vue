@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import ProxyGroupEditModal from '@/components/proxyGroup/ProxyGroupEditModal.vue'
 import ProxyGroupMembersModal from '@/components/proxyGroup/ProxyGroupMembersModal.vue'
 import ProxyGroupBindingsDrawer from '@/components/proxyGroup/ProxyGroupBindingsDrawer.vue'
+import EgressPoolsPanel from '@/features/egress/EgressPoolsPanel.vue'
 import { proxyGroupsAPI, type ProxyGroup } from '@/api/admin/proxyGroups'
 import { extractApiErrorMessage } from '@/utils/apiError'
 const { t } = useI18n()
@@ -71,6 +72,7 @@ function saved() { editor.value = null; memberGroup.value = null; void load() }
           </form>
           <p class="text-sm text-[var(--muted-foreground)]">{{ t('admin.proxyGroups.countsHint') }} {{ t('admin.proxyGroups.tagsHint') }}</p>
           <p v-if="error" role="alert" class="text-sm text-[var(--bad-text)]">{{ error }}</p>
+          <EgressPoolsPanel />
         </div>
       </template>
       <template #table>

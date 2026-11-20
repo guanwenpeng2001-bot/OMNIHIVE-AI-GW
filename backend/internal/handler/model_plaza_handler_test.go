@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -205,4 +205,3 @@ func TestToModelPlazaGroupDTO_TimePricing(t *testing.T) {
 	weekdaysTP := weekdaysModel["time_pricing"].(map[string]any)
 	require.Equal(t, true, weekdaysTP["weekdays_only"])
 }
-

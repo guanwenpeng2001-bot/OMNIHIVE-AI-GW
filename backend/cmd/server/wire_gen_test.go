@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,6 +53,9 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	cleanup := provideCleanup(
 		nil, // entClient
 		nil, // redis
+		nil, // timing wheel
+		nil, // deferred
+		nil, // restore connections
 		&service.OpsMetricsCollector{},
 		&service.OpsAggregationService{},
 		&service.OpsAlertEvaluatorService{},
@@ -90,7 +93,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // backupSvc
 		nil, // paymentOrderExpiry
 		nil, // channelMonitorRunner
-		nil, // channelMonitorV2Aggregator
+		nil, // channelTelemetryAggregator
 		nil, // quotaFlusher
 		nil, // upstreamBillingProbe
 		nil, // ollamaCloudUsage

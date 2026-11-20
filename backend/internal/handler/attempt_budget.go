@@ -4,89 +4,45 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
-// Only response content commits the generation budget. Headers, flushes and
-// transport keepalives can precede even the first upstream generation attempt.
-type attemptCommitWriter struct {
-	gin.ResponseWriter
-	budget      *service.AttemptBudget
-	inComment   bool
-	pendingLine string
-	context     *gin.Context
-	committed   bool
-}
-
-func (w *attemptCommitWriter) Write(p []byte) (int, error) {
-	w.commitContent(string(p))
-	return w.ResponseWriter.Write(p)
-}
-func (w *attemptCommitWriter) WriteString(s string) (int, error) {
-	w.commitContent(s)
-	return w.ResponseWriter.WriteString(s)
-}
-
-func (w *attemptCommitWriter) commitContent(content string) {
-	commit := func() {
-		w.committed = true
-		w.budget.Commit()
-		if w.context != nil {
-			w.context.Set("gateway_stream_only_heartbeats", false)
-		}
+func attemptResponse(c *gin.Context) *lifecycle.Response {
+	if c == nil || c.Request == nil {
+		return nil
 	}
-	if w.committed {
+	return service.AttemptBudgetFromContext(c.Request.Context()).Response()
+}
+
+func emitGatewayTerminal(c *gin.Context, encode func()) {
+	r := attemptResponse(c)
+	if r == nil {
+		encode()
 		return
 	}
-	if !strings.HasPrefix(strings.ToLower(w.Header().Get("Content-Type")), "text/event-stream") {
-		if strings.TrimSpace(content) != "" {
-			commit()
-		}
+	if !r.BeginTerminal() {
 		return
 	}
-	for _, character := range content {
-		if character == '\r' || character == '\n' {
-			line := strings.TrimSpace(w.pendingLine)
-			w.pendingLine = ""
-			if w.inComment {
-				w.inComment = false
-				continue
-			}
-			if line == "" || strings.HasPrefix(line, "event:") || strings.HasPrefix(line, "id:") || strings.HasPrefix(line, "retry:") {
-				continue
-			}
-			if !isAttemptBudgetPingData(line) {
-				commit()
-				return
-			}
-			continue
-		}
-		if w.inComment {
-			continue
-		}
-		if strings.TrimSpace(w.pendingLine) == "" && character == ':' {
-			w.inComment = true
-			continue
-		}
-		w.pendingLine += string(character)
-		// A keepalive is small; do not buffer unbounded generated content.
-		if len(w.pendingLine) > 4096 {
-			commit()
-			return
-		}
-	}
+	c.Set("gateway_stream_only_heartbeats", false)
+	errorsBefore := len(c.Errors)
+	sent := false
+	defer func() { r.FinishTerminal(sent) }()
+	encode()
+	sent = len(c.Errors) == errorsBefore
 }
 
-func isAttemptBudgetPingData(line string) bool {
-	data, ok := strings.CutPrefix(line, "data:")
-	if !ok {
-		return false
-	}
-	return service.IsStreamHeartbeatData(data)
+func streamTransportCommitted(c *gin.Context) bool {
+	return c != nil && c.Writer != nil && c.Writer.Written() && strings.HasPrefix(strings.ToLower(c.Writer.Header().Get("Content-Type")), "text/event-stream")
 }
 
 func installAttemptBudget(c *gin.Context) func() {
+	if c.GetBool("gateway_attempt_writer") {
+		return func() {}
+	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
@@ -98,12 +54,28 @@ func installAttemptBudget(c *gin.Context) func() {
 	c.Request = c.Request.WithContext(ctx)
 	original := c.Writer
 	c.Set("gateway_stream_only_heartbeats", true)
-	w := &attemptCommitWriter{ResponseWriter: original, budget: service.AttemptBudgetFromContext(ctx), context: c}
+	w := protocol.TrackResponseWriter(c, service.AttemptBudgetFromContext(ctx).Response(), service.IsStreamHeartbeatData)
 	c.Writer = w
+	c.Set("gateway_attempt_writer", true)
 	return func() {
 		cancel()
+		c.Set("gateway_attempt_writer", false)
 		if c.Writer == w {
 			c.Writer = original
 		}
 	}
+}
+
+func alreadyTerminal(c *gin.Context) bool {
+	r := attemptResponse(c)
+	return r != nil && r.State() >= lifecycle.EmittingTerminal
+}
+
+func writeGatewayStreamTerminal(c *gin.Context, status int, errType, code, message string) {
+	emitGatewayTerminal(c, func() {
+		if inboundIsResponses(c) && writeResponsesFailedSSE(c, errType, code, message) {
+			return
+		}
+		protocol.WriteStreamError(c, status, errType, code, message)
+	})
 }

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/stretchr/testify/require"
 )
 

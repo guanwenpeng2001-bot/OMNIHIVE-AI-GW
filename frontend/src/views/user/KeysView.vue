@@ -1,6 +1,107 @@
 <template>
   <AppLayout>
-    <div class="oh-keys-workbench space-y-4">
+    <div class="oh-keys-workbench min-w-0 space-y-4">
+      <section
+        data-testid="keys-scope-attribution-banner"
+        class="card flex flex-col gap-2.5 p-3 sm:px-4"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              {{ isZh ? '归属作用域' : 'ACTIVE SCOPE' }}
+            </span>
+            <span
+              v-if="activeConsoleScope.workspaceId"
+              class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-[var(--foreground)]"
+            >
+              {{ isZh ? `工作空间 #${activeConsoleScope.workspaceId}` : `Workspace #${activeConsoleScope.workspaceId}` }}
+              <template v-if="activeConsoleScope.projectId">
+                · {{ isZh ? `项目 #${activeConsoleScope.projectId}` : `Project #${activeConsoleScope.projectId}` }}
+              </template>
+            </span>
+            <span v-else class="pill pill-ghost font-mono text-xs">
+              {{ isZh ? '默认个人账户作用域' : 'Default Personal Scope' }}
+            </span>
+            <span
+              v-if="projectScopedKeys.length > 0"
+              class="pill pill-ghost font-mono text-[11px] tabular-nums"
+            >
+              {{
+                isZh
+                  ? `已登记项目受限凭证 ${projectScopedKeys.length}`
+                  : `${projectScopedKeys.length} Project Credentials`
+              }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <a
+              href="/byok"
+              data-testid="keys-link-byok"
+              class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
+              @click.prevent="navigateConsole('/byok')"
+            >
+              {{ isZh ? '自带密钥 (BYOK)' : 'Bring Your Own Key (BYOK)' }}
+            </a>
+            <a
+              :href="scopedBillingHref"
+              data-testid="keys-link-billing"
+              class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
+              @click.prevent="navigateConsole(scopedBillingHref)"
+            >
+              {{ isZh ? '费用与账单' : 'Billing & Costs' }}
+            </a>
+            <a
+              :href="scopedRequestsHref"
+              data-testid="keys-link-requests"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs"
+              @click.prevent="navigateConsole(scopedRequestsHref)"
+            >
+              {{ isZh ? '请求记录' : 'Request Logs' }}
+            </a>
+            <a
+              href="/workspaces"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs"
+              @click.prevent="navigateConsole('/workspaces')"
+            >
+              {{ isZh ? '切换作用域' : 'Switch Scope' }}
+            </a>
+          </div>
+        </div>
+
+        <p class="text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {{
+            activeConsoleScope.workspaceId && activeConsoleScope.projectId
+              ? isZh
+                ? `当前密钥请求与计量回执将自动归集至「工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}」，可在「费用与账单」查看项目预算消耗，在「请求记录」追踪每次调用；如需托管上游厂商凭证请前往「自带密钥 (BYOK)」。`
+                : `Calls made with scoped credentials attribute usage and receipts to Workspace #${activeConsoleScope.workspaceId} / Project #${activeConsoleScope.projectId} across Billing & Costs and Request Logs. Enroll upstream provider keys in BYOK.`
+              : isZh
+                ? '每个下游 API 密钥均绑定至对应工作空间与项目以归集「请求记录」与「费用与账单」明细；如需托管自有上游厂商密钥请前往「自带密钥 (BYOK)」。'
+                : 'Downstream API keys attribute usage to your active Workspace & Project in Request Logs and Billing & Costs. Manage upstream provider credentials in BYOK.'
+          }}
+        </p>
+
+        <details v-if="projectScopedKeys.length > 0" class="border-t border-[var(--border)] pt-2 text-xs">
+          <summary class="cursor-pointer font-mono text-[11px] font-semibold text-[var(--foreground)]">
+            {{
+              isZh
+                ? `查看当前项目专属凭证列表 (${projectScopedKeys.length})`
+                : `View Active Project Scoped Credentials (${projectScopedKeys.length})`
+            }}
+          </summary>
+          <ul class="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            <li
+              v-for="pk in projectScopedKeys"
+              :key="pk.id"
+              class="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 font-mono text-xs tabular-nums"
+            >
+              <span class="truncate font-medium text-[var(--foreground)]">{{ pk.name }}</span>
+              <span class="shrink-0 text-[var(--muted-foreground)]">#{{ pk.id }} · {{ pk.prefix }}</span>
+            </li>
+          </ul>
+        </details>
+      </section>
+
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2.5">
@@ -13,7 +114,11 @@
             </span>
           </div>
           <span class="pill pill-ghost font-mono text-xs tabular-nums">
-            {{ gatewayEndpoints.length }} PROTOCOLS · {{ generationEndpoints.length }} GEN
+            {{
+              isZh
+                ? `${gatewayEndpoints.length} 类协议 · ${generationEndpoints.length} 个生成入口`
+                : `${gatewayEndpoints.length} PROTOCOLS · ${generationEndpoints.length} GEN`
+            }}
           </span>
           <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-3 text-sm">
             <span class="text-[var(--muted-foreground)]">
@@ -78,7 +183,7 @@
                 <code class="min-w-0 truncate font-mono text-[11px] tabular-nums text-[var(--foreground)]" :title="endpoint.url">{{ endpoint.url }}</code>
                 <button
                   type="button"
-                  class="shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-300 dark:hover:text-amber-100"
+                  class="oh-focus-ring shrink-0 rounded p-1 text-amber-700 transition-colors hover:bg-amber-500/15 hover:text-amber-950 dark:text-amber-300 dark:hover:text-amber-100"
                   :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
                   @click="copyEndpoint(endpoint.url)"
                 >
@@ -141,11 +246,20 @@
                   @change="toggleAllVisibleKeys(($event.target as HTMLInputElement).checked)"
                 />
                 <span>
-                  已选择 <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> 个密钥（筛选后仍保留）
+                  <template v-if="isZh">
+                    已选择 <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> 个密钥（筛选后仍保留）
+                  </template>
+                  <template v-else>
+                    Selected <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> key(s) (preserved across filters)
+                  </template>
                 </span>
               </label>
               <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
-                启用 {{ activeKeyCount }} · 共 {{ pagination.total || apiKeys.length }}
+                {{
+                  isZh
+                    ? `启用 ${activeKeyCount} · 共 ${pagination.total || apiKeys.length}`
+                    : `Active ${activeKeyCount} · Total ${pagination.total || apiKeys.length}`
+                }}
               </span>
               <div class="flex-1" />
               <button
@@ -154,7 +268,7 @@
                 :disabled="selectedKeyCount === 0 || bulkUpdating"
                 @click="bulkToggleSelectedKeys('active')"
               >
-                批量启用
+                {{ isZh ? '批量启用' : 'Enable Selected' }}
               </button>
               <button
                 type="button"
@@ -162,7 +276,7 @@
                 :disabled="selectedKeyCount === 0 || bulkUpdating"
                 @click="bulkToggleSelectedKeys('inactive')"
               >
-                批量停用
+                {{ isZh ? '批量停用' : 'Disable Selected' }}
               </button>
               <button
                 type="button"
@@ -170,7 +284,7 @@
                 :disabled="selectedKeyCount === 0"
                 @click="clearSelectedKeys"
               >
-                清除选择
+                {{ isZh ? '清除选择' : 'Clear Selection' }}
               </button>
             </div>
           </div>
@@ -280,11 +394,11 @@
           </template>
 
           <template #cell-group="{ row }">
-            <div class="group/dropdown relative">
+            <div class="group/dropdown relative min-w-0 max-w-full">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)]"
+                class="oh-focus-ring -my-1 flex max-w-full min-w-0 cursor-pointer flex-wrap items-center gap-1.5 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-[var(--surface-2)] sm:-mx-2 sm:gap-2"
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
@@ -325,7 +439,7 @@
               :class="[
                 'inline-flex min-w-8 items-center justify-center rounded-md px-2 py-0.5 font-mono text-xs font-semibold tabular-nums stat-num',
                 (value ?? 0) > 0
-                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
+                  ? 'border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] text-[var(--oh-accent-text,var(--brand-text,#d97706))]'
                   : 'bg-[var(--surface-2)] text-[var(--muted-foreground)]  '
               ]"
             >
@@ -398,7 +512,7 @@
                     :class="[
                       row.usage_5h >= row.rate_limit_5h ? '!bg-red-500' :
                       row.usage_5h >= row.rate_limit_5h * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_5h / row.rate_limit_5h) * 100, 100) + '%' }"
                   />
@@ -425,7 +539,7 @@
                     :class="[
                       row.usage_1d >= row.rate_limit_1d ? '!bg-red-500' :
                       row.usage_1d >= row.rate_limit_1d * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_1d / row.rate_limit_1d) * 100, 100) + '%' }"
                   />
@@ -452,7 +566,7 @@
                     :class="[
                       row.usage_7d >= row.rate_limit_7d ? '!bg-red-500' :
                       row.usage_7d >= row.rate_limit_7d * 0.8 ? '!bg-amber-500' :
-                      '!bg-emerald-500'
+                      '!bg-[var(--oh-accent,#f59e0b)]'
                     ]"
                     :style="{ width: Math.min((row.usage_7d / row.rate_limit_7d) * 100, 100) + '%' }"
                   />
@@ -462,7 +576,7 @@
                 </div>
               </div>
             </div>
-            <span v-else class="pill pill-ghost font-mono text-xs text-[var(--muted-foreground)]">-</span>
+            <span v-else class="pill pill-ghost font-mono text-xs text-[var(--muted-foreground)]">—</span>
 
             <!-- Effective RPM: which dimension owns each limit, the limit value and
                  the real reset of the current minute window. Deliberately separate
@@ -515,7 +629,7 @@
                   :class="[
                     row.budget_remaining <= 0 ? '!bg-red-500' :
                     row.budget_remaining <= row.budget_limit * 0.2 ? '!bg-amber-500' :
-                    '!bg-sky-500'
+                    '!bg-[var(--oh-accent,#f59e0b)]'
                   ]"
                   :style="{ width: Math.min((row.budget_used / row.budget_limit) * 100, 100) + '%' }"
                 />
@@ -548,7 +662,7 @@
               value === 'active' ? 'badge-success oh-status-ok' :
               value === 'quota_exhausted' ? 'badge-warning oh-status-warn' :
               value === 'expired' ? 'badge-danger oh-status-bad' :
-              value === 'disabled' ? 'badge-purple oh-status-disabled' :
+              value === 'disabled' ? 'oh-status-disabled' :
               'badge-gray oh-status-neutral'
             ]">
               <span
@@ -569,14 +683,14 @@
             <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ formatDateTime(value) }}
             </span>
-            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">—</span>
           </template>
 
           <template #cell-last_used_ip="{ value }">
             <span v-if="value" class="font-mono text-xs tabular-nums text-[var(--muted-foreground)]">
               {{ value }}
             </span>
-            <span v-else class="text-sm text-[var(--muted-foreground)]">-</span>
+            <span v-else class="text-sm text-[var(--muted-foreground)]">—</span>
           </template>
 
           <template #cell-created_at="{ value }">
@@ -588,7 +702,7 @@
               <!-- Use Key Button -->
               <button
                 @click="openUseKeyModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
                 <Icon name="terminal" size="sm" />
                 <span class="text-xs">{{ t('keys.useKey') }}</span>
@@ -597,7 +711,7 @@
               <button
                 v-if="!publicSettings?.hide_ccs_import_button"
                 @click="importToCcswitch(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               >
                 <Icon name="upload" size="sm" />
                 <span class="text-xs">{{ t('keys.importToCcSwitch') }}</span>
@@ -606,10 +720,10 @@
               <button
                 @click="toggleKeyStatus(row)"
                 :class="[
-                  'flex flex-col items-center gap-0.5 rounded-lg p-1.5 transition-colors',
+                  'flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 transition-colors',
                   row.status === 'active'
-                    ? 'text-[var(--muted-foreground)] hover:bg-yellow-50 hover:text-yellow-600 dark:hover:bg-yellow-900/20 dark:hover:text-yellow-400'
-                    : 'text-[var(--muted-foreground)] hover:bg-green-50 hover:text-green-600 dark:hover:bg-green-900/20 dark:hover:text-green-400'
+                    ? 'text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]'
+                    : 'text-[var(--muted-foreground)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
                 ]"
               >
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
@@ -619,7 +733,7 @@
               <!-- Rotate Button -->
               <button
                 @click="openRotateModal(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
+                class="flex flex-col items-center gap-0.5 rounded-[var(--oh-r-sm,6px)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--brand-text)]"
               >
                 <Icon name="refresh" size="sm" />
                 <span class="text-xs">{{ t('keys.rotateKey') }}</span>
@@ -676,6 +790,42 @@
     >
       <ModelAccessRuleEditor v-if="showEditModal && selectedKey" :key="selectedKey.id" :path="`/keys/${selectedKey.id}`" />
       <form id="key-form" @submit.prevent="handleSubmit" class="space-y-5">
+        <div
+          v-if="!showEditModal"
+          class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-medium text-[var(--foreground)]">
+              {{
+                activeConsoleScope.workspaceId && activeConsoleScope.projectId
+                  ? isZh
+                    ? `归属作用域：工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}`
+                    : `Attribution Scope: Workspace #${activeConsoleScope.workspaceId} / Project #${activeConsoleScope.projectId}`
+                  : isZh
+                    ? '归属作用域：当前账户默认工作空间项目'
+                    : 'Attribution Scope: Default Account Workspace & Project'
+              }}
+            </span>
+          </div>
+          <label
+            v-if="activeConsoleScope.workspaceId && activeConsoleScope.projectId"
+            class="mt-2 flex cursor-pointer items-start gap-2 text-[var(--muted-foreground)]"
+          >
+            <input
+              v-model="issueProjectPolicyCredential"
+              type="checkbox"
+              class="mt-0.5 h-3.5 w-3.5 rounded border-[var(--border)]"
+            />
+            <span>
+              {{
+                isZh
+                  ? `签发受限项目专属凭证（直接绑定至项目 #${activeConsoleScope.projectId} 的目录模型与计费审计策略）`
+                  : `Issue restricted project-scoped credential (bound directly to Project #${activeConsoleScope.projectId} catalog & billing policy)`
+              }}
+            </span>
+          </label>
+        </div>
+
         <div>
           <label class="input-label">{{ t('keys.nameLabel') }}</label>
           <input
@@ -707,8 +857,8 @@
                 @change="selectCreateProvider(provider.value)"
               />
               <span
-                class="flex h-full flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-3 text-center transition-colors peer-checked:border-primary-500 peer-checked:bg-primary-50/60 peer-checked:ring-1 peer-checked:ring-primary-500 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-500 peer-disabled:opacity-40 dark:border-dark-600 dark:bg-dark-800 dark:peer-checked:border-primary-500 dark:peer-checked:bg-primary-500/10"
-                :class="provider.count > 0 && 'hover:border-primary-300 dark:hover:border-primary-700'"
+                class="flex h-full flex-col items-center gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-2 py-3 text-center transition-colors peer-checked:border-[var(--oh-accent,#f59e0b)] peer-checked:bg-[var(--oh-accent-subtle,rgba(245,158,11,0.1))] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--oh-accent,#f59e0b)] peer-disabled:opacity-40"
+                :class="provider.count > 0 && 'hover:border-[var(--oh-border-strong,var(--border))]'"
               >
                 <span class="flex h-8 items-center justify-center gap-1.5" aria-hidden="true">
                   <span
@@ -724,7 +874,7 @@
               </span>
               <span
                 v-if="createProvider === provider.value"
-                class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary-500 text-white"
+                class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--oh-accent,#f59e0b)] text-[#141008]"
                 aria-hidden="true"
               >
                 <Icon name="check" size="xs" :stroke-width="3" />
@@ -787,6 +937,32 @@
               />
             </template>
           </Select>
+          <div
+            v-if="!showEditModal && !groupsLoading && !groupsLoadFailed && recommendedDefaultGroup"
+            data-testid="key-group-binding-guide"
+            class="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] px-3 py-2 text-xs"
+          >
+            <span class="text-[var(--foreground)]">
+              {{
+                formData.group_id
+                  ? isZh
+                    ? `已绑定至可用路由分组：${selectedFormGroupLabel}`
+                    : `Bound to routing group: ${selectedFormGroupLabel}`
+                  : isZh
+                    ? `默认绑定至可用路由分组：推荐绑定「${recommendedDefaultGroup.label}」以防止无分组密钥触发 403`
+                    : `Default routing group binding: bind "${recommendedDefaultGroup.label}" to prevent ungrouped 403 errors`
+              }}
+            </span>
+            <button
+              v-if="!formData.group_id"
+              type="button"
+              data-testid="key-apply-recommended-group"
+              class="font-semibold text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline underline-offset-2"
+              @click="applyRecommendedGroup"
+            >
+              {{ isZh ? `一键绑定「${recommendedDefaultGroup.label}」` : `Bind "${recommendedDefaultGroup.label}"` }}
+            </button>
+          </div>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1310,7 +1486,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || !formData.group_id || !groups.some(group => group.id === formData.group_id)))"
+            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (!issueProjectPolicyCredential && (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1371,6 +1547,7 @@
       :show="showUseKeyModal"
       :api-key="'<YOUR_API_KEY>'"
       :base-url="publicSettings?.api_base_url || ''"
+      :site-name="publicSettings?.site_name"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
@@ -1389,7 +1566,7 @@
       :show="showSecretDialog"
       :secret="issuedSecret"
       :grace-until="issuedGraceUntil"
-      @close="showSecretDialog = false"
+      @close="closeSecretDialog"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1515,14 +1692,73 @@ import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
-	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, getCurrentInstance, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import {
+  identityApi,
+  readPersistedConsoleScope,
+  resolveDefaultRoutingGroupId,
+  SCOPE_CHANGED_EVENT as CONSOLE_SCOPE_CHANGED_EVENT,
+  type ConsoleScopeSelection,
+  type IdentityKey
+} from '@/features/console/scope'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
+const instance = getCurrentInstance()
+
+const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
+const projectScopedKeys = ref<IdentityKey[]>([])
+const issueProjectPolicyCredential = ref(false)
+
+const scopedBillingHref = computed(() => {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  return ws && proj ? `/billing?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/billing'
+})
+
+const scopedRequestsHref = computed(() => {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  return ws && proj ? `/requests?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/requests'
+})
+
+function navigateConsole(path: string): void {
+  const router = instance?.appContext.config.globalProperties.$router
+  if (router && typeof router.push === 'function') {
+    void router.push(path)
+  } else if (typeof window !== 'undefined') {
+    window.location.assign(path)
+  }
+}
+
+async function loadProjectScopedKeys(): Promise<void> {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  if (!ws || !proj || typeof identityApi.listProjectKeys !== 'function') {
+    projectScopedKeys.value = []
+    return
+  }
+  try {
+    const page = await identityApi.listProjectKeys(ws, proj, { limit: 50 })
+    if (!disposed) {
+      projectScopedKeys.value = page?.items ?? []
+    }
+  } catch {
+    if (!disposed) {
+      projectScopedKeys.value = []
+    }
+  }
+}
+
+function handleConsoleScopeSync(): void {
+  activeConsoleScope.value = readPersistedConsoleScope()
+  void loadProjectScopedKeys()
+}
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import { buildGatewayUrl } from '@/api/url'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -1637,7 +1873,9 @@ const allColumns = computed<Column[]>(() => [
 const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
 const DEFAULT_HIDDEN_COLUMNS = ['id', 'rate_limit', 'last_used_at', 'last_used_ip']
 const HIDDEN_COLUMNS_KEY = 'api-key-hidden-columns'
+const V1_HIDDEN_COLUMNS_KEY = 'omnihive.keys.hidden_columns.v1'
 const COLUMN_SETTINGS_VERSION_KEY = 'api-key-column-settings-version'
+const V1_COLUMN_SETTINGS_VERSION_KEY = 'omnihive.keys.column_version.v1'
 const COLUMN_SETTINGS_VERSION = 3
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ['last_used_ip'],
@@ -1652,7 +1890,10 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 
 const saveColumnsToStorage = () => {
   try {
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    const serialized = JSON.stringify([...hiddenColumns])
+    localStorage.setItem(V1_HIDDEN_COLUMNS_KEY, serialized)
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, serialized)
+    localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
     localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
   } catch (error) {
     console.error('Failed to save API key table columns:', error)
@@ -1662,7 +1903,7 @@ const saveColumnsToStorage = () => {
 const loadSavedColumns = () => {
   hiddenColumns.clear()
   try {
-    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    const saved = localStorage.getItem(V1_HIDDEN_COLUMNS_KEY) ?? localStorage.getItem(HIDDEN_COLUMNS_KEY)
     if (saved) {
       const parsed = JSON.parse(saved) as string[]
       const validColumnKeys = new Set(allColumns.value.map((col) => col.key))
@@ -1673,7 +1914,11 @@ const loadSavedColumns = () => {
           !ALWAYS_VISIBLE_COLUMNS.has(key)
         )
         .forEach((key) => hiddenColumns.add(key))
-      const storedVersion = Number(localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? '1')
+      const storedVersion = Number(
+        localStorage.getItem(V1_COLUMN_SETTINGS_VERSION_KEY) ??
+        localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ??
+        '1'
+      )
       if (storedVersion < COLUMN_SETTINGS_VERSION) {
         for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
           for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
@@ -1684,10 +1929,12 @@ const loadSavedColumns = () => {
         }
         saveColumnsToStorage()
       } else {
+        localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
         localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
       }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+      localStorage.setItem(V1_COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
       localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
     }
   } catch (error) {
@@ -1974,6 +2221,33 @@ const formGroupOptions = computed(() => showEditModal.value
   : groupOptions.value.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value)
 )
 
+const recommendedDefaultGroup = computed<GroupOption | null>(() => {
+  const candidates = formGroupOptions.value.length > 0 ? formGroupOptions.value : groupOptions.value
+  if (candidates.length === 0) return null
+  const defaultId = resolveDefaultRoutingGroupId(
+    candidates.map((item) => ({ id: item.value, subscription_type: item.subscriptionType }))
+  )
+  return candidates.find((item) => item.value === defaultId) ?? candidates[0] ?? null
+})
+
+const selectedFormGroupLabel = computed(() => {
+  if (!formData.value.group_id) return ''
+  return (
+    groupOptions.value.find((item) => item.value === formData.value.group_id)?.label ??
+    `#${formData.value.group_id}`
+  )
+})
+
+const applyRecommendedGroup = () => {
+  const target = recommendedDefaultGroup.value
+  if (!target) return
+  const targetProvider = getKeyGroupProvider(target.platform)
+  if (createProvider.value !== targetProvider) {
+    createProvider.value = targetProvider
+  }
+  formData.value.group_id = target.value
+}
+
 const selectCreateProvider = (provider: KeyGroupProvider) => {
   if (createProvider.value === provider) return
   createProvider.value = provider
@@ -1988,6 +2262,9 @@ watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen])
   }
   if (!formGroupOptions.value.some((group) => group.value === formData.value.group_id)) {
     formData.value.group_id = null
+  }
+  if (groups.value.length === 1 && formData.value.group_id === null) {
+    formData.value.group_id = groups.value[0]!.id
   }
 })
 
@@ -2263,6 +2540,13 @@ const onCredentialIssued = (payload: { secret: string; graceUntil: string | null
   loadApiKeys()
 }
 
+const closeSecretDialog = () => {
+  showSecretDialog.value = false
+  issuedSecret.value = ''
+  issuedGraceUntil.value = null
+  sessionSecrets.clear()
+}
+
 const closeGroupSelector = (event: MouseEvent) => {
   const target = event.target as HTMLElement
   // Check if click is inside the dropdown or the trigger button
@@ -2362,12 +2646,15 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
-  if (!showEditModal.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
+  if (!showEditModal.value && issueProjectPolicyCredential.value && formData.value.group_id === null && recommendedDefaultGroup.value) {
+    formData.value.group_id = recommendedDefaultGroup.value.value
+  }
+  if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
     return
   }
   // Validate group_id is required
-  if (formData.value.group_id === null) {
+  if (formData.value.group_id === null && !issueProjectPolicyCredential.value) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -2442,6 +2729,33 @@ const handleSubmit = async () => {
       }
       await keysAPI.update(selectedKey.value.id, updates)
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
+    } else if (
+      issueProjectPolicyCredential.value &&
+      activeConsoleScope.value.workspaceId &&
+      activeConsoleScope.value.projectId
+    ) {
+      const projectGroupId =
+        formData.value.group_id ??
+        recommendedDefaultGroup.value?.value ??
+        resolveDefaultRoutingGroupId(groups.value)
+      const created = await identityApi.createProjectKey(
+        activeConsoleScope.value.workspaceId,
+        activeConsoleScope.value.projectId,
+        {
+          ...(projectGroupId ? { group_id: String(projectGroupId) } : {}),
+          name: formData.value.name.trim(),
+          model_access: { mode: 'inherit', ids: [] },
+          actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+          expires_at: expiresAt || null
+        }
+      )
+      appStore.showSuccess(t('keys.keyCreatedSuccess'))
+      if (created?.credential) {
+        issuedSecret.value = created.credential
+        issuedGraceUntil.value = null
+        showSecretDialog.value = true
+      }
+      void loadProjectScopedKeys()
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       const issue = await keysAPI.create(
@@ -2502,6 +2816,7 @@ const closeModals = () => {
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
+  issueProjectPolicyCredential.value = false
   formData.value = {
     name: '',
     group_id: null,
@@ -2653,6 +2968,10 @@ onMounted(() => {
   loadGroups()
   loadUserGroupRates()
   loadPublicSettings()
+  void loadProjectScopedKeys()
+  if (typeof window !== 'undefined') {
+    window.addEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
+  }
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
@@ -2660,10 +2979,16 @@ onMounted(() => {
 onUnmounted(() => {
   endpointCopyRevision++
   clearTimeout(endpointCopyTimer)
+  issuedSecret.value = ''
+  issuedGraceUntil.value = null
+  sessionSecrets.clear()
   disposed = true
   auxiliaryControllers.forEach(controller => controller.abort())
   auxiliaryControllers.clear()
   abortController?.abort()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
+  }
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })
@@ -2784,13 +3109,9 @@ onUnmounted(() => {
 }
 
 .oh-status-disabled {
-  color: #7e22ce;
-  background: color-mix(in srgb, #9333ea 12%, transparent);
-  border-color: color-mix(in srgb, #9333ea 24%, transparent);
-}
-
-.dark .oh-status-disabled {
-  color: #d8b4fe;
+  color: var(--oh-danger, #dc2626);
+  background: color-mix(in srgb, var(--oh-danger, #dc2626) 10%, transparent);
+  border-color: color-mix(in srgb, var(--oh-danger, #dc2626) 24%, transparent);
 }
 
 .oh-status-neutral {
@@ -2803,7 +3124,7 @@ onUnmounted(() => {
   background: var(--muted-foreground, #6f6f78);
 }
 
-summary:focus-visible, .oh-endpoint-item button:focus-visible {
+summary:focus-visible, .oh-keys-workbench button:focus-visible {
   outline: 2px solid var(--brand);
   outline-offset: 3px;
 }

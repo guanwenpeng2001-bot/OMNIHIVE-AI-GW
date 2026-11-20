@@ -10,17 +10,19 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/apikey"
-	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
-	"github.com/Wei-Shaw/sub2api/ent/group"
-	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
-	"github.com/Wei-Shaw/sub2api/ent/user"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/apikeycredential"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/schema/mixins"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	identitypg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -45,6 +47,22 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 }
 
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
+	return r.CreateInProject(ctx, key, 0)
+}
+
+func (r *apiKeyRepository) ResolveKeyWorkspace(ctx context.Context, user, project, group int64) (int64, error) {
+	return resolveKeyWorkspace(ctx, r.sql, user, project, group)
+}
+
+func resolveKeyWorkspace(ctx context.Context, db sqlQueryer, user, project, group int64) (int64, error) {
+	w, err := identitypg.LegacyKeyWorkspace(ctx, db, user, project, group)
+	if errors.Is(err, fault.NotFound) {
+		return 0, service.ErrWorkspaceNotFound
+	}
+	return w, err
+}
+
+func (r *apiKeyRepository) CreateInProject(ctx context.Context, key *service.APIKey, project int64) error {
 	// The plaintext is used only to derive the digest; it is never persisted. The
 	// key row and its first credential land in one transaction so a duplicate
 	// custom secret cannot leave an orphaned key without a credential.
@@ -57,6 +75,18 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	if err == nil {
 		defer func() { _ = tx.Rollback() }()
 		exec = tx.Client()
+	}
+	if project != 0 {
+		if key.GroupID == nil {
+			return service.ErrAPIKeyGroupRequired
+		}
+		w, err := resolveKeyWorkspace(ctx, exec, key.UserID, project, *key.GroupID)
+		if err != nil {
+			return err
+		}
+		if w != domain.ResourceWorkspaceID(ctx) {
+			return service.ErrWorkspaceNotFound
+		}
 	}
 
 	builder := exec.APIKey.Create().
@@ -83,6 +113,29 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	created, err := builder.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+	}
+
+	// Project mappings and credentials become visible together. SQLite test
+	// databases use Ent's schema without the PostgreSQL project read model.
+	if exec.Driver().Dialect() == dialect.Postgres {
+		result, err := exec.ExecContext(ctx, `
+			INSERT INTO project_resources (kind, resource_id, workspace_id, project_id)
+			SELECT 'api_keys', $1, workspace_id, id FROM projects
+			WHERE workspace_id = $2 AND (($3::bigint=0 AND is_default) OR id=$3)
+			  AND archived_at IS NULL`,
+			created.ID, created.WorkspaceID, project)
+		if err != nil {
+			return err
+		}
+		if project != 0 {
+			n, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return service.ErrWorkspaceNotFound
+			}
+		}
 	}
 
 	// Timestamps come from Go rather than a database function so the statement stays

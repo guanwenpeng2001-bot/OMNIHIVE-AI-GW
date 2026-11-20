@@ -22,4 +22,24 @@ describe('logical create idempotency', () => {
     expect(keys[1]).not.toBe(keys[0])
     expect(keys[3]).not.toBe(keys[2])
   })
+
+  it('evicts cached idempotency key on 4xx client errors while keeping it on 5xx errors', async () => {
+    post
+      .mockRejectedValueOnce({
+        response: { status: 422, data: { code: 422, reason: 'INVALID_INPUT', message: 'Invalid field value.' } }
+      })
+      .mockRejectedValueOnce({
+        response: { status: 503, data: { code: 503, reason: 'DEPENDENCY_UNAVAILABLE', message: 'Unavailable' } }
+      })
+      .mockResolvedValue({ data: {} })
+
+    await expect(createKey('client-error-key')).rejects.toBeTruthy()
+    await expect(createKey('client-error-key')).rejects.toBeTruthy()
+    await createKey('client-error-key')
+
+    const keys = post.mock.calls.map(call => call[2].headers['Idempotency-Key'])
+    expect(keys).toHaveLength(3)
+    expect(keys[0]).not.toBe(keys[1])
+    expect(keys[1]).toBe(keys[2])
+  })
 })

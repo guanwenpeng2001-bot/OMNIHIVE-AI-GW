@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -75,7 +75,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "chat_completions", body, h.maxAccountSwitches, h.chatCompletionsErrorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {

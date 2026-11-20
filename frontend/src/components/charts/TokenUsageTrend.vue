@@ -18,12 +18,12 @@
       <div class="space-y-4" aria-hidden="true"><div v-for="row in 4" :key="row" class="flex items-center gap-4 border-b border-dashed border-[var(--border)] pb-2"><span class="h-1 rounded bg-[var(--border)]" :style="{ width: `${60 - row * 8}%` }" /><span class="ml-auto h-3 w-10 rounded-full border border-[var(--border)]" /></div></div>
       <span class="self-start rounded-full border border-[var(--border)] px-2.5 py-1 text-xs">{{ t('admin.dashboard.noDataAvailable') }}</span>
     </div>
-    <div v-if="!loading && chartData" class="mt-4 max-h-64 overflow-auto">
+    <div v-if="!loading && chartData" class="mt-4 overflow-x-auto">
       <table class="w-full whitespace-nowrap text-right text-xs" data-testid="trend-data-table">
         <caption class="mb-2 text-left text-[var(--muted-foreground)]">{{ tableDescription }}</caption>
         <thead><tr>
           <th scope="col" class="p-2 text-left">{{ t('usage.time') }} ({{ timeZone || getBrowserTimeZone() }})</th>
-          <th v-for="dataset in chartData.datasets" :key="dataset.label" scope="col" class="p-2">{{ dataset.label }}</th>
+          <th v-for="dataset in chartData.datasets" :key="dataset.label" scope="col" class="p-2">{{ formatDatasetHeader(dataset.label) }}</th>
           <th scope="col" class="p-2">{{ t('dashboard.actual') }} (USD)</th>
           <th scope="col" class="p-2">{{ t('dashboard.standard') }} (USD)</th>
         </tr></thead>
@@ -70,9 +70,30 @@ ChartJS.register(
   Filler
 )
 
-const { t } = useI18n()
-const tableDescription = computed(() => getLocale().startsWith('zh')
-  ? '同源数据表：金额为每个时间段合计（USD）；缓存命中率 = 缓存读取 /（输入 + 缓存创建 + 缓存读取）；未知显示 -。'
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  if (getLocale().startsWith('zh')) return true
+  const probe = t('admin.dashboard.tokenUsageTrend')
+  return Boolean(probe && probe !== 'admin.dashboard.tokenUsageTrend' && /[\u4e00-\u9fa5]/.test(probe))
+})
+const DATASET_HEADER_ZH: Record<string, string> = {
+  Token: '总 Token',
+  Tokens: '总 Token',
+  Input: '输入',
+  Output: '输出',
+  'Cache Creation': '缓存写入',
+  'Cache Read': '缓存读取',
+  'Cache Hit Rate': '缓存命中率'
+}
+const formatDatasetHeader = (label: string): string => {
+  if (!isZh.value) return label
+  return DATASET_HEADER_ZH[label] ?? label
+}
+const tableDescription = computed(() => isZh.value
+  ? '同源数据表：金额为每个时间段合计（USD）；缓存命中率 = 缓存读取 /（输入 + 缓存写入 + 缓存读取）；未知显示 -。'
   : 'Chart data: amounts are totals per time bucket (USD); cache hit rate = cache read / (input + cache creation + cache read); unknown is -.')
 const formatTableValue = (value: number, percent: boolean): string => Number.isFinite(value)
   ? (percent ? `${value.toFixed(1)}%` : String(value)) : '-'

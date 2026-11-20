@@ -14,9 +14,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -922,7 +923,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesErrorResponse(
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
 
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !ctxkey.PrivateGatewayContent(ctx) {
 		logger.LegacyPrintf("service.openai_gateway",
 			"OpenAI images upstream error %d (account=%d platform=%s type=%s): %s",
 			resp.StatusCode,

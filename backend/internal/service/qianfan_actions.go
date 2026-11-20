@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -319,7 +319,7 @@ func buildQianfanSpeechBody(info QianfanActionRequestInfo, requestID string) ([]
 	}
 	form := url.Values{}
 	form.Set("tex", text)
-	form.Set("cuid", firstNonEmptyString(strings.TrimSpace(requestID), "sub2api"))
+	form.Set("cuid", firstNonEmptyString(strings.TrimSpace(requestID), "omnihive"))
 	form.Set("ctp", "1")
 	form.Set("lan", "zh")
 	form.Set("per", firstNonEmptyString(strings.TrimSpace(info.Voice), qianfanSpeechTTSDefaultVoice))

@@ -2,16 +2,33 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/server/routes"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/web"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
+	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
+	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
+	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
+	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
+	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
+	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
+	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
+	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	statushttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
+	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/routes"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/web"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -23,6 +40,22 @@ const frameSrcRefreshTimeout = 5 * time.Second
 func SetupRouter(
 	r *gin.Engine,
 	handlers *handler.Handlers,
+	identityHandler *identityhttp.Handler,
+	connectionsHandler *connectionshttp.Handler,
+	modelsHandler *modelshttp.Handler,
+	verificationHandler *verificationhttp.Handler,
+	restoreHandler *restorehttp.Handler,
+	requestsHandler *requestshttp.Handler,
+	policiesHandler *policieshttp.Handler,
+	playgroundHandler *playgroundhttp.Handler,
+	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
+	statusHandler *statushttp.Handler,
+	byokHandler *byokhttp.Handler,
+	auditHandler *audithttp.Handler,
+	observabilityHandler *observabilityhttp.Handler,
+	imageTaskCenter *taskhttp.Handler,
+	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
@@ -36,6 +69,7 @@ func SetupRouter(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 	redisClient *redis.Client,
+	db *sql.DB,
 ) *gin.Engine {
 	middleware2.SetIngressRejectRecorder(opsService)
 	// 缓存 iframe 页面的 origin 列表，用于动态注入 CSP frame-src
@@ -72,6 +106,9 @@ func SetupRouter(
 	// This must precede the SPA fallback and also cover requests that never
 	// match a route group (for example a Base URL mistaken for a full endpoint).
 	r.Use(middleware2.GatewayUnknownRouteProtocol())
+	// Gin captures middleware when routes are registered.
+	r.Use(middleware2.InstallProjectScopes(gatewayScopes, cfg))
+	r.Use(handler.InstallExecutionJournal(db, gatewayScopes))
 
 	// Serve embedded frontend with settings injection if available
 	if web.HasEmbeddedFrontend() {
@@ -100,7 +137,7 @@ func SetupRouter(
 	}
 
 	// 注册路由
-	registerRoutes(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	registerRoutes(r, handlers, identityHandler, connectionsHandler, modelsHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, imageTaskCenter, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 
 	return r
 }
@@ -109,6 +146,21 @@ func SetupRouter(
 func registerRoutes(
 	r *gin.Engine,
 	h *handler.Handlers,
+	identityHandler *identityhttp.Handler,
+	connectionsHandler *connectionshttp.Handler,
+	modelsHandler *modelshttp.Handler,
+	verificationHandler *verificationhttp.Handler,
+	restoreHandler *restorehttp.Handler,
+	requestsHandler *requestshttp.Handler,
+	policiesHandler *policieshttp.Handler,
+	playgroundHandler *playgroundhttp.Handler,
+	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
+	statusHandler *statushttp.Handler,
+	byokHandler *byokhttp.Handler,
+	auditHandler *audithttp.Handler,
+	observabilityHandler *observabilityhttp.Handler,
+	imageTaskCenter *taskhttp.Handler,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
@@ -139,6 +191,45 @@ func registerRoutes(
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	routes.RegisterWorkspaceRoutes(v1, h, jwtAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
+	v2 := r.Group("/api/v2")
+	identityhttp.Register(v2, identityHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	connectionshttp.Register(v2, connectionsHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	catalogGuard := middleware2.BackendModeUserGuard(settingService)
+	modelshttp.Register(v2, modelsHandler,
+		[]gin.HandlerFunc{panelRateLimiter.PublicIP(), catalogGuard},
+		[]gin.HandlerFunc{gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), catalogGuard, gin.HandlerFunc(auditLog)},
+	)
+	verificationhttp.Register(v2, verificationHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	restorehttp.Register(v2, restoreHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	requestshttp.Register(v2, requestsHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	policieshttp.Register(v2, policiesHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	playgroundhttp.Register(v2, playgroundHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	billinghttp.Register(v2, billingHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), panelRateLimiter.Heavy(), gin.HandlerFunc(auditLog))
+	paymentshttp.Register(v2, paymentEvidenceHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	observabilityhttp.Register(v2, observabilityHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	audithttp.Register(v2, auditHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	byokhttp.Register(v2, byokHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	statushttp.Register(v2, statusHandler,
+		[]gin.HandlerFunc{panelRateLimiter.PublicIP()},
+		[]gin.HandlerFunc{gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog)})
+	taskhttp.Register(v2, imageTaskCenter,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
+	v2.GET("/admin/extensions", identityhttp.TenantHeaders, gin.HandlerFunc(jwtAuth), middleware2.AdminOnly(),
+		panelRateLimiter.Global(), gin.HandlerFunc(auditLog), h.Admin.Plugin.ListExtensions)
+	connectionshttp.RegisterAuthorization(v1, connectionsHandler,
+		gin.HandlerFunc(jwtAuth), panelRateLimiter.Global(), gin.HandlerFunc(auditLog))
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter)
 

@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
+	middleware "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,7 +40,7 @@ func TestUsageDashboardHistoryContract(t *testing.T) {
 	router.GET("/stats", handler.DashboardStats)
 	router.GET("/trend", handler.DashboardTrend)
 	router.GET("/models", handler.DashboardModels)
-	router.GET("/snapshot", handler.DashboardSnapshotV2)
+	router.GET("/snapshot", handler.DashboardSnapshot)
 	for _, path := range []string{"/trend", "/models", "/snapshot", "/snapshot?include_trend=false", "/snapshot?include_trend=false&include_model_stats=false&include_group_stats=true"} {
 		t.Run(path, func(t *testing.T) {
 			response := httptest.NewRecorder()

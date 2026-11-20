@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 )
 
 var (

@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // ErrAuditLogNotFound 审计日志不存在。
@@ -125,7 +124,7 @@ func auditNormalizeBodyKey(key string) string {
 //   - providerSensitiveConfigFields：支付渠道密钥字段（pkey / privatekey / apiv3key 等）
 var auditBodySensitiveExactKeys = func() map[string]struct{} {
 	builtin := []string{
-		"code", "codes", "pin", "cvv",
+		"code", "codes", "pin", "cvv", "input", "output", "body", "text", "headers", "system",
 		"authorization", "cookie", "x-api-key",
 		"key",
 		// 字符串值内嵌完整凭证的字段：
@@ -155,7 +154,7 @@ var auditBodySensitiveSubstrings = []string{
 	"password", "passwd", "secret", "token",
 	"apikey", "accesskey", "privatekey",
 	"otp", "credentialvalue",
-	"sessionkey", "serviceaccount",
+	"sessionkey", "serviceaccount", "url", "prompt", "message", "content", "endpoint", "locator", "instruction", "payload", "completion",
 }
 
 func isAuditSensitiveBodyKey(key string) bool {
@@ -174,7 +173,7 @@ func isAuditSensitiveBodyKey(key string) bool {
 const auditRedactedPlaceholder = "***"
 
 // RedactAuditBody 对请求体做审计入库前的脱敏：
-//   - JSON：递归擦除敏感键的值（保留结构，base_url 等非敏感字段可见以便追责）
+//   - JSON：递归擦除敏感键的值（凭据、提示词和目的地址均擦除）
 //   - 非 JSON：返回占位说明
 //   - 超长：截断并附截断标记
 func RedactAuditBody(raw []byte, contentType string) string {
@@ -188,7 +187,7 @@ func RedactAuditBody(raw []byte, contentType string) string {
 	ct := strings.ToLower(contentType)
 	if !strings.Contains(ct, "json") || !json.Valid(raw) {
 		// 表单等非 JSON 内容走文本兜底脱敏后仍可能含敏感信息，直接不入库。
-		return "<non-json body omitted: " + strconv.Itoa(len(raw)) + " bytes, content-type=" + strings.TrimSpace(contentType) + ">"
+		return "<non-json body omitted: " + strconv.Itoa(len(raw)) + " bytes>"
 	}
 
 	var value any
@@ -230,29 +229,28 @@ func redactAuditValue(value any, depth int) any {
 			out[i] = redactAuditValue(item, depth+1)
 		}
 		return out
+	case string:
+		if strings.Contains(v, "://") || strings.HasPrefix(strings.ToLower(v), "bearer ") {
+			return auditRedactedPlaceholder
+		}
+		return v
 	default:
 		return value
 	}
 }
 
-// MaskAuditCredential 对请求头中的凭证做首尾保留掩码：
-// 保留前 6 位与后 4 位，中间以 **** 表示；过短的凭证整体掩码。
+// MaskAuditCredential records only the presence of a credential.
 func MaskAuditCredential(credential string) string {
-	credential = strings.TrimSpace(credential)
-	if credential == "" {
+	if strings.TrimSpace(credential) == "" {
 		return ""
 	}
-	if len(credential) <= 14 {
-		return "****"
-	}
-	return credential[:6] + "****" + credential[len(credential)-4:]
+	return "****"
 }
 
-// RedactAuditQuery 对 URL query 做轻量脱敏后返回。
+// RedactAuditQuery omits arbitrary query content including signed tickets.
 func RedactAuditQuery(rawQuery string) string {
-	rawQuery = strings.TrimSpace(rawQuery)
 	if rawQuery == "" {
 		return ""
 	}
-	return logredact.RedactText(rawQuery, "api_key", "apikey", "token", "secret", "key")
+	return "<query omitted>"
 }

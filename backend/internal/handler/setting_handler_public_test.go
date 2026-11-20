@@ -9,9 +9,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -51,6 +51,37 @@ func (s *settingHandlerPublicRepoStub) GetAll(ctx context.Context) (map[string]s
 
 func (s *settingHandlerPublicRepoStub) Delete(ctx context.Context, key string) error {
 	panic("unexpected Delete call")
+}
+
+func TestSettingHandler_GetPublicSettings_SiteSubtitle(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name   string
+		values map[string]string
+		want   string
+	}{
+		{name: "missing", want: "Unified AI Inference Gateway"},
+		{name: "configured", values: map[string]string{service.SettingKeySiteSubtitle: "Example Gateway"}, want: "Example Gateway"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &settingHandlerPublicRepoStub{values: tc.values}
+			h := NewSettingHandler(service.NewSettingService(repo, &config.Config{}), "test-version")
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/settings/public", nil)
+
+			h.GetPublicSettings(c)
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var resp struct {
+				Data struct {
+					SiteSubtitle string `json:"site_subtitle"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
+			require.Equal(t, tc.want, resp.Data.SiteSubtitle)
+		})
+	}
 }
 
 func TestSettingHandler_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t *testing.T) {

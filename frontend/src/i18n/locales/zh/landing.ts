@@ -18,7 +18,7 @@ export default {
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
     heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
     tags: {
-      subscriptionToApi: '订阅转 API',
+      subscriptionToApi: '统一模型接入',
       stickySession: '会话保持',
       realtimeBilling: '按量计费'
     },
@@ -276,6 +276,27 @@ export default {
       restarting: '服务正在重启，请稍候...',
       timeout: '服务重启时间超出预期，请手动刷新页面。'
     }
+  },
+
+  public: {
+    nav: {
+      home: '首页',
+      models: '模型广场',
+      quota: '额度查询',
+      pricing: '定价',
+      status: '服务状态',
+      docs: '文档',
+    },
+    titles: {
+      home: '首页',
+      models: '模型广场',
+      modelCompare: '模型对比',
+      modelDetail: '模型详情',
+      pricing: '定价与套餐',
+      status: '服务状态',
+      keyUsage: '密钥额度查询',
+      legalDocument: '法律文档',
+    },
   },
 
   // Common

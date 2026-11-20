@@ -3,11 +3,11 @@ package repository
 import (
 	"context"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/ent/proxygroup"
-	"github.com/Wei-Shaw/sub2api/ent/proxygroupmember"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxygroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxygroupmember"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func validateAccountProxyGroup(ctx context.Context, client *dbent.Client, id *int64, workspaceID int64) error {

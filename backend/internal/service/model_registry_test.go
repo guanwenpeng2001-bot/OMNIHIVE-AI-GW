@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	modelcapabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 	"github.com/stretchr/testify/require"
 )
 

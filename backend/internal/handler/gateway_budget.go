@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"context"
+	"errors"
 	"net/http"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
+
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -16,23 +20,27 @@ import (
 //
 // The hold is atomic and lives on the request plan, so failover retries reuse
 // the same reservation instead of holding twice. It returns false when the
-// request was already rejected (the caller must return immediately). Keys
-// without a period budget keep their previous path with zero extra work.
+// request was already rejected (the caller must return immediately).
 func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model string, body []byte) bool {
-	if c == nil || key == nil || !key.HasPeriodBudget() {
+	if c == nil || key == nil {
 		return true
 	}
-	plan := service.GatewayRequestPlanFromContext(c.Request.Context())
-	if plan == nil {
-		abortGatewayRequestBudget(c, service.ErrAPIKeyBudgetUnavailable)
-		return false
-	}
-	estimate := gatewayRequestBudgetEstimate(plan, key, model, body)
-	if err := plan.ReserveBudget(c.Request.Context(), estimate); err != nil {
+	if err := reserveRequestBudget(c.Request.Context(), key, model, body); err != nil {
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
 	return true
+}
+
+func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte) error {
+	plan := service.GatewayRequestPlanFromContext(ctx)
+	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() {
+		return nil
+	}
+	if plan == nil {
+		return service.ErrAPIKeyBudgetUnavailable
+	}
+	return plan.ReserveBudget(ctx, gatewayRequestBudgetEstimate(plan, key, model, body))
 }
 
 // gatewayRequestBudgetEstimate 选择本次请求的预留上界。
@@ -44,6 +52,7 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte) service.RequestBudgetEstimate {
 	estimate := service.RequestBudgetEstimate{
 		Model:           model,
+		SkipKeyBudget:   !key.HasPeriodBudget(),
 		RateMultiplier:  gatewayRequestRateMultiplier(key),
 		SkipBalanceHold: key != nil && key.Group != nil && key.Group.IsSubscriptionType(),
 	}
@@ -71,6 +80,10 @@ func abortGatewayRequestBudget(c *gin.Context, err error) {
 }
 
 func gatewayBudgetErrorResponse(err error) (status int, reason, message string) {
+	var f *fault.Fault
+	if errors.As(err, &f) {
+		return f.Status, f.Reason, f.Message
+	}
 	appErr := infraerrors.FromError(err)
 	switch appErr.Reason {
 	case service.ErrAPIKeyBudgetExceeded.Reason, service.ErrAPIKeyBudgetInsufficientBalance.Reason:

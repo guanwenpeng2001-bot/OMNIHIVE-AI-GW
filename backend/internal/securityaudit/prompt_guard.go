@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 )
 
 type GuardEvaluator struct {
@@ -151,7 +153,15 @@ func (g *GuardEvaluator) Evaluate(ctx context.Context, cfg ActiveConfig, snapsho
 		"status": "completed",
 	}))
 	if g.repo != nil {
-		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, aggregated, cfg.StorePassEvents); recordErr != nil {
+		record := aggregated
+		if ctxkey.PrivateGatewayContent(ctx) {
+			snapshot.RedactedPreview = ""
+			snapshot.FullPrompt = ""
+			metadata := *aggregated
+			metadata.ScannerEvidence = nil
+			record = &metadata
+		}
+		if _, recordErr := g.repo.RecordBlocking(ctx, snapshot.Redacted(), cfg.ConfigVersion, record, cfg.StorePassEvents); recordErr != nil {
 			if g.metrics != nil {
 				g.metrics.IncRecordFailed()
 			}

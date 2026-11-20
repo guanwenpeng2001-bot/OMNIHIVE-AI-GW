@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -99,7 +99,7 @@ VALUES ('disabled legacy', 'cursor', $1, 'never-decrypt', ' legacy-primary ', '[
 VALUES ('legacy template','cursor','replace','{"model":"template-model","messages":[]}'),
 ('ignored body','cursor','off','{"model":"ignored-model"}')`)
 			require.NoError(test, err)
-			repository := &channelMonitorV2Repository{db: database}
+			repository := &channelTelemetryRepository{db: database}
 			staleConfig, err := repository.GetConfig(contextValue)
 			require.NoError(test, err)
 			// Both migrations contend on the same PostgreSQL row/table locks.
@@ -116,7 +116,7 @@ VALUES ('legacy template','cursor','replace','{"model":"template-model","message
 			require.NoError(test, err)
 			require.Equal(test, 11, importedConfig.Version)
 			require.False(test, importedConfig.Enabled)
-			var cursorConfig service.ChannelMonitorV2PlatformConfig
+			var cursorConfig service.ChannelTelemetryPlatformConfig
 			for _, platformConfig := range importedConfig.Platforms {
 				if platformConfig.Platform == "cursor" {
 					cursorConfig = platformConfig
@@ -130,7 +130,7 @@ VALUES ('legacy template','cursor','replace','{"model":"template-model","message
 			}
 			require.NotContains(test, cursorConfig.Models, "ignored-model")
 			_, err = repository.UpdateConfig(contextValue, *staleConfig, staleConfig.Version)
-			require.ErrorIs(test, err, service.ErrChannelMonitorV2ConfigConflict)
+			require.ErrorIs(test, err, service.ErrChannelTelemetryConfigConflict)
 			_, err = database.ExecContext(contextValue, string(migration))
 			require.NoError(test, err)
 			repeatedConfig, err := repository.GetConfig(contextValue)
@@ -143,14 +143,14 @@ VALUES ('legacy template','cursor','replace','{"model":"template-model","message
 			require.Zero(test, metricsCount)
 			require.Zero(test, upstreamCalls.Load())
 			// An unrelated admin edit survives rollback; optimistic saves still work.
-			importedConfig.Platforms = append(importedConfig.Platforms, service.ChannelMonitorV2PlatformConfig{Platform: "gemini", Enabled: false, Models: []string{"later-choice"}})
+			importedConfig.Platforms = append(importedConfig.Platforms, service.ChannelTelemetryPlatformConfig{Platform: "gemini", Enabled: false, Models: []string{"later-choice"}})
 			_, err = repository.UpdateConfig(contextValue, *importedConfig, importedConfig.Version)
 			require.NoError(test, err)
 			_, err = database.ExecContext(contextValue, rollbackCursorInventory)
 			require.NoError(test, err)
 			rolledBack, err := repository.GetConfig(contextValue)
 			require.NoError(test, err)
-			expectedPlatforms := append(staleConfig.Platforms, service.ChannelMonitorV2PlatformConfig{Platform: "gemini", Enabled: false, Models: []string{"later-choice"}})
+			expectedPlatforms := append(staleConfig.Platforms, service.ChannelTelemetryPlatformConfig{Platform: "gemini", Enabled: false, Models: []string{"later-choice"}})
 			require.Equal(test, expectedPlatforms, rolledBack.Platforms)
 			_, err = database.ExecContext(contextValue, string(migration))
 			require.NoError(test, err)
@@ -167,10 +167,10 @@ UPDATE channel_monitor_v2_config SET platforms='[]', cursor_legacy_import=NULL, 
 		require.NoError(test, err)
 		_, err = database.ExecContext(contextValue, string(migration))
 		require.NoError(test, err)
-		repository := &channelMonitorV2Repository{db: database}
+		repository := &channelTelemetryRepository{db: database}
 		importedConfig, err := repository.GetConfig(contextValue)
 		require.NoError(test, err)
-		require.Equal(test, []service.ChannelMonitorV2PlatformConfig{{Platform: "cursor", Enabled: false, Models: []string{"template-model"}}}, importedConfig.Platforms)
+		require.Equal(test, []service.ChannelTelemetryPlatformConfig{{Platform: "cursor", Enabled: false, Models: []string{"template-model"}}}, importedConfig.Platforms)
 		importedConfig.Platforms[0].Enabled = true
 		editedConfig, err := repository.UpdateConfig(contextValue, *importedConfig, importedConfig.Version)
 		require.NoError(test, err)

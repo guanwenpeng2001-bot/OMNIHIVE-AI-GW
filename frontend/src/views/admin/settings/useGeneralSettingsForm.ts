@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { DEFAULT_BRAND_SUBTITLE_EN } from "@/router/brandConfig";
 import type { SettingsForm } from "./settingsForm";
 
 export function useGeneralSettingsForm(tablePageSizeDefault: number) {
@@ -37,13 +38,13 @@ export function useGeneralSettingsForm(tablePageSizeDefault: number) {
   >({
     registration_email_suffix_whitelist: [],
 
-    site_name: "Sub2API",
+    site_name: "OmniHive",
 
     site_icp: "",
 
     site_logo: "",
 
-    site_subtitle: "Subscription to API Conversion Platform",
+    site_subtitle: DEFAULT_BRAND_SUBTITLE_EN,
 
     api_base_url: "",
 

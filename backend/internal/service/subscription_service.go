@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -188,6 +188,12 @@ func (s *SubscriptionService) invalidateSubscriptionCaches(userID, groupID int64
 		return fmt.Errorf("publish subscription cache invalidation: %w", err)
 	}
 	return nil
+}
+
+// RefreshPaymentSubscription invalidates both local and shared subscription
+// caches after an external payment reversal commits.
+func (s *SubscriptionService) RefreshPaymentSubscription(userID, groupID int64) error {
+	return s.invalidateSubscriptionCaches(userID, groupID)
 }
 
 // AssignSubscriptionInput 分配订阅输入

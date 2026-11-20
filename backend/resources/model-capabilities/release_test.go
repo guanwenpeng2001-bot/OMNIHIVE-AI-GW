@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	capabilities "github.com/Wei-Shaw/sub2api/resources/model-capabilities"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	capabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
 )
 
 func TestRealReleaseOfflineAndImmutable(t *testing.T) {

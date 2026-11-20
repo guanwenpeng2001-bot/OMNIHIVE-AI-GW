@@ -1,0 +1,6 @@
+components:
+  schemas:
+    ExtensionActionLabel:
+      type: string
+      description: Versioned action on a verified host adapter.
+      enum: [provider.responses.v1, task.image.generate.v1]

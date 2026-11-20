@@ -2,19 +2,19 @@
   <AppLayout>
     <header class="dashboard-controls mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
       <div>
-        <h1 class="text-xl font-semibold tracking-tight">运行总览</h1>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">请求、费用和趋势与用量记录联动，运行脉搏来自运维监控</p>
+        <h1 class="text-xl font-semibold tracking-tight">{{ isZh ? '运行总览' : 'Operations Overview' }}</h1>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ isZh ? '请求、费用和趋势与用量记录联动，运行脉搏来自运维监控' : 'Requests, spend, and trends linked with usage logs; live pulse powered by Ops monitoring' }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <label class="refresh-switch flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs">
           <input v-model="autoRefreshEnabled" type="checkbox" @change="refreshCountdown = 30" />
-          自动刷新 30s
+          {{ isZh ? '自动刷新 30s' : 'Auto Refresh 30s' }}
         </label>
         <span class="min-w-14 font-mono text-xs tabular-nums text-gray-500 dark:text-gray-400" role="status">
-          {{ refreshing ? '刷新中…' : autoRefreshEnabled ? `${refreshCountdown}s` : '已关闭' }}
+          {{ refreshing ? (isZh ? '刷新中…' : 'Refreshing…') : autoRefreshEnabled ? `${refreshCountdown}s` : (isZh ? '已关闭' : 'Off') }}
         </span>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="dashboardBusy" @click="refreshDashboard">
-          ↻ 刷新
+          ↻ {{ isZh ? '刷新' : 'Refresh' }}
         </button>
       </div>
     </header>
@@ -55,7 +55,7 @@
                 :class="stats.error_accounts + stats.ratelimit_accounts + stats.overload_accounts > 0 ? 'pulse-warn' : 'pulse-ok'"
               ></span>
               <b class="text-sm font-semibold tracking-tight text-gray-900 dark:text-white">
-                运行脉搏
+                {{ isZh ? '运行脉搏' : 'Runtime Pulse' }}
               </b>
               <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
                 {{ stats.normal_accounts }}/{{ stats.total_accounts }} {{ t('common.active') }}
@@ -66,7 +66,7 @@
                 class="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                 style="color: var(--brand-text)"
               >
-                <span>查看诊断抽屉</span>
+                <span>{{ isZh ? '查看诊断抽屉' : 'View Diagnostics' }}</span>
                 <span aria-hidden="true">›</span>
               </span>
             </div>
@@ -78,7 +78,7 @@
               style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
             >
               <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-                <span>当前活跃账号率</span>
+                <span>{{ isZh ? '当前活跃账号率' : 'Active Account Ratio' }}</span>
                 <span class="font-mono text-[11px] tabular-nums">{{ stats.normal_accounts }}/{{ stats.total_accounts }}</span>
               </div>
               <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
@@ -109,7 +109,7 @@
               style="border-color: var(--border); background: color-mix(in srgb, var(--card) 86%, transparent)"
             >
               <div class="text-xs text-gray-500 dark:text-gray-400">
-                当前 RPM / TPM
+                {{ isZh ? '当前 RPM / TPM' : 'Current RPM / TPM' }}
               </div>
               <b class="mt-1 block font-mono text-xl font-bold tabular-nums text-gray-900 dark:text-white">
                 {{ formatTokens(stats.rpm) }}
@@ -131,7 +131,7 @@
                 {{ summaryScope === 'unknown' ? '—' : formatDuration(stats.average_duration_ms) }}
               </b>
               <span class="mt-1 block text-[11px] text-gray-500 dark:text-gray-400">
-                点击查看实时诊断与监控入口
+                {{ isZh ? '点击查看实时诊断与监控入口' : 'Click to inspect live diagnostics & monitoring' }}
               </span>
             </div>
           </div>
@@ -293,7 +293,7 @@
           >
             <div class="flex items-start justify-between gap-2">
               <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + ' · Token' }}
+                {{ summaryScope === 'all_time' ? t('admin.dashboard.totalTokens') : summaryLabel + (isZh ? ' · 总 Token' : ' · Tokens') }}
               </p>
               <span class="text-xs opacity-35" aria-hidden="true">›</span>
             </div>
@@ -514,9 +514,9 @@
                 {{ t('admin.dashboard.noDataAvailable') }}
               </div>
             </div>
-            <div v-if="!userTrendLoading && userTrendChartData" class="mt-4 max-h-64 overflow-auto">
+            <div v-if="!userTrendLoading && userTrendChartData" class="mt-4 overflow-x-auto">
               <table class="w-full whitespace-nowrap text-right text-xs" data-testid="user-trend-table">
-                <caption>{{ t('admin.dashboard.tokens') }} · {{ reportTimeZone }} · Top 12</caption>
+                <caption>{{ isZh ? '总 Token' : t('admin.dashboard.tokens') }} · {{ reportTimeZone }} · Top 12</caption>
                 <thead><tr><th scope="col" class="p-2 text-left">{{ t('usage.time') }}</th><th v-for="(dataset, index) in userTrendChartData.datasets" :key="index" scope="col" class="p-2">{{ dataset.label }}</th></tr></thead>
                 <tbody><tr v-for="(date, dateIndex) in userTrendChartData.labels" :key="date"><th scope="row" class="p-2 text-left font-normal">{{ date }}</th><td v-for="(dataset, index) in userTrendChartData.datasets" :key="index" class="p-2">{{ Number.isFinite(dataset.data[dateIndex]) ? dataset.data[dateIndex] : '-' }}</td></tr></tbody>
               </table>
@@ -545,7 +545,15 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  const probe = t('common.active')
+  if (probe && probe !== 'common.active') return /[\u4e00-\u9fa5]/.test(probe)
+  return true
+})
 import type { DashboardStats } from '@/types'
 import { adminAPI } from '@/api/admin'
 import type {
@@ -603,8 +611,8 @@ const activeAccountRate = computed(() => {
 })
 
 const workbenchShortcuts = computed(() => [
-  { path: '/admin/ops', label: '运维实时监控', icon: 'bolt' as const },
-  { path: '/admin/channels/monitor', label: '渠道监控', icon: 'chart' as const },
+  { path: '/admin/ops', label: isZh.value ? '运维实时监控' : 'Ops Live Monitor', icon: 'bolt' as const },
+  { path: '/admin/channels/monitor', label: isZh.value ? '渠道监控' : 'Channel Monitor', icon: 'chart' as const },
   { path: '/admin/accounts', label: t('admin.dashboard.manageAccounts'), icon: 'server' as const },
   { path: '/admin/groups', label: t('admin.dashboard.groupPricing'), icon: 'grid' as const },
   { path: '/admin/users', label: t('admin.dashboard.manageUsers'), icon: 'users' as const },
@@ -636,23 +644,23 @@ function openPulseDiagnosisDrawer() {
   const current = stats.value
   if (!current) return
   const metrics = [
-    ['当前活跃账号率', activeAccountRate.value],
-    ['正常 / 总账号', `${current.normal_accounts} / ${current.total_accounts}`],
-    ['异常账号', formatNumber(current.error_accounts)],
-    ['限流账号', formatNumber(current.ratelimit_accounts)],
-    ['过载账号', formatNumber(current.overload_accounts)],
-    ['今日请求', formatNumber(current.today_requests)],
-    ['当前 RPM / TPM', `${formatTokens(current.rpm)} / ${formatTokens(current.tpm)}`],
-    ['平均延迟', summaryScope.value === 'unknown' ? '—' : formatDuration(current.average_duration_ms)]
+    [isZh.value ? '当前活跃账号率' : 'Active Account Ratio', activeAccountRate.value],
+    [isZh.value ? '正常 / 总账号' : 'Active / Total Accounts', `${current.normal_accounts} / ${current.total_accounts}`],
+    [isZh.value ? '异常账号' : 'Error Accounts', formatNumber(current.error_accounts)],
+    [isZh.value ? '限流账号' : 'Rate-Limited Accounts', formatNumber(current.ratelimit_accounts)],
+    [isZh.value ? '过载账号' : 'Overloaded Accounts', formatNumber(current.overload_accounts)],
+    [isZh.value ? '今日请求' : 'Today Requests', formatNumber(current.today_requests)],
+    [isZh.value ? '当前 RPM / TPM' : 'Current RPM / TPM', `${formatTokens(current.rpm)} / ${formatTokens(current.tpm)}`],
+    [isZh.value ? '平均延迟' : 'Average Latency', summaryScope.value === 'unknown' ? '—' : formatDuration(current.average_duration_ms)]
   ]
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[character] || character))
   openDrawer(
-    '蜂巢运行脉搏 · 实时诊断',
-    `<p class="mb-4 text-xs opacity-60">当前总览快照；平均延迟沿用总览统计范围，实时链路状态请进入运维监控。</p>
+    isZh.value ? '蜂巢运行脉搏 · 实时诊断' : 'OmniHive Runtime Pulse · Live Diagnostics',
+    `<p class="mb-4 text-xs opacity-60">${isZh.value ? '当前总览快照；平均延迟沿用总览统计范围，实时链路状态请进入运维监控。' : 'Current overview snapshot; average latency follows the overview window. Open Ops Monitor for live link telemetry.'}</p>
     <dl class="space-y-3">${metrics.map(([label, value]) => `<div class="flex items-center justify-between gap-4 border-b pb-2" style="border-color:var(--border)"><dt>${label}</dt><dd class="font-mono font-semibold tabular-nums">${escapeHtml(value)}</dd></div>`).join('')}</dl>`,
-    '<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">运维实时监控</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">上游账号池</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">渠道监控</button></div>'
+    `<div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary btn-sm" data-drawer-nav="/admin/ops">${isZh.value ? '运维实时监控' : 'Ops Monitor'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/accounts">${isZh.value ? '上游账号池' : 'Upstream Accounts'}</button><button type="button" class="btn btn-secondary btn-sm" data-drawer-nav="/admin/channels/monitor">${isZh.value ? '渠道监控' : 'Channel Monitor'}</button></div>`
   )
 }
 const rankingError = ref(false)

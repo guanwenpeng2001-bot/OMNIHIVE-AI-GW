@@ -4,11 +4,18 @@ package middleware
 import (
 	"crypto/subtle"
 	"errors"
+	"net/http"
+	"slices"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	AdminWebSocketProtocol       = "omnihive-admin"
+	LegacyAdminWebSocketProtocol = "sub2api-admin"
 )
 
 // NewAdminAuthMiddleware 创建管理员认证中间件
@@ -34,9 +41,11 @@ func adminAuth(
 	return func(c *gin.Context) {
 		// Browser upgrades carry only a short-lived, scoped, single-use ticket.
 		if isWebSocketUpgradeRequest(c) {
-			ticket := extractTicketFromWebSocketSubprotocol(c)
-			// Sanitize before authentication so failure logs cannot retain credentials.
-			c.Request.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin")
+			protocol, ticket := sanitizeAdminWebSocketProtocol(c.Request.Header)
+			if protocol == "" {
+				AbortWithError(c, http.StatusBadRequest, "INVALID_WS_PROTOCOL", "Unsupported WebSocket subprotocol")
+				return
+			}
 			claims, err := authService.ConsumeAdminWebSocketTicket(c.Request.Context(), ticket, c.Request.URL.Path)
 			if err != nil {
 				AbortWithError(c, 401, "INVALID_WS_TICKET", "Invalid WebSocket ticket")
@@ -97,27 +106,30 @@ func isWebSocketUpgradeRequest(c *gin.Context) bool {
 	return strings.Contains(connection, "upgrade")
 }
 
-func extractTicketFromWebSocketSubprotocol(c *gin.Context) string {
-	if c == nil {
-		return ""
-	}
-	raw := strings.TrimSpace(c.GetHeader("Sec-WebSocket-Protocol"))
-	if raw == "" {
-		return ""
-	}
+func sanitizeAdminWebSocketProtocol(header http.Header) (protocol, ticket string) {
+	const key = "Sec-WebSocket-Protocol"
 
-	// The header is a comma-separated list of tokens. We reserve the prefix "ticket."
-	// for carrying a single-use ticket.
-	for _, part := range strings.Split(raw, ",") {
-		p := strings.TrimSpace(part)
-		if strings.HasPrefix(p, "ticket.") {
-			token := strings.TrimSpace(strings.TrimPrefix(p, "ticket."))
-			if token != "" {
-				return token
-			}
+	var offered []string
+	for _, line := range header.Values(key) {
+		for _, part := range strings.Split(line, ",") {
+			offered = append(offered, strings.TrimSpace(part))
 		}
 	}
-	return ""
+	header.Del(key)
+	for _, supported := range []string{AdminWebSocketProtocol, LegacyAdminWebSocketProtocol} {
+		if slices.Contains(offered, supported) {
+			protocol = supported
+			header.Set(key, protocol)
+			break
+		}
+	}
+	for _, part := range offered {
+		if token, ok := strings.CutPrefix(part, "ticket."); ok && token != "" {
+			ticket = token
+			break
+		}
+	}
+	return protocol, ticket
 }
 
 // validateAdminAPIKey 验证管理员 API Key

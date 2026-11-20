@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
@@ -81,7 +81,11 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "chat_completions", body, h.maxAccountSwitches, h.errorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if native != "" && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformQianwen {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "DashScope requires a Qianwen group or an explicit Qianwen model route")

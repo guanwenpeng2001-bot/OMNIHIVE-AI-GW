@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbaccount "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 
 	"entgo.io/ent/dialect"
@@ -374,6 +374,8 @@ func TestUpdateWithAccountBillingSettingsRollsBackWhenOutboxFails(t *testing.T) 
 		WithArgs(int64(27), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"sk-test"}`, nil, nil).
 		WillReturnRows(sqlmock.NewRows([]string{"identity_unchanged", "ollama_group_unchanged", "ollama_proxy_unchanged", "enabled", "rate_sync_enabled", "snapshot", "ollama_session", "ollama_auto", "ollama_snapshot"}).
 			AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil))
+	mock.ExpectQuery("SELECT account_id FROM provider_connections").WithArgs(int64(27)).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id"}))
 	mock.ExpectQuery(`(?s)SELECT .* FROM "accounts" WHERE .*`).
 		WithArgs(int64(27)).WillReturnRows(updatedAccountRows(27, `{}`))
 	mock.ExpectExec(`(?s)UPDATE .*accounts.*SET.*WHERE .*id.*`).

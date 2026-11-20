@@ -21,11 +21,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type MCPGrantDTO struct {
@@ -86,15 +87,7 @@ func (h *MCPGrantHandler) state(id int64) *mcpUserState {
 	if s := h.users[id]; s != nil {
 		return s
 	}
-	now := time.Now().UTC()
 	s := &mcpUserState{policies: defaultRoutingPolicies()}
-	for _, name := range []string{"Claude Desktop MCP", "Cursor MCP Bridge"} {
-		used := now.Add(-time.Hour)
-		s.grants = append(s.grants, MCPGrantDTO{ID: uuid.NewString(), ClientID: uuid.NewString(), Name: name, RedirectURI: "http://localhost:3000/callback", Scope: "user", Permission: "read", Status: "active", CreatedAt: now.Add(-24 * time.Hour), ExpiresAt: now.Add(30 * 24 * time.Hour), LastUsedAt: &used})
-	}
-	for i, action := range []string{"安全设置巡检", "登录控制台", "创建 API 密钥"} {
-		s.events = append(s.events, UserAuditEventDTO{ID: uuid.NewString(), Action: action, Resource: "account", IP: "127.0.0.1", Status: "success", Detail: []string{"控制台安全巡检通过", "工作台会话鉴权成功", "API 访问凭证初始化检查"}[i], CreatedAt: now.Add(-time.Duration(i+1) * time.Hour)})
-	}
 	h.users[id] = s
 	return s
 }
@@ -324,45 +317,10 @@ func (h *MCPGrantHandler) UpdateOnboarding(c *gin.Context) {
 	response.Success(c, result)
 }
 
-type RankingItemDTO struct {
-	Name      string  `json:"name"`
-	Provider  string  `json:"provider"`
-	Metric    string  `json:"metric"`
-	Delta     string  `json:"delta"`
-	Trend     string  `json:"trend"`
-	Color     string  `json:"color"`
-	Slug      string  `json:"slug,omitempty"`
-	Tokens    int64   `json:"tokens,omitempty"`
-	LatencyMS int     `json:"latency_ms,omitempty"`
-	Uptime    float64 `json:"uptime,omitempty"`
-	Sparkline []int   `json:"sparkline,omitempty"`
-}
-
-// Curated weekly reference snapshot, separate from live billing measurements.
-var modelRankingSnapshot = map[string][]RankingItemDTO{
-	"models": {
-		{Name: "Claude Sonnet 4.6", Provider: "Anthropic", Slug: "claude-sonnet-4-6", Metric: "24.8M requests / week · 186.4B tokens", Delta: "+18.6%", Trend: "up", Color: "#d97757", Tokens: 186400000000, LatencyMS: 420, Sparkline: []int{38, 45, 43, 58, 65, 73, 86}},
-		{Name: "GPT-5.4", Provider: "OpenAI", Slug: "gpt-5.4", Metric: "21.6M requests / week · 172.8B tokens", Delta: "+15.2%", Trend: "up", Color: "#10a37f", Tokens: 172800000000, LatencyMS: 380, Sparkline: []int{39, 46, 44, 59, 66, 74, 87}},
-		{Name: "Gemini 3.1 Pro", Provider: "Google", Slug: "gemini-3.1-pro", Metric: "18.2M requests / week · 154.7B tokens", Delta: "+23.1%", Trend: "up", Color: "#4285f4", Tokens: 154700000000, LatencyMS: 460, Sparkline: []int{40, 47, 45, 60, 67, 75, 88}},
-		{Name: "DeepSeek R1", Provider: "DeepSeek", Slug: "deepseek-r1", Metric: "15.4M requests / week · 123.2B tokens", Delta: "+9.4%", Trend: "up", Color: "#536af5", Tokens: 123200000000, LatencyMS: 510, Sparkline: []int{41, 48, 46, 61, 68, 76, 89}},
-		{Name: "Qwen3 Max", Provider: "Alibaba", Slug: "qwen3-max", Metric: "12.8M requests / week · 96B tokens", Delta: "+12.8%", Trend: "up", Color: "#8b5cf6", Tokens: 96000000000, LatencyMS: 360, Sparkline: []int{42, 49, 47, 62, 69, 77, 90}},
-	},
-	"channels": {
-		{Name: "Anthropic Direct Pool", Provider: "Anthropic", Slug: "anthropic-direct", Metric: "99.98% uptime · P95 310 ms", Delta: "+0.02%", Trend: "up", Color: "#d97757", LatencyMS: 310, Uptime: 99.98, Sparkline: []int{97, 98, 99, 99, 98, 100, 99}},
-		{Name: "OpenAI Tier-5 Cluster", Provider: "OpenAI", Slug: "openai-tier-5", Metric: "99.99% uptime · P95 280 ms", Delta: "+0.02%", Trend: "up", Color: "#10a37f", LatencyMS: 280, Uptime: 99.99, Sparkline: []int{97, 98, 99, 99, 98, 100, 99}},
-		{Name: "Vertex AI Global", Provider: "Google", Slug: "vertex-ai-global", Metric: "99.95% uptime · P95 340 ms", Delta: "+0.02%", Trend: "up", Color: "#4285f4", LatencyMS: 340, Uptime: 99.95, Sparkline: []int{97, 98, 99, 99, 98, 100, 99}},
-		{Name: "DeepSeek High-Concurrency", Provider: "DeepSeek", Slug: "deepseek-high-concurrency", Metric: "99.92% uptime · P95 390 ms", Delta: "+0.02%", Trend: "up", Color: "#536af5", LatencyMS: 390, Uptime: 99.92, Sparkline: []int{97, 98, 99, 99, 98, 100, 99}},
-	},
-	"cost": {
-		{Name: "DeepSeek R1", Provider: "DeepSeek", Slug: "deepseek-r1", Metric: "$0.55 input / $2.19 output per 1M tokens · 510 ms · 1.40 cost-latency index", Delta: "-6.2%", Trend: "down", Color: "#536af5", LatencyMS: 510, Sparkline: []int{82, 77, 75, 69, 66, 61, 58}},
-		{Name: "Qwen3 Max", Provider: "Alibaba", Slug: "qwen3-max", Metric: "$1.20 input / $6.00 output per 1M tokens · 360 ms · 2.59 cost-latency index", Delta: "-6.2%", Trend: "down", Color: "#8b5cf6", LatencyMS: 360, Sparkline: []int{82, 77, 75, 69, 66, 61, 58}},
-		{Name: "Gemini 3.1 Pro", Provider: "Google", Slug: "gemini-3.1-pro", Metric: "$2.00 input / $12.00 output per 1M tokens · 460 ms · 6.44 cost-latency index", Delta: "-6.2%", Trend: "down", Color: "#4285f4", LatencyMS: 460, Sparkline: []int{82, 77, 75, 69, 66, 61, 58}},
-	},
-}
-
+// No public usage aggregate currently supplies the legacy ranking dimensions.
 func (h *MCPGrantHandler) GetModelRankings(c *gin.Context) {
-	c.Header("X-Rankings-Source", "curated_weekly_reference")
-	response.Success(c, modelRankingSnapshot)
+	c.Header("Cache-Control", "no-store")
+	response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
 }
 
 // SetPulseUsageHandler reuses the monitoring dependency during route registration.
@@ -1395,7 +1353,8 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		_ = json.Unmarshal(body, &input)
 	}
 	isBatchPath := strings.HasPrefix(c.Request.URL.Path, "/v1/images/batches") || strings.HasPrefix(c.Request.URL.Path, "/images/batches")
-	if cacheConfig != nil && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
+	// Paid Playground runs require their own dispatch, journal and settlement.
+	if cacheConfig != nil && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
 		limit = int(extFloat(cacheConfig, "max_payload_kb")) * 1024
 		if limit > 16<<20 {
 			limit = 16 << 20

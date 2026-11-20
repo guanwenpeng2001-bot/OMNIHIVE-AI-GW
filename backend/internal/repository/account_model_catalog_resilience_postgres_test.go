@@ -10,9 +10,9 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -132,7 +132,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account = get(test, account.ID)
 		require.Empty(test, account.GetUpstreamModelCatalog().EligibleModels)
 		require.Empty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-		require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind, "stale discovery is withheld while the selected model survives")
+		require.Equal(test, "target", account.GetMappedModel("alias"), "renewal preserves the configured selection")
+		require.Nil(test, account.EffectiveUpstreamModelCatalog(), "a stale native publication cannot be replaced by configured evidence")
 	})
 	test.Run("protocol release and bulk mapping changes revoke", func(test *testing.T) {
 		for _, change := range []string{"protocol", "capability release", "bulk mapping", "bulk proxy"} {

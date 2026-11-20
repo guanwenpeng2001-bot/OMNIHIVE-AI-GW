@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )

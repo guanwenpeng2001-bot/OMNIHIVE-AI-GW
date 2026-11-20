@@ -12,14 +12,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
 )
 
@@ -132,6 +132,14 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		spec.MaxAccountSwitches = h.openAI.maxAccountSwitches
 	}
 	executionCtx, cancel := gateway.CaptureAsyncImageTaskPlan(c.Request.Context(), spec, h.tasks.ExecutionTimeout())
+	if admission, err := service.GatewayRequestPlanFromContext(executionCtx).AdmittedExecution(); err != nil {
+		cancel()
+		h.failTask(task.ID, http.StatusServiceUnavailable, imageTaskErrorPayload("server_error", "Execution admission unavailable"))
+		imageTaskError(c, service.ErrImageTaskUnavailable)
+		return
+	} else if admission.RequestID != "" {
+		c.Header("X-Execution-ID", admission.RequestID)
+	}
 	taskCtx, recorder := newAsyncImageContext(c, body, executionCtx)
 
 	h.poolOnce.Do(func() {

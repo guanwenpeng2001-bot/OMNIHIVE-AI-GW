@@ -9,9 +9,9 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
@@ -53,6 +53,8 @@ func newCursorEditTestRepository(t *testing.T) (*accountRepository, *dbent.Clien
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(cursorEditTestDriver{entsql.OpenDB(dialect.SQLite, db)})))
 	t.Cleanup(func() { _ = client.Close() })
 	_, err = db.Exec(`CREATE TABLE scheduler_outbox (id INTEGER PRIMARY KEY, event_type TEXT, account_id INTEGER, group_id INTEGER, payload BLOB, dedup_key TEXT UNIQUE)`)
+	require.NoError(t, err)
+	_, err = db.Exec(`CREATE TABLE provider_connections (account_id INTEGER PRIMARY KEY REFERENCES accounts(id), legacy_dirty BOOLEAN DEFAULT false, verified_id TEXT, version INTEGER DEFAULT 1)`)
 	require.NoError(t, err)
 	return newAccountRepositoryWithSQL(client, db, nil), client, db
 }
@@ -177,6 +179,47 @@ func TestCursorReauthRecoveryUsesCurrentReasonAndRollsBackWithCredentials(t *tes
 			} else {
 				require.Equal(t, 1, events)
 			}
+		})
+	}
+}
+
+func TestManagedConnectionRejectsLegacyAccountEdits(t *testing.T) {
+	ctx := context.Background()
+	repo, client, db := newCursorEditTestRepository(t)
+	original, err := client.Account.Create().SetName("original").SetPlatform(service.PlatformOpenAI).
+		SetType(service.AccountTypeAPIKey).SetCredentials(map[string]any{
+		"base_url": "https://old.example", "model_mapping": map[string]any{"alias": "model"},
+		service.CredentialSecretReferenceKey: "ref-1", service.CredentialSecretVersionKey: 1,
+	}).Save(ctx)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO provider_connections(account_id, verified_id) VALUES(?, 'verification-1')`, original.ID)
+	require.NoError(t, err)
+	for _, field := range []string{"name", "header_overrides", "base_url"} {
+		t.Run(field, func(t *testing.T) {
+			edit := accountEntityToService(original)
+			edit.Credentials = map[string]any{}
+			switch field {
+			case "name":
+				edit.Name = "renamed"
+			case "header_overrides":
+				edit.Credentials[field] = map[string]any{"X-Example": "test"}
+			case "base_url":
+				edit.Credentials[field] = "https://new.example"
+			}
+			err := repo.UpdateWithAccountBillingSettings(ctx, edit, nil, nil, nil)
+			require.ErrorIs(t, err, service.ErrAccountConnectionManaged)
+			current, err := client.Account.Get(ctx, original.ID)
+			require.NoError(t, err)
+			require.Equal(t, original.Name, current.Name)
+			require.Equal(t, "https://old.example", current.Credentials["base_url"])
+			require.Equal(t, map[string]any{"alias": "model"}, current.Credentials["model_mapping"])
+			require.Equal(t, "ref-1", current.Credentials[service.CredentialSecretReferenceKey])
+			require.EqualValues(t, 1, current.Credentials[service.CredentialSecretVersionKey])
+			var verified string
+			var version int
+			require.NoError(t, db.QueryRow(`SELECT verified_id, version FROM provider_connections WHERE account_id=? AND NOT legacy_dirty`, original.ID).Scan(&verified, &version))
+			require.Equal(t, "verification-1", verified)
+			require.Equal(t, 1, version)
 		})
 	}
 }

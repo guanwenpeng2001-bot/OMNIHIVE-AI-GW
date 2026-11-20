@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+	openaiwsrelay "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service/openai_ws_relay"
 )
 
 const openAIWSMessageReadLimitBytes int64 = 16 * 1024 * 1024
@@ -300,7 +300,7 @@ func (c *coderOpenAIWSClientConn) UpstreamPingCount() int64 {
 	return c.upstreamPings.Load()
 }
 
-var _ openaiwsv2.FrameConn = (*coderOpenAIWSClientConn)(nil)
+var _ openaiwsrelay.FrameConn = (*coderOpenAIWSClientConn)(nil)
 
 func (c *coderOpenAIWSClientConn) WriteJSON(ctx context.Context, value any) error {
 	if c == nil || c.conn == nil {
@@ -339,11 +339,8 @@ func (c *coderOpenAIWSClientConn) ReadFrame(ctx context.Context) (coderws.Messag
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	msgType, payload, err := c.conn.Read(ctx)
-	if err != nil {
-		return coderws.MessageText, nil, err
-	}
-	return msgType, payload, nil
+	// Read returns partial message bytes on error. Keep them as timeout evidence.
+	return c.conn.Read(ctx)
 }
 
 func (c *coderOpenAIWSClientConn) WriteFrame(ctx context.Context, msgType coderws.MessageType, payload []byte) error {

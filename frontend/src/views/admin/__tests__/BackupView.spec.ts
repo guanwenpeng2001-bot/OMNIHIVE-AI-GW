@@ -53,6 +53,10 @@ vi.mock('@/composables/useStepUp', () => ({
   stepUpBlockReason: () => '',
 }))
 
+vi.mock('@/features/operations/RestoreWorkflow.vue', () => ({
+  default: { name: 'RestoreWorkflow', template: '<div />' },
+}))
+
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, params?: Record<string, unknown>) =>
@@ -148,7 +152,7 @@ describe('admin BackupView 分卷备份', () => {
     const wrapper = mountBackupView()
     await flushPromises()
 
-    expect(wrapper.find('tbody tr td:nth-child(5)').text()).toBe('-')
+    expect(wrapper.find('tbody tr td:nth-child(5)').text()).toBe('—')
     expect(wrapper.findAll('button').some(button => button.text() === 'common.delete')).toBe(false)
   })
 })

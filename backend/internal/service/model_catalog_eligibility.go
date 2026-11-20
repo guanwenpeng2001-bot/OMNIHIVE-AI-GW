@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
 )
 
 const (
@@ -679,6 +679,14 @@ func computeAccountBindingEndpoint(account *Account, model string, options Accou
 		return false
 	}
 	endpointDeclarationChanged := false
+	if endpoint == "embeddings" && member.EvidenceKind == ModelEvidenceConfiguredSelection {
+		// Older configuration-only projections included every installed adapter.
+		// Recompute this family from model evidence before using a saved projection.
+		metadata, _ := account.GetUpstreamModelMetadata(member.ID)
+		if !catalogEndpointsContain(accountCatalogModelEndpoints(account, member.ID, metadata), endpoint) {
+			return false
+		}
+	}
 	if concreteMappedModel(account, member.ID) {
 		// Saved manual selections may name private or newly released media
 		// models. Optional task facts cannot remove installed action adapters.
@@ -748,4 +756,35 @@ func computeAccountBindingEndpoint(account *Account, model string, options Accou
 		}
 	}
 	return executable
+}
+
+// openAIAPIKeyCatalogIsChatOnly reports whether discovery proved that every
+// text model on an OpenAI API-key upstream speaks Chat Completions and none
+// speaks Responses. A custom OpenAI-compatible gateway often exposes only
+// /v1/chat/completions; treating its missing Responses probe as "unknown"
+// would route the request to an endpoint the gateway never advertised.
+func openAIAPIKeyCatalogIsChatOnly(account *Account) bool {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	var snapshot AccountModelCatalogSnapshot
+	if !decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &snapshot) || !snapshot.Complete {
+		return false
+	}
+	// Legacy mapping snapshots synthesize endpoint evidence by asking the
+	// forwarding policy whether it needs Chat Completions. Reading the effective
+	// projection here would re-enter that synthesis without a recursion step.
+	if snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade || len(snapshot.EligibleModels) == 0 {
+		return false
+	}
+	hasChat := false
+	for _, member := range snapshot.EligibleModels {
+		if catalogEndpointsContain(member.Endpoints, CompositeRouteEndpointResponses) {
+			return false
+		}
+		if catalogEndpointsContain(member.Endpoints, CompositeRouteEndpointChatCompletions) {
+			hasChat = true
+		}
+	}
+	return hasChat
 }

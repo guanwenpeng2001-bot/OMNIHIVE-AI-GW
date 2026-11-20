@@ -187,11 +187,11 @@ export function getChannelMonitorMode(): ChannelMonitorMode {
   return mode === 'v2' ? 'v2' : 'v1'
 }
 
-export function isChannelMonitorV1Mode(): boolean {
+export function isChannelProbeMode(): boolean {
   return isChannelMonitorRouteEnabled() && getChannelMonitorMode() === 'v1'
 }
 
-export function isChannelMonitorV2Mode(): boolean {
+export function isChannelTelemetryMode(): boolean {
   return isChannelMonitorRouteEnabled() && getChannelMonitorMode() === 'v2'
 }
 

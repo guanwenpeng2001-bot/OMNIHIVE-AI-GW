@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // userPlatformQuotaServiceAdapter 将 repository 层的 userPlatformQuotaRepository

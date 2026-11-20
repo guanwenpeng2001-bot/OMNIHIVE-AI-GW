@@ -1,0 +1,96 @@
+.routing-workbench {
+  min-width: 0;
+  color: var(--oh-fg-primary);
+}
+.routing-workbench .routing-panel {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-lg);
+  background: var(--oh-bg-surface);
+}
+.routing-workbench .routing-heading {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--oh-fg-primary);
+}
+.routing-workbench .routing-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--oh-fg-primary);
+}
+.routing-workbench .routing-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--oh-fg-secondary);
+}
+.routing-workbench .routing-control {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  padding: 6px 10px;
+  background: var(--oh-bg-surface);
+  color: var(--oh-fg-primary);
+  font-size: 14px;
+  color-scheme: light dark;
+}
+.routing-workbench .routing-template {
+  min-height: 54px;
+  padding: 8px 10px;
+  text-align: start;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-surface);
+}
+.routing-workbench .routing-template:hover {
+  background: var(--oh-bg-hover);
+}
+.routing-workbench .routing-template-active {
+  border-color: var(--oh-accent-border);
+  background: var(--oh-bg-selected);
+  color: var(--oh-accent-text);
+}
+.routing-workbench .routing-template:focus-visible,
+.routing-workbench .routing-control:focus-visible,
+.routing-workbench .routing-check input:focus-visible {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
+}
+.routing-workbench .routing-check {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.routing-workbench .routing-check input {
+  accent-color: var(--oh-accent);
+}
+.routing-workbench .routing-hint {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--oh-fg-muted);
+}
+.routing-workbench .routing-metric {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px;
+  border: 1px solid var(--oh-border-default);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-subtle);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .routing-workbench .routing-control {
+    min-height: 40px;
+    font-size: 16px;
+  }
+}

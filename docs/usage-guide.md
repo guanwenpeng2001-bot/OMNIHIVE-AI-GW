@@ -24,20 +24,20 @@
 
 ### 地址填写规则
 
-本站公开 OpenAI 兼容 Base URL 是 **`https://omnihive2.com/v1`**，根地址为 `https://omnihive2.com`。不要用后台管理接口或供应商上游地址代替；以下示例使用这一公开入口。其他私有部署请以其管理员公布的地址为准，并保留部署前缀。
+本站公开 OpenAI 兼容 Base URL 是 **`https://api.omnihive.io/v1`**，根地址为 `https://api.omnihive.io`。不要用后台管理接口或供应商上游地址代替；以下示例使用这一公开入口。其他私有部署请以其管理员公布的地址为准，并保留部署前缀。
 
 | 名称 | 示例 | 用途 |
 | --- | --- | --- |
-| 网关根地址（本文 `GATEWAY_ROOT`） | `https://omnihive2.com` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
-| OpenAI 兼容 Base URL | `https://omnihive2.com/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
-| 完整请求 URL | `https://omnihive2.com/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
-| Gemini 完整请求 URL | `https://omnihive2.com/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
+| 网关根地址（本文 `GATEWAY_ROOT`） | `https://api.omnihive.io` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
+| OpenAI 兼容 Base URL | `https://api.omnihive.io/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
+| 完整请求 URL | `https://api.omnihive.io/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
+| Gemini 完整请求 URL | `https://api.omnihive.io/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
 
-如果站点提供的是 `https://omnihive2.com/v1`，本文根地址应填 `https://omnihive2.com`；只移除末尾版本段。私有部署若带 `/proxy` 等前缀，仍须保留前缀。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
+如果站点提供的是 `https://api.omnihive.io/v1`，本文根地址应填 `https://api.omnihive.io`；只移除末尾版本段。私有部署若带 `/proxy` 等前缀，仍须保留前缀。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
 
 ### 密钥、分组和权限
 
-创建本站 API Key，并为它选择正确分组。保存完整密钥，包括已签发的 `sk-` 前缀；登录密码、面板会话令牌和供应商自己的 API Key 不能代替本站 Key。示例从进程环境变量 `SUB2API_API_KEY` 读取密钥，不把它写进 JSON 或代码仓库。
+创建本站 API Key，并为它选择正确分组。保存完整密钥，包括已签发的 `sk-` 前缀；登录密码、面板会话令牌和供应商自己的 API Key 不能代替本站 Key。示例从进程环境变量 `OMNIHIVE_API_KEY` 读取密钥，不把它写进 JSON 或代码仓库。
 
 能否调用取决于该 Key 的有效状态、用户及分组权限、模型范围、具体协议或动作、可用账号、额度与限流。**模型目录是当前 Key 的可见集合，能力元数据是选择提示，二者都不保证某个具体请求一定成功。** 一次 Chat 成功不能证明同一模型的 Messages、工具、图片或视频也可用。换 Key、换组或调整权限后，重新查询模型列表。
 
@@ -55,9 +55,9 @@
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/models" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"
 curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"
 ```
 
 | 接口 | 返回用途 |
@@ -84,7 +84,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 
 用户只需配置本站公开地址、本站 API Key，以及该 Key 可见的精确模型 ID。**上游账号配置由管理员完成**：供应商、区域、套餐、上游 URL、协议和供应商凭据属于另一层。后台添加供应商不会自动改变你的分组权限；供应商 Key 也不能替代本站 Key。
 
-供应商系列、地区、产品与套餐以当前后台目录为准，保留原有平台及账号路由。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
+供应商系列、地区、产品与套餐以当前后台目录为准，保留原有平台及账号路由。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://api.omnihive.io/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
 
 管理员配置 Copilot 使用自己的 `Copilot-Integration-Id: omnihive`；模型发现是主机根 `/models`，与 `/v1/chat/completions` 分开。Nous invocation 到期手工换 token；官方代理需显式配置网关可访问的运营方 URL 前缀（不自动加 `/v1`），入口 key 可选。通过单账号编辑切换认证模式，必须明确换 key 或在切到无 key 代理时清空；同模式编辑保留密钥引用。不得读取客户端 token 存储或共享 refresh grants。
 
@@ -148,14 +148,14 @@ MiniMax 当前中国站（api.minimax.cn）与 Global（api.minimax.io）的 API
 适用于 Bash 和已安装 curl 的环境。将根地址换成本站公开地址；密钥通过不回显输入进入当前进程环境。
 
 ```bash
-export GATEWAY_ROOT='https://omnihive2.com'
+export GATEWAY_ROOT='https://api.omnihive.io'
 GATEWAY_ROOT="${GATEWAY_ROOT%/}"
-read -r -s -p 'API key: ' SUB2API_API_KEY
+read -r -s -p 'API key: ' OMNIHIVE_API_KEY
 printf '\n'
-export SUB2API_API_KEY
+export OMNIHIVE_API_KEY
 
 curl --fail-with-body "$GATEWAY_ROOT/v1/chat/completions" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @chat.json
 ```
@@ -165,21 +165,21 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/chat/completions" \
 不需要 WSL。以下用 `Invoke-RestMethod` 发送相同 JSON，避免 PowerShell 的 `curl` 别名与 Bash 换行符差异。
 
 ```powershell
-$env:GATEWAY_ROOT = 'https://omnihive2.com'
+$env:GATEWAY_ROOT = 'https://api.omnihive.io'
 $env:GATEWAY_ROOT = $env:GATEWAY_ROOT.TrimEnd('/')
 $secret = Read-Host 'API key' -AsSecureString
-$env:SUB2API_API_KEY = [System.Net.NetworkCredential]::new('', $secret).Password
+$env:OMNIHIVE_API_KEY = [System.Net.NetworkCredential]::new('', $secret).Password
 $request = @{
     Uri = "$env:GATEWAY_ROOT/v1/chat/completions"
     Method = 'Post'
-    Headers = @{ Authorization = "Bearer $env:SUB2API_API_KEY" }
+    Headers = @{ Authorization = "Bearer $env:OMNIHIVE_API_KEY" }
     ContentType = 'application/json; charset=utf-8'
     Body = [System.IO.File]::ReadAllBytes((Join-Path $PWD 'chat.json'))
 }
 Invoke-RestMethod @request | ConvertTo-Json -Depth 30
 ```
 
-环境变量中的密钥在运行时仍是明文，仅向可信子进程提供。用完可关闭终端，或分别执行 `unset SUB2API_API_KEY` / `Remove-Item Env:SUB2API_API_KEY`。
+环境变量中的密钥在运行时仍是明文，仅向可信子进程提供。用完可关闭终端，或分别执行 `unset OMNIHIVE_API_KEY` / `Remove-Item Env:OMNIHIVE_API_KEY`。
 
 ### Python 与 Node.js
 
@@ -197,7 +197,7 @@ request = urllib.request.Request(
     url,
     data=json.dumps(body).encode("utf-8"),
     headers={
-        "Authorization": "Bearer " + os.environ["SUB2API_API_KEY"],
+        "Authorization": "Bearer " + os.environ["OMNIHIVE_API_KEY"],
         "Content-Type": "application/json",
     },
     method="POST",
@@ -210,8 +210,8 @@ with urllib.request.urlopen(request, timeout=120) as response:
 // 保存为 request.mjs，使用 node request.mjs 运行。
 import { readFile } from 'node:fs/promises';
 const root = process.env.GATEWAY_ROOT?.replace(/\/+$/, '');
-const key = process.env.SUB2API_API_KEY;
-if (!root || !key) throw new Error('Set GATEWAY_ROOT and SUB2API_API_KEY');
+const key = process.env.OMNIHIVE_API_KEY;
+if (!root || !key) throw new Error('Set GATEWAY_ROOT and OMNIHIVE_API_KEY');
 const body = JSON.parse((await readFile('chat.json', 'utf8')).replace(/^\uFEFF/, ''));
 const response = await fetch(`${root}/v1/chat/completions`, {
   method: 'POST',
@@ -253,7 +253,7 @@ console.log(await response.json());
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/messages" \
-  -H "x-api-key: $SUB2API_API_KEY" \
+  -H "x-api-key: $OMNIHIVE_API_KEY" \
   -H 'anthropic-version: 2023-06-01' \
   -H 'Content-Type: application/json' \
   --data-binary @messages.json
@@ -277,7 +277,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/messages" \
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/responses" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @responses.json
 ```
@@ -304,7 +304,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/responses" \
 export MODEL_ID='MODEL_ID_FROM_LIST'
 MODEL_PATH=$(python -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["MODEL_ID"], safe=""))')
 curl --fail-with-body "$GATEWAY_ROOT/v1beta/models/$MODEL_PATH:generateContent" \
-  -H "x-goog-api-key: $SUB2API_API_KEY" \
+  -H "x-goog-api-key: $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @gemini.json
 ```
@@ -329,7 +329,7 @@ Gemini 使用 `model` 表示模型回复角色；系统指令和工具字段也�
 
 ```bash
 curl -N --fail-with-body "$GATEWAY_ROOT/v1/chat/completions" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @chat-stream.json
 ```
@@ -386,7 +386,7 @@ HTTP 200 只说明响应已开始，流内仍可能失败。心跳不是答案�
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/images/generations" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @image.json
 ```
@@ -395,7 +395,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/images/generations" \
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/images/edits" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   --form-string 'model=IMAGE_EDIT_MODEL_ID_FROM_LIST' \
   --form-string 'prompt=Make the background blue' \
   -F 'image=@input.png;type=image/png'
@@ -417,7 +417,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/images/edits" \
 
 ```bash
 curl -i --fail-with-body "$GATEWAY_ROOT/v1/images/generations/async" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @image.json
 ```
@@ -427,7 +427,7 @@ curl -i --fail-with-body "$GATEWAY_ROOT/v1/images/generations/async" \
 ```bash
 TASK_ID='TASK_ID_FROM_RESPONSE'
 curl --fail-with-body "$GATEWAY_ROOT/v1/images/tasks/$TASK_ID" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"
 ```
 
 `poll_url` 可能是 `/v1/images/tasks/...` 这样的网关相对路径。部署有 `/proxy` 前缀时，应保留该前缀；上面的根地址拼接方式不会丢失它。不要将 Key 发往未经确认的外部地址。
@@ -464,7 +464,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/images/tasks/$TASK_ID" \
 ```bash
 VIDEO_ID='VIDEO_ID_FROM_RESPONSE'
 curl --fail-with-body "$GATEWAY_ROOT/v1/videos/$VIDEO_ID" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"
 ```
 
 OpenAI/OpenRouter 视频对象包含 `id`、`object: "video"`、`status`、`created_at` 和 `model`，处理中通常是 `queued` 或 `in_progress`，成功是 `completed`；失败或超时也需要停止等待并处理。OpenRouter 不支持该标准视频接口的编辑、延长和取消。OpenAI 编辑/延长需要 `video.id` 指向同一 Key 已完成的本站视频，不能用任意远程 URL 代替。
@@ -491,7 +491,7 @@ OpenAI/OpenRouter 视频对象包含 `id`、`object: "video"`、`status`、`crea
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/audio/transcriptions" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   --form-string 'model=TRANSCRIPTION_MODEL_ID_FROM_LIST' \
   -F 'file=@sample.wav;type=audio/wav'
 ```
@@ -523,11 +523,11 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/audio/transcriptions" \
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/embeddings" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @embeddings.json
 curl --fail-with-body "$GATEWAY_ROOT/v1/rerank" \
-  -H "Authorization: Bearer $SUB2API_API_KEY" \
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY" \
   -H 'Content-Type: application/json' \
   --data-binary @rerank.json
 ```
@@ -583,7 +583,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/rerank" \
 
 ```bash
 curl --fail-with-body "$GATEWAY_ROOT/v1/usage" \
-  -H "Authorization: Bearer $SUB2API_API_KEY"
+  -H "Authorization: Bearer $OMNIHIVE_API_KEY"
 ```
 
 余额、订阅周期额度、Key 自身预算和速率/并发限制是不同约束。提高 Key 限额不会给账户充值，支付跳转成功也不等于余额已经到账，应回到本站核对入账状态。

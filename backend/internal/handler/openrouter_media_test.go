@@ -15,10 +15,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -51,6 +51,9 @@ func openRouterMediaHandler(t *testing.T, upstream *openRouterMediaUpstream) (*O
 	t.Helper()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformOpenRouter, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"vendor/future:variant": "vendor/future:variant"}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
+	account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{
+		"vendor/future:variant": {OutputModalities: []string{"embedding"}},
+	}})
 	repo := &geminiReviewAccountRepo{openAIWSUsageHandlerAccountRepoStub: openAIWSUsageHandlerAccountRepoStub{account: account}}
 	usage := &cursorRouteUsageRepo{}
 	receipts := newHunyuanSTTReceiptRepository()

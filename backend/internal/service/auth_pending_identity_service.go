@@ -14,11 +14,11 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
-	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
-	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/identityadoptiondecision"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/pendingauthsession"
+	dbpredicate "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 
 	entsql "entgo.io/ent/dialect/sql"
 )

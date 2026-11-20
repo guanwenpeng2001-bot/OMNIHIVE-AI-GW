@@ -1,5 +1,6 @@
 <template>
-    <div class="space-y-5">
+  <component :is="shellComponent">
+    <div class="min-w-0 space-y-5">
       <!-- Hive Aura Backup Workbench Status Bar -->
       <div
         class="card flex flex-wrap items-center justify-between gap-3 p-4"
@@ -12,7 +13,7 @@
           <span class="chip font-medium">
             <span
               class="pulse-dot"
-              :class="creatingBackup || restoringId ? 'pulse-warn' : 'pulse-ok'"
+              :class="creatingBackup ? 'pulse-warn' : 'pulse-ok'"
             ></span>
             <span>{{ t('admin.backup.operations.title') }}</span>
           </span>
@@ -216,6 +217,8 @@
         </div>
       </div>
 
+      <RestoreWorkflow :backup-id="selectedRestoreBackup" @lock="restoreLocked = $event" />
+
       <!-- Backup Operations -->
       <div class="card p-5">
         <div
@@ -283,7 +286,7 @@
                 </td>
                 <td class="px-3 py-3 font-mono tabular-nums text-xs">{{ record.file_name }}</td>
                 <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ formatSize(record.size_bytes) }}</td>
-                <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ record.parts?.length || (record.status === 'running' ? '-' : 1) }}</td>
+                <td class="px-3 py-3 font-mono text-xs tabular-nums">{{ record.parts?.length || (record.status === 'running' ? '—' : 1) }}</td>
                 <td class="px-3 py-3 font-mono text-xs tabular-nums">
                   {{ record.expires_at ? formatDate(record.expires_at) : t('admin.backup.neverExpire') }}
                 </td>
@@ -307,10 +310,10 @@
                       v-if="record.status === 'completed'"
                       type="button"
                       class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
-                      :disabled="restoringId === record.id"
-                      @click="restoreBackup(record.id)"
+                      :disabled="restoreLocked"
+                      @click="selectRestoreBackup(record.id)"
                     >
-                      {{ restoringId === record.id ? t('common.loading') : t('admin.backup.actions.restore') }}
+                      {{ t('admin.backup.actions.restore') }}
                     </button>
                     <button
                       v-if="record.status !== 'running'"
@@ -460,10 +463,11 @@
       </transition>
     </teleport>
     <TotpStepUpDialog :controller="backupStepUp" />
+  </component>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, defineAsyncComponent, getCurrentInstance, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
@@ -476,10 +480,16 @@ import type {
 } from '@/api/admin/backup'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import RestoreWorkflow from '@/features/operations/RestoreWorkflow.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const backupStepUp = useStepUp()
+const instance = getCurrentInstance()
+const AsyncAppLayout = defineAsyncComponent(() => import('@/components/layout/AppLayout.vue'))
+const shellComponent = computed(() =>
+  instance?.appContext.config.globalProperties.$route ? AsyncAppLayout : 'div'
+)
 
 // 敏感操作被 2FA 门控拦截时的统一提示。
 function reportStepUpBlocked(error: unknown): boolean {
@@ -539,14 +549,14 @@ const savingSchedule = ref(false)
 const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
-const restoringId = ref('')
+const selectedRestoreBackup = ref('')
+const restoreLocked = ref(false)
 const manualExpireDays = ref(14)
 const downloadParts = ref<BackupDownloadPart[]>([])
 const downloadPartsModalOpen = ref(false)
 
 // Polling
 const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
-const restoringPollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const MAX_POLL_COUNT = 900
 
 function updateRecordInList(updated: BackupRecord) {
@@ -592,46 +602,9 @@ function stopPolling() {
   }
 }
 
-function startRestorePolling(backupId: string) {
-  stopRestorePolling()
-  let count = 0
-  restoringPollingTimer.value = setInterval(async () => {
-    if (count++ >= MAX_POLL_COUNT) {
-      stopRestorePolling()
-      restoringId.value = ''
-      appStore.showWarning(t('admin.backup.operations.restoreRunning'))
-      return
-    }
-    try {
-      const record = await adminAPI.backup.getBackup(backupId)
-      updateRecordInList(record)
-      if (record.restore_status === 'completed' || record.restore_status === 'failed') {
-        stopRestorePolling()
-        restoringId.value = ''
-        if (record.restore_status === 'completed') {
-          appStore.showSuccess(t('admin.backup.actions.restoreSuccess'))
-        } else {
-          appStore.showError(record.restore_error || t('admin.backup.operations.restoreFailed'))
-        }
-        await loadBackups()
-      }
-    } catch {
-      // 轮询失败时不中断
-    }
-  }, 2000)
-}
-
-function stopRestorePolling() {
-  if (restoringPollingTimer.value) {
-    clearInterval(restoringPollingTimer.value)
-    restoringPollingTimer.value = null
-  }
-}
-
 function handleVisibilityChange() {
   if (document.hidden) {
     stopPolling()
-    stopRestorePolling()
   } else {
     // 标签页恢复时刷新列表，检查是否仍有活跃操作
     loadBackups().then(() => {
@@ -639,11 +612,6 @@ function handleVisibilityChange() {
       if (running) {
         creatingBackup.value = true
         startPolling(running.id)
-      }
-      const restoring = backups.value.find(r => r.restore_status === 'running')
-      if (restoring) {
-        restoringId.value = restoring.id
-        startRestorePolling(restoring.id)
       }
     })
   }
@@ -665,15 +633,15 @@ async function loadS3Config() {
   try {
     const cfg = await adminAPI.backup.getS3Config()
     s3Form.value = {
-      endpoint: cfg.endpoint || '',
-      region: cfg.region || 'auto',
-      bucket: cfg.bucket || '',
-      access_key_id: cfg.access_key_id || '',
+      endpoint: cfg?.endpoint || '',
+      region: cfg?.region || 'auto',
+      bucket: cfg?.bucket || '',
+      access_key_id: cfg?.access_key_id || '',
       secret_access_key: '',
-      prefix: cfg.prefix || 'backups/',
-      force_path_style: cfg.force_path_style,
+      prefix: cfg?.prefix || 'backups/',
+      force_path_style: Boolean(cfg?.force_path_style),
     }
-    s3SecretConfigured.value = Boolean(cfg.access_key_id)
+    s3SecretConfigured.value = Boolean(cfg?.access_key_id)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -698,14 +666,16 @@ async function saveS3Config() {
 
 async function loadImageStorageConfig() {
   try {
-    const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
+    const res = await adminAPI.backup.getImageStorageConfig()
+    const config = res?.config
     imageStorageForm.value = {
+      ...imageStorageForm.value,
       ...config,
-      prefix: config.prefix || 'images/',
-      region: config.region || 'auto',
+      prefix: config?.prefix || 'images/',
+      region: config?.region || 'auto',
       secret_access_key: '',
     }
-    imageStorageSecretConfigured.value = secret_configured
+    imageStorageSecretConfigured.value = Boolean(res?.secret_configured)
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
@@ -852,26 +822,10 @@ function closeDownloadParts() {
   downloadParts.value = []
 }
 
-async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
-  const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
-  if (!password) return
-  restoringId.value = id
-  try {
-    const record = await backupStepUp.run(() => adminAPI.backup.restoreBackup(id, password))
-    updateRecordInList(record)
-    startRestorePolling(id)
-  } catch (error: any) {
-    restoringId.value = ''
-    if (isStepUpCancelled(error)) return
-    if (reportStepUpBlocked(error)) return
-    // apiClient 拦截器把 HTTP 错误归一化为顶层 { status } 平面对象（无 response 字段）
-    if (error?.status === 409 || error?.response?.status === 409) {
-      appStore.showWarning(t('admin.backup.operations.restoreRunning'))
-    } else {
-      appStore.showError(error?.message || t('errors.networkError'))
-    }
-  }
+async function selectRestoreBackup(id: string) {
+  selectedRestoreBackup.value = id
+  await nextTick()
+  document.getElementById('restore-workflow-title')?.focus()
 }
 
 async function removeBackup(id: string) {
@@ -910,16 +864,16 @@ function statusDotClass(status: string): string {
 }
 
 function formatSize(bytes: number): string {
-  if (!bytes || bytes <= 0) return '-'
+  if (!bytes || bytes <= 0) return '—'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function formatDate(value?: string): string {
-  if (!value) return '-'
+  if (!value) return '—'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+  if (Number.isNaN(date.getTime())) return '—'
   return date.toLocaleString()
 }
 
@@ -933,16 +887,10 @@ onMounted(async () => {
     creatingBackup.value = true
     startPolling(runningBackup.id)
   }
-  const restoringBackup = backups.value.find(r => r.restore_status === 'running')
-  if (restoringBackup) {
-    restoringId.value = restoringBackup.id
-    startRestorePolling(restoringBackup.id)
-  }
 })
 
 onBeforeUnmount(() => {
   stopPolling()
-  stopRestorePolling()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
@@ -955,5 +903,13 @@ onBeforeUnmount(() => {
 .modal-enter-from,
 .modal-leave-to {
   opacity: 0;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+label.chip:focus-within {
+  outline: 2px solid var(--oh-focus-ring);
+  outline-offset: 2px;
 }
 </style>

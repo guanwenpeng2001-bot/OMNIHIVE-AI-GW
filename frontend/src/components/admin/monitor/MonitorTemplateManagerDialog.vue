@@ -7,7 +7,7 @@
   >
     <div v-for="template in legacyTemplates" :key="template.id" class="mb-3 rounded-lg border p-4">
       <p class="font-medium">{{ template.name }} · Cursor</p>
-      <p class="text-xs text-[var(--muted-foreground)]">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</p>
+      <p class="text-xs text-[var(--muted-foreground)]">{{ t('channelTelemetry.cursorLegacyReadOnly') }}</p>
       <p class="text-sm">{{ template.description }}</p>
       <pre class="mt-2 overflow-auto text-xs">{{ JSON.stringify({ extra_headers: template.extra_headers, body_override_mode: template.body_override_mode, body_override: template.body_override }, null, 2) }}</pre>
     </div>

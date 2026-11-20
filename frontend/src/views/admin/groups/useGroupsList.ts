@@ -282,6 +282,8 @@ export function useGroupsList(
     sort_order: "asc" as "asc" | "desc",
   });
 
+  const loaded = ref(false);
+
   let abortController: AbortController | null = null;
 
   const loadGroups = async () => {
@@ -313,6 +315,7 @@ export function useGroupsList(
       groups.value = response.items;
       pagination.total = response.total;
       pagination.pages = response.pages;
+      loaded.value = true;
       if (hasVisibleUsageSummaryConsumer.value) {
         loadUsageSummary();
       } else {
@@ -332,6 +335,7 @@ export function useGroupsList(
       ) {
         return;
       }
+      loaded.value = false;
       appStore.showError(t("admin.groups.failedToLoad"));
       console.error("Error loading groups:", error);
     } finally {
@@ -348,7 +352,7 @@ export function useGroupsList(
   };
 
   const formatUsd = (cost: number | null | undefined): string =>
-    `$${formatCost(cost ?? 0)}`;
+    cost == null ? "—" : `$${formatCost(cost)}`;
 
   const getQuotaUsageClass = (
     used: number,
@@ -477,6 +481,7 @@ export function useGroupsList(
     platformFilterOptions,
     groups,
     loading,
+    loaded,
     usageMap,
     usageLoading,
     capacityMap,

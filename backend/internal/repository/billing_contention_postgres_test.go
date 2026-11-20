@@ -16,9 +16,9 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,7 +138,11 @@ func runBillingMixedContention(t *testing.T, ctx context.Context, db *sql.DB, pa
 			if p == nil || p.user == 0 {
 				continue
 			}
-			_, err := db.Exec(`DELETE FROM usage_settlement_receipts WHERE user_id=$1`, p.user)
+			_, err := db.Exec(`DELETE FROM billing_movement_links WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id=$1)`, p.user)
+			require.NoError(t, err)
+			_, err = db.Exec(`DELETE FROM billing_settlement_outbox WHERE receipt_id IN (SELECT id FROM usage_settlement_receipts WHERE user_id=$1)`, p.user)
+			require.NoError(t, err)
+			_, err = db.Exec(`DELETE FROM usage_settlement_receipts WHERE user_id=$1`, p.user)
 			require.NoError(t, err)
 			_, err = db.Exec(`DELETE FROM user_platform_quota_events WHERE user_id=$1`, p.user)
 			require.NoError(t, err)

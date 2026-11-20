@@ -32,10 +32,14 @@ NC='\033[0m' # No Color
 
 # Configuration
 GITHUB_REPO="guanwenpeng2001-bot/OMNIHIVE-AI-GW"
-INSTALL_DIR="/opt/sub2api"
-SERVICE_NAME="sub2api"
-SERVICE_USER="sub2api"
-CONFIG_DIR="/etc/sub2api"
+INSTALL_DIR="/opt/omnihive"
+SERVICE_NAME="omnihive"
+SERVICE_USER="omnihive"
+CONFIG_DIR="/etc/omnihive"
+SYSTEMD_DIR="/etc/systemd/system"
+LEGACY_INSTALL_DIR="/opt/sub2api"
+LEGACY_CONFIG_DIR="/etc/sub2api"
+LEGACY_SERVICE_NAME="sub2api"
 
 # Server configuration (will be set by user)
 SERVER_HOST="0.0.0.0"
@@ -603,39 +607,72 @@ validate_version() {
     echo "$version"
 }
 
+select_installed_identity() {
+    if [ -f "$INSTALL_DIR/omnihive" ]; then
+        return
+    fi
+    if [ -f "$LEGACY_INSTALL_DIR/omnihive" ] || [ -f "$LEGACY_INSTALL_DIR/sub2api" ]; then
+        INSTALL_DIR="$LEGACY_INSTALL_DIR"
+        CONFIG_DIR="$LEGACY_CONFIG_DIR"
+        SERVICE_NAME="$LEGACY_SERVICE_NAME"
+        SERVICE_USER="$LEGACY_SERVICE_NAME"
+        print_warning "Using the deprecated $SERVICE_NAME unit and its existing data paths. See the OmniHive identity migration guide."
+    fi
+}
+
+installed_binary() {
+    if [ -f "$INSTALL_DIR/omnihive" ]; then
+        printf '%s\n' "$INSTALL_DIR/omnihive"
+    elif [ "$SERVICE_NAME" = "$LEGACY_SERVICE_NAME" ] && [ -f "$INSTALL_DIR/sub2api" ]; then
+        printf '%s\n' "$INSTALL_DIR/sub2api"
+    else
+        return 1
+    fi
+}
+
 # Get current installed version
 get_current_version() {
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
-        # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
-    else
+    local binary version_output
+    if ! binary=$(installed_binary); then
         echo "not_installed"
+        return
+    fi
+    if version_output=$("$binary" --version 2>&1) && [[ "$version_output" =~ v?[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+        printf '%s\n' "${BASH_REMATCH[0]}"
+    else
+        echo "unknown"
     fi
 }
 
 # Download and extract
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
-    local archive_name="sub2api_${version_num}_${OS}_${ARCH}.tar.gz"
-    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${archive_name}"
-    local checksum_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/checksums.txt"
+    local suffix="${version_num}_${OS}_${ARCH}.tar.gz"
+    local release_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}"
+    local project archive_name=""
 
-    print_info "$(msg 'downloading') ${archive_name}..."
-
-    # Create temp directory
     TEMP_DIR=$(mktemp -d)
-    trap "rm -rf $TEMP_DIR" EXIT
+    trap 'rm -rf -- "$TEMP_DIR"' EXIT
 
-    # Download archive
-    if ! curl -sL "$download_url" -o "$TEMP_DIR/$archive_name"; then
+    for project in omnihive omnihive-ai-gw sub2api; do
+        local candidate="${project}_${suffix}"
+        print_info "$(msg 'downloading') ${candidate}..."
+        if curl -qfsSL "$release_url/$candidate" -o "$TEMP_DIR/$candidate"; then
+            archive_name="$candidate"
+            break
+        fi
+    done
+    if [ -z "$archive_name" ]; then
         print_error "$(msg 'download_failed')"
-        exit 1
+        return 1
+    fi
+    if [ "$project" != omnihive ]; then
+        print_warning "Using deprecated release asset name $archive_name."
     fi
 
-    # Download and verify checksum
     print_info "$(msg 'verifying_checksum')"
-    if curl -sL "$checksum_url" -o "$TEMP_DIR/checksums.txt" 2>/dev/null; then
-        local expected_checksum=$(grep "$archive_name" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
+    if curl -qfsSL "$release_url/checksums.txt" -o "$TEMP_DIR/checksums.txt"; then
+        local expected_checksum=$(awk -v name="$archive_name" '$2 == name || $2 == "*" name {print $1; exit}' "$TEMP_DIR/checksums.txt")
         local actual_checksum=$(sha256sum "$TEMP_DIR/$archive_name" | awk '{print $1}')
 
         if [ "$expected_checksum" != "$actual_checksum" ]; then
@@ -645,6 +682,9 @@ download_and_extract() {
             exit 1
         fi
         print_success "$(msg 'checksum_verified')"
+    elif [ "$project" = omnihive ]; then
+        print_error "$(msg 'checksum_not_found')"
+        return 1
     else
         print_warning "$(msg 'checksum_not_found')"
     fi
@@ -656,9 +696,29 @@ download_and_extract() {
     # Create install directory
     mkdir -p "$INSTALL_DIR"
 
-    # Copy binary
-    cp "$TEMP_DIR/sub2api" "$INSTALL_DIR/sub2api"
-    chmod +x "$INSTALL_DIR/sub2api"
+    local binary="" name
+    for name in omnihive omnihive-ai-gw sub2api; do
+        if [ -f "$TEMP_DIR/$name" ] && [ ! -L "$TEMP_DIR/$name" ]; then
+            binary="$TEMP_DIR/$name"
+            break
+        fi
+    done
+    if [ -z "$binary" ]; then
+        print_error "Release does not contain an OmniHive executable."
+        return 1
+    fi
+    if [ "$name" != omnihive ]; then
+        print_warning "Using deprecated executable name $name from the release archive."
+    fi
+    local staged_binary
+    staged_binary=$(mktemp "$INSTALL_DIR/.omnihive.XXXXXX")
+    if ! install -m 0755 "$binary" "$staged_binary" || ! mv -f "$staged_binary" "$INSTALL_DIR/omnihive"; then
+        rm -f -- "$staged_binary"
+        return 1
+    fi
+    if [ "$SERVICE_NAME" = "$LEGACY_SERVICE_NAME" ]; then
+        ln -sfn omnihive "$INSTALL_DIR/sub2api"
+    fi
 
     # Ship readable pricing resources alongside the embedded defaults.
     # Older releases may not include them; their existing install path still works.
@@ -672,7 +732,7 @@ download_and_extract() {
         cp -r "$TEMP_DIR/deploy/"* "$INSTALL_DIR/" 2>/dev/null || true
     fi
 
-    print_success "$(msg 'binary_installed') $INSTALL_DIR/sub2api"
+    print_success "$(msg 'binary_installed') $INSTALL_DIR/omnihive"
 }
 
 # Create system user
@@ -722,7 +782,7 @@ install_service() {
     print_info "$(msg 'installing_service')"
 
     # Create service file with configured host and port
-    cat > /etc/systemd/system/sub2api.service << EOF
+    cat > "$SYSTEMD_DIR/$SERVICE_NAME.service" << EOF
 [Unit]
 Description=OmniHive - AI API Gateway Platform
 Documentation=https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW
@@ -731,22 +791,25 @@ Wants=postgresql.service redis.service
 
 [Service]
 Type=simple
-User=sub2api
-Group=sub2api
-WorkingDirectory=/opt/sub2api
-ExecStart=/opt/sub2api/sub2api
+User=${SERVICE_USER}
+Group=${SERVICE_USER}
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=${INSTALL_DIR}/omnihive
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=sub2api
+SyslogIdentifier=omnihive
 
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/opt/sub2api
+ReadWritePaths=${INSTALL_DIR} ${CONFIG_DIR}
+
+Environment=CONFIG_FILE=${CONFIG_DIR}/config.yaml
+Environment=OMNIHIVE_DATA_DIR=${INSTALL_DIR}/data
 
 # Environment - Server configuration
 Environment=GIN_MODE=release
@@ -795,12 +858,12 @@ get_public_ip() {
 start_service() {
     print_info "$(msg 'starting_service')"
 
-    if systemctl start sub2api; then
+    if systemctl start "$SERVICE_NAME"; then
         print_success "$(msg 'service_started')"
         return 0
     else
         print_error "$(msg 'service_start_failed')"
-        print_info "sudo journalctl -u sub2api -n 50"
+        print_info "sudo journalctl -u $SERVICE_NAME -n 50"
         return 1
     fi
 }
@@ -809,7 +872,7 @@ start_service() {
 enable_autostart() {
     print_info "$(msg 'enabling_autostart')"
 
-    if systemctl enable sub2api 2>/dev/null; then
+    if systemctl enable "$SERVICE_NAME" 2>/dev/null; then
         print_success "$(msg 'autostart_enabled')"
         return 0
     else
@@ -850,10 +913,10 @@ print_completion() {
     echo "  $(msg 'useful_commands')"
     echo "=============================================="
     echo ""
-    echo "  $(msg 'cmd_status'):   sudo systemctl status sub2api"
-    echo "  $(msg 'cmd_logs'):     sudo journalctl -u sub2api -f"
-    echo "  $(msg 'cmd_restart'):  sudo systemctl restart sub2api"
-    echo "  $(msg 'cmd_stop'):     sudo systemctl stop sub2api"
+    echo "  $(msg 'cmd_status'):   sudo systemctl status $SERVICE_NAME"
+    echo "  $(msg 'cmd_logs'):     sudo journalctl -u $SERVICE_NAME -f"
+    echo "  $(msg 'cmd_restart'):  sudo systemctl restart $SERVICE_NAME"
+    echo "  $(msg 'cmd_stop'):     sudo systemctl stop "$SERVICE_NAME""
     echo ""
     echo "=============================================="
 }
@@ -861,7 +924,8 @@ print_completion() {
 # Upgrade function
 upgrade() {
     # Check if OmniHive is installed
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
+    local previous_binary
+    if ! previous_binary=$(installed_binary); then
         print_error "$(msg 'not_installed')"
         print_info "$(msg 'fresh_install_hint'): $0 install"
         exit 1
@@ -870,29 +934,23 @@ upgrade() {
     print_info "$(msg 'upgrading')"
 
     # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    CURRENT_VERSION=$(get_current_version)
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
-    # Stop service
-    if systemctl is-active --quiet sub2api; then
-        print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
-    fi
-
     # Backup current binary
-    cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/sub2api.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/sub2api.backup"
+    cp "$previous_binary" "$INSTALL_DIR/omnihive.backup"
+    print_info "$(msg 'backup_created'): $INSTALL_DIR/omnihive.backup"
 
     # Download and install new version
     get_latest_version
     download_and_extract
 
     # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/omnihive"
 
     # Start service
     print_info "$(msg 'starting_service')"
-    systemctl start sub2api
+    systemctl restart "$SERVICE_NAME"
 
     print_success "$(msg 'upgrade_complete')"
 }
@@ -903,7 +961,8 @@ install_version() {
     local target_version="$1"
 
     # Check if OmniHive is installed
-    if [ ! -f "$INSTALL_DIR/sub2api" ]; then
+    local previous_binary
+    if ! previous_binary=$(installed_binary); then
         print_error "$(msg 'not_installed')"
         print_info "$(msg 'fresh_install_hint'): $0 install -v $target_version"
         exit 1
@@ -925,21 +984,15 @@ install_version() {
         exit 0
     fi
 
-    # Stop service if running
-    if systemctl is-active --quiet sub2api; then
-        print_info "$(msg 'stopping_service')"
-        systemctl stop sub2api
-    fi
-
     # Backup current binary (for potential recovery)
-    if [ -f "$INSTALL_DIR/sub2api" ]; then
+    if [ -f "$previous_binary" ]; then
         local backup_name
         if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
-            backup_name="sub2api.backup.${current_version}"
+            backup_name="omnihive.backup.${current_version}"
         else
-            backup_name="sub2api.backup.$(date +%Y%m%d%H%M%S)"
+            backup_name="omnihive.backup.$(date +%Y%m%d%H%M%S)"
         fi
-        cp "$INSTALL_DIR/sub2api" "$INSTALL_DIR/$backup_name"
+        cp "$previous_binary" "$INSTALL_DIR/$backup_name"
         print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
     fi
 
@@ -950,15 +1003,15 @@ install_version() {
     download_and_extract
 
     # Set permissions
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/sub2api"
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/omnihive"
 
     # Start service
     print_info "$(msg 'starting_service')"
-    if systemctl start sub2api; then
+    if systemctl restart "$SERVICE_NAME"; then
         print_success "$(msg 'service_started')"
     else
         print_error "$(msg 'service_start_failed')"
-        print_info "sudo journalctl -u sub2api -n 50"
+        print_info "sudo journalctl -u $SERVICE_NAME -n 50"
     fi
 
     # Print completion message
@@ -993,11 +1046,11 @@ uninstall() {
     fi
 
     print_info "$(msg 'stopping_service')"
-    systemctl stop sub2api 2>/dev/null || true
-    systemctl disable sub2api 2>/dev/null || true
+    systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    systemctl disable "$SERVICE_NAME" 2>/dev/null || true
 
     print_info "$(msg 'removing_files')"
-    rm -f /etc/systemd/system/sub2api.service
+    rm -f "$SYSTEMD_DIR/$SERVICE_NAME.service"
     systemctl daemon-reload
 
     print_info "$(msg 'removing_install_dir')"
@@ -1087,6 +1140,8 @@ main() {
     echo "=============================================="
     echo ""
 
+    select_installed_identity
+
     # Parse commands
     case "${1:-}" in
         upgrade|update)
@@ -1109,7 +1164,7 @@ main() {
             check_dependencies
             if [ -n "$target_version" ]; then
                 # Install specific version (fresh install or rollback)
-                if [ -f "$INSTALL_DIR/sub2api" ]; then
+                if installed_binary >/dev/null; then
                     # Already installed, treat as version change
                     install_version "$target_version"
                 else
@@ -1127,7 +1182,10 @@ main() {
                     print_completion
                 fi
             else
-                # Fresh install with latest version
+                if installed_binary >/dev/null; then
+                    upgrade
+                    exit 0
+                fi
                 configure_server
                 get_latest_version
                 download_and_extract
@@ -1205,7 +1263,7 @@ main() {
 
     if [ -n "$target_version" ]; then
         # Install specific version
-        if [ -f "$INSTALL_DIR/sub2api" ]; then
+        if installed_binary >/dev/null; then
             install_version "$target_version"
         else
             configure_server
@@ -1221,7 +1279,10 @@ main() {
             print_completion
         fi
     else
-        # Install latest version
+        if installed_binary >/dev/null; then
+            upgrade
+            exit 0
+        fi
         configure_server
         get_latest_version
         download_and_extract

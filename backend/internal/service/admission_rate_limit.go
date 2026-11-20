@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 // 准入限额语义的单一来源。

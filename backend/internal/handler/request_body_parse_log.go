@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
 	"strconv"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"go.uber.org/zap"
 )
 

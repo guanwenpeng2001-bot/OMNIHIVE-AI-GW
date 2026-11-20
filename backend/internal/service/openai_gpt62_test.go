@@ -3,15 +3,19 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestGPT62AliasNormalizationRemainsUnavailable(t *testing.T) {
@@ -27,6 +31,122 @@ func TestGPT62AliasNormalizationRemainsUnavailable(t *testing.T) {
 	}
 	require.Equal(t, "gpt-6-astra", normalizeCodexModel("gpt-6"))
 	require.Equal(t, "xhigh", normalizeOpenAIReasoningEffortForModel("max", "gpt-5.5"))
+}
+
+func TestGPT62ProviderPrefixedPublishedIDsAreAccepted(t *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	for _, model := range []string{
+		"codex/gpt-6.2-astra",
+		"auto/gpt-6.2-sol",
+		"openai/gpt-6.2-astra",
+	} {
+		t.Run(model, func(t *testing.T) {
+			for _, body := range []string{`{}`, `{"reasoning_effort":"medium"}`, `{"reasoning":{"effort":"high"}}`} {
+				require.Nil(t, validateOpenAIGPT62RequestBody(account, model, []byte(body)))
+			}
+			for _, body := range []string{`{"reasoning_effort":"none"}`, `{"reasoning":{"effort":"minimal"}}`} {
+				require.Error(t, validateOpenAIGPT62RequestBody(account, model, []byte(body)))
+			}
+		})
+	}
+	require.Error(t, validateOpenAIGPT62RequestBody(account, "gpt-6.2-astra-max",
+		[]byte(`{"reasoning_effort":"medium"}`)))
+}
+
+func TestOpenAICompatibleCatalogChatOnlyForwarding(t *testing.T) {
+	for _, tc := range []struct {
+		model, effort, clientUA, overrideUA, wantUA string
+	}{
+		{model: "deepseek/deepseek-v4-pro", wantUA: openAIAPIKeyDefaultUserAgent},
+		{model: "codex/gpt-6.2-astra", clientUA: "Python-urllib/3.12", wantUA: openAIAPIKeyDefaultUserAgent},
+		{model: "codex/gpt-6.2-astra", effort: "high", clientUA: "codex_cli_rs/0.144.1", wantUA: "codex_cli_rs/0.144.1"},
+		{model: "auto/kimi-k3", clientUA: "python-requests/2.32", overrideUA: "configured-relay/1", wantUA: "configured-relay/1"},
+		{model: "auto/gemini-3.8-flash", clientUA: "Go-http-client/1.1", wantUA: openAIAPIKeyDefaultUserAgent},
+		{model: "agy-cli/gemini-3.8-flash", clientUA: "curl/8.10.1", wantUA: "curl/8.10.1"},
+	} {
+		t.Run(tc.model+"/"+tc.clientUA, func(t *testing.T) {
+			account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+				"api_key": "fixture", "base_url": "https://relay.example",
+			}}
+			account.Extra = map[string]any{
+				UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{
+					Complete:       true,
+					EligibleModels: []AccountCatalogModel{{ID: tc.model, Endpoints: []string{CompositeRouteEndpointChatCompletions}}},
+				},
+			}
+			require.True(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
+			account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+			require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
+			delete(account.Extra, openai_compat.ExtraKeyResponsesMode)
+			if tc.overrideUA != "" {
+				account.Extra["header_overrides"] = map[string]any{
+					"User-Agent": tc.overrideUA, "X-Upstream-Route": "test-route", "Authorization": "ignored",
+				}
+			}
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}]}`, tc.model)
+			if tc.effort != "" {
+				body = fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello"}],"reasoning_effort":%q}`, tc.model, tc.effort)
+			}
+			writer := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(writer)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			c.Request.Header.Set("User-Agent", tc.clientUA)
+			response := fmt.Sprintf(`{"id":"fixture","object":"chat.completion","model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, tc.model)
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(response)),
+			}}
+			svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+			_, err := svc.ForwardAsChatCompletions(t.Context(), c, account, []byte(body), "", "")
+			require.NoError(t, err)
+			require.Len(t, upstream.requests, 1)
+			require.Equal(t, "/v1/chat/completions", upstream.lastReq.URL.Path)
+			require.Equal(t, tc.wantUA, upstream.lastReq.UserAgent())
+			require.Equal(t, tc.model, gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, tc.effort, gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+			require.Equal(t, tc.effort != "", gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+			require.Equal(t, "Bearer "+account.GetOpenAIApiKey(), upstream.lastReq.Header.Get("Authorization"))
+			if tc.overrideUA != "" {
+				require.Equal(t, "test-route", getHeaderRaw(upstream.lastReq.Header, "x-upstream-route"))
+			}
+		})
+	}
+}
+
+func TestOpenAICompatibleConnectionProbeHTTP(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" || r.UserAgent() != "test-relay/1" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer fixture" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"id":"provider/chat-model"}]}`)
+	}))
+	defer upstream.Close()
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{
+		"api_key": "fixture", "base_url": upstream.URL + "/v1",
+	}, Extra: map[string]any{"header_overrides": map[string]string{"User-Agent": "test-relay/1"}}}
+
+	cfg := &config.Config{}
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	service := &AccountTestService{cfg: cfg}
+	probe := service.ProbeConnection(t.Context(), account, "")
+	require.Equal(t, "passed", probe.Network)
+	require.Equal(t, "passed", probe.Authorization)
+	require.Equal(t, []string{"provider/chat-model"}, probe.Models)
+
+	cfg.Security.URLAllowlist.AllowPrivateHosts = false
+	probe = service.ProbeConnection(t.Context(), account, "")
+	require.Equal(t, "failed", probe.Network)
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = false
+	probe = service.ProbeConnection(t.Context(), account, "")
+	require.NotEqual(t, "passed", probe.Network)
 }
 
 func TestGPT62UltrafastRemainsBlockedForEveryPlan(t *testing.T) {

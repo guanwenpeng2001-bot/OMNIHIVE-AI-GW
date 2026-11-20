@@ -222,6 +222,9 @@ func (s *OpenAIGatewayService) forwardQianwenNativeAudio(ctx context.Context, c 
 	if err := observeQianwenNativeAudio(data, result); err != nil {
 		return protocolError(err)
 	}
+	if b, ok := ctx.Value(mediaTaskKey{}).(MediaTaskBinding); ok && b.Kind == "audio" && gjson.GetBytes(data, "usage.characters").Float() > 600 {
+		return protocolError(fmt.Errorf("provider usage exceeds the admitted character limit"))
+	}
 	if result.AudioUsageUnresolved {
 		if err := s.recordQianwenASRUnresolved(ctx, result, key, account, data); err != nil {
 			writeChatCompletionsError(c, http.StatusServiceUnavailable, "api_error", "Unable to retain DashScope ASR usage for review")

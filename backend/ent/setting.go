@@ -9,7 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/setting"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/setting"
 )
 
 // Setting is the model entity for the Setting schema.

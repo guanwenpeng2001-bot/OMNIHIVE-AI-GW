@@ -1,10 +1,10 @@
 package admin
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type BackupHandler struct {
@@ -198,7 +198,11 @@ func (h *BackupHandler) RestoreBackup(c *gin.Context) {
 		return
 	}
 
-	record, err := h.backupService.StartRestore(c.Request.Context(), backupID)
+	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+		response.Forbidden(c, "Restore requires a verified admin session.")
+		return
+	}
+	record, err := h.backupService.StartAuthorizedRestore(c.Request.Context(), sub.UserID, backupID, c.GetHeader("Idempotency-Key"), middleware.StepUpSessionKey(c, sub.UserID))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

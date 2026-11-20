@@ -11,10 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 )
 
 type antigravityStreamResult struct {
@@ -769,7 +769,7 @@ func (s *AntigravityGatewayService) writeMappedClaudeError(c *gin.Context, accou
 	})
 
 	// 记录上游错误详情便于排障（可选：由配置控制；不回显到客户端）
-	if logBody {
+	if logBody && !privateGatewayContent(c) {
 		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] upstream_error status=%d body=%s", upstreamStatus, truncateForLog(body, maxBytes))
 	}
 
@@ -1019,7 +1019,9 @@ returnResponse:
 	// 转换 Gemini 响应为 Claude 格式
 	claudeResp, agUsage, err := antigravity.TransformGeminiToClaude(geminiBody, originalModel)
 	if err != nil {
-		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] transform_error error=%v body=%s", err, string(geminiBody))
+		if !privateGatewayContent(c) {
+			logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] transform_error error=%v body=%s", err, string(geminiBody))
+		}
 		return nil, nil, fmt.Errorf("failed to parse upstream response: %w", err)
 	}
 

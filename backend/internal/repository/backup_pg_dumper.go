@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
@@ -116,7 +116,7 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 	// A gzip/S3 reader can fail after yielding valid SQL. Piping it directly to
 	// psql turns that failure into EOF, which may commit an incomplete restore.
 	// Stage the complete SQL privately (CreateTemp uses 0600) before execution.
-	script, err := os.CreateTemp("", "sub2api-restore-*.sql")
+	script, err := os.CreateTemp("", "omnihive-restore-*.sql")
 	if err != nil {
 		return fmt.Errorf("create restore script: %w", err)
 	}

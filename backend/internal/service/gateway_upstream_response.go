@@ -16,8 +16,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
@@ -373,8 +374,10 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	}
 
 	// 调试日志：打印上游错误响应
-	logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (non-retryable): Account=%d(%s) Status=%d RequestID=%s Body=%s",
-		account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(body), 1000))
+	if !ctxkey.PrivateGatewayContent(ctx) {
+		logger.LegacyPrintf("service.gateway", "[Forward] Upstream error (non-retryable): Account=%d(%s) Status=%d RequestID=%s Body=%s",
+			account.ID, account.Name, resp.StatusCode, resp.Header.Get("x-request-id"), truncateString(string(body), 1000))
+	}
 
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -431,7 +434,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 	MarkResponseCommitted(c)
 
 	// 记录上游错误响应体摘要便于排障（可选：由配置控制；不回显到客户端）
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !ctxkey.PrivateGatewayContent(ctx) {
 		logger.LegacyPrintf("service.gateway",
 			"Upstream error %d (account=%d platform=%s type=%s): %s",
 			resp.StatusCode,
@@ -597,7 +600,7 @@ func (s *GatewayService) handleRetryExhaustedError(ctx context.Context, resp *ht
 		Detail:             upstreamDetail,
 	})
 
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !ctxkey.PrivateGatewayContent(ctx) {
 		logger.LegacyPrintf("service.gateway",
 			"Upstream error %d retries_exhausted (account=%d platform=%s type=%s): %s",
 			resp.StatusCode,

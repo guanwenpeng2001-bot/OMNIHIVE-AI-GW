@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +12,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	payments "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/payments"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +22,7 @@ import (
 // PaymentWebhookHandler handles payment provider webhook callbacks.
 type PaymentWebhookHandler struct {
 	paymentService *service.PaymentService
-	registry       *payment.Registry
+	evidence       *payments.Store
 }
 
 // maxWebhookBodySize is the maximum allowed webhook request body size (1 MB).
@@ -30,11 +32,8 @@ const maxWebhookBodySize = 1 << 20
 const webhookLogTruncateLen = 200
 
 // NewPaymentWebhookHandler creates a new PaymentWebhookHandler.
-func NewPaymentWebhookHandler(paymentService *service.PaymentService, registry *payment.Registry) *PaymentWebhookHandler {
-	return &PaymentWebhookHandler{
-		paymentService: paymentService,
-		registry:       registry,
-	}
+func NewPaymentWebhookHandler(paymentService *service.PaymentService, evidence *payments.Store) *PaymentWebhookHandler {
+	return &PaymentWebhookHandler{paymentService: paymentService, evidence: evidence}
 }
 
 // EasyPayNotify handles EasyPay payment notifications.
@@ -87,7 +86,18 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	// This is needed when multiple instances of the same provider exist (e.g. multiple EasyPay accounts).
 	outTradeNo := extractOutTradeNo(rawBody, providerKey)
 
-	providers, err := h.paymentService.GetWebhookProviders(c.Request.Context(), providerKey, outTradeNo)
+	ctx := c.Request.Context()
+	var providers []payment.Provider
+	var err error
+	var intent string
+	if providerKey == payment.TypeStripe && outTradeNo == "" {
+		intent = stripeReversalIntent(rawBody)
+	}
+	if intent != "" {
+		providers, err = h.paymentService.GetStripeReversalWebhookProviders(ctx, intent)
+	} else {
+		providers, err = h.paymentService.GetWebhookProviders(ctx, providerKey, outTradeNo)
+	}
 	if err != nil || len(providers) == 0 {
 		slog.Warn("[Payment Webhook] provider not found", "provider", providerKey, "outTradeNo", outTradeNo, "error", err)
 		c.String(http.StatusServiceUnavailable, "payment provider unavailable")
@@ -99,7 +109,10 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 		headers[strings.ToLower(k)] = c.GetHeader(k)
 	}
 
-	resolvedProviderKey, notification, err := verifyNotificationWithProviders(c.Request.Context(), providers, rawBody, headers)
+	resolvedProviderKey, notification, err := verifyNotificationWithProviders(ctx, providers, rawBody, headers)
+	if err == nil && resolvedProviderKey != providerKey {
+		err = errors.New("verified payment provider does not match the callback route")
+	}
 	if err != nil {
 		truncatedBody := rawBody
 		if len(truncatedBody) > webhookLogTruncateLen {
@@ -117,7 +130,7 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 		return
 	}
 
-	if err := h.paymentService.HandlePaymentNotification(c.Request.Context(), notification, resolvedProviderKey); err != nil {
+	if err := h.dispatchVerified(ctx, resolvedProviderKey, notification); err != nil {
 		// Unknown order: ack with 2xx so the provider stops retrying. This
 		// guards against foreign environments whose webhook endpoints are
 		// (mis)configured to point at us — without a 2xx, the provider will
@@ -140,6 +153,22 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	writeSuccessResponse(c, resolvedProviderKey)
 }
 
+func (h *PaymentWebhookHandler) dispatchVerified(ctx context.Context, provider string, n *payment.PaymentNotification) error {
+	if h.evidence != nil {
+		exact, err := h.evidence.ExactWebhook(ctx, provider, n)
+		if errors.Is(err, sql.ErrNoRows) {
+			return service.ErrOrderNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if exact {
+			return h.evidence.HandleVerified(ctx, provider, n)
+		}
+	}
+	return h.paymentService.HandlePaymentNotification(ctx, n, provider)
+}
+
 // extractOutTradeNo parses the webhook body to find the out_trade_no.
 // This allows looking up the correct provider instance before verification.
 func extractOutTradeNo(rawBody, providerKey string) string {
@@ -160,9 +189,51 @@ func extractOutTradeNo(rawBody, providerKey string) string {
 		if err := json.Unmarshal([]byte(rawBody), &payload); err == nil {
 			return strings.TrimSpace(payload.Data.Object.MerchantOrderID)
 		}
+	case payment.TypeStripe:
+		event := stripeWebhookHint(rawBody)
+		switch event.Type {
+		case "payment_intent.succeeded", "payment_intent.payment_failed":
+			return strings.TrimSpace(event.Data.Object.Metadata["orderId"])
+		case "refund.created", "refund.updated":
+			return strings.TrimSpace(event.Data.Object.Metadata["omnihive_refund_order"])
+		}
 	}
 	// For other providers (Stripe, Alipay direct, WxPay direct), the registry
 	// typically has only one instance, so no instance lookup is needed.
+	return ""
+}
+
+type stripeWebhookLookup struct {
+	Type string
+	Data struct {
+		Object struct {
+			Metadata map[string]string
+			Intent   json.RawMessage `json:"payment_intent"`
+		}
+	}
+}
+
+func stripeWebhookHint(rawBody string) stripeWebhookLookup {
+	var event stripeWebhookLookup
+	if err := json.Unmarshal([]byte(rawBody), &event); err != nil {
+		return stripeWebhookLookup{}
+	}
+	return event
+}
+
+func stripeReversalIntent(rawBody string) string {
+	event := stripeWebhookHint(rawBody)
+	switch event.Type {
+	case "refund.created", "refund.updated", "charge.dispute.closed":
+		var id string
+		if err := json.Unmarshal(event.Data.Object.Intent, &id); err == nil {
+			return strings.TrimSpace(id)
+		}
+		var intent struct{ ID string }
+		if err := json.Unmarshal(event.Data.Object.Intent, &intent); err == nil {
+			return strings.TrimSpace(intent.ID)
+		}
+	}
 	return ""
 }
 

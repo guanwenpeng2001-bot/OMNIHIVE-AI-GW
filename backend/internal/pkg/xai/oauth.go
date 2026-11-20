@@ -8,7 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"log/slog"
 	"net/url"
 	"os"
@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/redissession"
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/redissession"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/logredact"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/redis/go-redis/v9"
 )
 

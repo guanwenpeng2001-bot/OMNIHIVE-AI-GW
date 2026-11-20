@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/model"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/model"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )

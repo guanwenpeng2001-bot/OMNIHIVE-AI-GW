@@ -1,0 +1,259 @@
+[
+  {
+    "protocol": "openai_chat",
+    "input": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use lookup."
+        }
+      ],
+      "max_tokens": 128
+    },
+    "frames": [
+      {
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "reasoning_content": "Thinking"
+            }
+          }
+        ]
+      },
+      {
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "fn1",
+                  "function": {
+                    "name": "lookup",
+                    "arguments": "{\"q\":"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "choices": [
+          {
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\"a\"}"
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 0,
+          "completion_tokens": 5
+        }
+      },
+      "[DONE]"
+    ],
+    "output": {
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "hello"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "protocol": "openai_responses",
+    "input": {
+      "input": "Use lookup.",
+      "max_output_tokens": 128
+    },
+    "frames": [
+      {
+        "type": "response.reasoning_summary_text.delta",
+        "output_index": 0,
+        "delta": "Thinking"
+      },
+      {
+        "type": "response.output_item.added",
+        "output_index": 1,
+        "item": {
+          "type": "function_call",
+          "call_id": "fn1",
+          "name": "lookup",
+          "arguments": ""
+        }
+      },
+      {
+        "type": "response.function_call_arguments.delta",
+        "output_index": 1,
+        "delta": "{\"q\":\"a\"}"
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 5
+          }
+        }
+      }
+    ],
+    "output": {
+      "status": "completed",
+      "output": [
+        {
+          "type": "function_call",
+          "call_id": "fn1",
+          "name": "lookup",
+          "arguments": "{\"q\":\"a\"}"
+        }
+      ]
+    }
+  },
+  {
+    "protocol": "anthropic_messages",
+    "input": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Use lookup."
+        }
+      ],
+      "max_tokens": 128
+    },
+    "frames": [
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "Thinking"
+        }
+      },
+      {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "tool_use",
+          "id": "fn1",
+          "name": "lookup",
+          "input": {}
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "{\"q\":\"a\"}"
+        }
+      },
+      {
+        "type": "message_delta",
+        "usage": {
+          "input_tokens": 0,
+          "output_tokens": 5
+        }
+      },
+      {
+        "type": "message_stop"
+      }
+    ],
+    "output": {
+      "type": "message",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "fn1",
+          "name": "lookup",
+          "input": {
+            "q": "a"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "protocol": "gemini_generate",
+    "input": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "Use lookup."
+            }
+          ]
+        }
+      ],
+      "generationConfig": {
+        "maxOutputTokens": 128
+      }
+    },
+    "frames": [
+      {
+        "candidates": [
+          {
+            "index": 0,
+            "content": {
+              "parts": [
+                {
+                  "text": "Thinking",
+                  "thought": true
+                },
+                {
+                  "functionCall": {
+                    "id": "fn1",
+                    "name": "lookup",
+                    "args": {
+                      "q": "a"
+                    }
+                  }
+                }
+              ]
+            },
+            "finishReason": "STOP"
+          }
+        ],
+        "usageMetadata": {
+          "promptTokenCount": 0,
+          "candidatesTokenCount": 5
+        }
+      }
+    ],
+    "output": {
+      "candidates": [
+        {
+          "content": {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "id": "fn1",
+                  "name": "lookup",
+                  "args": {
+                    "q": "a"
+                  }
+                }
+              }
+            ]
+          },
+          "finishReason": "STOP"
+        }
+      ]
+    }
+  }
+]

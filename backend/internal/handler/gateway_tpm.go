@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func writeGatewayTPMWSError(ctx context.Context, conn *coderws.Conn, err error) {

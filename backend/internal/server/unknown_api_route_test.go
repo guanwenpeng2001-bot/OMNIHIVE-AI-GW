@@ -8,13 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/server"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/Wei-Shaw/sub2api/internal/web"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/web"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,10 +28,41 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		middleware.JWTAuthMiddleware(pass), middleware.OptionalJWTAuthMiddleware(pass),
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
+		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
-		nil, nil, nil, settings, nil, cfg, nil)
+		nil, nil, nil, settings, nil, cfg, nil, nil)
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, path := range []string{"/api/v2/public/models", "/api/v2/workspaces/:workspace_id/projects/:project_id/models"} {
+		require.Contains(t, registered, "GET "+path)
+		require.Contains(t, registered, "GET "+path+"/:id")
+		require.Contains(t, registered, "POST "+path+"/compare")
+	}
+	const taskPath = "/api/v2/workspaces/:workspace_id/projects/:project_id/tasks"
+	require.Contains(t, registered, "GET "+taskPath)
+	require.Contains(t, registered, "POST "+taskPath)
+	require.Contains(t, registered, "POST "+taskPath+"/:id/retry")
+	const projectPath = "/api/v2/workspaces/:workspace_id/projects/:project_id"
+	for _, route := range []string{
+		"POST " + projectPath + "/quotes",
+		"POST " + projectPath + "/playground/runs",
+		"GET " + projectPath + "/playground/runs/by-idempotency-key",
+		"GET " + projectPath + "/playground/runs/:id",
+		"POST " + projectPath + "/playground/runs/:id/cancel",
+		"POST " + projectPath + "/requests/:id/replay",
+		"GET " + projectPath + "/billing/adjustments/:id/payment-evidence",
+		"PUT " + projectPath + "/billing/adjustments/:id/payment-evidence/:event_id",
+	} {
+		require.Contains(t, registered, route)
+	}
+	require.Contains(t, registered, "GET /api/v2/admin/extensions")
+	extension := httptest.NewRecorder()
+	router.ServeHTTP(extension, httptest.NewRequest(http.MethodGet, "/api/v2/admin/extensions", nil))
+	require.Equal(t, http.StatusUnauthorized, extension.Code, extension.Body.String())
 	router.NoRoute(func(c *gin.Context) { c.Data(200, "text/html", []byte("<html>frontend</html>")) })
 	for _, test := range []struct{ method, path string }{
 		{"POST", "/v1"}, {"POST", "/v1/"}, {"POST", "/"},
@@ -69,6 +101,9 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		{"POST", "/audio/speech"}, {"POST", "/v1/messages"},
 		{"GET", "/backend-api/codex/unknown"},
 		{"GET", "/v1/usage"}, {"GET", "/antigravity/v1/usage"},
+		{"POST", "/api/v2/workspaces/1/projects/1/playground/runs"},
+		{"POST", "/api/v2/workspaces/1/projects/1/requests/request-id/replay"},
+		{"GET", "/api/v2/workspaces/1/projects/1/billing/adjustments/00000000-0000-0000-0000-000000000001/payment-evidence"},
 	} {
 		t.Run("registered "+route.path, func(t *testing.T) {
 			response := httptest.NewRecorder()

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 func (r *upstreamJobRepository) CreateRealtimeSession(ctx context.Context, j *service.UpstreamJob) (*service.UpstreamJob, error) {

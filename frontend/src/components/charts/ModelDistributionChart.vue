@@ -110,20 +110,20 @@
       <div class="h-48 w-48 shrink-0">
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
-      <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
+      <div class="w-full min-w-0 flex-1 overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.model') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.requests') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.tokens') }}</th>
+              <th class="pb-2 text-right">{{ tokensHeaderLabel }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.actual') }}</th>
               <th v-if="showAccountCost" class="pb-2 text-right">{{ t('admin.dashboard.accountCost') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.standard') }}</th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="(model, index) in displayModelStats" :key="model.model">
+            <template v-for="(model, index) in visibleModelStats" :key="model.model">
               <tr
                 class="border-t border-[var(--border)] transition-colors"
                 :class="enableBreakdown ? 'cursor-pointer hover:bg-[var(--surface-2)] ' : ''"
@@ -169,6 +169,15 @@
             </template>
           </tbody>
         </table>
+        <div v-if="displayModelStats.length > 10" class="mt-2 flex justify-end">
+          <button
+            type="button"
+            class="text-xs font-medium text-[var(--brand-text,#d97706)] hover:underline"
+            @click="showAllModels = !showAllModels"
+          >
+            {{ showAllModels ? (isZh ? '收起' : 'Show less') : (isZh ? `展开更多 (${displayModelStats.length - 10})` : `Show more (${displayModelStats.length - 10})`) }}
+          </button>
+        </div>
       </div>
     </div>
     <div
@@ -194,19 +203,19 @@
       <div class="h-48 w-48 shrink-0">
         <Doughnut :data="rankingChartData" :options="rankingDoughnutOptions" />
       </div>
-      <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
+      <div class="w-full min-w-0 flex-1 overflow-x-auto">
         <table class="w-full text-xs">
           <thead>
             <tr class="text-[var(--muted-foreground)]">
               <th class="pb-2 text-left">{{ t('admin.dashboard.spendingRankingUser') }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.spendingRankingRequests') }}</th>
-              <th class="pb-2 text-right">{{ t('admin.dashboard.spendingRankingTokens') }}</th>
+              <th class="pb-2 text-right">{{ spendingRankingTokensLabel }}</th>
               <th class="pb-2 text-right">{{ t('admin.dashboard.spendingRankingSpend') }}</th>
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="(item, index) in rankingDisplayItems"
+              v-for="(item, index) in visibleRankingItems"
               :key="item.isOther ? 'others' : `${item.user_id}-${index}`"
               class="border-t border-[var(--border)] transition-colors"
               :class="item.isOther
@@ -239,6 +248,15 @@
             </tr>
           </tbody>
         </table>
+        <div v-if="rankingDisplayItems.length > 10" class="mt-2 flex justify-end">
+          <button
+            type="button"
+            class="text-xs font-medium text-[var(--brand-text,#d97706)] hover:underline"
+            @click="showAllRanking = !showAllRanking"
+          >
+            {{ showAllRanking ? (isZh ? '收起' : 'Show less') : (isZh ? `展开更多 (${rankingDisplayItems.length - 10})` : `Show more (${rankingDisplayItems.length - 10})`) }}
+          </button>
+        </div>
       </div>
     </div>
     <div
@@ -266,7 +284,18 @@ import { getUserBreakdown } from '@/api/admin/dashboard'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
-const { t } = useI18n()
+const i18n = useI18n()
+const { t } = i18n
+const isZh = computed(() => {
+  const rawLocale = typeof i18n.locale === 'string' ? i18n.locale : i18n.locale?.value
+  if (rawLocale) return String(rawLocale).toLowerCase().startsWith('zh')
+  const probe = t('admin.dashboard.requests')
+  return Boolean(probe && probe !== 'admin.dashboard.requests' && /[\u4e00-\u9fa5]/.test(probe))
+})
+const tokensHeaderLabel = computed(() => (isZh.value ? '总 Token' : t('admin.dashboard.tokens')))
+const spendingRankingTokensLabel = computed(() => (isZh.value ? '总 Token' : t('admin.dashboard.spendingRankingTokens')))
+const showAllModels = ref(false)
+const showAllRanking = ref(false)
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type ModelSource = 'requested' | 'upstream' | 'mapping'
@@ -370,6 +399,9 @@ const displayModelStats = computed(() => {
   const metricKey = props.metric === 'actual_cost' ? 'actual_cost' : 'total_tokens'
   return [...sourceStats].sort((a, b) => toFiniteNumber(b[metricKey]) - toFiniteNumber(a[metricKey]))
 })
+const visibleModelStats = computed(() =>
+  showAllModels.value ? displayModelStats.value : displayModelStats.value.slice(0, 10)
+)
 
 const chartData = computed(() => {
   if (!displayModelStats.value.length) return null
@@ -442,6 +474,9 @@ const rankingDisplayItems = computed<RankingDisplayItem[]>(() => {
     ? [...props.rankingItems, otherRankingItem.value]
     : [...props.rankingItems]
 })
+const visibleRankingItems = computed<RankingDisplayItem[]>(() =>
+  showAllRanking.value ? rankingDisplayItems.value : rankingDisplayItems.value.slice(0, 10)
+)
 
 const doughnutOptions = computed(() => ({
   responsive: true,

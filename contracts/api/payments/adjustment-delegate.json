@@ -1,0 +1,13 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [{
+      "id": "91",
+      "kind": "redeem",
+      "billing_source": "wallet",
+      "entitlement_consumption": null,
+      "platform_charge": {"currency": "USD", "amount": "0.00000001"}
+    }]
+  }
+}

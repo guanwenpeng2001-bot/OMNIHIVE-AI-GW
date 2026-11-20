@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OmniHive · Sub2API - AI API Gateway</title>
+    <meta name="description" content="OmniHive — Unified AI API Gateway" />
+    <title>OmniHive - AI API Gateway</title>
     <script nonce="__CSP_NONCE_VALUE__">
       (function () {
         try {
@@ -12,13 +13,62 @@
             window.location.replace('http://localhost:3000/')
             return
           }
-          var mode = localStorage.getItem('omnihive.mode') || localStorage.getItem('theme')
-          if (mode === 'dark' || (!mode && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark')
+          var legacyStyle = (
+            localStorage.getItem('omnihive.style') ||
+            document.documentElement.getAttribute('data-theme') ||
+            ''
+          ).toLowerCase()
+          document.documentElement.removeAttribute('data-theme')
+          var mode =
+            localStorage.getItem('omnihive.theme.mode.v1') ||
+            localStorage.getItem('omnihive.mode') ||
+            localStorage.getItem('theme')
+          if (!mode && legacyStyle) {
+            if (legacyStyle === 'control' || legacyStyle === 'mono') {
+              mode = 'dark'
+            } else if (
+              legacyStyle === 'slate' ||
+              legacyStyle === 'indigo' ||
+              legacyStyle === 'teal'
+            ) {
+              mode = 'light'
+            }
           }
-          var style = localStorage.getItem('omnihive.style')
-          if (style && style !== 'teal') {
-            document.documentElement.setAttribute('data-theme', style)
+          var path = window.location.pathname || '/'
+          var isPublic =
+            path === '/' ||
+            path === '/home' ||
+            path.indexOf('/models') === 0 ||
+            path.indexOf('/model-plaza') === 0 ||
+            path.indexOf('/pricing') === 0 ||
+            path.indexOf('/status') === 0 ||
+            path.indexOf('/docs') === 0 ||
+            path.indexOf('/legal') === 0 ||
+            path.indexOf('/key-usage') === 0 ||
+            path.indexOf('/login') === 0 ||
+            path.indexOf('/register') === 0 ||
+            path.indexOf('/forgot-password') === 0 ||
+            path.indexOf('/reset-password') === 0 ||
+            path.indexOf('/email-verify') === 0 ||
+            path.indexOf('/auth/') === 0 ||
+            path.indexOf('/setup') === 0
+          var sysDark =
+            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          var useDark =
+            mode === 'dark' ||
+            (mode === 'system' && sysDark) ||
+            (!mode && !isPublic)
+          document.documentElement.classList.toggle('dark', Boolean(useDark))
+          document.documentElement.style.colorScheme = useDark ? 'dark' : 'light'
+          var density = localStorage.getItem('omnihive.ui.density.v1')
+          var legacyDense = localStorage.getItem('omnihive.dense')
+          if (
+            density === 'compact' ||
+            (!density && (legacyDense === '1' || legacyDense === 'true' || legacyStyle === 'control'))
+          ) {
+            document.documentElement.setAttribute('data-density', 'compact')
+          } else {
+            document.documentElement.setAttribute('data-density', 'comfort')
           }
         } catch (e) {}
       })()

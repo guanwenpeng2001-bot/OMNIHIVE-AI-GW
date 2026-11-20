@@ -2,11 +2,12 @@ import { helpSectionIds, helpScrollOffset } from '@/components/intro/helpSection
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { normalizeApiError } from '@/utils/apiError'
 /**
- * Vue Router configuration for Sub2API frontend
+ * Vue Router configuration for OmniHive frontend
  * Defines all application routes with lazy loading and navigation guards
  */
 
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { routerChunkReloadStorage } from '@/api/tokenRefresh'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
@@ -14,6 +15,10 @@ import { useAdminComplianceStore } from '@/stores/adminCompliance'
 import { useNavigationLoadingState } from '@/composables/useNavigationLoading'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
+import {
+  evaluateRoutePolicy,
+  shouldAllowNavigation
+} from './routePolicy'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { lazyIdentityScoped } from './identityScope'
@@ -43,7 +48,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/setup/SetupWizardView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Setup'
+      title: 'Setup',
+      titleZh: '初始化向导'
     }
   },
 
@@ -51,10 +57,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/home',
     name: 'Home',
-    component: () => import('@/views/HomeView.vue'),
+    component: () => import('@/views/public/PublicHomeView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Home'
+      title: 'Home',
+      titleZh: '首页'
     }
   },
   {
@@ -83,7 +90,8 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/EmailVerifyView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Verify Email'
+      title: 'Verify Email',
+      titleZh: '验证邮箱'
     }
   },
   {
@@ -181,8 +189,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/auth/ResetPasswordView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Reset Password'
+      title: 'Reset Password',
+      titleZh: '重置密码'
     }
+  },
+  {
+    path: '/quota',
+    redirect: '/key-usage'
   },
   {
     path: '/key-usage',
@@ -191,6 +204,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: false,
       title: 'Key Usage',
+      titleZh: '密钥额度查询'
     }
   },
   {
@@ -199,17 +213,59 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/public/LegalDocumentView.vue'),
     meta: {
       requiresAuth: false,
-      title: 'Legal Document'
+      title: 'Legal Document',
+      titleZh: '法律条款'
     }
   },
   {
     path: '/model-plaza',
     name: 'ModelPlaza',
-    component: () => import('@/views/ModelPlazaView.vue'),
+    component: () => import('@/views/public/PublicModelsView.vue'),
     meta: {
       requiresAuth: false,
       title: 'Model Plaza',
-      titleKey: 'modelPlaza.title'
+      titleZh: '模型广场',
+      titleKey: 'nav.modelPlaza'
+    }
+  },
+  {
+    path: '/model-plaza/compare',
+    name: 'ModelCompare',
+    component: () => import('@/views/public/PublicCompareView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Compare Models',
+      titleZh: '模型对比'
+    }
+  },
+  {
+    path: '/model-plaza/:id(.+)',
+    name: 'PublicModelDetail',
+    component: () => import('@/views/public/PublicModelDetailView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Model Detail',
+      titleZh: '模型详情'
+    }
+  },
+  {
+    path: '/pricing',
+    name: 'PublicPricing',
+    component: () => import('@/views/public/PublicPricingView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Pricing',
+      titleZh: '定价方案'
+    }
+  },
+  {
+    path: '/status',
+    name: 'PublicStatus',
+    component: () => import('@/views/public/PublicStatusView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Service Status',
+      titleZh: '服务状态'
     }
   },
 
@@ -217,6 +273,28 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/',
     redirect: '/home'
+  },
+  {
+    path: '/channels/probe',
+    redirect: '/monitor'
+  },
+  {
+    path: '/channels/telemetry',
+    redirect: '/monitor'
+  },
+  {
+    path: '/workspaces/:id/keys',
+    redirect: (to) => {
+      const wsId = String(to.params.id ?? '')
+      if (/^[1-9]\d*$/.test(wsId)) {
+        try {
+          useAppStore().selectWorkspaceScope(wsId)
+        } catch {
+          // Store may not be active during pure static resolution in tests.
+        }
+      }
+      return { path: '/keys', query: to.query }
+    }
   },
   {
     path: '/dashboard',
@@ -233,6 +311,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/help',
     name: 'HelpGuide',
+    alias: ['/docs'],
     component: () => import('@/views/HelpGuide.vue'),
     meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
   },
@@ -249,6 +328,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/byok',
+    name: 'ByokCredentials',
+    component: () => import('@/views/user/ByokView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'BYOK Credentials',
+      titleKey: 'nav.byok'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -259,6 +349,96 @@ const routes: RouteRecordRaw[] = [
       title: 'Batch Image Guide',
       titleKey: 'batchImageGuide.title',
       descriptionKey: 'batchImageGuide.description'
+    }
+  },
+  {
+    path: '/requests',
+    name: 'ProjectRequests',
+    component: () => import('@/features/requests/RequestListView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Requests',
+      titleKey: 'costLedger.requests.title'
+    }
+  },
+  {
+    path: '/requests/:id',
+    name: 'ProjectRequest',
+    component: () => import('@/features/requests/RequestDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Request Detail',
+      titleKey: 'costLedger.requests.detail'
+    }
+  },
+  {
+    path: '/admin/requests',
+    name: 'AdminRequests',
+    component: () => import('@/features/requests/RequestListView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Requests',
+      titleKey: 'costLedger.requests.title'
+    }
+  },
+  {
+    path: '/admin/requests/:id',
+    name: 'AdminRequest',
+    component: () => import('@/features/requests/RequestDetailView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Request Detail',
+      titleKey: 'costLedger.requests.detail'
+    }
+  },
+  {
+    path: '/billing',
+    name: 'ProjectBilling',
+    component: () => import('@/features/billing/UserCostsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Costs & Quota',
+      titleKey: 'costLedger.billing.title'
+    }
+  },
+  {
+    path: '/playground',
+    name: 'Playground',
+    component: () => import('@/views/user/PlaygroundView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Playground',
+      titleKey: 'playgroundConsole.title',
+      descriptionKey: 'playgroundConsole.description'
+    }
+  },
+  {
+    path: '/tasks',
+    name: 'TaskCenter',
+    component: () => import('@/views/user/TaskCenterView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Task Center',
+      titleKey: 'taskCenter.title',
+      descriptionKey: 'taskCenter.description'
+    }
+  },
+  {
+    path: '/admin/billing',
+    name: 'AdminBilling',
+    component: () => import('@/features/billing/ReconciliationView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Reconciliation',
+      titleKey: 'costLedger.reconciliation.title'
     }
   },
   {
@@ -328,7 +508,8 @@ const routes: RouteRecordRaw[] = [
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'MCP 授权'
+      title: 'MCP Authorization',
+      titleZh: 'MCP 授权'
     }
   },
   {
@@ -446,6 +627,18 @@ const routes: RouteRecordRaw[] = [
     redirect: '/admin/dashboard'
   },
   {
+    path: '/admin/pricing',
+    redirect: '/admin/channels/pricing'
+  },
+  {
+    path: '/admin/reconciliation',
+    redirect: '/admin/billing'
+  },
+  {
+    path: '/admin/project-audit',
+    redirect: '/admin/audit'
+  },
+  {
     path: '/admin/dashboard',
     name: 'AdminDashboard',
     component: () => import('@/views/admin/DashboardView.vue'),
@@ -482,6 +675,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/audit',
+    name: 'AdminScopedAudit',
+    component: () => import('@/features/operations/ScopedAuditView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Project Audit',
+      titleZh: '项目审计',
+      descriptionKey: 'admin.audit.description'
+    }
+  },
+  {
     path: '/admin/users',
     name: 'AdminUsers',
     component: () => import('@/views/admin/UsersView.vue'),
@@ -494,6 +699,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/members',
+    name: 'AdminMembers',
+    component: () => import('@/views/admin/members/MembersAccessView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Members & Access',
+      titleZh: '工作空间成员与授权'
+    }
+  },
+  {
     path: '/admin/groups',
     name: 'AdminGroups',
     component: () => import('@/views/admin/GroupsView.vue'),
@@ -502,6 +718,32 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Group Management',
       titleKey: 'admin.groups.title',
+      descriptionKey: 'admin.groups.description'
+    }
+  },
+  {
+    path: '/admin/pools',
+    name: 'AdminPools',
+    component: () => import('@/views/admin/GroupsView.vue'),
+    props: { initialSection: 'pools' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Resource Pools',
+      titleZh: '资源池',
+      descriptionKey: 'admin.groups.description'
+    }
+  },
+  {
+    path: '/admin/routing',
+    name: 'AdminRouting',
+    component: () => import('@/views/admin/GroupsView.vue'),
+    props: { initialSection: 'routing' },
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Routing Policies',
+      titleKey: 'routing.title',
       descriptionKey: 'admin.groups.description'
     }
   },
@@ -565,6 +807,30 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Account Management',
       titleKey: 'admin.accounts.title',
+      descriptionKey: 'admin.accounts.description'
+    }
+  },
+  {
+    path: '/admin/connections/new',
+    name: 'AdminConnectionNew',
+    component: () => import('@/views/admin/connections/ConnectionWizardView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'New Upstream Connection',
+      titleZh: '新建上游连接',
+      descriptionKey: 'admin.accounts.description'
+    }
+  },
+  {
+    path: '/admin/connections/:id/edit',
+    name: 'AdminConnectionEdit',
+    component: () => import('@/views/admin/connections/ConnectionWizardView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Edit Upstream Connection',
+      titleZh: '编辑上游连接',
       descriptionKey: 'admin.accounts.description'
     }
   },
@@ -653,13 +919,28 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/settings/:section',
+    name: 'AdminSettingsSection',
+    props: true,
+    component: () => import('@/views/admin/settings/SettingsSectionView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'System Settings',
+      titleZh: '系统设置',
+      titleKey: 'admin.settings.title',
+      descriptionKey: 'admin.settings.description'
+    }
+  },
+  {
     path: '/admin/backup',
     name: 'AdminBackup',
     component: () => import('@/views/admin/BackupView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
-      title: '备份与归档'
+      title: 'Backup & Restore',
+      titleZh: '备份与归档'
     }
   },
   {
@@ -678,6 +959,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/prompt-audit',
     name: 'AdminPromptAudit',
+    alias: ['/admin/security-audit'],
     component: () => import('@/features/prompt-audit/PromptAuditView.vue'),
     meta: {
       requiresAuth: true,
@@ -781,6 +1063,19 @@ const routes: RouteRecordRaw[] = [
   },
 
   // ==================== 404 Not Found ====================
+  ...(import.meta.env.DEV
+    ? [
+        {
+          path: '/__design',
+          name: 'DesignSystemGallery',
+          component: () => import('@/components/ui/__gallery__/DesignGalleryView.vue'),
+          meta: {
+            requiresAuth: false,
+            title: 'Design System Gallery'
+          }
+        }
+      ]
+    : []),
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
@@ -792,7 +1087,7 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/monitor'])
 for (const resourceRoute of [...routes]) {
   if (!workspaceResourcePaths.has(resourceRoute.path)) continue
   const suffix = resourceRoute.path.replace(/^\/admin/, '')
@@ -846,33 +1141,6 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
-const BACKEND_MODE_CALLBACK_PATHS = [
-  '/auth/callback',
-  '/auth/linuxdo/callback',
-  '/auth/dingtalk/callback',
-  '/auth/dingtalk/email-completion',
-  '/auth/oidc/callback',
-  '/auth/wechat/callback',
-  '/auth/wechat/payment/callback',
-]
-const BACKEND_MODE_PENDING_AUTH_PATHS = ['/register', '/email-verify']
-
-function isBackendModePublicRouteAllowed(path: string, hasPendingAuthSession: boolean): boolean {
-  if (BACKEND_MODE_ALLOWED_PATHS.some((allowedPath) => path === allowedPath || path.startsWith(allowedPath))) {
-    return true
-  }
-
-  if (BACKEND_MODE_CALLBACK_PATHS.some((callbackPath) => path === callbackPath)) {
-    return true
-  }
-
-  if (hasPendingAuthSession && BACKEND_MODE_PENDING_AUTH_PATHS.some((allowedPath) => path === allowedPath)) {
-    return true
-  }
-
-  return false
-}
 
 router.beforeEach(async (to, _from, next) => {
   // 开始导航加载状态
@@ -915,20 +1183,7 @@ router.beforeEach(async (to, _from, next) => {
 
   // If route doesn't require auth, allow access
   if (!requiresAuth) {
-    // If already authenticated and trying to access login/register, redirect to appropriate dashboard
-    if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/register')) {
-      // In backend mode, non-admin users should NOT be redirected away from login
-      // (they are blocked from all protected routes, so redirecting would cause a loop)
-      if (appStore.backendModeEnabled && !authStore.isAdmin) {
-        next()
-        return
-      }
-      // Admin users go to admin dashboard, regular users go to user dashboard
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-      return
-    }
-    // Model Plaza:公开路由但受「启用开关 + 可选强制登录」双重控制(后端同口径 fail-closed)
-    if (to.path === '/model-plaza') {
+    if (to.path === '/model-plaza' || to.path === '/models' || to.meta.featureFlag === 'modelPlaza') {
       if (!appStore.publicSettingsLoaded) {
         try {
           await appStore.fetchPublicSettings()
@@ -936,35 +1191,29 @@ router.beforeEach(async (to, _from, next) => {
           console.warn('Failed to load public settings in route guard', error)
         }
       }
-      const plazaSettings = appStore.cachedPublicSettings
-      // 仅在设置成功加载且明确为 false 时拦截(瞬时加载失败视为未知,由后端 404 兜底)
-      if (appStore.publicSettingsLoaded && plazaSettings?.model_plaza_enabled === false) {
-        next(
-          authStore.isAuthenticated
-            ? authStore.isAdmin
-              ? '/admin/dashboard'
-              : '/dashboard'
-            : '/home'
-        )
-        return
-      }
-      if (plazaSettings?.model_plaza_require_auth === true && !authStore.isAuthenticated) {
-        next({ path: '/login', query: { redirect: to.fullPath } })
-        return
-      }
-      // Backend mode:登录的非管理员也不可见(匿名由下方公共拦截处理,广场不在白名单)
-      if (appStore.backendModeEnabled && authStore.isAuthenticated && !authStore.isAdmin) {
-        next('/login')
-        return
-      }
     }
-    // Backend mode: block public pages for unauthenticated users (except login, key-usage, setup)
-    if (appStore.backendModeEnabled && !authStore.isAuthenticated) {
-      const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
-      if (!isAllowed) {
-        next('/login')
-        return
-      }
+
+    const publicPolicy = evaluateRoutePolicy(
+      {
+        requiresAuth: false,
+        featureFlag: to.meta.featureFlag
+      },
+      {
+        path: to.path,
+        fullPath: to.fullPath,
+        isAuthenticated: authStore.isAuthenticated,
+        isAdmin: authStore.isAdmin,
+        isSimpleMode: authStore.isSimpleMode,
+        hasPendingAuthSession: authStore.hasPendingAuthSession,
+        backendModeEnabled: appStore.backendModeEnabled,
+        publicSettingsLoaded: appStore.publicSettingsLoaded,
+        publicSettings: appStore.cachedPublicSettings
+      },
+      { allowDevGallery: Boolean(import.meta.env.DEV) }
+    )
+    if (!shouldAllowNavigation(publicPolicy) && publicPolicy.redirectTo) {
+      next(publicPolicy.redirectTo)
+      return
     }
     next()
     return
@@ -1034,7 +1283,13 @@ router.beforeEach(async (to, _from, next) => {
   // 公共设置可能尚未加载（App.vue 的 onMounted 异步拉取晚于首次导航，且纯静态部署
   // 无 __APP_CONFIG__ 注入）。此时 cachedPublicSettings 为空会把 payment/risk_control
   // 误判为“未启用”而错误拦截，故这里先确保设置加载完成。
-  if ((to.meta.requiresPayment || to.meta.requiresRiskControl || to.meta.requiresSubscription) && !appStore.publicSettingsLoaded) {
+  if (
+    (to.meta.requiresPayment ||
+      to.meta.requiresRiskControl ||
+      to.meta.requiresSubscription ||
+      to.meta.featureFlag) &&
+    !appStore.publicSettingsLoaded
+  ) {
     try {
       await appStore.fetchPublicSettings()
     } catch (error) {
@@ -1047,63 +1302,33 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  // Only an explicit value from successfully loaded settings can disable a route.
-  // A transient settings failure is unknown state, not a confirmed feature toggle.
-  if (
-    to.meta.requiresPayment &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.payment_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
+  const protectedPolicy = evaluateRoutePolicy(
+    {
+      requiresAuth: true,
+      requiresAdmin,
+      hideInSimpleMode: to.meta.hideInSimpleMode,
+      requiresPayment: to.meta.requiresPayment,
+      requiresRiskControl: to.meta.requiresRiskControl,
+      requiresSubscription: to.meta.requiresSubscription,
+      featureFlag: to.meta.featureFlag
+    },
+    {
+      path: to.path,
+      fullPath: to.fullPath,
+      isAuthenticated: authStore.isAuthenticated,
+      isAdmin: authStore.isAdmin,
+      isSimpleMode: authStore.isSimpleMode,
+      hasPendingAuthSession: authStore.hasPendingAuthSession,
+      backendModeEnabled: appStore.backendModeEnabled,
+      publicSettingsLoaded: appStore.publicSettingsLoaded,
+      publicSettings: appStore.cachedPublicSettings
+    },
+    { allowDevGallery: Boolean(import.meta.env.DEV) }
+  )
+
+  if (!shouldAllowNavigation(protectedPolicy) && protectedPolicy.redirectTo) {
+    next(protectedPolicy.redirectTo)
     return
-  }
-
-  if (
-    to.meta.requiresRiskControl &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.risk_control_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/settings' : '/dashboard')
-    return
-  }
-
-  // 订阅功能是 opt-out 开关：只有显式 false 才拦截「我的订阅」页直达。
-  if (
-    to.meta.requiresSubscription &&
-    appStore.publicSettingsLoaded &&
-    appStore.cachedPublicSettings?.subscription_enabled === false
-  ) {
-    next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-    return
-  }
-
-  // 简易模式下限制访问某些页面
-  if (authStore.isSimpleMode) {
-    const restrictedPaths = [
-      '/admin/subscriptions',
-      '/admin/redeem',
-      '/subscriptions',
-      '/redeem'
-    ]
-
-    if (restrictedPaths.some((path) => to.path.startsWith(path))) {
-      // 简易模式下访问受限页面,重定向到仪表板
-      next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
-      return
-    }
-  }
-
-  // Backend mode: admin gets full access, non-admin blocked
-  if (appStore.backendModeEnabled) {
-    if (authStore.isAuthenticated && authStore.isAdmin) {
-      next()
-      return
-    }
-    const isAllowed = isBackendModePublicRouteAllowed(to.path, authStore.hasPendingAuthSession)
-    if (!isAllowed) {
-      next('/login')
-      return
-    }
   }
 
   // All checks passed, allow navigation
@@ -1146,14 +1371,12 @@ router.onError((error) => {
     error.name === 'ChunkLoadError'
 
   if (isChunkLoadError) {
-    // Avoid infinite reload loop by checking sessionStorage
-    const reloadKey = 'chunk_reload_attempted'
-    const lastReload = sessionStorage.getItem(reloadKey)
+    const lastReload = routerChunkReloadStorage.get()
     const now = Date.now()
 
     // Allow reload if never attempted or more than 10 seconds ago
     if (!lastReload || now - parseInt(lastReload) > 10000) {
-      sessionStorage.setItem(reloadKey, now.toString())
+      routerChunkReloadStorage.set(now.toString())
       console.warn('Chunk load error detected, reloading page to fetch latest version...')
       window.location.reload()
     } else {

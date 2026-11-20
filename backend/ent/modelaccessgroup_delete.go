@@ -8,8 +8,8 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/modelaccessgroup"
-	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/modelaccessgroup"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
 )
 
 // ModelAccessGroupDelete is the builder for deleting a ModelAccessGroup entity.

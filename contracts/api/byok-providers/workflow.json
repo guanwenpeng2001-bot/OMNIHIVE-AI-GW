@@ -1,0 +1,88 @@
+{
+  "create": {
+    "method": "POST",
+    "path": "/api/v2/workspaces/10/byok",
+    "headers": {
+      "Idempotency-Key": "enroll-1"
+    },
+    "body": {
+      "provider": "gemini",
+      "auth_type": "oauth",
+      "secret": "<entered provider access token>",
+      "allowed_project_ids": [
+        "20"
+      ],
+      "allowed_key_ids": [
+        "30"
+      ],
+      "allowed_member_ids": [
+        "40"
+      ],
+      "allowed_model_ids": [
+        "example-model"
+      ],
+      "allow_platform_fallback": false
+    }
+  },
+  "designate": {
+    "method": "PUT",
+    "path": "/api/v2/workspaces/10/projects/20/byok/credentials/service-accounts/31",
+    "data": {
+      "id": "51",
+      "key_id": "31",
+      "project_id": "20",
+      "active": true,
+      "revoked_at": null
+    }
+  },
+  "patch": {
+    "method": "PATCH",
+    "path": "/api/v2/workspaces/10/byok/60",
+    "headers": {
+      "If-Match": "\"2\""
+    },
+    "body": {
+      "allowed_key_ids": [
+        "30",
+        "31"
+      ],
+      "allowed_service_account_ids": [
+        "51"
+      ],
+      "allow_platform_fallback": false
+    }
+  },
+  "events": {
+    "method": "GET",
+    "path": "/api/v2/workspaces/10/byok/60/events?limit=25",
+    "data": {
+      "items": [
+        {
+          "id": "81",
+          "type": "credential.patch",
+          "version": "3",
+          "actor_id": "40",
+          "at": "2026-11-19T08:00:00Z"
+        }
+      ],
+      "next_cursor": null,
+      "as_of": "2026-11-19T08:01:00Z"
+    }
+  },
+  "estimate": {
+    "method": "GET",
+    "path": "/api/v2/workspaces/10/projects/20/byok/credentials/60/estimate?member_id=40&key_id=31&model_id=example-model&input_token_bound=8&output_token_bound=16",
+    "data": {
+      "funding_source": "byok",
+      "external_state": "unknown",
+      "byok_external_estimate": null,
+      "platform_service_fee": {
+        "currency": "USD",
+        "amount": "0.25000000"
+      },
+      "platform_estimate": null,
+      "price_version": null,
+      "include_external_in_budget": false
+    }
+  }
+}

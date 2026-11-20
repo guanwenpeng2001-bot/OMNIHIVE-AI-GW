@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 )
 
 type LegacyEngine interface {
@@ -38,7 +40,9 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	case ModeAsync:
 		// Enqueue is deliberately best-effort. The implementation owns a bounded
 		// context and copies request memory before it can outlive the Handler.
-		_ = c.prompt.Enqueue(ctx, req.Clone())
+		if !ctxkey.PrivateGatewayContent(ctx) {
+			_ = c.prompt.Enqueue(ctx, req.Clone())
+		}
 		legacy, _ := c.checkLegacy(ctx, req)
 		return prioritize(legacy, nil)
 	case ModeBlocking:

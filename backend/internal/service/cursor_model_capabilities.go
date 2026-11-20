@@ -1,6 +1,6 @@
 package service
 
-import "github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
+import "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/cursor"
 
 // Cursor capability snapshot: see cursor_model_capabilities.md for sources,
 // semantics and maintenance. Values are published maximum context capacities,

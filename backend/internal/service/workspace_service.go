@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 )
 
 var ErrWorkspaceNotFound = infraerrors.NotFound("WORKSPACE_NOT_FOUND", "workspace not found")

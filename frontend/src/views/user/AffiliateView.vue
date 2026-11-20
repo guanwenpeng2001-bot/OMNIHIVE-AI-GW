@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <BillingNav />
     <div class="space-y-6">
       <div v-if="loading" class="flex justify-center py-12">
         <div
@@ -189,6 +190,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import BillingNav from '@/features/billing/components/BillingNav.vue'
 import Icon from '@/components/icons/Icon.vue'
 import userAPI from '@/api/user'
 import type { UserAffiliateDetail } from '@/types'

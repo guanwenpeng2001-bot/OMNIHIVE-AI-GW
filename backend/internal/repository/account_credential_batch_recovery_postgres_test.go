@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/usagestats"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,7 +69,7 @@ func TestCredentialBatchRecoveryPostgresUsage(t *testing.T) {
 			case "revoked":
 				_, err = f.secrets.Revoke(f.ctx, bad.ID, 1)
 			case "corrupt":
-				_, err = f.db.ExecContext(f.ctx, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-ciphertext' WHERE account_id=$1", bad.ID)
+				f.writeInconsistentSecret(t, "UPDATE credential_secrets SET ciphertext='synthetic-corrupt-ciphertext' WHERE account_id=$1", bad.ID)
 			case "missing":
 				// Remove only this test's newly created secret, never baseline rows.
 				_, err = f.db.ExecContext(f.ctx, "DELETE FROM credential_secrets WHERE account_id=$1", bad.ID)

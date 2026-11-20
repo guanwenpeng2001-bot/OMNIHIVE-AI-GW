@@ -1,0 +1,19 @@
+{
+  "from": "2026-11-01T04:00:00Z",
+  "to": "2026-11-02T05:00:00Z",
+  "timezone": "America/New_York",
+  "currency": "USD",
+  "as_of": "2026-11-02T06:00:00Z",
+  "data_completeness": {"state":"partial","missing":[{"section":"billing_or_usage","reason":"EVIDENCE_NOT_RECORDED"}]},
+  "totals": {
+    "logical_requests":"2","attempts":"2","observed_usage_requests":"1",
+    "input_tokens":"0","output_tokens":null,
+    "platform_charge":{"currency":"USD","amount":"2.00000000"},
+    "subscription_consumption":null,"catalog_reference":null,"byok_external_estimate":null,
+    "platform_service_fee":null,"reserved":null,"pending_requests":"0","needs_review_requests":"0"
+  },
+  "items": [
+    {"group":"model-a","filter":{"model_id":"model-a"},"logical_requests":"2","attempts":"2","input_tokens":"0","output_tokens":null,"platform_charge":{"currency":"USD","amount":"2.00000000"}}
+  ],
+  "next_cursor":null
+}

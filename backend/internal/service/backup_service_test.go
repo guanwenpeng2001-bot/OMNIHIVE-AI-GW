@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 )
 
 // ─── Mocks ───
@@ -1177,7 +1177,7 @@ func TestRecoverStaleRecords(t *testing.T) {
 	require.Contains(t, r1.ErrorMsg, "server restart")
 
 	r2, _ := svc.GetBackupRecord(context.Background(), "stale-2")
-	require.Equal(t, "failed", r2.RestoreStatus)
+	require.Equal(t, "review_required", r2.RestoreStatus)
 	require.Contains(t, r2.RestoreError, "server restart")
 }
 

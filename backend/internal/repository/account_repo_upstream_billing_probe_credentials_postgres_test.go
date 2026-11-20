@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -138,10 +138,9 @@ func TestUpstreamBillingProbeCredentialCASPostgres(t *testing.T) {
 			if tt.name == "secret owner" {
 				args = append(args, createProbeCASAccount(t, f, false).ID)
 			}
-			_, err := f.db.ExecContext(ctx, tt.sql, args...)
-			require.NoError(t, err)
+			f.writeInconsistentSecret(t, tt.sql, args...)
 			before := readProbeCASState(t, f, account.ID)
-			err = f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
+			err := f.accounts.UpdateUpstreamBillingProbeSnapshot(ctx, account, snapshot, &rate)
 			require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 			require.Equal(t, before, readProbeCASState(t, f, account.ID))
 		})

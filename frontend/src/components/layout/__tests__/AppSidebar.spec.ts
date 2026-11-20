@@ -80,3 +80,26 @@ describe('AppSidebar subscription feature flag', () => {
     expect(componentSource).toMatch(/path: '\/purchase'[^\n]*label: purchaseNavLabel\.value/)
   })
 })
+
+describe('AppSidebar product surface integration', () => {
+  it.each([
+    '/playground',
+    '/requests',
+    '/tasks',
+    '/billing',
+    '/admin/pools',
+    '/admin/routing',
+    '/admin/audit',
+    '/admin/billing',
+    '/admin/members',
+    '/admin/plugins'
+  ])('keeps %s reachable from the primary console navigation', (path) => {
+    expect(componentSource).toContain(`path: '${path}'`)
+  })
+
+  it('persists section collapse state, scrolls active item into view, and renders bottom overflow fade', () => {
+    expect(componentSource).toContain('SIDEBAR_SECTIONS_STORAGE_KEY')
+    expect(componentSource).toContain("scrollIntoView({ block: 'nearest' })")
+    expect(componentSource).toContain('data-testid="sidebar-scroll-fade"')
+  })
+})

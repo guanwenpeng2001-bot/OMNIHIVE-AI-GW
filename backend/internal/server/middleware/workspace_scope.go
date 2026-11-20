@@ -3,16 +3,18 @@ package middleware
 import (
 	"strconv"
 
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // DefaultWorkspaceScope keeps legacy resource URLs in the original domain.
 func DefaultWorkspaceScope() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		ctx.Request = ctx.Request.WithContext(domain.WithWorkspaceScope(ctx.Request.Context(), domain.DefaultWorkspaceID))
+		subject, _ := GetAuthSubjectFromContext(ctx)
+		installWorkspace(ctx, domain.DefaultWorkspaceID, subject.UserID)
 		ctx.Next()
 	}
 }
@@ -34,10 +36,15 @@ func WorkspaceScope(workspaces *service.WorkspaceService, requireAdmin bool) gin
 			ctx.Abort()
 			return
 		}
-		ctx.Request = ctx.Request.WithContext(domain.WithWorkspaceScope(ctx.Request.Context(), workspaceID))
+		installWorkspace(ctx, workspaceID, subject.UserID)
 		if requireAdmin {
 			ctx.Request = ctx.Request.WithContext(domain.WithWorkspaceAdministration(ctx.Request.Context()))
 		}
 		ctx.Next()
 	}
+}
+
+func installWorkspace(ctx *gin.Context, workspace, actor int64) {
+	base := domain.WithWorkspaceScope(ctx.Request.Context(), workspace)
+	ctx.Request = ctx.Request.WithContext(scope.With(base, scope.Authorized{WorkspaceID: workspace, ActorID: actor}))
 }

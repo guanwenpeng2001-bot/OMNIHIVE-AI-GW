@@ -19,8 +19,13 @@ describe('TablePageLayout responsive table scrolling', () => {
     const mobileBlocks = tableWrapperBlocks.filter(([selector]) => selector.includes('.mobile-mode'))
 
     expect(baseBlock?.[2]).toContain('overflow-x-auto')
+    expect(baseBlock?.[2]).not.toContain('overflow-y-auto')
     expect(mobileBlocks.every(([, , declarations]) => !declarations.includes('overflow-visible'))).toBe(
       true
     )
+  })
+
+  it('uses natural document flow height instead of locking desktop viewport to 100vh', () => {
+    expect(componentSource).not.toContain('calc(100vh')
   })
 })

@@ -36,13 +36,13 @@ describe('admin websocket tickets', () => {
     stop = subscribeQPS(vi.fn(), { staleTimeoutMs: 0, reconnectBaseDelayMs: 1 })
     await Promise.resolve()
     const first = TestSocket.instances[0]
-    expect(first.protocols).toEqual(['sub2api-admin', 'ticket.ticket-first'])
+    expect(first.protocols).toEqual(['omnihive-admin', 'sub2api-admin', 'ticket.ticket-first'])
     expect(first.url).not.toContain('main-session-secret')
     first.onopen?.()
     first.close()
     await vi.advanceTimersByTimeAsync(5000)
     expect(post).toHaveBeenCalledTimes(2)
-    expect(TestSocket.instances[1].protocols).toEqual(['sub2api-admin', 'ticket.ticket-second'])
+    expect(TestSocket.instances[1].protocols).toEqual(['omnihive-admin', 'sub2api-admin', 'ticket.ticket-second'])
   })
 
   it('does not open a socket after cancellation while ticket issuance is pending', async () => {

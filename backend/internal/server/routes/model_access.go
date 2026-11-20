@@ -1,9 +1,9 @@
 package routes
 
 import (
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 )
 
 func registerModelAccessAdminRoutes(parent *gin.RouterGroup, handlers *handler.Handlers, omitList ...bool) {

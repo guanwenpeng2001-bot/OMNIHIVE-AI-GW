@@ -3,16 +3,33 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"log/slog"
 	"net/http"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	audithttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/audit"
+	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
+	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
+	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
+	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
+	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
+	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
+	paymentshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/payments"
+	playgroundhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
+	policieshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
+	requestshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
+	restorehttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	statushttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
+	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/websearch"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
@@ -30,6 +47,22 @@ var ProviderSet = wire.NewSet(
 func ProvideRouter(
 	cfg *config.Config,
 	handlers *handler.Handlers,
+	identityHandler *identityhttp.Handler,
+	connectionsHandler *connectionshttp.Handler,
+	modelsHandler *modelshttp.Handler,
+	verificationHandler *verificationhttp.Handler,
+	restoreHandler *restorehttp.Handler,
+	requestsHandler *requestshttp.Handler,
+	policiesHandler *policieshttp.Handler,
+	playgroundHandler *playgroundhttp.Handler,
+	billingHandler *billinghttp.Handler,
+	paymentEvidenceHandler paymentshttp.Handler,
+	statusHandler *statushttp.Handler,
+	byokHandler *byokhttp.Handler,
+	auditHandler *audithttp.Handler,
+	observabilityHandler *observabilityhttp.Handler,
+	imageTaskCenter *taskhttp.Handler,
+	gatewayScopes identity.GatewayScopes,
 	jwtAuth middleware2.JWTAuthMiddleware,
 	optionalJWTAuth middleware2.OptionalJWTAuthMiddleware,
 	adminAuth middleware2.AdminAuthMiddleware,
@@ -42,6 +75,7 @@ func ProvideRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	redisClient *redis.Client,
+	db *sql.DB,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -87,7 +121,7 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
-	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
+	return SetupRouter(r, handlers, identityHandler, connectionsHandler, modelsHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentEvidenceHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, imageTaskCenter, gatewayScopes, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient, db)
 }
 
 func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {

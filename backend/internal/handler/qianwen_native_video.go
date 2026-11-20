@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
 )
 
@@ -111,7 +111,12 @@ func (h *OpenAIGatewayHandler) submitQianwenAsyncJob(c *gin.Context, key *servic
 		defer release()
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
-	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(c.Request.Context(), key.GroupID, "", sessionHash, model, nil, service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityChatCompletions, false, false, true, service.PlatformQianwen)
+	excluded, err := h.gatewayService.MediaTaskExclusions(c.Request.Context(), key.GroupID)
+	if err != nil {
+		h.errorResponse(c, 503, "api_error", "Media task endpoint selection unavailable")
+		return true
+	}
+	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(c.Request.Context(), key.GroupID, "", sessionHash, model, excluded, service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityChatCompletions, false, false, true, service.PlatformQianwen)
 	if err != nil || selection == nil || selection.Account == nil {
 		h.errorResponse(c, 503, "api_error", "No async account available")
 		return true
@@ -123,6 +128,10 @@ func (h *OpenAIGatewayHandler) submitQianwenAsyncJob(c *gin.Context, key *servic
 	}
 	if accountRelease != nil {
 		defer accountRelease()
+	}
+	if err := service.ValidateMediaTaskAccount(c.Request.Context(), account, model); err != nil {
+		h.errorResponse(c, 422, "unsupported_operation_error", "Selected endpoint is unavailable for this media task")
+		return true
 	}
 	snapshot, err := service.QianwenAsyncBillingSnapshot(family, key.Group, account, key, body, subscription)
 	if err != nil {

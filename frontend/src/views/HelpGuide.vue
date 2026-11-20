@@ -1,19 +1,62 @@
 <template>
-  <AppLayout>
+  <component :is="shellComponent">
     <div class="guide-document w-full text-[var(--foreground)]">
-      <header class="mb-10 max-w-3xl border-b border-[var(--border)] pb-8">
+      <header class="mb-8 max-w-4xl border-b border-[var(--border)] pb-6">
         <p class="mb-3 text-xs font-semibold uppercase tracking-widest text-action dark:text-primary-300">{{ t('helpGuide.eyebrow') }}</p>
         <h1 class="text-3xl font-bold tracking-tight md:text-4xl">{{ t('helpGuide.title') }}</h1>
         <p class="text-secondary mt-4 text-lg leading-8">{{ t('helpGuide.subtitle') }}</p>
+
+        <nav
+          class="mt-6 flex flex-wrap items-center gap-2"
+          :aria-label="isZh ? '按接入场景筛选文档' : 'Filter documentation by scenario'"
+        >
+          <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-secondary">
+            {{ isZh ? '快捷场景' : 'Scenarios' }}
+          </span>
+          <button
+            v-for="scenario in scenarioTabs"
+            :key="scenario.id"
+            type="button"
+            class="rounded-full border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500"
+            :class="
+              activeScenario === scenario.id
+                ? 'border-primary-500 bg-primary-500/10 text-action dark:text-primary-300'
+                : 'border-[var(--border)] bg-[var(--card)] text-secondary hover:border-primary-500/60 hover:text-[var(--foreground)]'
+            "
+            :aria-pressed="activeScenario === scenario.id"
+            @click="selectScenario(scenario.id)"
+          >
+            {{ isZh ? scenario.labelZh : scenario.labelEn }}
+          </button>
+        </nav>
       </header>
-      <div class="grid items-start gap-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-12">
-        <DocSidebar :sections="sections" :active="activeSection" />
+      <div class="grid items-start gap-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_220px] lg:gap-10">
+        <DocSidebar :sections="visibleSections" :active="activeSection" />
         <article class="min-w-0 space-y-12 pb-24">
+          <div
+            v-if="activeScenario !== 'all'"
+            class="card flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs"
+          >
+            <span class="text-secondary">
+              {{
+                isZh
+                  ? `当前仅展示「${currentScenarioMeta.labelZh}」相关章节（${visibleSections.length} / ${sections.length} 章）`
+                  : `Showing "${currentScenarioMeta.labelEn}" chapters (${visibleSections.length} of ${sections.length})`
+              }}
+            </span>
+            <button
+              type="button"
+              class="font-medium text-action underline underline-offset-4 dark:text-primary-300"
+              @click="selectScenario('all')"
+            >
+              {{ isZh ? '查看完整手册' : 'Show all chapters' }}
+            </button>
+          </div>
           <div class="card space-y-3 p-5 text-sm leading-7 text-secondary"><p>{{ t('helpGuide.placeholder') }}</p><p>{{ t('helpGuide.capability') }}</p></div>
           <p v-if="!apiRoot" class="card border-l-4 border-amber-400 p-5 text-sm leading-7 text-amber-700 dark:text-amber-300" role="alert">
             {{ t('helpGuide.apiBaseMissing') }}
           </p>
-          <DocSection v-for="section in sections" :id="section.id" :key="section.id" :title="section.title">
+          <DocSection v-for="section in visibleSections" :id="section.id" :key="section.id" :title="section.title">
             <p v-if="te(`helpGuide.${section.id}.endpoint`)" class="break-words rounded-lg bg-[var(--surface-2)] px-3 py-2 font-mono text-xs leading-6 ">{{ t(`helpGuide.${section.id}.endpoint`) }}</p>
             <p v-if="te(`helpGuide.${section.id}.intro`)" class="text-secondary text-sm leading-7">{{ t(`helpGuide.${section.id}.intro`) }}</p>
             <QuickstartGuide v-if="section.id === 'quick' && authStore.user" />
@@ -58,9 +101,57 @@
             </nav>
           </DocSection>
         </article>
+        <aside
+          class="hidden self-start xl:sticky xl:top-20 xl:block"
+          :aria-label="isZh ? '本页章节目录' : 'On this page'"
+        >
+          <div class="rounded-xl border border-[var(--border)] bg-[var(--card)] p-3.5">
+            <div class="mb-2.5 flex items-center justify-between gap-2">
+              <p class="font-mono text-[11px] font-semibold uppercase tracking-widest text-secondary">
+                {{ isZh ? '本页目录' : 'On this page' }}
+              </p>
+              <span class="font-mono text-[10px] tabular-nums text-secondary">
+                {{ readingProgress }}%
+              </span>
+            </div>
+            <div class="mb-3 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-2)]">
+              <div
+                class="h-full bg-primary-500 transition-[width] duration-150"
+                :style="{ width: `${readingProgress}%` }"
+              />
+            </div>
+            <nav class="max-h-[calc(100vh-14rem)] space-y-1 overflow-y-auto pr-1">
+              <a
+                v-for="section in visibleSections"
+                :key="`toc-${section.id}`"
+                :href="`#${section.id}`"
+                :aria-current="activeSection === section.id ? 'location' : undefined"
+                class="block truncate rounded-md border-l-2 px-2.5 py-1.5 text-xs transition-colors"
+                :class="
+                  activeSection === section.id
+                    ? 'border-primary-500 bg-primary-500/10 font-semibold text-action dark:text-primary-300'
+                    : 'border-transparent text-secondary hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]'
+                "
+              >
+                {{ section.title }}
+              </a>
+            </nav>
+          </div>
+        </aside>
       </div>
+
+      <button
+        v-show="showBackToTop"
+        type="button"
+        class="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--card)] px-3.5 py-2 text-xs font-medium text-[var(--foreground)] shadow-lg transition-colors hover:border-primary-500 hover:text-action focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 dark:hover:text-primary-300"
+        :aria-label="isZh ? '返回顶部' : 'Back to top'"
+        @click="scrollToTop"
+      >
+        <span aria-hidden="true">↑</span>
+        <span>{{ isZh ? '返回顶部' : 'Top' }}</span>
+      </button>
     </div>
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -74,14 +165,68 @@ import { helpSectionIds as sectionIds, helpClientReferences } from '@/components
 import { guideExamples } from '@/components/intro/helpExamples'
 import { publicRoot } from '@/components/intro/quickstart'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import PublicShell from '@/components/layout/PublicShell.vue'
 import DocSidebar from '@/components/intro/DocSidebar.vue'
 import DocSection from '@/components/intro/DocSection.vue'
 import CodeBlock from '@/components/intro/CodeBlock.vue'
 import QuickstartGuide from '@/components/intro/QuickstartGuide.vue'
-const { t, tm, te } = useI18n()
+const { t, tm, te, locale } = useI18n()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 const { canUseBatchImage } = useBatchImageAccess()
+const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
+const shellComponent = computed(() => (authStore.isAuthenticated ? AppLayout : PublicShell))
+
+type HelpScenarioId = 'all' | 'quickstart' | 'claude-code' | 'codex' | 'cursor' | 'sdk'
+
+interface HelpScenarioTab {
+  id: HelpScenarioId
+  labelZh: string
+  labelEn: string
+  sectionIds: readonly string[] | null
+}
+
+const scenarioTabs: readonly HelpScenarioTab[] = [
+  { id: 'all', labelZh: '全部', labelEn: 'All', sectionIds: null },
+  {
+    id: 'quickstart',
+    labelZh: '快速开始',
+    labelEn: 'Quick Start',
+    sectionIds: ['quick', 'keys', 'models', 'addresses', 'usage', 'billing', 'faq']
+  },
+  {
+    id: 'claude-code',
+    labelZh: 'Claude Code',
+    labelEn: 'Claude Code',
+    sectionIds: ['quick', 'keys', 'messages', 'streaming', 'tools', 'reasoning', 'cache', 'clients', 'cc-switch']
+  },
+  {
+    id: 'codex',
+    labelZh: 'Codex CLI',
+    labelEn: 'Codex CLI',
+    sectionIds: ['quick', 'keys', 'responses', 'streaming', 'tools', 'reasoning', 'clients', 'cc-switch']
+  },
+  {
+    id: 'cursor',
+    labelZh: 'Cursor',
+    labelEn: 'Cursor',
+    sectionIds: ['quick', 'keys', 'chat', 'models', 'streaming', 'tools', 'clients']
+  },
+  {
+    id: 'sdk',
+    labelZh: 'SDK 接入',
+    labelEn: 'SDK & API',
+    sectionIds: ['addresses', 'chat', 'messages', 'responses', 'gemini', 'retrieval', 'resources', 'images', 'async-images', 'media-jobs', 'audio', 'suppliers']
+  }
+]
+
+const activeScenario = ref<HelpScenarioId>('all')
+const showBackToTop = ref(false)
+const readingProgress = ref(0)
+
+const currentScenarioMeta = computed(
+  () => scenarioTabs.find((entry) => entry.id === activeScenario.value) ?? scenarioTabs[0]
+)
 
 /**
  * The manual may only show the address this deployment actually publishes.
@@ -112,14 +257,41 @@ const sections = computed(() => sectionIds.map(id => {
     }))
   }
 }))
+const visibleSections = computed(() => {
+  const allowed = currentScenarioMeta.value.sectionIds
+  if (!allowed) return sections.value
+  const allowedSet = new Set(allowed)
+  return sections.value.filter((section) => allowedSet.has(section.id))
+})
 const activeSection = ref<string>('quick')
 let animationFrame = 0
 function updateActiveSection() {
   animationFrame = 0
-  const visibleSections = sectionIds.map(id => document.getElementById(id)).filter((element): element is HTMLElement => Boolean(element))
-  const preceding = visibleSections.filter(element => element.getBoundingClientRect().top <= 160)
-  activeSection.value = preceding[preceding.length - 1]?.id || 'quick'
-  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8) activeSection.value = sectionIds[sectionIds.length - 1] || 'quick'
+  const currentIds = visibleSections.value.map((section) => section.id)
+  const visibleElements = currentIds
+    .map((id) => document.getElementById(id))
+    .filter((element): element is HTMLElement => Boolean(element))
+  const preceding = visibleElements.filter((element) => element.getBoundingClientRect().top <= 160)
+  activeSection.value = preceding[preceding.length - 1]?.id || currentIds[0] || 'quick'
+  const scrollableHeight = Math.max(0, document.documentElement.scrollHeight - window.innerHeight)
+  readingProgress.value = scrollableHeight > 0
+    ? Math.min(100, Math.max(0, Math.round((window.scrollY / scrollableHeight) * 100)))
+    : 0
+  showBackToTop.value = window.scrollY > 400
+  if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8) {
+    activeSection.value = currentIds[currentIds.length - 1] || 'quick'
+  }
+}
+function selectScenario(scenarioId: HelpScenarioId) {
+  activeScenario.value = scenarioId
+  void nextTick(() => {
+    const firstId = visibleSections.value[0]?.id
+    if (firstId) activeSection.value = firstId
+    updateActiveSection()
+  })
+}
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 function scheduleActiveSection() {
   if (!animationFrame) animationFrame = window.requestAnimationFrame(updateActiveSection)
@@ -162,7 +334,7 @@ const links = computed(() => Object.fromEntries(Object.entries(relatedLinks).map
   if (link.path === '/subscriptions') return isFeatureFlagEnabled(FeatureFlags.subscription)
   return true
 })])))
-const examples = computed(() => guideExamples(apiRoot.value))
+const examples = computed(() => guideExamples(apiRoot.value, appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'OmniHive'))
 </script>
 <style scoped>
 .guide-document { background: var(--background); overflow-wrap: anywhere; }

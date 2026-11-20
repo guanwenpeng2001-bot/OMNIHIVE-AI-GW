@@ -10,7 +10,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
-	"github.com/Wei-Shaw/sub2api/ent/modelaccessrule"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/modelaccessrule"
 )
 
 // ModelAccessRule is the model entity for the ModelAccessRule schema.

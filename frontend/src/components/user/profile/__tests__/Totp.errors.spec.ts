@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/api', () => ({ totpAPI: mocks.totpAPI }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => mocks }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
-vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn().mockResolvedValue('data:image/png;base64,qr') } }))
+vi.mock('qrcode', () => ({ default: { toDataURL: async () => 'data:image/png;base64,qr' } }))
 enableAutoUnmount(afterEach)
 
 beforeEach(() => {
@@ -63,13 +63,15 @@ describe.each([
 })
 
 it('shows the reason a TOTP code was rejected', async () => {
-  mocks.totpAPI.initiateSetup.mockResolvedValue({ secret: 'EXAMPLE', qr_code_url: '', setup_token: 'setup-token' })
+  mocks.totpAPI.initiateSetup.mockResolvedValue({ secret: 'EXAMPLE', qr_code_url: 'otpauth://totp/test?secret=EXAMPLE', setup_token: 'setup-token' })
   mocks.totpAPI.enable.mockRejectedValue({ status: 400, message: 'Invalid TOTP code' })
   const wrapper = mount(TotpSetupModal)
   await flushPromises()
   await wrapper.get('input[type="password"]').setValue('password')
   await wrapper.get('.btn-primary').trigger('click')
   await flushPromises()
+  expect(wrapper.get('img').attributes('src')).toBe('data:image/png;base64,qr')
+  expect(wrapper.text()).not.toContain('EXAMPLE')
   await wrapper.get('.btn-primary').trigger('click')
   for (const input of wrapper.findAll('input[maxlength="1"]')) await input.setValue('1')
   await wrapper.get('form').trigger('submit')

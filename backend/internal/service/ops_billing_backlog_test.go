@@ -8,13 +8,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/migrations"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -97,10 +97,7 @@ func TestBillingBacklogFailureDoesNotLogZeroSnapshot(t *testing.T) {
 // Uses only temporary tables on a single connection, never application tables.
 // Opt in with a loopback PostgreSQL URL for the dedicated test database.
 func TestBillingBacklogPostgres(t *testing.T) {
-	dsn := os.Getenv("OPS_BILLING_BACKLOG_TEST_DSN")
-	if dsn == "" {
-		t.Skip("set OPS_BILLING_BACKLOG_TEST_DSN to local ops_billing_backlog_test")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "OPS_BILLING_BACKLOG_TEST_DSN", "ops_billing_backlog_test")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
 	require.Contains(t, []string{"postgres", "postgresql"}, u.Scheme)

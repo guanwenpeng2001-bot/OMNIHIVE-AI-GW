@@ -1,0 +1,49 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "id": "m_999fff7ac750942004e8fc300d1b1259",
+        "model": "gpt-4o",
+        "display_name": "GPT-4o",
+        "provider": "openai",
+        "modalities": [
+          "text",
+          "image"
+        ],
+        "protocols": [
+          "openai_chat"
+        ],
+        "actions": [
+          "text.chat"
+        ],
+        "regions": [],
+        "context_tokens": "128000",
+        "maturity": "stable",
+        "catalog_version": "cat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "catalog_state": "listed",
+        "access_state": "requires_scope",
+        "route_state": "requires_scope",
+        "price_state": "priced",
+        "input_rate": {
+          "currency": "USD",
+          "amount": "2.5",
+          "unit": "input_token",
+          "per": "1000000"
+        },
+        "output_rate": {
+          "currency": "USD",
+          "amount": "10",
+          "unit": "output_token",
+          "per": "1000000"
+        },
+        "observed_at": "2026-11-19T10:00:00Z",
+        "evidence_state": "fresh"
+      }
+    ],
+    "next_cursor": null,
+    "as_of": "2026-11-19T10:00:00Z",
+    "catalog_version": "cat_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

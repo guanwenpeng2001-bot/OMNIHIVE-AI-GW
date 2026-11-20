@@ -1,0 +1,6 @@
+{
+  "request_id":"legacy-usage-7","settlement_id":null,"at":"2026-11-01T05:00:00Z",
+  "model_id":"model-a","billing_source":"unknown","state":"estimated","platform_charge":null,
+  "estimate":{"currency":"USD","amount":"0.12000000"},"currency":"USD","price_version":null,
+  "detail_url":"/api/v2/workspaces/1/projects/2/requests/legacy-usage-7"
+}

@@ -18,7 +18,7 @@ export default {
     heroSubtitle: 'One Key, All AI Models',
     heroDescription: 'No need to manage multiple subscriptions. Access Claude, GPT, Gemini and more with a single API key',
     tags: {
-      subscriptionToApi: 'Subscription to API',
+      subscriptionToApi: 'Unified Model Access',
       stickySession: 'Session Persistence',
       realtimeBilling: 'Pay As You Go'
     },
@@ -276,6 +276,27 @@ export default {
       restarting: 'Service is restarting, please wait...',
       timeout: 'Service restart is taking longer than expected. Please refresh the page manually.'
     }
+  },
+
+  public: {
+    nav: {
+      home: 'Home',
+      models: 'Models',
+      quota: 'Quota',
+      pricing: 'Pricing',
+      status: 'Status',
+      docs: 'Docs',
+    },
+    titles: {
+      home: 'Home',
+      models: 'Model Plaza',
+      modelCompare: 'Compare Models',
+      modelDetail: 'Model Detail',
+      pricing: 'Pricing',
+      status: 'Service Status',
+      keyUsage: 'Key Quota',
+      legalDocument: 'Legal Document',
+    },
   },
 
   // Common

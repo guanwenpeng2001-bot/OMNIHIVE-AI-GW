@@ -25,14 +25,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/claude"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/geminicli"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httpclient"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/xai"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 )
 
@@ -87,7 +88,7 @@ const (
 	defaultGrokImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultGrokVideoTestPrompt   = "A red ball bouncing once on a white floor, short simple motion."
 	defaultGrokSearchTestQuery   = "xAI Grok"
-	defaultGrokTTSTestText       = "Hello from Sub2API account connectivity test."
+	defaultGrokTTSTestText       = "Hello from OmniHive account connectivity test."
 
 	// Grok account-test modes (admin UI). Empty / default / text = Responses probe.
 	// image/video may also be inferred from model_id when mode is default.
@@ -3267,4 +3268,130 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		status = "success"
 	}
 	return &ScheduledTestResult{Status: status, ResponseText: result.ResponseText, ErrorMessage: result.Error, LatencyMs: finishedAt.Sub(startedAt).Milliseconds(), StartedAt: startedAt, FinishedAt: finishedAt}, nil
+}
+
+type ConnectionProbe struct {
+	Network, Authorization, Discovery string
+	Models                            []string
+}
+
+// ProbeConnection builds the gateway's native catalog request with the proposed
+// credentials. The unauthenticated control distinguishes public catalogs from
+// endpoints that actually verified the credential.
+func (s *AccountTestService) ProbeConnection(ctx context.Context, account *Account, proxy string) ConnectionProbe {
+	result := ConnectionProbe{Network: "unknown", Authorization: "unknown", Discovery: "unsupported", Models: []string{}}
+	if s == nil || s.cfg == nil {
+		return result
+	}
+	req, err := s.buildUpstreamModelsRequest(context.WithValue(ctx, catalogDiscoveryKey{}, true), account)
+	if err != nil {
+		return result
+	}
+	policy := s.cfg.Security.URLAllowlist
+	private := policy.AllowPrivateHosts
+	opts := urlvalidator.ValidationOptions{RequireAllowlist: policy.Enabled, AllowPrivate: private}
+	if policy.Enabled {
+		opts.AllowedHosts = policy.UpstreamHosts
+	}
+	allowHTTP := !policy.Enabled && policy.AllowInsecureHTTP
+	if _, err = urlvalidator.ValidateHTTPURL(req.URL.Scheme+"://"+req.URL.Host, allowHTTP, opts); err != nil {
+		result.Network = "failed"
+		return result
+	}
+	client, err := httpclient.GetClient(httpclient.Options{Timeout: 12 * time.Second, ProxyURL: proxy, ValidateResolvedIP: true, AllowPrivateHosts: private})
+	if err != nil {
+		result.Network = "failed"
+		return result
+	}
+	return verifyConnectionRequest(req, client, account)
+}
+func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Account) ConnectionProbe {
+	result := ConnectionProbe{Network: "failed", Authorization: "unknown", Discovery: "unknown", Models: []string{}}
+	client := *shared
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
+	if err != nil {
+		return result
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return result
+	}
+	result.Network = "passed"
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		result.Authorization = "failed"
+		return result
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return result
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if err != nil || len(body) > 1<<20 {
+		return result
+	}
+	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform)
+	if err != nil {
+		return result
+	}
+	for _, model := range models {
+		if len(model) > 256 || strings.ContainsAny(model, "\r\n\t?#") || len(result.Models) >= 1024 {
+			continue
+		}
+		if !containsConnectionSecret(model, account.Credentials) {
+			result.Models = append(result.Models, model)
+		}
+	}
+	result.Discovery = "passed"
+	anon := req.Clone(req.Context())
+	removed := false
+	for name, values := range anon.Header {
+		sensitive := false
+		switch strings.ToLower(name) {
+		case "authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie":
+			sensitive = true
+		}
+		if !sensitive {
+			for _, value := range values {
+				if containsConnectionSecret(value, account.Credentials) {
+					sensitive = true
+					break
+				}
+			}
+		}
+		if sensitive {
+			removed = true
+			anon.Header.Del(name)
+		}
+	}
+	q := anon.URL.Query()
+	for key, values := range q {
+		for _, value := range values {
+			if containsConnectionSecret(value, account.Credentials) {
+				q.Del(key)
+				removed = true
+				break
+			}
+		}
+	}
+	anon.URL.RawQuery = q.Encode()
+	if !removed {
+		return result
+	}
+	check, err := client.Do(anon)
+	if err == nil {
+		check.Body.Close()
+		if check.StatusCode == 401 || check.StatusCode == 403 {
+			result.Authorization = "passed"
+		}
+	}
+	return result
+}
+
+func containsConnectionSecret(text string, fields map[string]any) bool {
+	for k, v := range fields {
+		if value, ok := v.(string); ok && IsSensitiveCredentialKey(k) && value != "" && strings.Contains(text, value) {
+			return true
+		}
+	}
+	return false
 }

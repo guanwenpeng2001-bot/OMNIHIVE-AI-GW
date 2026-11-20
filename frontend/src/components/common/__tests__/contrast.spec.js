@@ -23,8 +23,32 @@ const contrast = (foreground, background) => {
 
 // Compile the real @apply rules: this also catches missing Tailwind tokens without writing a build.
 const source = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8')
+const tokensSource = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8')
 const badgeSource = readFileSync(resolve(process.cwd(), 'src/components/common/PlatformTypeBadge.vue'), 'utf8')
 const compiled = await postcss([tailwindcss({ ...config, content: [{ raw: badgeSource + '<div class="btn btn-primary btn-danger btn-success btn-warning input dark badge-primary badge-success badge-warning badge-danger badge-gray badge-purple empty-state-description"/>', extension: 'html' }] })]).process(source, { from: undefined })
+
+const extractTokenVars = (block) => {
+  const vars = {}
+  const regex = /(--oh-[a-z0-9-]+)\s*:\s*([^;]+);/g
+  let match
+  while ((match = regex.exec(block)) !== null) {
+    vars[match[1]] = match[2].trim()
+  }
+  return vars
+}
+const rootTokens = extractTokenVars(tokensSource.match(/:root\s*\{([^}]+)\}/s)?.[1] ?? '')
+const darkTokens = {
+  ...rootTokens,
+  ...extractTokenVars(tokensSource.match(/\.dark\s*\{([^}]+)\}/s)?.[1] ?? '')
+}
+const resolveTokenValue = (value, dark = false) => {
+  if (!value) return value
+  const palette = dark ? darkTokens : rootTokens
+  const resolved = value.replace(/var\((--oh-[a-z0-9-]+)(?:,\s*([^)]+))?\)/g, (_, name, fallback) => palette[name] ?? fallback ?? '')
+  const borderMatch = resolved.match(/#[a-fA-F0-9]{6}|#[a-fA-F0-9]{3}|rgb\([^)]*\)/)
+  return borderMatch && value.includes('solid') ? borderMatch[0] : resolved
+}
+
 const declarations = (selector) => {
   const values = {}
   compiled.root.walkRules(rule => {
@@ -33,35 +57,60 @@ const declarations = (selector) => {
   return values
 }
 
+const themedDeclarations = (selector, theme = '') => {
+  const dark = theme.includes('dark')
+  const base = declarations(selector)
+  const themed = theme ? declarations(`${selector}${theme}`) : {}
+  const merged = { ...base, ...themed }
+  if (!merged['border-color'] && merged.border) {
+    merged['border-color'] = merged.border
+  }
+  const out = {}
+  for (const [prop, val] of Object.entries(merged)) {
+    out[prop] = resolveTokenValue(val, dark)
+  }
+  return out
+}
+
 const firstColor = value => value.match(/#[a-fA-F0-9]{6}|rgb\([^)]*\)/)?.[0]
 
 describe('Shared control contrast', () => {
-  it.each(['primary', 'danger', 'success', 'warning'])('keeps white text readable at both %s gradient endpoints and on hover', variant => {
-    const normal = declarations(`.btn-${variant}`)
-    const hover = declarations(`.btn-${variant}:hover`)
-    for (const state of [normal, { ...normal, ...hover }]) {
-      for (const stop of ['--tw-gradient-from', '--tw-gradient-to']) {
-        const ratio = contrast(normal.color, firstColor(state[stop]))
-        expect(ratio).toBeGreaterThanOrEqual(4.5)
+  it.each(['primary', 'danger', 'success', 'warning'])('keeps %s button text readable across themes and hover states', variant => {
+    for (const theme of ['', ':is(.dark *)']) {
+      const normal = themedDeclarations(`.btn-${variant}`, theme)
+      const hover = {
+        ...normal,
+        ...themedDeclarations(`.btn-${variant}:hover`, theme),
+        ...themedDeclarations(`.btn-${variant}:hover:not(:disabled)`, theme)
+      }
+      for (const state of [normal, hover]) {
+        if (state['--tw-gradient-from'] && state['--tw-gradient-to']) {
+          for (const stop of ['--tw-gradient-from', '--tw-gradient-to']) {
+            expect(contrast(normal.color, firstColor(state[stop]))).toBeGreaterThanOrEqual(4.5)
+          }
+        } else {
+          expect(contrast(state.color, firstColor(state['background-color']))).toBeGreaterThanOrEqual(4.5)
+        }
       }
     }
   })
 
   it('keeps light input placeholders at 4.5:1 and boundaries at 3:1', () => {
-    const input = declarations('.input')
-    expect(contrast(declarations('.input::placeholder').color, input['background-color'])).toBeGreaterThanOrEqual(4.5)
+    const input = themedDeclarations('.input')
+    expect(contrast(themedDeclarations('.input::placeholder').color, input['background-color'])).toBeGreaterThanOrEqual(4.5)
     expect(contrast(input['border-color'], input['background-color'])).toBeGreaterThanOrEqual(3)
   })
 })
 
 
 it.each(['', ':is(.dark *)'])('keeps input text, placeholder, border, and focus contrast in theme %s', theme => {
-  const input = declarations(`.input${theme}`)
+  const input = themedDeclarations('.input', theme)
   const background = input['background-color']
   expect(contrast(input.color, background)).toBeGreaterThanOrEqual(4.5)
-  expect(contrast(declarations(`.input${theme}::placeholder`).color, background)).toBeGreaterThanOrEqual(4.5)
+  expect(contrast(themedDeclarations('.input::placeholder', theme).color, background)).toBeGreaterThanOrEqual(4.5)
   expect(contrast(input['border-color'], background)).toBeGreaterThanOrEqual(3)
-  expect(contrast(declarations(`.input:focus${theme}`)['--tw-ring-color'], background)).toBeGreaterThanOrEqual(3)
+  const focus = themedDeclarations('.input:focus', theme)
+  expect(contrast(focus['--tw-ring-color'] || focus['border-color'], background)).toBeGreaterThanOrEqual(3)
 })
 
 

@@ -3,10 +3,10 @@ package routes
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"log"
 	"os"
 
@@ -37,11 +37,7 @@ func RegisterAdminRoutes(
 		// 部署与运营合规确认
 		registerAdminComplianceRoutes(admin, h)
 
-		pulseHandler := h.MCP
-		if pulseHandler == nil {
-			pulseHandler = handler.NewMCPGrantHandler()
-		}
-		h.MCP = pulseHandler
+		pulseHandler := mcpGrantHandler(h)
 		stateFile := os.Getenv("OMNIHIVE_EXTENSION_STATE_FILE")
 		if stateFile == "" {
 			stateFile = os.Getenv("EXTENSION_STATE_FILE")
@@ -146,7 +142,7 @@ func RegisterAdminRoutes(
 
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h, settingService)
-		registerChannelMonitorV2Routes(admin, h, settingService)
+		registerChannelTelemetryRoutes(admin, h, settingService)
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
@@ -302,7 +298,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		ops.GET("/system-logs/health", h.Admin.Ops.GetSystemLogIngestionHealth)
 
 		// Dashboard (vNext - raw path for MVP)
-		ops.GET("/dashboard/snapshot-v2", h.Admin.Ops.GetDashboardSnapshotV2)
+		ops.GET("/dashboard/snapshot-v2", h.Admin.Ops.GetDashboardSnapshot)
 		ops.GET("/dashboard/overview", h.Admin.Ops.GetDashboardOverview)
 		ops.GET("/dashboard/throughput-trend", h.Admin.Ops.GetDashboardThroughputTrend)
 		ops.GET("/dashboard/latency-histogram", h.Admin.Ops.GetDashboardLatencyHistogram)
@@ -863,29 +859,30 @@ func registerAffiliateRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	}
 }
 
-func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
-	// Config GET/PUT: feature enabled only (operators can prepare V2 before flipping mode).
-	// Read/matrix endpoints: require mode=v2 so V1 deployments do not serve passive data.
+func registerChannelTelemetryRoutes(admin *gin.RouterGroup, h *handler.Handlers, settingService *service.SettingService) {
 	featureGuard := channelMonitorAdminFeatureGuard(settingService)
 	modeV2Guard := channelMonitorModeV2Guard(settingService)
 
-	monitor := admin.Group("/channel-monitor-v2")
-	{
-		config := monitor.Group("")
-		config.Use(featureGuard)
+	for _, telemetryPath := range []string{"/channel-telemetry", "/channel-monitor-v2"} {
+		monitor := admin.Group(telemetryPath)
 		{
-			config.GET("/config", h.ChannelMonitorV2.GetConfig)
-			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
-		}
-		reads := monitor.Group("")
-		reads.Use(modeV2Guard)
-		{
-			reads.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
-			reads.GET("/snapshot", h.ChannelMonitorV2.AdminSnapshot)
-			reads.GET("/models", h.ChannelMonitorV2.AdminModels)
-			reads.GET("/matrix", h.ChannelMonitorV2.AdminMatrix)
-			reads.GET("/errors", h.ChannelMonitorV2.Errors)
-			reads.GET("/users", h.ChannelMonitorV2.AdminUsers)
+			config := monitor.Group("")
+			config.Use(featureGuard)
+			{
+				config.GET("/config", h.ChannelTelemetry.GetConfig)
+				config.PUT("/config", h.ChannelTelemetry.UpdateConfig)
+			}
+			// Administrators can inspect stored telemetry while active probes are selected.
+			monitor.GET("/snapshot", featureGuard, h.ChannelTelemetry.AdminSnapshot)
+			reads := monitor.Group("")
+			reads.Use(modeV2Guard)
+			{
+				reads.GET("/dimensions", h.ChannelTelemetry.Dimensions)
+				reads.GET("/models", h.ChannelTelemetry.AdminModels)
+				reads.GET("/matrix", h.ChannelTelemetry.AdminMatrix)
+				reads.GET("/errors", h.ChannelTelemetry.Errors)
+				reads.GET("/users", h.ChannelTelemetry.AdminUsers)
+			}
 		}
 	}
 }

@@ -99,7 +99,7 @@ assert_unsafe_invocation_rejected url-option -s --url \
 test "$(grep -c 'github_api_curl .*https://api.github.com/' "$ROOT_DIR/deploy/install.sh")" -eq 3
 
 # Asset and checksum downloads must continue to call curl directly.
-grep -Fq 'curl -sL "$download_url"' "$ROOT_DIR/deploy/install.sh"
-grep -Fq 'curl -sL "$checksum_url"' "$ROOT_DIR/deploy/install.sh"
+grep -Fq 'curl -qfsSL "$release_url/$candidate"' "$ROOT_DIR/deploy/install.sh"
+grep -Fq 'curl -qfsSL "$release_url/checksums.txt"' "$ROOT_DIR/deploy/install.sh"
 
 echo "install GitHub token checks passed"

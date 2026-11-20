@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentorder"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment/provider"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 	"github.com/shopspring/decimal"
 )
 
@@ -540,7 +540,7 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if plan != nil {
 		productName := plan.ProductName
 		if productName == "" {
-			productName = "Sub2API Subscription " + plan.Name
+			productName = "OmniHive Subscription " + plan.Name
 		}
 		return applyPaymentProductNameAffix(productName, cfg)
 	}
@@ -552,7 +552,7 @@ func (s *PaymentService) buildPaymentSubject(plan *dbent.SubscriptionPlan, limit
 	if hasPaymentProductNameAffix(cfg) {
 		return applyPaymentProductNameAffix(amountStr, cfg)
 	}
-	return "Sub2API " + amountStr + " " + currency
+	return "OmniHive " + amountStr + " " + currency
 }
 
 func hasPaymentProductNameAffix(cfg *PaymentConfig) bool {

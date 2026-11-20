@@ -1,4 +1,4 @@
-module github.com/Wei-Shaw/sub2api
+module github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend
 
 go 1.27.4
 
@@ -45,6 +45,7 @@ require (
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.3.52
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/tidwall/gjson v1.18.0
 	github.com/tidwall/sjson v1.2.5
 	github.com/tiktoken-go/tokenizer v0.8.0

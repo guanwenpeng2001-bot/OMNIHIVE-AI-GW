@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 )
 
 const subscriptionDayDuration = 24 * time.Hour

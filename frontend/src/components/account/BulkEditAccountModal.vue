@@ -1300,6 +1300,7 @@
 
 <script setup lang="ts">
 import TpmLimitField from '@/components/common/TpmLimitField.vue'
+import { toggleErrorCodeInList } from '@/features/connections/rules'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage, extractApiErrorMetadata } from '@/utils/apiError'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
@@ -1712,11 +1713,10 @@ const confirmErrorCode = () => {
 }
 
 const toggleErrorCode = (code: number) => {
-  const index = selectedErrorCodes.value.indexOf(code)
-  if (index === -1) {
+  if (!selectedErrorCodes.value.includes(code)) {
     requestErrorCode(code)
   } else {
-    selectedErrorCodes.value.splice(index, 1)
+    selectedErrorCodes.value = toggleErrorCodeInList(selectedErrorCodes.value, code)
   }
 }
 

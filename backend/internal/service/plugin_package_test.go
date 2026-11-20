@@ -15,8 +15,8 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	pluginv1 "github.com/Wei-Shaw/sub2api/pkg/pluginapi/v1"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	pluginv1 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +93,10 @@ func TestBuiltInOpenAITransportPublisherDoesNotRequireConfiguration(t *testing.T
 	require.NoError(t, err)
 	assert.Len(t, publicKey, ed25519.PublicKeySize)
 	assert.Equal(t, builtInOpenAITransportPublisherKeyBase64, encodedKey)
+	assert.Equal(t, encodedKey, trustedPluginPublisherKey(cfg, legacyOpenAITransportPublisherKeyID, legacyOpenAITransportPluginID))
 	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, "com.example.other-plugin"))
+	assert.Empty(t, trustedPluginPublisherKey(cfg, builtInOpenAITransportPublisherKeyID, legacyOpenAITransportPluginID))
+	assert.Empty(t, trustedPluginPublisherKey(cfg, legacyOpenAITransportPublisherKeyID, builtInOpenAITransportPluginID))
 }
 
 func TestPluginPackageInstallerRejectsPathTraversal(t *testing.T) {

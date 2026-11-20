@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"io"
 	"log"
 	"math"
@@ -21,13 +19,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/geminicli"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	geminiprovider "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/providers/gemini"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/responseheaders"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/util/urlvalidator"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -54,7 +54,7 @@ const (
 // Gemini tool calling now requires `thoughtSignature` in parts that include `functionCall`.
 // Many clients don't send it; we inject a known dummy signature to satisfy the validator.
 // Ref: https://ai.google.dev/gemini-api/docs/thought-signatures
-const geminiDummyThoughtSignature = "skip_thought_signature_validator"
+const geminiDummyThoughtSignature = apicompat.GeminiDummyThoughtSignature
 
 type GeminiMessagesCompatService struct {
 	accountRepo               AccountRepository
@@ -640,11 +640,16 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
+	plan := apicompat.MessagesToGeminiPlan(body)
 	toolIDProfile := geminiToolIDProfileForAccount(account)
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body, toolIDProfile)
 	if err != nil {
+		plan.Mode = protocol.Rejected
+		plan.Diagnostics = append(plan.Diagnostics, protocol.Diagnostic{Field: "", Reason: "conversion_rejected", Severity: "error"})
+		bindGeminiConversionPlan(ctx, c, plan)
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	ctx = bindGeminiConversionPlan(ctx, c, plan)
 	geminiReq = ensureGeminiFunctionCallThoughtSignatures(geminiReq)
 	originalClaudeBody := body
 
@@ -653,161 +658,25 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		return nil, egressErr
 	}
 
-	var requestIDHeader string
-	var buildReq func(ctx context.Context) (*http.Request, string, error)
 	useUpstreamStream := req.Stream
 	if account.Type == AccountTypeOAuth && !req.Stream && strings.TrimSpace(account.GetCredential("project_id")) != "" {
 		// Code Assist's non-streaming generateContent may return no content; use streaming upstream and aggregate.
 		useUpstreamStream = true
 	}
-
-	switch account.Type {
-	case AccountTypeAPIKey:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			apiKey := account.GetCredential("api_key")
-			if strings.TrimSpace(apiKey) == "" {
-				return nil, "", errors.New("gemini api_key not configured")
-			}
-
-			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
-			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
-			if err != nil {
-				return nil, "", err
-			}
-
-			action := "generateContent"
-			if req.Stream {
-				action = "streamGenerateContent"
-			}
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, req.Stream)
-			if err != nil {
-				return nil, "", err
-			}
-
-			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			return upstreamReq, "x-request-id", nil
-		}
-		requestIDHeader = "x-request-id"
-
-	case AccountTypeOAuth:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			if s.tokenProvider == nil {
-				return nil, "", errors.New("gemini token provider not configured")
-			}
-			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
-			if err != nil {
-				return nil, "", err
-			}
-
-			projectID := strings.TrimSpace(account.GetCredential("project_id"))
-
-			action := "generateContent"
-			if useUpstreamStream {
-				action = "streamGenerateContent"
-			}
-
-			// Two modes for OAuth:
-			// 1. With project_id -> Code Assist API (wrapped request)
-			// 2. Without project_id -> AI Studio API (direct OAuth, like API key but with Bearer token)
-			if projectID != "" {
-				// Mode 1: Code Assist API
-				baseURL, err := s.validateUpstreamBaseURL(geminicli.GeminiCliBaseURL)
-				if err != nil {
-					return nil, "", err
-				}
-				fullURL := fmt.Sprintf("%s/v1internal:%s", strings.TrimRight(baseURL, "/"), action)
-				if useUpstreamStream {
-					fullURL += "?alt=sse"
-				}
-
-				wrapped := map[string]any{
-					"model":   mappedModel,
-					"project": projectID,
-				}
-				var inner any
-				if err := json.Unmarshal(geminiReq, &inner); err != nil {
-					return nil, "", fmt.Errorf("failed to parse gemini request: %w", err)
-				}
-				wrapped["request"] = inner
-				wrappedBytes, _ := json.Marshal(wrapped)
-
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
-				if err != nil {
-					return nil, "", err
-				}
-				upstreamReq.Header.Set("Content-Type", "application/json")
-				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-				upstreamReq.Header.Set("User-Agent", geminicli.GeminiCLIUserAgent)
-				return upstreamReq, "x-request-id", nil
-			} else {
-				// Mode 2: AI Studio API with OAuth (like API key mode, but using Bearer token)
-				baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
-				normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
-				if err != nil {
-					return nil, "", err
-				}
-
-				fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, action, useUpstreamStream)
-				if err != nil {
-					return nil, "", err
-				}
-
-				restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
-				if err != nil {
-					return nil, "", err
-				}
-				upstreamReq.Header.Set("Content-Type", "application/json")
-				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-				return upstreamReq, "x-request-id", nil
-			}
-		}
-		requestIDHeader = "x-request-id"
-
-	case AccountTypeServiceAccount:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			if s.tokenProvider == nil {
-				return nil, "", errors.New("gemini token provider not configured")
-			}
-			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
-			if err != nil {
-				return nil, "", err
-			}
-
-			action := "generateContent"
-			if req.Stream {
-				action = "streamGenerateContent"
-			}
-			fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(mappedModel), mappedModel, action, req.Stream)
-			if err != nil {
-				return nil, "", err
-			}
-
-			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-			return upstreamReq, "x-request-id", nil
-		}
-		requestIDHeader = "x-request-id"
-
-	default:
+	if !isGeminiTransportAccount(account) {
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)
 	}
+	upstreamAction := "generateContent"
+	if useUpstreamStream {
+		upstreamAction = "streamGenerateContent"
+	}
+	selectedAction := geminiprovider.Action{Model: mappedModel, Name: upstreamAction, Stream: useUpstreamStream}
+	requestIDHeader := geminiprovider.RequestIDHeader
 
 	var resp *http.Response
 	signatureRetryStage := 0
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
-		upstreamReq, idHeader, err := buildReq(ctx)
+		upstreamReq, err := s.buildGeminiGenerationRequest(ctx, account, selectedAction, geminiReq, false, true)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -818,7 +687,6 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 			return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
 		}
-		requestIDHeader = idHeader
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
@@ -1041,7 +909,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					}
 					upstreamDetail = truncateString(string(respBody), maxBytes)
 				}
-				log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
+				if !ctxkey.PrivateGatewayContent(ctx) {
+					log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
+				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					ProxyID:            opsUpstreamProxyID(account),
 					ProxyName:          opsUpstreamProxyName(account),
@@ -1161,6 +1031,69 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}, nil
 }
 
+func bindGeminiConversionPlan(ctx context.Context, c *gin.Context, plan protocol.ConversionPlan) context.Context {
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(protocol.WithConversionPlan(c.Request.Context(), plan))
+	}
+	return protocol.WithConversionPlan(ctx, plan)
+}
+
+func isGeminiTransportAccount(account *Account) bool {
+	switch account.Type {
+	case AccountTypeAPIKey, AccountTypeOAuth, AccountTypeServiceAccount:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *GeminiMessagesCompatService) buildGeminiGenerationRequest(ctx context.Context, account *Account, action geminiprovider.Action, body []byte, forceAIStudio, bridge bool) (*http.Request, error) {
+	var apiKey, token string
+	if account.Type == AccountTypeAPIKey {
+		apiKey = account.GetCredential("api_key")
+		if err := geminiprovider.ValidateAPIKey(apiKey); err != nil {
+			return nil, err
+		}
+	} else {
+		if s.tokenProvider == nil {
+			return nil, errors.New("gemini token provider not configured")
+		}
+		var err error
+		token, err = s.tokenProvider.GetAccessToken(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if account.Type == AccountTypeOAuth && !forceAIStudio {
+		if project := strings.TrimSpace(account.GetCredential("project_id")); project != "" {
+			baseURL, err := s.validateUpstreamBaseURL(geminicli.GeminiCliBaseURL)
+			if err != nil {
+				return nil, err
+			}
+			return action.CodeAssist(ctx, baseURL, project, token, body)
+		}
+	}
+
+	var fullURL string
+	var err error
+	if account.Type == AccountTypeServiceAccount {
+		fullURL, err = buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(action.Model), action.Model, action.Name, action.Stream)
+	} else {
+		baseURL, validationErr := s.validateUpstreamBaseURL(account.GetGeminiBaseURL(geminicli.AIStudioBaseURL))
+		if validationErr != nil {
+			return nil, validationErr
+		}
+		fullURL, err = buildGeminiAIStudioModelActionURL(baseURL, action.Model, action.Name, action.Stream)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if bridge {
+		body = apicompat.NormalizeGeminiRequestForAIStudio(body)
+	}
+	return geminiprovider.Generate(ctx, fullURL, apiKey, token, body)
+}
+
 func isGeminiSignatureRelatedError(respBody []byte) bool {
 	msg := strings.ToLower(strings.TrimSpace(extractAntigravityErrorMessage(respBody)))
 	if msg == "" {
@@ -1235,139 +1168,17 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 	forceAIStudio := action == "countTokens"
 
-	var requestIDHeader string
-	var buildReq func(ctx context.Context) (*http.Request, string, error)
+	ctx = bindGeminiConversionPlan(ctx, c, protocol.GeminiNativePlan(action))
 
-	switch account.Type {
-	case AccountTypeAPIKey:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			apiKey := account.GetCredential("api_key")
-			if strings.TrimSpace(apiKey) == "" {
-				return nil, "", errors.New("gemini api_key not configured")
-			}
-
-			baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
-			normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
-			if err != nil {
-				return nil, "", err
-			}
-
-			fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, upstreamAction, useUpstreamStream)
-			if err != nil {
-				return nil, "", err
-			}
-
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("x-goog-api-key", apiKey)
-			return upstreamReq, "x-request-id", nil
-		}
-		requestIDHeader = "x-request-id"
-
-	case AccountTypeOAuth:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			if s.tokenProvider == nil {
-				return nil, "", errors.New("gemini token provider not configured")
-			}
-			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
-			if err != nil {
-				return nil, "", err
-			}
-
-			projectID := strings.TrimSpace(account.GetCredential("project_id"))
-
-			// Two modes for OAuth:
-			// 1. With project_id -> Code Assist API (wrapped request)
-			// 2. Without project_id -> AI Studio API (direct OAuth, like API key but with Bearer token)
-			if projectID != "" && !forceAIStudio {
-				// Mode 1: Code Assist API
-				baseURL, err := s.validateUpstreamBaseURL(geminicli.GeminiCliBaseURL)
-				if err != nil {
-					return nil, "", err
-				}
-				fullURL := fmt.Sprintf("%s/v1internal:%s", strings.TrimRight(baseURL, "/"), upstreamAction)
-				if useUpstreamStream {
-					fullURL += "?alt=sse"
-				}
-
-				wrapped := map[string]any{
-					"model":   mappedModel,
-					"project": projectID,
-				}
-				var inner any
-				if err := json.Unmarshal(body, &inner); err != nil {
-					return nil, "", fmt.Errorf("failed to parse gemini request: %w", err)
-				}
-				wrapped["request"] = inner
-				wrappedBytes, _ := json.Marshal(wrapped)
-
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
-				if err != nil {
-					return nil, "", err
-				}
-				upstreamReq.Header.Set("Content-Type", "application/json")
-				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-				upstreamReq.Header.Set("User-Agent", geminicli.GeminiCLIUserAgent)
-				return upstreamReq, "x-request-id", nil
-			} else {
-				// Mode 2: AI Studio API with OAuth (like API key mode, but using Bearer token)
-				baseURL := account.GetGeminiBaseURL(geminicli.AIStudioBaseURL)
-				normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
-				if err != nil {
-					return nil, "", err
-				}
-
-				fullURL, err := buildGeminiAIStudioModelActionURL(normalizedBaseURL, mappedModel, upstreamAction, useUpstreamStream)
-				if err != nil {
-					return nil, "", err
-				}
-
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
-				if err != nil {
-					return nil, "", err
-				}
-				upstreamReq.Header.Set("Content-Type", "application/json")
-				upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-				return upstreamReq, "x-request-id", nil
-			}
-		}
-		requestIDHeader = "x-request-id"
-
-	case AccountTypeServiceAccount:
-		buildReq = func(ctx context.Context) (*http.Request, string, error) {
-			if s.tokenProvider == nil {
-				return nil, "", errors.New("gemini token provider not configured")
-			}
-			accessToken, err := s.tokenProvider.GetAccessToken(ctx, account)
-			if err != nil {
-				return nil, "", err
-			}
-
-			fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(mappedModel), mappedModel, upstreamAction, useUpstreamStream)
-			if err != nil {
-				return nil, "", err
-			}
-
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
-			if err != nil {
-				return nil, "", err
-			}
-			upstreamReq.Header.Set("Content-Type", "application/json")
-			upstreamReq.Header.Set("Authorization", "Bearer "+accessToken)
-			return upstreamReq, "x-request-id", nil
-		}
-		requestIDHeader = "x-request-id"
-
-	default:
+	if !isGeminiTransportAccount(account) {
 		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Unsupported account type: "+account.Type)
 	}
+	selectedAction := geminiprovider.Action{Model: mappedModel, Name: upstreamAction, Stream: useUpstreamStream}
+	requestIDHeader := geminiprovider.RequestIDHeader
 
 	var resp *http.Response
 	for attempt := 1; attempt <= geminiMaxRetries; attempt++ {
-		upstreamReq, idHeader, err := buildReq(ctx)
+		upstreamReq, err := s.buildGeminiGenerationRequest(ctx, account, selectedAction, body, forceAIStudio, false)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -1378,7 +1189,6 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 			return nil, s.writeGoogleError(c, http.StatusBadGateway, err.Error())
 		}
-		requestIDHeader = idHeader
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
@@ -1580,7 +1390,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					}
 					upstreamDetail = truncateString(string(evBody), maxBytes)
 				}
-				log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
+				if !ctxkey.PrivateGatewayContent(ctx) {
+					log.Printf("[Gemini] status=400 google_config_error failover=true upstream_message=%q account=%d", upstreamMsg, account.ID)
+				}
 				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 					ProxyID:            opsUpstreamProxyID(account),
 					ProxyName:          opsUpstreamProxyName(account),
@@ -1825,7 +1637,7 @@ func (s *GeminiMessagesCompatService) writeGeminiNativeUpstreamError(c *gin.Cont
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	upstreamDetail := s.upstreamErrorDetail(respBody)
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !privateGatewayContent(c) {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini] native upstream error %d: %s", resp.StatusCode, truncateForLog(respBody, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes))
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
@@ -1908,7 +1720,7 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 		Detail:             upstreamDetail,
 	})
 
-	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+	if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody && !privateGatewayContent(c) {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini] upstream error %d: %s", upstreamStatus, truncateForLog(body, s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes))
 	}
 
@@ -2180,38 +1992,11 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		return nil, errors.New("streaming not supported")
 	}
 
-	messageID := generateAnthropicMsgID()
-	messageStart := map[string]any{
-		"type": "message_start",
-		"message": map[string]any{
-			"id":            messageID,
-			"type":          "message",
-			"role":          "assistant",
-			"model":         originalModel,
-			"content":       []any{},
-			"stop_reason":   nil,
-			"stop_sequence": nil,
-			"usage": map[string]any{
-				"input_tokens":  0,
-				"output_tokens": 0,
-			},
-		},
-	}
-	writeSSE(c.Writer, "message_start", messageStart)
-	flusher.Flush()
-
-	finishReason := ""
-	sawToolUse := false
-
-	nextBlockIndex := 0
-	openBlockIndex := -1
-	openBlockType := ""
-	seenText := ""
-	openToolIndex := -1
-	openToolID := ""
-	seenToolIDs := map[string]bool{}
-	openToolName := ""
-	seenToolJSON := ""
+	stream := apicompat.NewGeminiMessagesStream(
+		func(event string, data any) { writeSSE(c.Writer, event, data) },
+		flusher.Flush, geminiFunctionCallID, validateGeminiStreamToolCall,
+	)
+	stream.Start(generateAnthropicMsgID(), originalModel)
 
 	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
@@ -2256,158 +2041,13 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			usage = *u
 		}
 
-		if fr := extractGeminiFinishReason(geminiResp); fr != "" {
-			finishReason = fr
-		}
-
-		parts := extractGeminiParts(geminiResp)
-		for _, part := range parts {
-			if text, ok := part["text"].(string); ok && text != "" {
-				// Close an open tool_use block before starting text, mirroring
-				// the functionCall branch (which closes open text blocks) and
-				// the chat-completions sibling's closeOpenTool(). Otherwise a
-				// tool→text sequence keeps the tool_use block open while the
-				// text block starts, emitting overlapping Anthropic content
-				// blocks that violate the SSE contract.
-				if openToolIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openToolIndex,
-					})
-					openToolIndex = -1
-					openToolName = ""
-					seenToolJSON = ""
-				}
-
-				delta, newSeen := computeGeminiTextDelta(seenText, text)
-				seenText = newSeen
-				if delta == "" {
-					continue
-				}
-
-				if openBlockType != "text" {
-					if openBlockIndex >= 0 {
-						writeSSE(c.Writer, "content_block_stop", map[string]any{
-							"type":  "content_block_stop",
-							"index": openBlockIndex,
-						})
-					}
-					openBlockType = "text"
-					openBlockIndex = nextBlockIndex
-					nextBlockIndex++
-					writeSSE(c.Writer, "content_block_start", map[string]any{
-						"type":  "content_block_start",
-						"index": openBlockIndex,
-						"content_block": map[string]any{
-							"type": "text",
-							"text": "",
-						},
-					})
-				}
-
-				if firstTokenMs == nil {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
-				writeSSE(c.Writer, "content_block_delta", map[string]any{
-					"type":  "content_block_delta",
-					"index": openBlockIndex,
-					"delta": map[string]any{
-						"type": "text_delta",
-						"text": delta,
-					},
-				})
-				flusher.Flush()
-				continue
+		if err := stream.Observe(geminiResp, func() {
+			if firstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				firstTokenMs = &ms
 			}
-
-			if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
-				activeID, activeName := openToolID, openToolName
-				if openToolIndex < 0 {
-					activeID, activeName = "", ""
-				}
-				if err := validateGeminiStreamToolCall(fc, activeID, activeName, seenToolIDs); err != nil {
-					writeSSE(c.Writer, "error", map[string]any{"type": "error", "error": map[string]any{"type": "upstream_error", "message": err.Error()}})
-					flusher.Flush()
-					return nil, err
-				}
-				name, _ := fc["name"].(string)
-				args := fc["args"]
-				if strings.TrimSpace(name) == "" {
-					name = "tool"
-				}
-
-				// Close any open text block before tool_use.
-				if openBlockIndex >= 0 {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openBlockIndex,
-					})
-					openBlockIndex = -1
-					openBlockType = ""
-				}
-
-				// If we receive streamed tool args in pieces, keep a single tool block open and emit deltas.
-				wireID, _ := fc["id"].(string)
-				// An ID-less part is a distinct complete call, never a continuation
-				// inferred from its name or arguments.
-				if openToolIndex >= 0 && (wireID == "" || openToolID != wireID || openToolName != name) {
-					writeSSE(c.Writer, "content_block_stop", map[string]any{
-						"type":  "content_block_stop",
-						"index": openToolIndex,
-					})
-					openToolIndex = -1
-					openToolName = ""
-					seenToolJSON = ""
-				}
-
-				if openToolIndex < 0 {
-					openToolID = geminiFunctionCallID(fc)
-					openToolIndex = nextBlockIndex
-					openToolName = name
-					nextBlockIndex++
-					sawToolUse = true
-
-					writeSSE(c.Writer, "content_block_start", map[string]any{
-						"type":  "content_block_start",
-						"index": openToolIndex,
-						"content_block": map[string]any{
-							"type":  "tool_use",
-							"id":    openToolID,
-							"name":  name,
-							"input": map[string]any{},
-						},
-					})
-				}
-
-				argsJSONText := "{}"
-				switch v := args.(type) {
-				case nil:
-					// keep default "{}"
-				case string:
-					if strings.TrimSpace(v) != "" {
-						argsJSONText = v
-					}
-				default:
-					if b, err := json.Marshal(args); err == nil && len(b) > 0 {
-						argsJSONText = string(b)
-					}
-				}
-
-				delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
-				seenToolJSON = newSeen
-				if delta != "" {
-					writeSSE(c.Writer, "content_block_delta", map[string]any{
-						"type":  "content_block_delta",
-						"index": openToolIndex,
-						"delta": map[string]any{
-							"type":         "input_json_delta",
-							"partial_json": delta,
-						},
-					})
-				}
-				flusher.Flush()
-			}
+		}); err != nil {
+			return nil, err
 		}
 
 		if u := extractGeminiUsage(unwrappedBytes); u != nil {
@@ -2420,56 +2060,15 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 		}
 	}
 
-	if openBlockIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": openBlockIndex,
-		})
+	if err := stream.Finish(usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens); err != nil {
+		return nil, err
 	}
-	if openToolIndex >= 0 {
-		writeSSE(c.Writer, "content_block_stop", map[string]any{
-			"type":  "content_block_stop",
-			"index": openToolIndex,
-		})
-	}
-
-	if finishReason == "" {
-		return nil, errors.New("Gemini stream ended without finishReason") //nolint:staticcheck // ST1005: preserve the existing externally surfaced provider error text.
-	}
-	stopReason := mapGeminiFinishReasonToClaudeStopReason(finishReason)
-	if sawToolUse {
-		stopReason = "tool_use"
-	}
-
-	usageObj := map[string]any{
-		"output_tokens":           usage.OutputTokens,
-		"cache_read_input_tokens": usage.CacheReadInputTokens,
-	}
-	if usage.InputTokens > 0 {
-		usageObj["input_tokens"] = usage.InputTokens
-	}
-	writeSSE(c.Writer, "message_delta", map[string]any{
-		"type": "message_delta",
-		"delta": map[string]any{
-			"stop_reason":   stopReason,
-			"stop_sequence": nil,
-		},
-		"usage": usageObj,
-	})
-	writeSSE(c.Writer, "message_stop", map[string]any{
-		"type": "message_stop",
-	})
-	flusher.Flush()
 
 	return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 }
 
 func writeSSE(w io.Writer, event string, data any) {
-	if event != "" {
-		_, _ = fmt.Fprintf(w, "event: %s\n", event)
-	}
-	b, _ := json.Marshal(data)
-	_, _ = fmt.Fprintf(w, "data: %s\n\n", string(b))
+	protocol.WriteSSE(w, event, data)
 }
 
 func randomHex(nBytes int) string {
@@ -2495,23 +2094,13 @@ func generateAnthropicMsgID() string {
 
 func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status int, errType, message string) error {
 	MarkResponseCommitted(c)
-	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": gin.H{"type": errType, "message": message},
-	})
+	protocol.WriteMessagesError(c, status, errType, message)
 	return fmt.Errorf("%s", message)
 }
 
 func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status int, message string) error {
-	message = logredact.RedactDiagnostic(message)
 	MarkResponseCommitted(c)
-	c.JSON(status, gin.H{
-		"error": gin.H{
-			"code":    status,
-			"message": message,
-			"status":  googleapi.HTTPStatusToGoogleStatus(status),
-		},
-	})
+	message = protocol.WriteGeminiError(c, status, message)
 	return fmt.Errorf("%s", message)
 }
 
@@ -3074,143 +2663,32 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
-
-	contentBlocks := make([]any, 0)
-	sawToolUse := false
-	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
-		if cand, ok := candidates[0].(map[string]any); ok {
-			if content, ok := cand["content"].(map[string]any); ok {
-				if parts, ok := content["parts"].([]any); ok {
-					for _, part := range parts {
-						pm, ok := part.(map[string]any)
-						if !ok {
-							continue
-						}
-						if text, ok := pm["text"].(string); ok && text != "" {
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type": "text",
-								"text": text,
-							})
-						}
-						if inlineData, ok := pm["inlineData"].(map[string]any); includeInlineData && ok {
-							mimeType, _ := inlineData["mimeType"].(string)
-							data, _ := inlineData["data"].(string)
-							if isGeminiInlineImageMIMEType(mimeType) && isValidBase64(data) {
-								contentBlocks = append(contentBlocks, map[string]any{
-									"type": "text",
-									"text": fmt.Sprintf("![image](data:%s;base64,%s)", mimeType, data),
-								})
-							}
-						}
-						if fc, ok := pm["functionCall"].(map[string]any); ok {
-							name, _ := fc["name"].(string)
-							if strings.TrimSpace(name) == "" {
-								name = "tool"
-							}
-							args := fc["args"]
-							sawToolUse = true
-							contentBlocks = append(contentBlocks, map[string]any{
-								"type":  "tool_use",
-								"id":    geminiFunctionCallID(fc),
-								"name":  name,
-								"input": args,
-							})
-						}
-					}
-				}
-			}
-		}
-	}
-
-	stopReason := mapGeminiFinishReasonToClaudeStopReason(extractGeminiFinishReason(geminiResp))
-	if sawToolUse {
-		stopReason = "tool_use"
-	}
-
-	resp := map[string]any{
-		"id":            generateAnthropicMsgID(),
-		"type":          "message",
-		"role":          "assistant",
-		"model":         originalModel,
-		"content":       contentBlocks,
-		"stop_reason":   stopReason,
-		"stop_sequence": nil,
-		"usage": map[string]any{
-			"input_tokens":            usage.InputTokens,
-			"output_tokens":           usage.OutputTokens,
-			"cache_read_input_tokens": usage.CacheReadInputTokens,
-		},
-	}
-
-	return resp, usage
+	response := apicompat.GeminiToMessages(geminiResp, originalModel, generateAnthropicMsgID(), includeInlineData, geminiFunctionCallID, map[string]any{
+		"input_tokens":            usage.InputTokens,
+		"output_tokens":           usage.OutputTokens,
+		"cache_read_input_tokens": usage.CacheReadInputTokens,
+	})
+	return response, usage
 }
 
 func isGeminiInlineImageMIMEType(mimeType string) bool {
-	switch mimeType {
-	case "image/gif", "image/jpeg", "image/png", "image/webp":
-		return true
-	default:
-		return false
-	}
+	return apicompat.IsGeminiInlineImageMIMEType(mimeType)
 }
 
 func isValidBase64(data string) bool {
-	if data == "" {
-		return false
-	}
-	_, err := base64.StdEncoding.DecodeString(data)
-	return err == nil
+	return apicompat.IsValidGeminiInlineBase64(data)
 }
 
 func extractGeminiUsage(data []byte) *ClaudeUsage {
-	usage := gjson.GetBytes(data, "usageMetadata")
-	if !usage.Exists() {
+	usage := geminiprovider.ExtractUsage(data)
+	if usage == nil {
 		return nil
 	}
-	prompt := int(usage.Get("promptTokenCount").Int())
-	cand := int(usage.Get("candidatesTokenCount").Int())
-	cached := int(usage.Get("cachedContentTokenCount").Int())
-	thoughts := int(usage.Get("thoughtsTokenCount").Int())
-
-	// 从 candidatesTokensDetails 提取 IMAGE 模态 token 数
-	imageTokens := 0
-	candidateDetails := usage.Get("candidatesTokensDetails")
-	if candidateDetails.Exists() {
-		candidateDetails.ForEach(func(_, detail gjson.Result) bool {
-			if detail.Get("modality").String() == "IMAGE" {
-				imageTokens = int(detail.Get("tokenCount").Int())
-				return false
-			}
-			return true
-		})
-	}
-
-	// 注意：Gemini 的 promptTokenCount 包含 cachedContentTokenCount，
-	// 但 Claude 的 input_tokens 不包含 cache_read_input_tokens，需要减去
 	return &ClaudeUsage{
-		InputTokens:          prompt - cached,
-		OutputTokens:         cand + thoughts,
-		CacheReadInputTokens: cached,
-		ImageOutputTokens:    imageTokens,
-	}
-}
-
-func asInt(v any) (int, bool) {
-	switch t := v.(type) {
-	case float64:
-		return int(t), true
-	case int:
-		return t, true
-	case int64:
-		return int(t), true
-	case json.Number:
-		i, err := t.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(i), true
-	default:
-		return 0, false
+		InputTokens:          usage.InputTokens,
+		OutputTokens:         usage.OutputTokens,
+		CacheReadInputTokens: usage.CacheReadInputTokens,
+		ImageOutputTokens:    usage.ImageOutputTokens,
 	}
 }
 
@@ -3398,623 +2876,45 @@ func ensureGeminiFunctionCallThoughtSignatures(body []byte) []byte {
 }
 
 func extractGeminiFinishReason(geminiResp map[string]any) string {
-	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
-		if cand, ok := candidates[0].(map[string]any); ok {
-			if fr, ok := cand["finishReason"].(string); ok {
-				return fr
-			}
-		}
-	}
-	return ""
+	return apicompat.GeminiFinishReason(geminiResp)
 }
 
 func extractGeminiParts(geminiResp map[string]any) []map[string]any {
-	if candidates, ok := geminiResp["candidates"].([]any); ok && len(candidates) > 0 {
-		if cand, ok := candidates[0].(map[string]any); ok {
-			if content, ok := cand["content"].(map[string]any); ok {
-				if partsAny, ok := content["parts"].([]any); ok && len(partsAny) > 0 {
-					out := make([]map[string]any, 0, len(partsAny))
-					for _, p := range partsAny {
-						pm, ok := p.(map[string]any)
-						if !ok {
-							continue
-						}
-						out = append(out, pm)
-					}
-					return out
-				}
-			}
-		}
-	}
-	return nil
+	return apicompat.GeminiParts(geminiResp)
 }
 
 func computeGeminiTextDelta(seen, incoming string) (delta, newSeen string) {
-	incoming = strings.TrimSuffix(incoming, "\u0000")
-	if incoming == "" {
-		return "", seen
-	}
-
-	// Cumulative mode: incoming contains full text so far.
-	if strings.HasPrefix(incoming, seen) {
-		return strings.TrimPrefix(incoming, seen), incoming
-	}
-	// Duplicate/rewind: ignore.
-	if strings.HasPrefix(seen, incoming) {
-		return "", seen
-	}
-	// Delta mode: treat incoming as incremental chunk.
-	return incoming, seen + incoming
+	return apicompat.GeminiTextDelta(seen, incoming)
 }
 
 func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
-	switch strings.ToUpper(strings.TrimSpace(finishReason)) {
-	case "MAX_TOKENS":
-		return "max_tokens"
-	case "STOP":
-		return "end_turn"
-	default:
-		return "end_turn"
-	}
+	return apicompat.GeminiFinishReasonToMessagesStopReason(finishReason)
 }
 
 func convertClaudeMessagesToGeminiGenerateContent(body []byte, profiles ...geminiToolIDProfile) ([]byte, error) {
-	var req map[string]any
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, err
-	}
-
-	toolUseIDToName := make(map[string]string)
-
-	systemText := extractClaudeSystemText(req["system"])
-	contents, err := convertClaudeMessagesToGeminiContents(req["messages"], toolUseIDToName)
-	if err != nil {
-		return nil, err
-	}
-
-	out := make(map[string]any)
-	if systemText != "" {
-		out["systemInstruction"] = map[string]any{
-			"parts": []any{map[string]any{"text": systemText}},
-		}
-	}
-	out["contents"] = contents
-
-	if tools := convertClaudeToolsToGeminiTools(req["tools"]); tools != nil {
-		out["tools"] = tools
-	}
-	if choice, ok := req["tool_choice"].(map[string]any); ok {
-		config := map[string]any{}
-		switch choice["type"] {
-		case "auto":
-			config["mode"] = "AUTO"
-		case "none":
-			config["mode"] = "NONE"
-		case "any":
-			config["mode"] = "ANY"
-		case "tool":
-			config["mode"] = "ANY"
-			config["allowedFunctionNames"] = []any{choice["name"]}
-		default:
-			return nil, errors.New("unsupported tool_choice for Gemini")
-		}
-		out["toolConfig"] = map[string]any{"functionCallingConfig": config}
-	}
-
-	generationConfig, err := convertClaudeGenerationConfig(req)
-	if err != nil {
-		return nil, err
-	}
-	if generationConfig != nil {
-		out["generationConfig"] = generationConfig
-	}
-
 	profile := geminiToolIDNative
 	if len(profiles) > 0 {
 		profile = profiles[0]
 	}
-	if err := prepareGeminiToolIDs(out, profile); err != nil {
-		return nil, err
-	}
-	return json.Marshal(out)
-}
-
-func extractClaudeSystemText(system any) string {
-	switch v := system.(type) {
-	case string:
-		return strings.TrimSpace(v)
-	case []any:
-		var parts []string
-		for _, p := range v {
-			pm, ok := p.(map[string]any)
-			if !ok {
-				continue
-			}
-			if t, _ := pm["type"].(string); t != "text" {
-				continue
-			}
-			if text, ok := pm["text"].(string); ok && strings.TrimSpace(text) != "" {
-				parts = append(parts, text)
-			}
-		}
-		return strings.TrimSpace(strings.Join(parts, "\n"))
-	default:
-		return ""
-	}
-}
-
-func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[string]string) ([]any, error) {
-	arr, ok := messages.([]any)
-	if !ok {
-		return nil, errors.New("messages must be an array")
-	}
-
-	out := make([]any, 0, len(arr))
-	for _, m := range arr {
-		mm, ok := m.(map[string]any)
-		if !ok {
-			continue
-		}
-		role, _ := mm["role"].(string)
-		role = strings.ToLower(strings.TrimSpace(role))
-		gRole := "user"
-		if role == "assistant" {
-			gRole = "model"
-		}
-
-		parts := make([]any, 0)
-		switch content := mm["content"].(type) {
-		case string:
-			// 字符串形式的 content，保留所有内容（包括空白）
-			parts = append(parts, map[string]any{"text": content})
-		case []any:
-			// 如果只有一个 block，不过滤空白（让上游 API 报错）
-			singleBlock := len(content) == 1
-
-			for _, block := range content {
-				bm, ok := block.(map[string]any)
-				if !ok {
-					continue
-				}
-				bt, _ := bm["type"].(string)
-				switch bt {
-				case "text":
-					if text, ok := bm["text"].(string); ok {
-						// 单个 block 时保留所有内容（包括空白）
-						// 多个 blocks 时过滤掉空白
-						if singleBlock || strings.TrimSpace(text) != "" {
-							parts = append(parts, map[string]any{"text": text})
-						}
-					}
-				case "tool_use":
-					id, _ := bm["id"].(string)
-					name, _ := bm["name"].(string)
-					if strings.TrimSpace(id) == "" || strings.TrimSpace(name) == "" {
-						return nil, errors.New("tool_use requires a nonempty id and name")
-					}
-					if _, exists := toolUseIDToName[id]; exists {
-						return nil, errors.New("duplicate tool_use id")
-					}
-					toolUseIDToName[id] = name
-					signature, _ := bm["signature"].(string)
-					signature = strings.TrimSpace(signature)
-					if signature == "" {
-						signature = geminiDummyThoughtSignature
-					}
-					parts = append(parts, map[string]any{
-						"thoughtSignature": signature,
-						"functionCall": map[string]any{
-							"id":   id,
-							"name": name,
-							"args": bm["input"],
-						},
-					})
-				case "tool_result":
-					toolUseID, _ := bm["tool_use_id"].(string)
-					name := toolUseIDToName[toolUseID]
-					if name == "" {
-						return nil, errors.New("tool_result references an unknown or already completed tool_use id")
-					}
-					delete(toolUseIDToName, toolUseID)
-					parts = append(parts, map[string]any{
-						"functionResponse": map[string]any{
-							"id":   toolUseID,
-							"name": name,
-							"response": map[string]any{
-								"content": extractClaudeContentText(bm["content"]),
-							},
-						},
-					})
-				case "image", "document":
-					if src, ok := bm["source"].(map[string]any); ok {
-						if srcType, _ := src["type"].(string); srcType == "base64" {
-							mediaType, _ := src["media_type"].(string)
-							data, _ := src["data"].(string)
-							if mediaType != "" && data != "" {
-								parts = append(parts, map[string]any{
-									"inlineData": map[string]any{
-										"mimeType": mediaType,
-										"data":     data,
-									},
-								})
-							}
-						}
-					}
-				default:
-					// best-effort: preserve unknown blocks as text
-					if b, err := json.Marshal(bm); err == nil {
-						parts = append(parts, map[string]any{"text": string(b)})
-					}
-				}
-			}
-		default:
-			// ignore
-		}
-
-		out = append(out, map[string]any{
-			"role":  gRole,
-			"parts": parts,
-		})
-	}
-	return out, nil
-}
-
-func extractClaudeContentText(v any) string {
-	switch t := v.(type) {
-	case string:
-		return t
-	case []any:
-		var sb strings.Builder
-		for _, part := range t {
-			pm, ok := part.(map[string]any)
-			if !ok {
-				continue
-			}
-			if pm["type"] == "text" {
-				if text, ok := pm["text"].(string); ok {
-					_, _ = sb.WriteString(text)
-				}
-			}
-		}
-		return sb.String()
-	default:
-		b, _ := json.Marshal(t)
-		return string(b)
-	}
-}
-
-func convertClaudeToolsToGeminiTools(tools any) []any {
-	arr, ok := tools.([]any)
-	if !ok || len(arr) == 0 {
-		return nil
-	}
-
-	hasWebSearch := false
-	funcDecls := make([]any, 0, len(arr))
-	for _, t := range arr {
-		tm, ok := t.(map[string]any)
-		if !ok {
-			continue
-		}
-		if isClaudeWebSearchToolMap(tm) {
-			hasWebSearch = true
-			continue
-		}
-
-		var name, desc string
-		var params any
-
-		// 检查是否为 custom 类型工具 (MCP)
-		toolType, _ := tm["type"].(string)
-		if toolType == "custom" {
-			// Custom 格式: 从 custom 字段获取 description 和 input_schema
-			custom, ok := tm["custom"].(map[string]any)
-			if !ok {
-				continue
-			}
-			name, _ = tm["name"].(string)
-			desc, _ = custom["description"].(string)
-			params = custom["input_schema"]
-		} else {
-			// 标准格式: 从顶层字段获取
-			name, _ = tm["name"].(string)
-			desc, _ = tm["description"].(string)
-			params = tm["input_schema"]
-		}
-
-		if name == "" {
-			continue
-		}
-
-		// 为 nil params 提供默认值
-		if params == nil {
-			params = map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			}
-		}
-		// 清理 JSON Schema
-		cleanedParams := cleanToolSchema(params)
-
-		funcDecls = append(funcDecls, map[string]any{
-			"name":        name,
-			"description": desc,
-			"parameters":  cleanedParams,
-		})
-	}
-
-	out := make([]any, 0, 2)
-	if len(funcDecls) > 0 {
-		out = append(out, map[string]any{
-			"functionDeclarations": funcDecls,
-		})
-	}
-	if hasWebSearch {
-		out = append(out, map[string]any{
-			"googleSearch": map[string]any{},
-		})
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return apicompat.MessagesToGemini(body, func(payload map[string]any) error {
+		return prepareGeminiToolIDs(payload, profile)
+	})
 }
 
 func normalizeGeminiRequestForAIStudio(body []byte) []byte {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
-	}
-
-	tools, ok := payload["tools"].([]any)
-	if !ok || len(tools) == 0 {
-		return body
-	}
-
-	modified := false
-	for _, rawTool := range tools {
-		tool, ok := rawTool.(map[string]any)
-		if !ok {
-			continue
-		}
-		googleSearch, ok := tool["googleSearch"]
-		if !ok {
-			continue
-		}
-		if _, exists := tool["google_search"]; exists {
-			continue
-		}
-		tool["google_search"] = googleSearch
-		delete(tool, "googleSearch")
-		modified = true
-	}
-
-	if !modified {
-		return body
-	}
-
-	normalized, err := json.Marshal(payload)
-	if err != nil {
-		return body
-	}
-	return normalized
+	return apicompat.NormalizeGeminiRequestForAIStudio(body)
 }
 
-func isClaudeWebSearchToolMap(tool map[string]any) bool {
-	toolType, _ := tool["type"].(string)
-	// A function named web_search is still a client-side function. This is
-	// especially important for Chat Completions clients such as Hermes, whose
-	// built-in runtime tools are represented as ordinary function tools.
-	// Promote only explicitly typed server-side search tools to Gemini's
-	// built-in googleSearch tool.
-	return strings.HasPrefix(toolType, "web_search") || toolType == "google_search"
+func convertClaudeToolsToGeminiTools(tools any) []any {
+	return apicompat.ConvertClaudeToolsToGeminiTools(tools)
 }
 
-// cleanToolSchema 清理工具的 JSON Schema，移除 Gemini 不支持的字段
 func cleanToolSchema(schema any) any {
-	if schema == nil {
-		return nil
-	}
-
-	switch v := schema.(type) {
-	case map[string]any:
-		cleaned := make(map[string]any)
-		for key, value := range v {
-			// 跳过不支持的字段
-			if key == "$schema" || key == "$id" || key == "$ref" ||
-				key == "$defs" || key == "definitions" ||
-				key == "additionalProperties" || key == "patternProperties" || key == "minLength" ||
-				key == "maxLength" || key == "minItems" || key == "maxItems" || key == "exclusiveMinimum" ||
-				key == "deprecated" {
-				continue
-			}
-			// 递归清理嵌套对象
-			cleaned[key] = cleanToolSchema(value)
-		}
-		if enum, ok := cleaned["enum"].([]any); ok {
-			if normalized, ok := normalizeGeminiEnum(enum); ok {
-				cleaned["enum"] = normalized
-			} else {
-				delete(cleaned, "enum")
-			}
-		}
-		// 规范化 type 字段为大写
-		if typeVal, ok := cleaned["type"].(string); ok {
-			cleaned["type"] = strings.ToUpper(typeVal)
-		} else if typeValues, ok := cleaned["type"].([]any); ok {
-			for _, typeValue := range typeValues {
-				typeName, ok := typeValue.(string)
-				if ok && !strings.EqualFold(typeName, "null") {
-					cleaned["type"] = strings.ToUpper(typeName)
-					break
-				}
-			}
-			if _, ok := cleaned["type"].([]any); ok {
-				delete(cleaned, "type")
-			}
-		}
-		if cleaned["type"] == "INTEGER" {
-			if minimum, ok := incrementIntegralSchemaBound(v["exclusiveMinimum"]); ok {
-				if existing, exists := cleaned["minimum"]; !exists || schemaNumberLess(existing, minimum) {
-					cleaned["minimum"] = minimum
-				}
-			}
-		}
-		return cleaned
-	case []any:
-		cleaned := make([]any, len(v))
-		for i, item := range v {
-			cleaned[i] = cleanToolSchema(item)
-		}
-		return cleaned
-	default:
-		return v
-	}
-}
-
-func normalizeGeminiEnum(values []any) ([]any, bool) {
-	normalized := make([]any, len(values))
-	for i, value := range values {
-		if stringValue, ok := value.(string); ok {
-			normalized[i] = stringValue
-			continue
-		}
-
-		switch value.(type) {
-		case nil, bool, float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
-			encoded, err := json.Marshal(value)
-			if err != nil {
-				return nil, false
-			}
-			normalized[i] = string(encoded)
-		default:
-			return nil, false
-		}
-	}
-	return normalized, true
-}
-
-func incrementIntegralSchemaBound(value any) (any, bool) {
-	switch v := value.(type) {
-	case float64:
-		if math.IsNaN(v) || math.IsInf(v, 0) || v != math.Trunc(v) || v+1 <= v {
-			return nil, false
-		}
-		return v + 1, true
-	case int:
-		if v == math.MaxInt {
-			return nil, false
-		}
-		return v + 1, true
-	case int64:
-		if v == math.MaxInt64 {
-			return nil, false
-		}
-		return v + 1, true
-	case json.Number:
-		i, err := v.Int64()
-		if err != nil || i == math.MaxInt64 {
-			return nil, false
-		}
-		return json.Number(fmt.Sprintf("%d", i+1)), true
-	default:
-		return nil, false
-	}
-}
-
-func schemaNumberLess(left, right any) bool {
-	leftNumber, leftOK := schemaNumberFloat64(left)
-	rightNumber, rightOK := schemaNumberFloat64(right)
-	return leftOK && rightOK && leftNumber < rightNumber
-}
-
-func schemaNumberFloat64(value any) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, !math.IsNaN(v) && !math.IsInf(v, 0)
-	case int:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	case json.Number:
-		n, err := v.Float64()
-		return n, err == nil && !math.IsInf(n, 0)
-	default:
-		return 0, false
-	}
+	return apicompat.CleanToolSchema(schema)
 }
 
 func convertClaudeGenerationConfig(req map[string]any) (map[string]any, error) {
-	out := make(map[string]any)
-	if mt, ok := asInt(req["max_tokens"]); ok && mt > 0 {
-		out["maxOutputTokens"] = mt
-	}
-	if temp, ok := req["temperature"].(float64); ok {
-		out["temperature"] = temp
-	}
-	if topP, ok := req["top_p"].(float64); ok {
-		out["topP"] = topP
-	}
-	if topK, ok := req["top_k"].(float64); ok {
-		out["topK"] = topK
-	}
-	if config, ok := req["output_config"].(map[string]any); ok {
-		if effort, exists := config["effort"]; exists {
-			level, ok := effort.(string)
-			if !ok {
-				return nil, fmt.Errorf("output_config.effort %v cannot be represented by Gemini", effort)
-			}
-			switch level {
-			case "minimal", "low", "medium", "high":
-				out["thinkingConfig"] = map[string]any{"thinkingLevel": strings.ToUpper(level)}
-			default:
-				return nil, fmt.Errorf("output_config.effort %v cannot be represented by Gemini", effort)
-			}
-		}
-		if format, ok := config["format"].(map[string]any); ok {
-			if format["type"] == "json_schema" || format["type"] == "json_object" {
-				out["responseMimeType"] = "application/json"
-				if format["schema"] != nil {
-					out["responseJsonSchema"] = format["schema"]
-				}
-			}
-		}
-	}
-	if raw, exists := req["thinking"]; exists {
-		thinking, ok := raw.(map[string]any)
-		if !ok {
-			return nil, errors.New("thinking must be an object")
-		}
-		switch thinking["type"] {
-		case "disabled":
-			if out["thinkingConfig"] != nil {
-				return nil, errors.New("disabled thinking and output_config.effort cannot both be set for Gemini")
-			}
-			out["thinkingConfig"] = map[string]any{"thinkingBudget": 0}
-		case "adaptive":
-			if out["thinkingConfig"] == nil {
-				out["thinkingConfig"] = map[string]any{"thinkingBudget": -1}
-			}
-		case "enabled":
-			budget, ok := thinking["budget_tokens"].(float64)
-			if !ok || budget < 0 || budget > math.MaxInt32 || math.Trunc(budget) != budget {
-				return nil, errors.New("thinking.budget_tokens must be a non-negative integer for Gemini")
-			}
-			if out["thinkingConfig"] != nil {
-				return nil, errors.New("thinking.budget_tokens and output_config.effort cannot both be set for Gemini")
-			}
-			out["thinkingConfig"] = map[string]any{"thinkingBudget": int(budget)}
-		default:
-			return nil, errors.New("thinking.type must be disabled, adaptive, or enabled for Gemini")
-		}
-	}
-	if stopSeq, ok := req["stop_sequences"].([]any); ok && len(stopSeq) > 0 {
-		out["stopSequences"] = stopSeq
-	}
-	if len(out) == 0 {
-		return nil, nil
-	}
-	return out, nil
+	return apicompat.ConvertClaudeGenerationConfig(req)
 }
 
 func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string {

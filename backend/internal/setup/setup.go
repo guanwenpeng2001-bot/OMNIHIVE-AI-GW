@@ -13,10 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/runtimeenv"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 
 	"github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
@@ -27,7 +28,7 @@ import (
 // Config paths
 const (
 	ConfigFileName             = "config.yaml"
-	InstallLockFile            = ".installed"
+	InstallLockFile            = runtimeenv.InstallLockFile
 	defaultUserConcurrency     = 5
 	simpleModeAdminConcurrency = 30
 	defaultMigrationTimeout    = 60 * time.Second
@@ -43,15 +44,15 @@ func setupDefaultAdminConcurrency() int {
 }
 
 // GetDataDir returns the data directory for storing config and lock files.
-// Priority: DATA_DIR env > /app/data (if exists and writable) > current directory
+// Priority: OMNIHIVE_DATA_DIR env > /app/data (if exists and writable) > current directory
 func GetDataDir() string {
 	// Check DATA_DIR environment variable first
-	if dir := os.Getenv("DATA_DIR"); dir != "" {
+	if dir := runtimeenv.DataDir(); dir != "" {
 		return dir
 	}
 
 	// Check if /app/data exists and is writable (Docker environment)
-	dockerDataDir := "/app/data"
+	dockerDataDir := runtimeenv.ContainerDataDir
 	if info, err := os.Stat(dockerDataDir); err == nil && info.IsDir() {
 		// Try to check if writable by creating a temp file
 		testFile := dockerDataDir + "/.write_test"
@@ -68,6 +69,9 @@ func GetDataDir() string {
 
 // GetConfigFilePath returns the full path to config.yaml
 func GetConfigFilePath() string {
+	if configFile := strings.TrimSpace(os.Getenv("CONFIG_FILE")); configFile != "" {
+		return configFile
+	}
 	return GetDataDir() + "/" + ConfigFileName
 }
 
@@ -151,19 +155,10 @@ func decideAdminBootstrap(totalUsers, adminUsers int64) adminBootstrapDecision {
 	}
 }
 
-func skipSetupEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("SKIP_SETUP"))) {
-	case "true", "1", "yes":
-		return true
-	default:
-		return false
-	}
-}
-
 // NeedsSetup checks if the system needs initial setup
 // Uses multiple checks to prevent attackers from forcing re-setup by deleting config
 func NeedsSetup() bool {
-	if skipSetupEnabled() {
+	if runtimeenv.SkipSetupEnabled() {
 		logger.L().Debug("setup.needs_setup_bypassed", zap.String("reason", "skip_setup_enabled"))
 		return false
 	}
@@ -171,6 +166,10 @@ func NeedsSetup() bool {
 	// Check 1: Config file must not exist
 	if _, err := os.Stat(GetConfigFilePath()); !os.IsNotExist(err) {
 		return false // Config exists, no setup needed
+	}
+
+	if config.HasSystemConfig() {
+		return false
 	}
 
 	// Check 2: Installation lock file (harder to bypass)
@@ -470,6 +469,23 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	// Seed public features only after the initial administrator is created.
+	// Existing installations keep their explicitly configured settings.
+	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at)
+		VALUES ('model_plaza_enabled', 'true', NOW()), ('registration_enabled', 'true', NOW())
+		ON CONFLICT (key) DO NOTHING`); err != nil {
+		return false, "", fmt.Errorf("failed to seed initial settings: %w", err)
+	}
+	// Record the verified empty-history origin for a brand-new installation so
+	// multi-day dashboard windows before install time return zeroed empty series
+	// rather than USAGE_HISTORY_INCOMPLETE.
+	_, _ = db.ExecContext(ctx, `
+		UPDATE usage_dashboard_aggregation_watermark
+		   SET history_known_empty_before = raw_retained_from, updated_at = NOW()
+		 WHERE id = 1
+		   AND history_known_empty_before IS NULL
+		   AND NOT EXISTS (SELECT 1 FROM usage_logs)
+		   AND NOT EXISTS (SELECT 1 FROM usage_cleanup_tasks)`)
 	return true, decision.reason, nil
 }
 
@@ -584,7 +600,7 @@ func AutoSetupFromEnv() error {
 			Port:     getEnvIntOrDefault("DATABASE_PORT", 5432),
 			User:     getEnvOrDefault("DATABASE_USER", "postgres"),
 			Password: getEnvOrDefault("DATABASE_PASSWORD", ""),
-			DBName:   getEnvOrDefault("DATABASE_DBNAME", "sub2api"),
+			DBName:   getEnvOrDefault("DATABASE_DBNAME", config.DefaultDatabaseName),
 			SSLMode:  getEnvOrDefault("DATABASE_SSLMODE", "disable"),
 		},
 		Redis: RedisConfig{
@@ -596,7 +612,7 @@ func AutoSetupFromEnv() error {
 			EnableTLS: getEnvOrDefault("REDIS_ENABLE_TLS", "false") == "true",
 		},
 		Admin: AdminConfig{
-			Email:    getEnvOrDefault("ADMIN_EMAIL", "admin@sub2api.local"),
+			Email:    getEnvOrDefault("ADMIN_EMAIL", "admin@omnihive.local"),
 			Password: getEnvOrDefault("ADMIN_PASSWORD", ""),
 		},
 		Server: ServerConfig{

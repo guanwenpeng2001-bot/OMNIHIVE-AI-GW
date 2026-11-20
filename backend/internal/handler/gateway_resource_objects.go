@@ -3,8 +3,8 @@ package handler
 import (
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // Resource objects follow the provider documented shapes. Upstream identifiers

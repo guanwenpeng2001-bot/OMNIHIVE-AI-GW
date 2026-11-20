@@ -1,0 +1,396 @@
+<script setup lang="ts">
+import { computed, reactive, watch } from 'vue'
+import Button from '@/components/ui/Button.vue'
+import Modal from '@/components/ui/Modal.vue'
+import type { AsyncTaskKind, ImageTaskCreateInput } from '../types'
+
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    keys: Array<{ id: string; name: string; prefix?: string; scopeLabel?: string }>
+    models: Array<{ id: string; slug: string; displayName: string }>
+    modelsLoading?: boolean
+    submitting?: boolean
+    isZh?: boolean
+    teleportDisabled?: boolean
+  }>(),
+  {
+    modelsLoading: false,
+    submitting: false,
+    isZh: false,
+    teleportDisabled: false
+  }
+)
+
+const emit = defineEmits<{
+  'update:open': [value: boolean]
+  submit: [payload: ImageTaskCreateInput]
+  'navigate-keys': []
+  'kind-change': [kind: AsyncTaskKind]
+}>()
+
+const form = reactive({
+  kind: 'image' as AsyncTaskKind,
+  apiKeyId: '',
+  modelId: '',
+  prompt: '',
+  size: '1024x1024',
+  count: 1,
+  voice: 'alloy',
+  format: 'mp3',
+  aspectRatio: '16:9',
+  durationSeconds: 5,
+  resolution: '720p',
+  acknowledged: false
+})
+
+const taskKindOptions = computed<Array<{ value: AsyncTaskKind; label: string }>>(() => [
+  { value: 'image', label: props.isZh ? '图像生成 (Image)' : 'Image' },
+  { value: 'audio', label: props.isZh ? '音频生成 (Audio)' : 'Audio' },
+  { value: 'video', label: props.isZh ? '视频生成 (Video)' : 'Video' }
+])
+
+const modalTitle = computed(() => {
+  if (form.kind === 'audio') {
+    return props.isZh ? '新建音频异步任务' : 'New Audio Generation Task'
+  }
+  if (form.kind === 'video') {
+    return props.isZh ? '新建视频异步任务' : 'New Video Generation Task'
+  }
+  return props.isZh ? '新建图像生成任务' : 'New Image Generation Task'
+})
+
+const modelFieldLabel = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '音频模型' : 'Audio Model'
+  if (form.kind === 'video') return props.isZh ? '视频模型' : 'Video Model'
+  return props.isZh ? '图像模型' : 'Image Model'
+})
+
+const modelPlaceholder = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '输入音频模型 ID（例如 tts-1 / gpt-4o-mini-tts）' : 'Audio model slug/ID'
+  if (form.kind === 'video') return props.isZh ? '输入视频模型 ID（例如 sora / veo）' : 'Video model slug/ID'
+  return props.isZh ? '输入图像模型 ID' : 'Image model slug/ID'
+})
+
+const promptFieldLabel = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '音频文本 / 合成提示词' : 'Audio Script / Prompt'
+  if (form.kind === 'video') return props.isZh ? '视频脚本 / 分镜提示词' : 'Video Prompt'
+  return props.isZh ? '图像提示词' : 'Prompt'
+})
+
+const promptPlaceholder = computed(() => {
+  if (form.kind === 'audio') {
+    return props.isZh ? '输入待合成语音的文本或音频生成描述…' : 'Enter speech text or describe the audio to generate…'
+  }
+  if (form.kind === 'video') {
+    return props.isZh ? '描述镜头画面、主体动作与光影氛围…' : 'Describe camera motion, subject, and scene details…'
+  }
+  return props.isZh ? '输入图像生成提示词…' : 'Describe the image to generate…'
+})
+
+watch(
+  () => [props.open, props.keys] as const,
+  ([isOpen, keyList]) => {
+    if (isOpen && !form.apiKeyId && keyList.length > 0) {
+      form.apiKeyId = keyList[0].id
+    }
+  },
+  { immediate: true }
+)
+
+function selectKind(nextKind: AsyncTaskKind): void {
+  if (form.kind === nextKind) return
+  form.kind = nextKind
+  form.modelId = ''
+  emit('kind-change', nextKind)
+}
+
+function handleClose(): void {
+  emit('update:open', false)
+}
+
+function handleSubmit(): void {
+  if (!form.apiKeyId || !form.modelId || !form.prompt.trim() || !form.acknowledged) return
+  const input: ImageTaskCreateInput['input'] = {
+    prompt: form.prompt.trim()
+  }
+  if (form.kind === 'image') {
+    input.size = form.size || undefined
+    input.count = Math.max(1, Math.min(4, Math.trunc(form.count || 1)))
+  } else if (form.kind === 'audio') {
+    input.voice = form.voice.trim() || undefined
+    input.format = form.format || undefined
+  } else if (form.kind === 'video') {
+    input.aspect_ratio = form.aspectRatio || undefined
+    input.duration_seconds = Math.max(1, Math.min(60, Math.trunc(form.durationSeconds || 5)))
+    input.resolution = form.resolution || undefined
+  }
+  emit('submit', {
+    kind: form.kind,
+    model_id: form.modelId.trim(),
+    api_key_id: form.apiKeyId.trim(),
+    input,
+    funding_acknowledged: true
+  })
+}
+</script>
+
+<template>
+  <Modal
+    :open="open"
+    size="md"
+    :teleport-disabled="teleportDisabled"
+    :title="modalTitle"
+    :description="
+      isZh
+        ? '异步生成产物将归档至受控私有存储（保留窗口 24 小时）。'
+        : 'Generated artifacts are archived in private scope-bound storage (24h retention window).'
+    "
+    @update:open="(val) => !val && handleClose()"
+    @close="handleClose"
+  >
+    <div data-testid="task-create-modal" class="space-y-3 text-xs">
+      <div class="space-y-1">
+        <span class="block text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ isZh ? '任务模态类型' : 'Task Modality' }}
+        </span>
+        <div class="grid grid-cols-3 gap-1.5" role="radiogroup" :aria-label="isZh ? '任务类型选择' : 'Task kind selector'">
+          <button
+            v-for="opt in taskKindOptions"
+            :key="opt.value"
+            type="button"
+            :data-testid="`create-task-kind-${opt.value}`"
+            role="radio"
+            :aria-checked="form.kind === opt.value"
+            class="oh-focus-ring h-8 rounded-[var(--oh-r-sm,6px)] border px-2 font-mono text-xs transition-colors"
+            :class="
+              form.kind === opt.value
+                ? 'border-[var(--oh-accent,#f59e0b)] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] font-semibold text-[var(--oh-accent-text,var(--brand-text,#d97706))]'
+                : 'border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] text-[var(--oh-ink-secondary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]'
+            "
+            @click="selectKind(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? 'API 密钥' : 'API Key' }}
+          </span>
+          <button
+            type="button"
+            class="oh-focus-ring rounded font-mono text-[11px] text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
+            @click="emit('navigate-keys')"
+          >
+            {{ isZh ? '管理密钥 →' : 'Manage Keys →' }}
+          </button>
+        </div>
+        <select
+          v-if="keys.length > 0"
+          v-model="form.apiKeyId"
+          class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+        >
+          <option value="">{{ isZh ? '选择密钥…' : 'Select key…' }}</option>
+          <option v-for="k in keys" :key="k.id" :value="k.id">
+            {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }}{{ k.scopeLabel ? ` · ${k.scopeLabel}` : '' }})
+          </option>
+        </select>
+        <div
+          v-else
+          data-testid="task-empty-keys-guidance"
+          class="space-y-2 rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-accent-border,rgba(245,158,11,0.45))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] p-2.5"
+        >
+          <p class="text-[11px] leading-relaxed text-[var(--oh-ink,var(--foreground))]">
+            {{
+              isZh
+                ? '当前项目或个人账户下暂无可用 API 密钥。请先前往「API 密钥」页面创建密钥，或输入已有数字密钥 ID。'
+                : 'No active user or project API keys found. Create an API key first, or enter an existing numeric key ID.'
+            }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="xs" @click="emit('navigate-keys')">
+              {{ isZh ? '前往创建 API 密钥 →' : 'Go to API Keys →' }}
+            </Button>
+            <input
+              v-model="form.apiKeyId"
+              type="text"
+              :placeholder="isZh ? '或输入密钥 ID（如 12）' : 'Or enter Key ID (e.g. 12)'"
+              class="h-7 flex-1 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+            />
+          </div>
+        </div>
+      </div>
+
+      <label class="block space-y-1">
+        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ modelFieldLabel }}
+          <span v-if="modelsLoading" class="ml-1 font-mono text-[10px] opacity-75">
+            {{ isZh ? '加载中…' : 'loading…' }}
+          </span>
+        </span>
+        <select
+          v-if="models.length > 0"
+          v-model="form.modelId"
+          class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+        >
+          <option value="">{{ isZh ? '选择模型…' : 'Select model…' }}</option>
+          <option v-for="m in models" :key="m.id" :value="m.slug || m.id">
+            {{ m.displayName }} ({{ m.slug }})
+          </option>
+        </select>
+        <input
+          v-model="form.modelId"
+          type="text"
+          :placeholder="modelPlaceholder"
+          class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+        />
+      </label>
+
+      <div v-if="form.kind === 'image'" class="grid grid-cols-2 gap-2">
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '图像尺寸' : 'Image Size' }}
+          </span>
+          <select
+            v-model="form.size"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="1024x1024">1024x1024</option>
+            <option value="1536x1024">1536x1024</option>
+            <option value="1024x1536">1024x1536</option>
+          </select>
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '生成张数 (1–4)' : 'Count (1–4)' }}
+          </span>
+          <input
+            v-model.number="form.count"
+            type="number"
+            min="1"
+            max="4"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+          />
+        </label>
+      </div>
+
+      <div v-else-if="form.kind === 'audio'" class="grid grid-cols-2 gap-2">
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '音色 / Voice' : 'Voice' }}
+          </span>
+          <select
+            v-model="form.voice"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="alloy">alloy</option>
+            <option value="echo">echo</option>
+            <option value="fable">fable</option>
+            <option value="onyx">onyx</option>
+            <option value="nova">nova</option>
+            <option value="shimmer">shimmer</option>
+          </select>
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '输出音频格式' : 'Audio Format' }}
+          </span>
+          <select
+            v-model="form.format"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="mp3">mp3</option>
+            <option value="wav">wav</option>
+            <option value="opus">opus</option>
+            <option value="flac">flac</option>
+          </select>
+        </label>
+      </div>
+
+      <div v-else class="grid grid-cols-3 gap-2">
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '画面比例' : 'Aspect Ratio' }}
+          </span>
+          <select
+            v-model="form.aspectRatio"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+          </select>
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '目标时长 (秒)' : 'Duration (s)' }}
+          </span>
+          <input
+            v-model.number="form.durationSeconds"
+            type="number"
+            min="1"
+            max="60"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+          />
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '清晰度' : 'Resolution' }}
+          </span>
+          <select
+            v-model="form.resolution"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="720p">720p</option>
+            <option value="1080p">1080p</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="block space-y-1">
+        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ promptFieldLabel }}
+        </span>
+        <textarea
+          v-model="form.prompt"
+          rows="3"
+          maxlength="8000"
+          :placeholder="promptPlaceholder"
+          class="w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5 text-sm text-[var(--oh-ink,var(--foreground))]"
+        />
+      </label>
+
+      <label class="flex items-start gap-2 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5">
+        <input v-model="form.acknowledged" type="checkbox" class="mt-0.5 h-3.5 w-3.5" />
+        <span class="text-[var(--oh-ink,var(--foreground))]">
+          {{
+            isZh
+              ? '我确认本任务将按当前生效价格版本独立冻结预算并按回执计费。'
+              : 'I acknowledge this task independently reserves budget and settles under the active price version.'
+          }}
+        </span>
+      </label>
+    </div>
+
+    <template #footer>
+      <div class="flex items-center justify-end gap-2">
+        <Button variant="secondary" size="sm" :disabled="submitting" @click="handleClose">
+          {{ isZh ? '取消' : 'Cancel' }}
+        </Button>
+        <Button
+          data-testid="submit-create-task-btn"
+          variant="primary"
+          size="sm"
+          :loading="submitting"
+          :disabled="submitting || !form.apiKeyId || !form.modelId || !form.prompt.trim() || !form.acknowledged"
+          @click="handleSubmit"
+        >
+          {{ isZh ? '确认计费并提交' : 'Create Paid Task' }}
+        </Button>
+      </div>
+    </template>
+  </Modal>
+</template>

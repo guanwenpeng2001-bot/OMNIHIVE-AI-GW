@@ -2,6 +2,7 @@ package payment
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -90,8 +91,14 @@ func paymentCurrencyAmountUnitFor(currency string) paymentCurrencyAmountUnit {
 }
 
 func AmountToMinorUnit(amountStr, currency string) (int64, error) {
-	d, err := decimal.NewFromString(strings.TrimSpace(amountStr))
-	if err != nil {
+	// Bound intermediate expansion before multiplying. Short scientific
+	// notation from legacy clients retains the same numeric interpretation.
+	amountStr = strings.TrimSpace(amountStr)
+	if len(amountStr) > 128 {
+		return 0, fmt.Errorf("invalid minor-unit amount")
+	}
+	d, err := decimal.NewFromString(amountStr)
+	if err != nil || d.Exponent() < -128 || d.Exponent() > 128 {
 		return 0, fmt.Errorf("invalid amount: %s", amountStr)
 	}
 	normalizedCurrency, err := NormalizePaymentCurrency(currency)
@@ -109,10 +116,25 @@ func AmountToMinorUnit(amountStr, currency string) (int64, error) {
 	}
 	factor := decimal.New(1, int32(amountUnit.apiMinorUnit))
 	minorAmount := d.Mul(factor)
+	if !minorAmount.BigInt().IsInt64() {
+		return 0, fmt.Errorf("payment minor units exceed int64")
+	}
 	return minorAmount.IntPart(), nil
 }
 
 func MinorUnitToAmount(value int64, currency string) float64 {
 	factor := decimal.New(1, int32(CurrencyMinorUnit(currency)))
 	return decimal.NewFromInt(value).Div(factor).InexactFloat64()
+}
+
+// LegacyCallbackAmount projects verified money into the v1 float DTO only
+// when that path can distinguish every submitted minor unit. Zero is the
+// established invalid-paid-amount sentinel. Exact consumers use Minor.
+func LegacyCallbackAmount(minor int64, currency string) float64 {
+	amount := MinorUnitToAmount(minor, currency)
+	back, err := AmountToMinorUnit(strconv.FormatFloat(amount, 'f', -1, 64), currency)
+	if err != nil || back != minor {
+		return 0
+	}
+	return amount
 }

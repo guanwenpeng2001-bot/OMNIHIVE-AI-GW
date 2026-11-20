@@ -81,7 +81,7 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	default:
 	}
 	select {
-	case s.queue <- entry:
+	case s.queue <- scopedAuditProjection(entry):
 	default:
 		atomic.AddUint64(&s.droppedCount, 1)
 	}
@@ -89,12 +89,20 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 
 // List 分页查询审计日志。
 func (s *AuditLogService) List(ctx context.Context, filter *AuditLogFilter) (*AuditLogList, error) {
-	return s.repo.List(ctx, filter)
+	page, err := s.repo.List(ctx, filter)
+	if err != nil || page == nil {
+		return page, err
+	}
+	for i, v := range page.Logs {
+		page.Logs[i] = auditManagementView(v)
+	}
+	return page, nil
 }
 
 // GetByID 查询单条详情。
 func (s *AuditLogService) GetByID(ctx context.Context, id int64) (*AuditLog, error) {
-	return s.repo.GetByID(ctx, id)
+	row, err := s.repo.GetByID(ctx, id)
+	return auditManagementView(row), err
 }
 
 // ClearAll 全量清空审计日志并写入留痕记录。
@@ -130,8 +138,8 @@ func (s *AuditLogService) runWriter() {
 		cancel()
 		if err != nil {
 			atomic.AddUint64(&s.writeFailed, uint64(len(batch)))
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" err=%v batch=%d\n",
-				time.Now().Format(time.RFC3339Nano), err, len(batch))
+			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" batch=%d\n",
+				time.Now().Format(time.RFC3339Nano), len(batch))
 		} else {
 			atomic.AddUint64(&s.writtenCount, uint64(inserted))
 		}
@@ -213,8 +221,8 @@ func (s *AuditLogService) runRetentionOnce() {
 	for {
 		deleted, err := s.repo.DeleteBefore(ctx, cutoff, auditRetentionBatchSize)
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log retention cleanup failed\" err=%v\n",
-				time.Now().Format(time.RFC3339Nano), err)
+			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log retention cleanup failed\"\n",
+				time.Now().Format(time.RFC3339Nano))
 			return
 		}
 		if deleted == 0 {

@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbuser "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/user"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"strings"
 )
 

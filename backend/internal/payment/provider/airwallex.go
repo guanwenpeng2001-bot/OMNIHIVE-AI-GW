@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/shopspring/decimal"
 )
 
@@ -249,10 +249,23 @@ func (a *Airwallex) VerifyNotification(_ context.Context, rawBody string, header
 		status = payment.NotificationStatusSuccess
 	}
 
+	currency, err := payment.NormalizePaymentCurrency(intent.Currency)
+	minor, minorErr := payment.AmountToMinorUnit(intent.Amount.String(), currency)
+	if err != nil || intent.Currency == "" || currency != a.currency() || minorErr != nil || minor <= 0 {
+		return nil, fmt.Errorf("invalid airwallex currency or amount")
+	}
+	if expected := strings.TrimSpace(a.config["accountId"]); expected != "" && event.accountID() != expected {
+		return nil, fmt.Errorf("airwallex notification account mismatch")
+	}
+	eventID := event.ID
+	if eventID == "" {
+		eventID = intent.ID + "/" + status
+	}
 	return &payment.PaymentNotification{
+		EventID: eventID, EffectID: intent.ID, InstanceID: a.instanceID, Currency: currency, Minor: minor,
 		TradeNo:  intent.ID,
 		OrderID:  intent.MerchantOrderID,
-		Amount:   intent.Amount.InexactFloat64(),
+		Amount:   payment.LegacyCallbackAmount(minor, currency),
 		Status:   status,
 		RawData:  rawBody,
 		Metadata: a.intentMetadata(intent, event.accountID()),

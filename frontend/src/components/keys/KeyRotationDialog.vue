@@ -13,7 +13,7 @@
       </label>
 
       <div v-if="!revokePrevious" class="space-y-1">
-        <label for="rotate-grace-hours" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label for="rotate-grace-hours" class="block text-sm font-medium text-[var(--oh-ink,var(--foreground))]">
           {{ t('keys.rotation.graceHours') }}
         </label>
         <input
@@ -22,15 +22,15 @@
           type="number"
           min="0"
           max="720"
-          class="input w-full"
+          class="input w-full font-mono tabular-nums"
           :placeholder="t('keys.rotation.graceDefault')"
         />
-        <p class="text-xs text-gray-500 dark:text-gray-400">
+        <p class="text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
           {{ t('keys.rotation.graceHint') }}
         </p>
       </div>
 
-      <p v-if="errorMessage" class="text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
+      <p v-if="errorMessage" role="alert" class="text-sm text-[var(--oh-danger,#dc2626)]">{{ errorMessage }}</p>
     </div>
 
     <template #footer>

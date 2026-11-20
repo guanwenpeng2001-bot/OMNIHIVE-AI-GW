@@ -808,7 +808,8 @@ type PreviewCacheRecord = {
 type PreviewImageSource = ImageBitmap | HTMLImageElement
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'output_deleted'])
-const PREVIEW_CACHE_DB_NAME = 'sub2api-batch-image-preview-cache'
+const PREVIEW_CACHE_DB_NAME = 'omnihive.batch_image_preview_cache.v1'
+const LEGACY_PREVIEW_CACHE_DB_NAME = 'sub2api-batch-image-preview-cache'
 const PREVIEW_CACHE_STORE_NAME = 'thumbnails'
 const PREVIEW_THUMBNAIL_MAX_EDGE = 360
 const PREVIEW_THUMBNAIL_QUALITY = 0.72
@@ -1690,7 +1691,7 @@ async function submitJob() {
         response_mime_type: form.responseMimeType,
         items: parsedItems.value,
 	      },
-	      `sub2api-ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+	      `omnihive-ui-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
 	    )
 	    currentJob.value = job
 	    selectedBatchId.value = job.id
@@ -1903,7 +1904,7 @@ async function retryFailedJob(job: BatchImageJobRow | BatchImageJob) {
         response_mime_type: form.responseMimeType,
         items: failedItems,
       },
-      `sub2api-ui-retry-${job.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      `omnihive-ui-retry-${job.id}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
     )
     currentJob.value = retryJob
     selectedBatchId.value = retryJob.id
@@ -2186,6 +2187,12 @@ function idbRequest<T>(request: IDBRequest<T>): Promise<T> {
 function openPreviewCacheDB(): Promise<IDBDatabase | null> {
   if (!previewCacheSupported()) return Promise.resolve(null)
   if (previewCacheDBPromise) return previewCacheDBPromise
+
+  try {
+    window.indexedDB.deleteDatabase(LEGACY_PREVIEW_CACHE_DB_NAME)
+  } catch {
+    // A cache from the previous product name is disposable.
+  }
 
   previewCacheDBPromise = new Promise((resolve) => {
     const request = window.indexedDB.open(PREVIEW_CACHE_DB_NAME, 1)

@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // Existing transport scenarios use explicitly unlimited authoritative policies.

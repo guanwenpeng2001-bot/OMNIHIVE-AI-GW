@@ -20,16 +20,16 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbaccount "github.com/Wei-Shaw/sub2api/ent/account"
-	dbaccountgroup "github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
-	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
-	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
-	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbaccount "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/account"
+	dbaccountgroup "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/accountgroup"
+	dbgroup "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/group"
+	dbpredicate "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/predicate"
+	dbproxy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/proxy"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -626,6 +626,24 @@ func (r *accountRepository) updateLockedAccount(
 	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
 		return nil, err
+	}
+	// Adoption takes FOR UPDATE on the same account row. Check ownership after
+	// locking it and before changing credentials or triggering the legacy fence.
+	if configurationOnly {
+		rows, err := client.QueryContext(ctx, `SELECT account_id FROM provider_connections WHERE account_id=$1 AND NOT legacy_dirty`, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		managed := rows.Next()
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if managed {
+			return nil, service.ErrAccountConnectionManaged
+		}
 	}
 	current, err := client.Account.Get(ctx, account.ID)
 	if err != nil {

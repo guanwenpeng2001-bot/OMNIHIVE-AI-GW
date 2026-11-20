@@ -12,14 +12,14 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
-	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
-	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentauditlog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentorder"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentproviderinstance"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment/provider"
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/servertiming"
 )
 
 // --- Refund Flow ---
@@ -410,6 +410,7 @@ func (s *PaymentService) finishRefund(ctx context.Context, p *RefundPlan, resp *
 	}
 	switch strings.TrimSpace(resp.Status) {
 	case payment.ProviderStatusSuccess, payment.ProviderStatusRefunded:
+		p.verifiedRefund = resp
 		return s.markRefundOk(ctx, p)
 	case payment.ProviderStatusPending:
 		return s.markRefundPending(ctx, p, resp)
@@ -437,12 +438,17 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 	}
 
 	pendingDetail := s.latestRefundPendingDetail(ctx, oid)
+	plan := s.refundFinalizePlan(o)
+	queryAmount := o.RefundAmount
+	if prov.ProviderKey() == payment.TypeStripe {
+		queryAmount = plan.GatewayAmount
+	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
 	resp, err := queryProvider.QueryRefund(ctx, payment.RefundQueryRequest{
 		TradeNo:  o.PaymentTradeNo,
 		OrderID:  o.OutTradeNo,
 		RefundID: pendingDetail.RefundID,
-		Amount:   formatGatewayRefundAmount(o.RefundAmount, o),
+		Amount:   formatGatewayRefundAmount(queryAmount, o),
 	})
 	finishProviderCall()
 	if err != nil {
@@ -452,7 +458,6 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 		return s.finalizeRefundFailed(ctx, o, err)
 	}
 
-	plan := s.refundFinalizePlan(o)
 	if !pendingDetail.DeductionRollbackOK {
 		plan.BalanceToDeduct = 0
 		plan.SubDaysToDeduct = 0
@@ -463,6 +468,7 @@ func (s *PaymentService) QueryAndFinalizeRefund(ctx context.Context, oid int64) 
 	}
 	switch strings.TrimSpace(resp.Status) {
 	case payment.ProviderStatusSuccess, payment.ProviderStatusRefunded:
+		plan.verifiedRefund = resp
 		return s.finalizePendingRefundSuccess(ctx, plan)
 	case payment.ProviderStatusPending:
 		s.writeAuditLog(ctx, oid, "REFUND_QUERY_PENDING", "admin", map[string]any{"refundID": resp.RefundID})
@@ -606,6 +612,21 @@ func (s *PaymentService) handleGwFail(ctx context.Context, p *RefundPlan, gErr e
 }
 
 func (s *PaymentService) markRefundOk(ctx context.Context, p *RefundPlan) (*RefundResult, error) {
+	if p.verifiedRefund != nil && p.verifiedRefund.Minor > 0 {
+		tx, err := s.entClient.Tx(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("begin refund confirmation: %w", err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		result, err := s.markRefundOkTx(dbent.NewTxContext(ctx, tx), tx.Client(), p)
+		if err != nil {
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit refund confirmation: %w", err)
+		}
+		return result, nil
+	}
 	fs := OrderStatusRefunded
 	if p.RefundAmount < p.Order.Amount {
 		fs = OrderStatusPartiallyRefunded
@@ -629,7 +650,11 @@ func (s *PaymentService) markRefundOkTx(ctx context.Context, client *dbent.Clien
 	if err != nil {
 		return nil, fmt.Errorf("mark refund: %w", err)
 	}
-	detail, err := json.Marshal(map[string]any{"refundAmount": p.RefundAmount, "reason": p.Reason, "balanceDeducted": p.BalanceToDeduct, "force": p.Force})
+	fields := map[string]any{"refundAmount": p.RefundAmount, "reason": p.Reason, "balanceDeducted": p.BalanceToDeduct, "force": p.Force}
+	if proof := p.verifiedRefund; proof != nil && proof.RefundID != "" && proof.Minor > 0 {
+		fields["refundID"], fields["providerMinor"], fields["providerCurrency"] = proof.RefundID, proof.Minor, proof.Currency
+	}
+	detail, err := json.Marshal(fields)
 	if err != nil {
 		return nil, fmt.Errorf("marshal refund audit: %w", err)
 	}

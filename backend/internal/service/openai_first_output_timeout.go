@@ -15,8 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -51,7 +52,7 @@ func newOpenAIFirstOutputStage(limit int64) *openAIFirstOutputStage {
 	}
 	return &openAIFirstOutputStage{
 		limit:      limit,
-		createTemp: func() (*os.File, error) { return os.CreateTemp("", "sub2api-openai-first-output-*") },
+		createTemp: func() (*os.File, error) { return os.CreateTemp("", "omnihive-openai-first-output-*") },
 		removeFile: os.Remove,
 		memoryOnly: runtime.GOOS == "windows",
 	}
@@ -241,6 +242,28 @@ func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) 
 		}
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+func openAIFirstOutputPreambleLine(line string) bool {
+	if line == "" || strings.HasPrefix(line, ":") {
+		return true
+	}
+	event, ok := strings.CutPrefix(line, "event:")
+	if !ok {
+		data, ok := extractOpenAISSEDataLine(line)
+		if !ok || !gjson.Valid(data) {
+			return false
+		}
+		event = gjson.Get(data, "type").String()
+		if gjson.Get(data, "response.output.#").Int() > 0 || gjson.Get(data, "response.usage").Type != gjson.Null {
+			return false
+		}
+	}
+	switch strings.TrimSpace(event) {
+	case "response.created", "response.in_progress", "ping":
+		return true
+	}
+	return false
 }
 
 // newOpenAIFirstOutputTimeoutError records the timeout as an upstream attempt

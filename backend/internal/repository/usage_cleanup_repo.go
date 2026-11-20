@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbusagecleanuptask "github.com/Wei-Shaw/sub2api/ent/usagecleanuptask"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	dbusagecleanuptask "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/usagecleanuptask"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type usageCleanupRepository struct {

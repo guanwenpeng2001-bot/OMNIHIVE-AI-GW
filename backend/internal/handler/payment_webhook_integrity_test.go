@@ -14,11 +14,11 @@ import (
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 	_ "modernc.org/sqlite"
 )
@@ -58,7 +58,7 @@ func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(test *testing.T) {
 			recorder := httptest.NewRecorder()
 			request, _ := gin.CreateTestContext(recorder)
 			request.Request = httptest.NewRequest(http.MethodPost, "/webhook/easypay", strings.NewReader("out_trade_no=unknown-verified"))
-			NewPaymentWebhookHandler(paymentService, registry).EasyPayNotify(request)
+			NewPaymentWebhookHandler(paymentService, nil).EasyPayNotify(request)
 			require.Equal(test, scenario.expected, recorder.Code)
 			if scenario.expected == http.StatusOK {
 				require.Equal(test, "success", recorder.Body.String())

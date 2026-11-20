@@ -3,9 +3,9 @@ package admin
 import (
 	"strconv"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 // CredentialSecretHandler only exposes metadata and explicit mutations. There
@@ -19,6 +19,7 @@ func NewCredentialSecretHandler(secrets *service.CredentialSecretService) *Crede
 }
 
 func (h *CredentialSecretHandler) Metadata(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
 	accountID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
 	if err != nil || accountID <= 0 {
 		response.ErrorFrom(ctx, service.ErrCredentialSecretInvalid)
@@ -33,6 +34,7 @@ func (h *CredentialSecretHandler) Metadata(ctx *gin.Context) {
 }
 
 func (h *CredentialSecretHandler) Convert(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
 	var request struct {
 		Confirmed       bool   `json:"confirmed"`
 		AccountRevision string `json:"account_revision"`
@@ -51,6 +53,7 @@ func (h *CredentialSecretHandler) Convert(ctx *gin.Context) {
 }
 
 func (h *CredentialSecretHandler) Rotate(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
 	var request struct {
 		ExpectedVersion int64          `json:"expected_version"`
 		Credentials     map[string]any `json:"credentials"`
@@ -69,6 +72,7 @@ func (h *CredentialSecretHandler) Rotate(ctx *gin.Context) {
 }
 
 func (h *CredentialSecretHandler) Revoke(ctx *gin.Context) {
+	ctx.Header("Cache-Control", "private, no-store")
 	var request struct {
 		ExpectedVersion int64 `json:"expected_version"`
 	}
@@ -83,4 +87,8 @@ func (h *CredentialSecretHandler) Revoke(ctx *gin.Context) {
 		return
 	}
 	response.Success(ctx, metadata)
+}
+
+func CredentialAuthorizationBinding(ctx *gin.Context) (string, error) {
+	return credentialDraftBinding(ctx, false)
 }

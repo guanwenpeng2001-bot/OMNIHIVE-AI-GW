@@ -15,9 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,7 +74,7 @@ func TestMcpGrantLifecycle(t *testing.T) {
 		Grants   []MCPGrantDTO `json:"grants"`
 	}
 	first := mcpData[listing](t, mcpRequest(h, 1, "user", "GET", "/grants", ""))
-	require.Len(t, first.Grants, 2)
+	require.Empty(t, first.Grants)
 	require.Equal(t, "user", first.Role)
 	require.Equal(t, "/mcp", first.Endpoint)
 	require.Equal(t, first, mcpData[listing](t, mcpRequest(h, 1, "user", "GET", "/grants", "")))
@@ -86,12 +87,12 @@ func TestMcpGrantLifecycle(t *testing.T) {
 	require.Equal(t, "revoked", revoked.Status)
 	require.Equal(t, revoked, mcpData[MCPGrantDTO](t, mcpRequest(h, 1, "user", "DELETE", "/grants/"+created.ID, "")))
 	events := mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 1, "user", "GET", "/audit", ""))
-	require.Len(t, events, 5)
+	require.Len(t, events, 2)
 	require.Equal(t, "mcp.grant.revoked", events[0].Action)
 	require.Equal(t, created.ID, events[0].Resource)
 	require.Equal(t, "mcp.grant.created", events[1].Action)
-	require.Len(t, mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 2, "user", "GET", "/audit", "")), 3)
-	require.Len(t, mcpData[listing](t, mcpRequest(h, 1, "user", "GET", "/grants", "")).Grants, 3)
+	require.Empty(t, mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 2, "user", "GET", "/audit", "")))
+	require.Len(t, mcpData[listing](t, mcpRequest(h, 1, "user", "GET", "/grants", "")).Grants, 1)
 }
 
 func TestMcpGrantValidation(t *testing.T) {
@@ -141,7 +142,7 @@ func TestMcpGrantConcurrentInitialization(t *testing.T) {
 	wg.Wait()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	require.Len(t, h.users[1].grants, 2)
+	require.Empty(t, h.users[1].grants)
 }
 
 func TestMcpGrantAuthorizeDecisions(t *testing.T) {
@@ -152,11 +153,11 @@ func TestMcpGrantAuthorizeDecisions(t *testing.T) {
 	events := mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 1, "user", "GET", "/audit", ""))
 	require.Equal(t, "mcp.grant.denied", events[0].Action)
 	require.Equal(t, "denied", events[0].Status)
-	require.Len(t, h.users[1].grants, 2)
+	require.Empty(t, h.users[1].grants)
 	body = strings.ReplaceAll(strings.ReplaceAll(body, "deny", "approve"), "admin", "user")
 	approved := mcpData[map[string]any](t, mcpRequest(h, 1, "user", "POST", "/authorize", body))
 	require.Equal(t, "approved", approved["decision"])
-	require.Len(t, h.users[1].grants, 3)
+	require.Len(t, h.users[1].grants, 1)
 	for _, invalid := range []string{`{`, strings.ReplaceAll(body, "approve", "other"), strings.ReplaceAll(body, `"client_id":"client"`, `"client_id":""`), strings.ReplaceAll(body, `"name":"Client"`, `"resource":"javascript:alert(1)","name":"Client"`)} {
 		require.Equal(t, 400, mcpRequest(h, 1, "user", "POST", "/authorize", invalid).Code)
 	}
@@ -185,7 +186,7 @@ func TestMcpGrantOnboarding(t *testing.T) {
 		require.Equal(t, [3]bool{false, true, false}, result.Steps)
 	}
 	events := mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 1, "user", "GET", "/audit", ""))
-	require.Len(t, events, 4)
+	require.Len(t, events, 1)
 	require.Equal(t, "onboarding.step.completed", events[0].Action)
 	require.Equal(t, initial, mcpData[OnboardingDTO](t, mcpRequest(h, 2, "user", "GET", "/onboarding", "")))
 	for _, body := range []string{`{`, `{"step_index":-1,"completed":true}`, `{"step_index":3,"completed":true}`, `{"step_index":1.5,"completed":true}`, `{"completed":true}`, `{"step_index":0}`, `{"hidden":"yes"}`} {
@@ -196,21 +197,9 @@ func TestMcpGrantOnboarding(t *testing.T) {
 	require.Equal(t, [3]bool{}, result.Steps)
 }
 func TestMcpGrantPublicRankings(t *testing.T) {
-	data := mcpData[map[string][]RankingItemDTO](t, mcpRequest(NewMCPGrantHandler(), 0, "", "GET", "/rankings", ""))
-	for _, key := range []string{"models", "channels", "cost"} {
-		require.NotEmpty(t, data[key])
-		for _, item := range data[key] {
-			require.Contains(t, []string{"up", "down", "flat"}, item.Trend)
-			require.NotEmpty(t, item.Name)
-			require.NotEmpty(t, item.Provider)
-			require.NotEmpty(t, item.Metric)
-			require.NotEmpty(t, item.Delta)
-			require.NotEmpty(t, item.Color)
-			require.NotEmpty(t, item.Slug)
-			require.Len(t, item.Sparkline, 7)
-			require.Positive(t, item.LatencyMS)
-		}
-	}
+	w := mcpRequest(NewMCPGrantHandler(), 0, "", "GET", "/rankings", "")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+	require.Contains(t, w.Body.String(), "Public model rankings are unavailable")
 }
 
 type mcpPulseReader struct{ fail bool }
@@ -369,7 +358,7 @@ func TestMcpGrantUpdateRoutingPolicies(t *testing.T) {
 	events := mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 1, "user", "GET", "/audit", ""))
 	require.Equal(t, "routing.policies.updated", events[0].Action)
 	require.Equal(t, "routing-policies", events[0].Resource)
-	require.Len(t, mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 2, "user", "GET", "/audit", "")), 3)
+	require.Empty(t, mcpData[[]UserAuditEventDTO](t, mcpRequest(h, 2, "user", "GET", "/audit", "")))
 	for _, patch := range []string{`{"strategy_mode":"invalid"}`, `{"region_preference":"invalid"}`, `{"monthly_budget_usd":-1}`, `{"alert_threshold_percent":101}`, `{"alert_threshold_percent":0}`, `{"provider_whitelist":null}`, `{"provider_whitelist":[""]}`, `{"provider_whitelist":["OpenAI","OpenAI"]}`} {
 		var obj map[string]any
 		require.NoError(t, json.Unmarshal(payload, &obj))
@@ -551,6 +540,20 @@ func TestMcpGrantExtensionEngines(t *testing.T) {
 			require.Empty(t, request(r, `{"stream":true}`, "key").Header().Get("X-OmniHive-Cache"))
 		}
 		require.Equal(t, 5, *calls)
+	})
+	t.Run("paid runs each reach the gateway journal", func(t *testing.T) {
+		h, r, calls := newEngine("cache-layer")
+		for i := 0; i < 2; i++ {
+			req := httptest.NewRequest(http.MethodPost, "/chat", strings.NewReader(`{"message":"hi"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(ctxkey.WithPrivateGatewayContent(req.Context()))
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Empty(t, w.Header().Get("X-OmniHive-Cache"))
+		}
+		require.Equal(t, 2, *calls)
+		require.Empty(t, h.cache)
 	})
 	t.Run("cost breaker", func(t *testing.T) {
 		h, r, calls := newEngine("cost-tracker")

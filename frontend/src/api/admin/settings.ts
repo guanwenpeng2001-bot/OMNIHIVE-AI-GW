@@ -401,6 +401,7 @@ export function deriveWeChatConnectStoredMode(
  * System settings interface
  */
 export interface SystemSettings {
+  turnstile_secret_key?: string
   // Registration settings
   registration_enabled: boolean;
   email_verify_enabled: boolean;

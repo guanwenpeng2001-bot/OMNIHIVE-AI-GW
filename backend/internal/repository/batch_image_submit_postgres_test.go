@@ -6,11 +6,11 @@ import (
 	"context"
 	"database/sql"
 	"io"
-	"os"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,10 +47,7 @@ func (a batchSubmitAccounts) ListSchedulableByGroupIDAndPlatform(context.Context
 }
 
 func TestBatchImageSubmitUploadFailurePostgres(t *testing.T) {
-	dsn := os.Getenv("BATCH_SUBMIT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("requires isolated fix3_batch_test PostgreSQL")
-	}
+	dsn := testresources.DedicatedPostgresDSN(t, "BATCH_SUBMIT_TEST_DSN", "fix3_batch_test")
 	db, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })

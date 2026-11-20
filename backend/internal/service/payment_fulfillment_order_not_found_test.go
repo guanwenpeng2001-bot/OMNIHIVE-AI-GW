@@ -12,9 +12,9 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	_ "modernc.org/sqlite"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/enttest"
-	"github.com/Wei-Shaw/sub2api/internal/payment"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/enttest"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/payment"
 	"github.com/stretchr/testify/require"
 )
 
@@ -109,9 +109,9 @@ func TestPaymentLookupFailuresRemainRetryable(test *testing.T) {
 	client := newOrderNotFoundTestClient(test)
 	service := &PaymentService{entClient: client}
 	ctx := context.Background()
-	require.ErrorIs(test, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil), ErrOrderNotFound)
+	require.ErrorIs(test, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, "", nil), ErrOrderNotFound)
 	require.NoError(test, client.Close())
-	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil)
+	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, "", nil)
 	require.Error(test, err)
 	require.NotErrorIs(test, err, ErrOrderNotFound)
 	err = service.alreadyProcessed(ctx, &dbent.PaymentOrder{ID: 42})

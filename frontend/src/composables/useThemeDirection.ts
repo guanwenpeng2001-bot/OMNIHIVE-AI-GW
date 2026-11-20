@@ -1,5 +1,12 @@
 import { computed, ref } from 'vue'
+import {
+  LegacyStorageKeys,
+  themeModeStorage,
+  uiDensityStorage
+} from '@/api/tokenRefresh'
 
+export type ThemeModePreference = 'light' | 'dark' | 'system'
+export type DensityPreference = 'comfort' | 'compact'
 export type ThemeDirectionKey = 'teal' | 'control' | 'slate' | 'indigo' | 'mono'
 
 export interface ThemeDirectionMeta {
@@ -16,59 +23,19 @@ export interface ThemeDirectionMeta {
 export const THEME_DIRECTIONS: ThemeDirectionMeta[] = [
   {
     key: 'teal',
-    name: 'Hive Aura · 极简基准',
-    shortName: 'Hive Aura',
-    desc: '暖白极简 + 蜜金琥珀，OmniHive 默认',
-    c1: '#fafafa',
+    name: 'OmniHive · Charcoal & Amber',
+    shortName: 'OmniHive',
+    desc: 'Honeycomb · Charcoal · Amber architectural system',
+    c1: '#f7f8fa',
     c2: '#f59e0b',
-    c3: '#16161a',
-    radius: '12px'
-  },
-  {
-    key: 'control',
-    name: 'Control Room · 工程风',
-    shortName: 'Control Room',
-    desc: '深色工程控制台，数据密度最高',
-    c1: '#06080d',
-    c2: '#22d3ee',
-    c3: '#dbe4ee',
-    radius: '10px'
-  },
-  {
-    key: 'slate',
-    name: 'Quiet Slate · 极简',
-    shortName: 'Quiet Slate',
-    desc: '冷静极简，向 Linear 靠拢',
-    c1: '#fbfbfc',
-    c2: '#4f46e5',
-    c3: '#18181b',
-    radius: '16px'
-  },
-  {
-    key: 'indigo',
-    name: 'Vertex Indigo · 品牌色',
-    shortName: 'Vertex Indigo',
-    desc: '品牌紫渐变，SaaS 产品感',
-    c1: '#f6f7fb',
-    c2: '#6d4aff',
-    c3: '#15162b',
-    radius: '14px'
-  },
-  {
-    key: 'mono',
-    name: 'Mono Terminal · 技术风',
-    shortName: 'Mono Terminal',
-    desc: '等宽字体 + 荧光绿，技术文档风',
-    c1: '#0b0d0c',
-    c2: '#62f0c4',
-    c3: '#d6e4da',
-    radius: '6px'
+    c3: '#141519',
+    radius: '8px'
   }
 ]
 
-const VALID_KEYS = new Set<ThemeDirectionKey>(['teal', 'control', 'slate', 'indigo', 'mono'])
-
 const currentTheme = ref<ThemeDirectionKey>('teal')
+const themeMode = ref<ThemeModePreference>('system')
+const densityMode = ref<DensityPreference>('comfort')
 const isDark = ref<boolean>(false)
 const isDense = ref<boolean>(false)
 const isSpecMode = ref<boolean>(false)
@@ -90,49 +57,114 @@ const drawerState = ref<GlobalDrawerState>({
 })
 
 let initialized = false
+let mediaQueryCleanup: (() => void) | null = null
 
-function safeGetStorage(key: string): string | null {
-  try {
-    return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
-  } catch {
-    return null
+export interface LegacyThemeMigrationResult {
+  mode: 'light' | 'dark'
+  density?: DensityPreference
+}
+
+export function mapLegacyThemeDirection(
+  rawStyle: string | null | undefined
+): LegacyThemeMigrationResult | null {
+  const normalized = (rawStyle || '').trim().toLowerCase()
+  switch (normalized) {
+    case 'control':
+      return { mode: 'dark', density: 'compact' }
+    case 'mono':
+      return { mode: 'dark' }
+    case 'slate':
+    case 'indigo':
+    case 'teal':
+      return { mode: 'light' }
+    default:
+      return null
   }
 }
 
-function safeSetStorage(key: string, value: string): void {
+function readLegacyStyleFromDomOrStorage(): string | null {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(key, value)
+      const stored = localStorage.getItem(LegacyStorageKeys.THEME_STYLE)
+      if (stored && stored.trim()) return stored
+    }
+  } catch {
+    // ignore storage failures
+  }
+  if (typeof document !== 'undefined') {
+    const attr = document.documentElement.getAttribute('data-theme')
+    if (attr && attr.trim()) return attr
+  }
+  return null
+}
+
+function safeRemoveLegacyStyle(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(LegacyStorageKeys.THEME_STYLE)
+      localStorage.removeItem(LegacyStorageKeys.UI_SPEC)
     }
   } catch {
     // ignore storage failures
   }
 }
 
-function applyDomTheme(key: ThemeDirectionKey, animate = false): void {
+function prefersDarkColorScheme(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+}
+
+export function isPublicDefaultLightPath(pathname: string): boolean {
+  if (!pathname || pathname === '/' || pathname === '/home') return true
+  return (
+    pathname.startsWith('/models') ||
+    pathname.startsWith('/model-plaza') ||
+    pathname.startsWith('/pricing') ||
+    pathname.startsWith('/status') ||
+    pathname.startsWith('/docs') ||
+    pathname.startsWith('/legal') ||
+    pathname.startsWith('/key-usage') ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/register') ||
+    pathname.startsWith('/forgot-password') ||
+    pathname.startsWith('/reset-password') ||
+    pathname.startsWith('/email-verify') ||
+    pathname.startsWith('/auth/') ||
+    pathname.startsWith('/setup')
+  )
+}
+
+function resolveEffectiveDark(mode: ThemeModePreference | null): boolean {
+  if (mode === 'dark') return true
+  if (mode === 'light') return false
+  if (mode === 'system') return prefersDarkColorScheme()
+  const pathname = typeof window !== 'undefined' ? window.location.pathname : '/'
+  if (isPublicDefaultLightPath(pathname)) {
+    return false
+  }
+  return true
+}
+
+function clearRetiredDomTheme(): void {
   if (typeof document === 'undefined') return
-  const root = document.documentElement
-  if (key === 'teal') {
-    root.removeAttribute('data-theme')
-  } else {
-    root.setAttribute('data-theme', key)
-  }
-  if (animate && document.body) {
-    document.body.classList.add('theme-anim')
-    window.setTimeout(() => {
-      document.body?.classList.remove('theme-anim')
-    }, 360)
-  }
+  document.documentElement.removeAttribute('data-theme')
 }
 
 function applyDomDark(dark: boolean): void {
   if (typeof document === 'undefined') return
   document.documentElement.classList.toggle('dark', dark)
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
 }
 
-function applyDomDense(dense: boolean): void {
-  if (typeof document === 'undefined' || !document.body) return
-  document.body.classList.toggle('dense', dense)
+function applyDomDensity(density: DensityPreference): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.setAttribute('data-density', density)
+  if (document.body) {
+    document.body.classList.toggle('dense', density === 'compact')
+  }
 }
 
 function applyDomSpec(spec: boolean): void {
@@ -140,37 +172,63 @@ function applyDomSpec(spec: boolean): void {
   document.body.classList.toggle('spec-mode', spec)
 }
 
+function ensureSystemThemeListener(): void {
+  if (mediaQueryCleanup || typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return
+  }
+  const mql = window.matchMedia('(prefers-color-scheme: dark)')
+  const onChange = () => {
+    if (themeMode.value === 'system' && themeModeStorage.get() === 'system') {
+      isDark.value = mql.matches
+      applyDomDark(isDark.value)
+    }
+  }
+  mql.addEventListener?.('change', onChange)
+  mediaQueryCleanup = () => mql.removeEventListener?.('change', onChange)
+}
+
+export function resetThemeDirectionForTests(): void {
+  initialized = false
+  if (mediaQueryCleanup) {
+    mediaQueryCleanup()
+    mediaQueryCleanup = null
+  }
+}
+
 export function useThemeDirection() {
   function initThemeDirection(): void {
     if (typeof document === 'undefined') return
-    const savedStyle = safeGetStorage('omnihive.style') as ThemeDirectionKey | null
-    if (savedStyle && VALID_KEYS.has(savedStyle)) {
-      currentTheme.value = savedStyle
-    } else {
-      currentTheme.value = 'teal'
-    }
-    applyDomTheme(currentTheme.value, false)
+    currentTheme.value = 'teal'
+    const legacyStyle = readLegacyStyleFromDomOrStorage()
+    const legacyMapped = mapLegacyThemeDirection(legacyStyle)
+    clearRetiredDomTheme()
+    safeRemoveLegacyStyle()
 
-    const savedMode = safeGetStorage('omnihive.mode') ?? safeGetStorage('theme')
-    if (savedMode === 'dark') {
-      isDark.value = true
-    } else if (savedMode === 'light') {
-      isDark.value = false
+    let savedMode = themeModeStorage.get() as ThemeModePreference | null
+    if (!savedMode && legacyMapped) {
+      savedMode = legacyMapped.mode
+      themeModeStorage.set(savedMode)
+    }
+    if (savedMode === 'dark' || savedMode === 'light' || savedMode === 'system') {
+      themeMode.value = savedMode
+      isDark.value = resolveEffectiveDark(savedMode)
     } else {
-      isDark.value =
-        document.documentElement.classList.contains('dark') ||
-        (typeof window !== 'undefined' &&
-          typeof window.matchMedia === 'function' &&
-          window.matchMedia('(prefers-color-scheme: dark)').matches)
+      themeMode.value = 'system'
+      isDark.value = resolveEffectiveDark(null)
     }
     applyDomDark(isDark.value)
+    ensureSystemThemeListener()
 
-    const savedDense = safeGetStorage('omnihive.dense')
-    isDense.value = savedDense === '1'
-    applyDomDense(isDense.value)
+    let savedDensity = uiDensityStorage.get() as DensityPreference | null
+    if (!savedDensity && legacyMapped?.density) {
+      savedDensity = legacyMapped.density
+      uiDensityStorage.set(savedDensity)
+    }
+    densityMode.value = savedDensity === 'compact' ? 'compact' : 'comfort'
+    isDense.value = densityMode.value === 'compact'
+    applyDomDensity(densityMode.value)
 
-    const savedSpec = safeGetStorage('omnihive.spec')
-    isSpecMode.value = savedSpec === '1'
+    isSpecMode.value = false
     applyDomSpec(isSpecMode.value)
     initialized = true
   }
@@ -180,18 +238,27 @@ export function useThemeDirection() {
   }
 
   function setThemeDirection(key: ThemeDirectionKey): void {
-    if (!VALID_KEYS.has(key)) return
-    currentTheme.value = key
-    safeSetStorage('omnihive.style', key)
-    applyDomTheme(key, true)
+    currentTheme.value = 'teal'
+    clearRetiredDomTheme()
+    safeRemoveLegacyStyle()
+    const mapped = mapLegacyThemeDirection(key)
+    if (mapped) {
+      setThemeMode(mapped.mode)
+      if (mapped.density) {
+        setDensityMode(mapped.density)
+      }
+    }
+  }
+
+  function setThemeMode(mode: ThemeModePreference): void {
+    themeMode.value = mode
+    themeModeStorage.set(mode)
+    isDark.value = resolveEffectiveDark(mode)
+    applyDomDark(isDark.value)
   }
 
   function setDarkMode(dark: boolean): void {
-    isDark.value = dark
-    const mode = dark ? 'dark' : 'light'
-    safeSetStorage('omnihive.mode', mode)
-    safeSetStorage('theme', mode)
-    applyDomDark(dark)
+    setThemeMode(dark ? 'dark' : 'light')
   }
 
   function toggleDarkMode(): boolean {
@@ -199,10 +266,15 @@ export function useThemeDirection() {
     return isDark.value
   }
 
+  function setDensityMode(density: DensityPreference): void {
+    densityMode.value = density
+    isDense.value = density === 'compact'
+    uiDensityStorage.set(density)
+    applyDomDensity(density)
+  }
+
   function setDenseMode(dense: boolean): void {
-    isDense.value = dense
-    safeSetStorage('omnihive.dense', dense ? '1' : '0')
-    applyDomDense(dense)
+    setDensityMode(dense ? 'compact' : 'comfort')
   }
 
   function toggleDenseMode(): boolean {
@@ -212,7 +284,6 @@ export function useThemeDirection() {
 
   function setSpecMode(spec: boolean): void {
     isSpecMode.value = spec
-    safeSetStorage('omnihive.spec', spec ? '1' : '0')
     applyDomSpec(spec)
   }
 
@@ -249,24 +320,21 @@ export function useThemeDirection() {
   }
 
   function openThemePickerModal(): void {
-    themePickerOpen.value = true
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('omnihive:open-theme-picker'))
-    }
+    themePickerOpen.value = false
   }
 
   function closeThemePickerModal(): void {
     themePickerOpen.value = false
   }
 
-  const currentThemeMeta = computed(
-    () => THEME_DIRECTIONS.find((t) => t.key === currentTheme.value) ?? THEME_DIRECTIONS[0]
-  )
+  const currentThemeMeta = computed(() => THEME_DIRECTIONS[0])
 
   return {
     themes: THEME_DIRECTIONS,
     currentTheme,
     currentThemeMeta,
+    themeMode,
+    densityMode,
     isDark,
     isDense,
     isSpecMode,
@@ -275,8 +343,10 @@ export function useThemeDirection() {
     drawerState,
     initThemeDirection,
     setThemeDirection,
+    setThemeMode,
     setDarkMode,
     toggleDarkMode,
+    setDensityMode,
     setDenseMode,
     toggleDenseMode,
     setSpecMode,

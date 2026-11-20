@@ -214,6 +214,7 @@ import {
   loadAffiliateReferralCode,
   oauthAffiliatePayload
 } from '@/utils/oauthAffiliate'
+import { authStorage } from '@/api/tokenRefresh'
 
 const { t, locale } = useI18n()
 
@@ -280,7 +281,7 @@ const aliyunCaptchaEnabled = ref<boolean>(false)
 const aliyunCaptchaSceneId = ref<string>('')
 const aliyunCaptchaPrefix = ref<string>('')
 const aliyunCaptchaRegion = ref<string>('cn')
-const siteName = ref<string>('Sub2API')
+const siteName = ref<string>('OmniHive')
 const registrationEmailSuffixWhitelist = ref<string[]>([])
 // 域名限量注册开关：开启时非白名单域名可注册 1 个账户（由后端判定），前端不做白名单预检。
 const emailDomainQuotaEnabled = ref<boolean>(false)
@@ -337,7 +338,7 @@ onMounted(async () => {
   const activePendingSession = authStore.pendingAuthSession as PendingAuthSessionSummary | null
 
   // Load registration data from sessionStorage
-  const registerDataStr = sessionStorage.getItem('register_data')
+  const registerDataStr = authStorage.registerDraft.get()
   if (registerDataStr) {
     try {
       const registerData = JSON.parse(registerDataStr)
@@ -385,7 +386,7 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
-    siteName.value = settings.site_name || 'Sub2API'
+    siteName.value = settings.site_name || 'OmniHive'
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []
     )
@@ -579,7 +580,7 @@ async function sendCode(): Promise<void> {
       ? getPendingOAuthSendCodeSessionResponse(response as PendingOAuthSendVerifyCodeResponse)
       : null
     if (pendingSendCodeSession) {
-      sessionStorage.removeItem('register_data')
+      authStorage.registerDraft.remove()
       persistPendingOAuthSession(
         pendingSendCodeSession.provider || pendingProvider.value,
         pendingSendCodeSession.redirect,
@@ -615,7 +616,7 @@ async function sendCode(): Promise<void> {
 }
 
 function clearStoredCaptchaProof(): void {
-  const registerDataStr = sessionStorage.getItem('register_data')
+  const registerDataStr = authStorage.registerDraft.get()
   if (!registerDataStr) return
 
   try {
@@ -623,7 +624,7 @@ function clearStoredCaptchaProof(): void {
     delete registerData.turnstile_token
     delete registerData.tencent_captcha_ticket
     delete registerData.tencent_captcha_randstr
-    sessionStorage.setItem('register_data', JSON.stringify(registerData))
+    authStorage.registerDraft.setJSON(registerData)
   } catch {
     // Invalid registration state is handled by the existing onMounted parser.
   }
@@ -718,7 +719,7 @@ async function handleVerify(): Promise<void> {
         payload
       )
       if (isPendingOAuthSessionResponse(data)) {
-        sessionStorage.removeItem('register_data')
+        authStorage.registerDraft.remove()
         persistPendingOAuthSession(data.provider || pendingProvider.value, data.redirect)
         await router.push(resolvePendingOAuthCallbackRoute(data.provider || pendingProvider.value))
         return
@@ -750,7 +751,7 @@ async function handleVerify(): Promise<void> {
     }
 
     // Clear session data
-    sessionStorage.removeItem('register_data')
+    authStorage.registerDraft.remove()
     clearAllAffiliateReferralCodes()
 
     // Show success toast
@@ -774,7 +775,7 @@ async function handleVerify(): Promise<void> {
 
 function handleBack(): void {
   // Clear session data
-  sessionStorage.removeItem('register_data')
+  authStorage.registerDraft.remove()
 
   // Go back to registration
   router.push('/register')
@@ -803,69 +804,3 @@ function buildRegistrationErrorMessage(error: unknown, fallback: string): string
   return buildAuthErrorMessage(error, { fallback })
 }
 </script>
-
-<style scoped>
-:is(input, select, textarea).input {
-  min-height: 40px;
-  min-width: 0;
-  border-radius: 8px;
-  border-color: var(--field-border, var(--input));
-  background: var(--card);
-  color: var(--foreground);
-  box-shadow: none;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-:is(input, select, textarea).input::placeholder { color: var(--muted-foreground); }
-:is(input, select, textarea).input:disabled { background: var(--surface-2); }
-:is(input, select, textarea).input:focus {
-  border-color: var(--field-border, var(--brand));
-  outline: 2px solid color-mix(in srgb, var(--field-border, var(--brand)) 22%, transparent);
-  outline-offset: 2px;
-  box-shadow: none;
-}
-
-.input-error { --field-border: var(--bad); }
-label.input-label { color: var(--foreground); }
-p.input-hint { color: var(--muted-foreground); }
-
-:is(button, a).btn {
-  min-height: 40px;
-  border-radius: 8px;
-  background-image: none;
-  box-shadow: none;
-  transform: none;
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.btn.btn-primary { background: var(--primary); color: var(--primary-foreground); }
-.btn.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 90%, var(--card)); }
-.btn.btn-outline { border-color: var(--border); background: var(--card); color: var(--foreground); }
-.btn.btn-outline:hover:not(:disabled) { background: var(--surface-2); }
-
-button:focus-visible, a:focus-visible, summary:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 3px;
-}
-
-input[type='checkbox'] { accent-color: var(--brand); }
-
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: all 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
-@media (prefers-reduced-motion: reduce) {
-  :is(button, a).btn, :is(input, select, textarea).input, .fade-enter-active, .fade-leave-active,
-  .agreement-fade-enter-active, .agreement-fade-leave-active,
-  .agreement-fade-enter-active > div, .agreement-fade-leave-active > div {
-    transition: none;
-  }
-}
-</style>

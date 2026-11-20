@@ -1,0 +1,24 @@
+syntax = "proto3";
+package omnihive.plugin.v2.actions;
+option go_package = "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/pkg/pluginapi/v2/actions";
+
+enum Kind {
+  UNSPECIFIED = 0;
+  PROVIDER_RESPONSES = 1;
+  TASK_IMAGE_GENERATE = 2;
+}
+
+// All actions run the already admitted adapter. The guest may request identity
+// transfer encoding when the host has not already selected an encoding.
+enum Transfer {
+  TRANSFER_UNSPECIFIED = 0;
+  HOST_DEFAULT = 1;
+  IDENTITY = 2;
+}
+message Request {
+  Kind kind = 1;
+}
+message Plan {
+  Kind kind = 1;
+  Transfer transfer = 2;
+}

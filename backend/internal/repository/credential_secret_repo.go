@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 type credentialSecretRepository struct {
@@ -119,7 +119,7 @@ func (r *credentialSecretRepository) Convert(ctx context.Context, accountID int6
 		return nil, service.ErrCredentialSecretInvalid
 	}
 	metadata := &service.CredentialSecret{Reference: uuid.NewString(), AccountID: accountID, WorkspaceID: workspaceID, Version: 1, UpdatedAt: time.Now().UTC()}
-	ciphertext, err := service.EncryptCredentialSecret(r.encryptor, *metadata, secrets)
+	ciphertext, err := service.EncryptVerifiedCredential(ctx, r.encryptor, *metadata, secrets)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +140,20 @@ func (r *credentialSecretRepository) Convert(ctx context.Context, accountID int6
 	}
 	service.InvalidateModelCatalogCaches()
 	return metadata, nil
+}
+
+func InstallCredentialVersion(ctx context.Context, tx *sql.Tx, metadata service.CredentialSecret) error {
+	workspace, current, _, err := lockCredentialAccount(ctx, tx, metadata.AccountID)
+	if err != nil {
+		return err
+	}
+	if workspace != metadata.WorkspaceID {
+		return service.ErrCredentialSecretNotFound
+	}
+	inline, _ := service.SplitCredentialSecrets(current)
+	inline[service.CredentialSecretReferenceKey] = metadata.Reference
+	inline[service.CredentialSecretVersionKey] = metadata.Version
+	return writeReferencedAccount(ctx, tx, metadata.AccountID, inline)
 }
 
 func writeReferencedAccount(ctx context.Context, database credentialSQL, accountID int64, credentials map[string]any) error {

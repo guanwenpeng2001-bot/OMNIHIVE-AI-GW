@@ -266,7 +266,7 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 			t.Setenv("OMNIHIVE_DATA_DIR", dataDir)
 			exe := filepath.Join(root, "sub2api")
 			require.NoError(t, os.WriteFile(exe, []byte("running-old"), 0755))
-			current := filepath.Join(dataDir, ".updates", "current", "sub2api")
+			current := filepath.Join(dataDir, ".updates", "current", "omnihive")
 			previous := "running-old"
 			if existing {
 				require.NoError(t, os.MkdirAll(filepath.Dir(current), 0755))
@@ -279,11 +279,11 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 			svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
 			svc.executablePath = func() (string, error) { return exe, nil }
 			assets := []Asset{{Name: archiveName, DownloadURL: "https://api.github.com/repos/owner/repo/releases/assets/123"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/owner/repo/releases/assets/124"}}
-			require.NoError(t, svc.applyReleaseAssets(context.Background(), assets))
+			require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 			content, err := os.ReadFile(current)
 			require.NoError(t, err)
 			require.Equal(t, "new-binary", string(content))
-			backup := filepath.Join(dataDir, ".updates", "backup", "sub2api")
+			backup := filepath.Join(dataDir, ".updates", "backup", "omnihive")
 			content, err = os.ReadFile(backup)
 			require.NoError(t, err)
 			require.Equal(t, previous, string(content))
@@ -323,10 +323,10 @@ func TestUpdateServiceChecksumFailureDoesNotStage(t *testing.T) {
 	t.Setenv("OMNIHIVE_DATA_DIR", root)
 	exe := filepath.Join(root, "sub2api")
 	require.NoError(t, os.WriteFile(exe, []byte("original"), 0755))
-	client := &updateServiceGitHubClientStub{archive: updateTestArchive(t, "sub2api", "bad"), checksums: []byte("incorrect  release_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz\n")}
+	client := &updateServiceGitHubClientStub{archive: updateTestArchive(t, "sub2api", "bad"), checksums: []byte("incorrect  omnihive_0.2.5_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz\n")}
 	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
 	svc.executablePath = func() (string, error) { return exe, nil }
-	err := svc.applyReleaseAssets(context.Background(), []Asset{{Name: "release_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}})
+	err := svc.applyReleaseAssets(context.Background(), "0.2.5", []Asset{{Name: "omnihive_0.2.5_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}})
 	require.ErrorContains(t, err, "checksum mismatch")
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)
@@ -378,11 +378,11 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	client := &updateServiceGitHubClientStub{archive: archive, checksums: []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), name))}
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
 	svc.executablePath = func() (string, error) { return exe, nil }
-	require.NoError(t, svc.applyReleaseAssets(context.Background(), []Asset{{Name: name, DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}}))
+	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", []Asset{{Name: name, DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}}))
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)
 	require.Equal(t, "original", string(content))
-	current := filepath.Join(root, ".updates", "current", "sub2api")
+	current := filepath.Join(root, ".updates", "current", "omnihive")
 	content, err = os.ReadFile(current)
 	require.NoError(t, err)
 	require.Equal(t, "updated", string(content))

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	appTimezone "github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	appTimezone "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/timezone"
 )
 
 const groupUsageDateFormat = "2006-01-02"

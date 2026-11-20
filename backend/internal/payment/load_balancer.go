@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
-	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentorder"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent/paymentproviderinstance"
 )
 
 // Strategy represents a load balancing strategy for provider instance selection.

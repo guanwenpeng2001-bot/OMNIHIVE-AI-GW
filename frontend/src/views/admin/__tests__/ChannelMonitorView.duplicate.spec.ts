@@ -20,12 +20,12 @@ const {
 
 
 vi.mock('@/utils/featureFlags', () => ({
-  isChannelMonitorV1Mode: () => true,
-  isChannelMonitorV2Mode: () => false,
+  isChannelProbeMode: () => true,
+  isChannelTelemetryMode: () => false,
   getChannelMonitorMode: () => 'v1' as const,
 }))
 
-vi.mock('@/features/channel-monitor-v2/MonitorSettingsPanel.vue', () => ({
+vi.mock('@/features/channel-telemetry/MonitorSettingsPanel.vue', () => ({
   default: { name: 'MonitorSettingsPanel', template: '<div data-testid="v2-settings" />' },
 }))
 
@@ -150,7 +150,7 @@ describe('ChannelMonitorView duplicate action', () => {
 
     expect(wrapper.findComponent(MonitorActionsCell).exists()).toBe(false)
     expect(wrapper.find('toggle-stub').exists()).toBe(false)
-    expect(wrapper.text()).toContain('channelMonitorV2.cursorLegacyReadOnly')
+    expect(wrapper.text()).toContain('channelTelemetry.cursorLegacyReadOnly')
     expect(duplicateMonitor).not.toHaveBeenCalled()
     wrapper.unmount()
   })

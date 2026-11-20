@@ -3,7 +3,6 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import { useThemeDirection, THEME_DIRECTIONS } from '@/composables/useThemeDirection'
 import CommandPalette from '../CommandPalette.vue'
-import ThemeStyleDock from '../ThemeStyleDock.vue'
 
 const pushSpy = vi.fn()
 
@@ -35,7 +34,7 @@ describe('OmniHive design system & command palette', () => {
     pushSpy.mockReset()
   })
 
-  it('switches between the 5 prototype theme directions and persists state', () => {
+  it('keeps the single OmniHive direction and persists mode state', () => {
     const {
       currentTheme,
       isDark,
@@ -45,13 +44,10 @@ describe('OmniHive design system & command palette', () => {
       toggleDenseMode
     } = useThemeDirection()
 
-    expect(THEME_DIRECTIONS).toHaveLength(5)
-    setThemeDirection('control')
-    expect(currentTheme.value).toBe('control')
-    expect(document.documentElement.getAttribute('data-theme')).toBe('control')
-    expect(localStorage.getItem('omnihive.style')).toBe('control')
-
+    expect(THEME_DIRECTIONS).toHaveLength(1)
+    expect(THEME_DIRECTIONS[0].key).toBe('teal')
     setThemeDirection('teal')
+    expect(currentTheme.value).toBe('teal')
     expect(document.documentElement.getAttribute('data-theme')).toBeNull()
 
     toggleDarkMode()
@@ -83,22 +79,6 @@ describe('OmniHive design system & command palette', () => {
     expect(options.length).toBeGreaterThan(0)
     await options[0].trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/admin/settings')
-    wrapper.unmount()
-  })
-
-  it('renders ThemeStyleDock with all 5 theme dots and modal picker', async () => {
-    const wrapper = mount(ThemeStyleDock, {
-      global: {
-        stubs: {
-          Teleport: true
-        }
-      }
-    })
-
-    const dots = wrapper.findAll('.dock-dot')
-    expect(dots).toHaveLength(5)
-    await dots[2].trigger('click')
-    expect(document.documentElement.getAttribute('data-theme')).toBe('slate')
     wrapper.unmount()
   })
 })

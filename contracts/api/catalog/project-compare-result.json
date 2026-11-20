@@ -1,0 +1,51 @@
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "catalog_version": "cat_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "as_of": "2026-11-19T10:00:00Z",
+    "rows": [
+      {
+        "model_id": "m_999fff7ac750942004e8fc300d1b1259",
+        "capabilities": {
+          "tools": "unknown",
+          "stream": "unknown"
+        },
+        "metrics": {
+          "window_start": "2026-11-18T10:00:00Z",
+          "window_end": "2026-11-19T10:00:00Z",
+          "source": "gateway_observations",
+          "requests": "5",
+          "ttft_samples": "1",
+          "speed_samples": "0",
+          "success_rate": 0,
+          "ttft_p50_ms": null,
+          "output_tokens_per_second": null,
+          "state": "partial"
+        },
+        "benchmarks": [],
+        "quote": {
+          "state": "estimated",
+          "price_version": "ref_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "estimated_charge": {
+            "currency": "USD",
+            "amount": "0.00350000"
+          },
+          "components": [
+            {
+              "kind": "input",
+              "quantity": "1000",
+              "raw_amount": "0.002500000000000000"
+            },
+            {
+              "kind": "output",
+              "quantity": "100",
+              "raw_amount": "0.001000000000000000"
+            }
+          ],
+          "rounding_adjustment": "0.000000000000000000"
+        }
+      }
+    ]
+  }
+}
