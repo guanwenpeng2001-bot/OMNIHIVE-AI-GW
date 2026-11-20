@@ -261,6 +261,8 @@ const initialTencentCaptchaRandstr = ref<string>('')
 const promoCode = ref<string>('')
 const invitationCode = ref<string>('')
 const affCode = ref<string>('')
+const loginAgreementAccepted = ref<boolean | undefined>(undefined)
+const loginAgreementRevision = ref<string | undefined>(undefined)
 const pendingAuthToken = ref<string>('')
 const pendingAuthTokenField = ref<PendingAuthTokenField>('pending_auth_token')
 const pendingProvider = ref<string>('')
@@ -353,6 +355,14 @@ onMounted(async () => {
       promoCode.value = registerData.promo_code || ''
       invitationCode.value = registerData.invitation_code || ''
       affCode.value = registerData.aff_code || loadAffiliateReferralCode()
+      loginAgreementAccepted.value =
+        typeof registerData.login_agreement_accepted === 'boolean'
+          ? registerData.login_agreement_accepted
+          : undefined
+      loginAgreementRevision.value =
+        typeof registerData.login_agreement_revision === 'string'
+          ? registerData.login_agreement_revision
+          : undefined
       pendingAuthToken.value = registerData.pending_auth_token || activePendingSession?.token || ''
       pendingAuthTokenField.value = registerData.pending_auth_token_field || activePendingSession?.token_field || 'pending_auth_token'
       pendingProvider.value = registerData.pending_provider || activePendingSession?.provider || ''
@@ -704,6 +714,12 @@ async function handleVerify(): Promise<void> {
           : {}),
         ...oauthAffiliatePayload(affCode.value || loadAffiliateReferralCode()),
       }
+      if (loginAgreementAccepted.value !== undefined) {
+        payload.login_agreement_accepted = loginAgreementAccepted.value
+      }
+      if (loginAgreementRevision.value !== undefined) {
+        payload.login_agreement_revision = loginAgreementRevision.value
+      }
       if (invitationCode.value) {
         payload.invitation_code = invitationCode.value
       }
@@ -746,7 +762,13 @@ async function handleVerify(): Promise<void> {
         tencent_captcha_randstr: tencentCaptchaEnabled.value ? initialTencentCaptchaRandstr.value || undefined : undefined,
         promo_code: promoCode.value || undefined,
         invitation_code: invitationCode.value || undefined,
-        ...(affCode.value ? { aff_code: affCode.value } : {})
+        ...(affCode.value ? { aff_code: affCode.value } : {}),
+        ...(loginAgreementAccepted.value !== undefined
+          ? {
+              login_agreement_accepted: loginAgreementAccepted.value,
+              login_agreement_revision: loginAgreementRevision.value || ''
+            }
+          : {})
       })
     }
 

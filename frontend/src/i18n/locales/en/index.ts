@@ -13,6 +13,7 @@ import routing from './routing'
 import costLedger from './costLedger'
 import membersAccess from './membersAccess'
 import consoleWorkbench from './consoleWorkbench'
+import publicPortal from './publicPortal'
 
 export default {
   workspaces,
@@ -30,4 +31,5 @@ export default {
   ...batchImage,
   admin,
   ...misc,
+  ...publicPortal,
 }

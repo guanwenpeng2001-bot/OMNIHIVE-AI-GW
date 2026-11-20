@@ -76,11 +76,24 @@
       :placeholder="t('auth.invitationCodePlaceholder')"
       :disabled="isSubmitting"
     />
+    <LoginAgreementPrompt
+      v-if="loginAgreementEnabled"
+      :enabled="loginAgreementEnabled"
+      :accepted="agreementAccepted"
+      :documents="loginAgreementDocuments"
+      :mode="loginAgreementMode"
+      :updated-at="loginAgreementUpdatedAt"
+      :visible="showAgreementModal"
+      @accept="acceptAgreement"
+      @reject="rejectAgreement"
+      @open="showAgreementModal = true"
+      @close="showAgreementModal = false"
+    />
     <button
       :data-testid="`${testIdPrefix}-create-account-submit`"
       type="button"
       class="btn btn-primary w-full"
-      :disabled="isSubmitting || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken)"
+      :disabled="isSubmitting || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken) || (loginAgreementEnabled && !agreementAccepted)"
       @click="handleSubmit"
     >
       {{ isSubmitting ? t('common.processing') : t('auth.createAccount') }}
@@ -102,8 +115,11 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import { getPublicSettings, sendPendingOAuthVerifyCode } from '@/api/auth'
 import { useAppStore } from '@/stores'
+import { buildSignupAgreementPayload, resolveAgreementState } from '@/features/public/legal'
+import type { LoginAgreementDocument } from '@/types'
 
 export type PendingOAuthCreateAccountPayload = {
   email: string
@@ -113,6 +129,8 @@ export type PendingOAuthCreateAccountPayload = {
   tencentCaptchaTicket?: string
   tencentCaptchaRandstr?: string
   invitationCode?: string
+  loginAgreementAccepted?: boolean
+  loginAgreementRevision?: string
 }
 
 const props = defineProps<{
@@ -151,6 +169,13 @@ const aliyunCaptchaPrefix = ref('')
 const aliyunCaptchaRegion = ref('cn')
 const turnstileToken = ref('')
 const tencentCaptchaRandstr = ref('')
+const loginAgreementEnabled = ref(false)
+const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
+const loginAgreementUpdatedAt = ref('')
+const loginAgreementRevision = ref('')
+const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
+const agreementAccepted = ref(false)
+const showAgreementModal = ref(false)
 const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
 const aliyunCaptchaReady = computed(
   () =>
@@ -320,6 +345,19 @@ async function handleSubmit() {
     return
   }
 
+  if (loginAgreementEnabled.value && !agreementAccepted.value) {
+    if (loginAgreementMode.value !== 'checkbox') {
+      showAgreementModal.value = true
+    }
+    return
+  }
+
+  const agreementPayload = buildSignupAgreementPayload(
+    loginAgreementEnabled.value,
+    agreementAccepted.value,
+    loginAgreementRevision.value
+  )
+
   emit('submit', {
     email: trimmedEmail,
     password: password.value,
@@ -333,7 +371,13 @@ async function handleSubmit() {
           tencentCaptchaRandstr: tencentCaptchaRandstr.value
         }
       : {}),
-    invitationCode: invitationCode.value.trim() || undefined
+    invitationCode: invitationCode.value.trim() || undefined,
+    ...(agreementPayload.login_agreement_accepted !== undefined
+      ? {
+          loginAgreementAccepted: agreementPayload.login_agreement_accepted,
+          loginAgreementRevision: agreementPayload.login_agreement_revision
+        }
+      : {})
   })
 
   if (actionCaptchaEnabled.value) {
@@ -343,6 +387,16 @@ async function handleSubmit() {
 
 function emitSwitchToBind() {
   emit('switchToBind', email.value.trim())
+}
+
+function acceptAgreement() {
+  agreementAccepted.value = true
+  showAgreementModal.value = false
+}
+
+function rejectAgreement() {
+  agreementAccepted.value = false
+  showAgreementModal.value = false
 }
 
 onMounted(async () => {
@@ -359,6 +413,14 @@ onMounted(async () => {
     aliyunCaptchaSceneId.value = settings.aliyun_captcha_scene_id || ''
     aliyunCaptchaPrefix.value = settings.aliyun_captcha_prefix || ''
     aliyunCaptchaRegion.value = settings.aliyun_captcha_region || 'cn'
+    const agreement = resolveAgreementState(settings)
+    loginAgreementDocuments.value = agreement.documents
+    loginAgreementEnabled.value = agreement.enabled
+    loginAgreementMode.value = agreement.mode
+    loginAgreementUpdatedAt.value = agreement.updatedAt
+    loginAgreementRevision.value = agreement.revision
+    agreementAccepted.value = !agreement.enabled
+    showAgreementModal.value = agreement.enabled && agreement.mode !== 'checkbox'
   } catch {
     invitationCodeEnabled.value = false
     emailVerifyEnabled.value = true

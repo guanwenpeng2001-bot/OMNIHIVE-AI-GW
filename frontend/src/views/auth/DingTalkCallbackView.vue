@@ -87,9 +87,22 @@
                 @keyup.enter="handleSubmitInvitation"
               />
             </div>
+            <LoginAgreementPrompt
+              v-if="loginAgreementEnabled"
+              :enabled="loginAgreementEnabled"
+              :accepted="agreementAccepted"
+              :documents="loginAgreementDocuments"
+              :mode="loginAgreementMode"
+              :updated-at="loginAgreementUpdatedAt"
+              :visible="showAgreementModal"
+              @accept="acceptAgreement"
+              @reject="rejectAgreement"
+              @open="openAgreementModal"
+              @close="closeAgreementModal"
+            />
             <button
               class="btn btn-primary w-full"
-              :disabled="isSubmitting || !invitationCode.trim()"
+              :disabled="isSubmitting || !invitationCode.trim() || (loginAgreementEnabled && !agreementAccepted)"
               @click="handleSubmitInvitation"
             >
               {{ isSubmitting ? t('auth.dingtalk.completing') : t('auth.dingtalk.completeRegistration') }}
@@ -246,6 +259,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import PendingOAuthCreateAccountForm from '@/components/auth/PendingOAuthCreateAccountForm.vue'
 import { useOAuthCallback } from '@/composables/useOAuthCallback'
 import { apiClient } from '@/api/client'
@@ -272,6 +286,16 @@ const {
   needsTotpChallenge,
   totpCode,
   totpUserEmailMasked,
+  loginAgreementEnabled,
+  loginAgreementMode,
+  loginAgreementUpdatedAt,
+  loginAgreementDocuments,
+  agreementAccepted,
+  showAgreementModal,
+  acceptAgreement,
+  rejectAgreement,
+  openAgreementModal,
+  closeAgreementModal,
   needsCreateAccount,
   needsChooser,
   needsBindLogin,
@@ -285,12 +309,13 @@ const {
 } = useOAuthCallback({
   provider: 'dingtalk',
   errorPrefix: 'auth.dingtalk',
-  completeRegistration: async (code, decision, affiliateCode) => {
+  completeRegistration: async (code, decision, affiliateCode, agreement) => {
     const { data } = await apiClient.post<PendingOAuthExchangeResponse>('/auth/oauth/dingtalk/complete-registration', {
       invitation_code: code,
       ...oauthAffiliatePayload(affiliateCode),
       adopt_display_name: decision.adoptDisplayName,
       adopt_avatar: decision.adoptAvatar,
+      ...(agreement?.login_agreement_accepted !== undefined ? agreement : {}),
     })
     return data
   },

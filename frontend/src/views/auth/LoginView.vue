@@ -25,6 +25,23 @@
         <Skeleton width="100%" height="36px" />
         <Skeleton width="100%" height="36px" />
       </div>
+      <div
+        v-if="publicSettingsError"
+        data-testid="login-settings-error"
+        role="alert"
+        class="auth-summary flex items-center justify-between gap-3 border border-red-200 bg-red-50/80 p-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+      >
+        <span>{{ t('publicPortal.legal.settingsLoadFailedHint') }}</span>
+        <button
+          type="button"
+          data-testid="login-settings-retry"
+          class="btn btn-outline shrink-0 text-xs"
+          :disabled="isLoading"
+          @click="loadPublicSettings"
+        >
+          {{ t('publicPortal.legal.retry') }}
+        </button>
+      </div>
       <form @submit.prevent="handleLogin" class="space-y-3">
         <!-- Email Input -->
         <div>
@@ -79,6 +96,7 @@
         </div>
 
         <LoginAgreementPrompt
+          :enabled="loginAgreementEnabled"
           :accepted="agreementAccepted"
           :documents="loginAgreementDocuments"
           :mode="loginAgreementMode"
@@ -87,6 +105,7 @@
           @accept="acceptLoginAgreement"
           @reject="rejectLoginAgreement"
           @open="showAgreementModal = true"
+          @close="showAgreementModal = false"
         />
         <label class="flex items-center gap-2 text-[13px]" title="在此设备记住登录邮箱">
           <input v-model="rememberMe" type="checkbox" class="h-4 w-4" />
@@ -212,6 +231,7 @@ import type {
 } from '@/types'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
+import { resolveAgreementState } from '@/features/public/legal'
 
 const { t } = useI18n()
 
@@ -228,6 +248,7 @@ const passkeyLoading = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 const publicSettingsLoaded = ref<boolean>(false)
+const publicSettingsError = ref<boolean>(false)
 const rememberMe = ref(false)
 
 // Public settings
@@ -306,7 +327,12 @@ const agreementGateActive = computed(
 )
 
 const authActionDisabled = computed(
-  () => isLoading.value || passkeyLoading.value || !publicSettingsLoaded.value || (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
+  () =>
+    isLoading.value ||
+    passkeyLoading.value ||
+    !publicSettingsLoaded.value ||
+    publicSettingsError.value ||
+    (agreementGateActive.value && loginAgreementMode.value !== 'checkbox')
 )
 
 const showPasskeyLogin = computed(() => passkeyEnabled.value)
@@ -330,24 +356,9 @@ watch(validationToastMessage, (value, previousValue) => {
 
 // ==================== Lifecycle ====================
 
-onMounted(async () => {
-  try {
-    const rememberedEmail = authStorage.rememberedEmail.get()
-    if (rememberedEmail) {
-      formData.email = rememberedEmail
-      rememberMe.value = true
-    }
-  } catch {
-    rememberMe.value = false
-  }
-  const expiredFlag = authStorage.expiredNotice.get()
-  if (expiredFlag) {
-    authStorage.expiredNotice.remove()
-    const message = t('auth.reloginRequired')
-    errorMessage.value = message
-    appStore.showWarning(message)
-  }
-
+async function loadPublicSettings(): Promise<void> {
+  publicSettingsLoaded.value = false
+  publicSettingsError.value = false
   try {
     const settings = await getPublicSettings()
     registrationEnabled.value = settings.registration_enabled === true
@@ -372,13 +383,38 @@ onMounted(async () => {
     passwordResetEnabled.value = settings.password_reset_enabled
     passkeyEnabled.value = settings.passkey_enabled === true
     applyLoginAgreementSettings(settings)
+    if (errorMessage.value === t('publicPortal.legal.settingsLoadFailedHint')) {
+      errorMessage.value = ''
+    }
   } catch (error) {
     console.error('Failed to load public settings:', error)
+    publicSettingsError.value = true
     loginAgreementEnabled.value = false
-    agreementAccepted.value = true
+    agreementAccepted.value = false
   } finally {
     publicSettingsLoaded.value = true
   }
+}
+
+onMounted(async () => {
+  try {
+    const rememberedEmail = authStorage.rememberedEmail.get()
+    if (rememberedEmail) {
+      formData.email = rememberedEmail
+      rememberMe.value = true
+    }
+  } catch {
+    rememberMe.value = false
+  }
+  const expiredFlag = authStorage.expiredNotice.get()
+  if (expiredFlag) {
+    authStorage.expiredNotice.remove()
+    const message = t('auth.reloginRequired')
+    errorMessage.value = message
+    appStore.showWarning(message)
+  }
+
+  await loadPublicSettings()
 })
 
 // ==================== Login Agreement ====================
@@ -390,16 +426,12 @@ function applyLoginAgreementSettings(settings: {
   login_agreement_revision?: string
   login_agreement_documents?: LoginAgreementDocument[]
 }): void {
-  const documents = Array.isArray(settings.login_agreement_documents)
-    ? settings.login_agreement_documents.filter((doc) => doc.title?.trim())
-    : []
-  loginAgreementDocuments.value = documents
-  loginAgreementEnabled.value = settings.login_agreement_enabled === true && documents.length > 0
-  loginAgreementMode.value = settings.login_agreement_mode === 'checkbox' ? 'checkbox' : 'modal'
-  loginAgreementUpdatedAt.value = settings.login_agreement_updated_at || ''
-  loginAgreementRevision.value =
-    settings.login_agreement_revision ||
-    `${loginAgreementUpdatedAt.value}:${documents.map((doc) => `${doc.id}:${doc.title}`).join('|')}`
+  const resolved = resolveAgreementState(settings)
+  loginAgreementDocuments.value = resolved.documents
+  loginAgreementEnabled.value = resolved.enabled
+  loginAgreementMode.value = resolved.mode
+  loginAgreementUpdatedAt.value = resolved.updatedAt
+  loginAgreementRevision.value = resolved.revision
 
   agreementAccepted.value = !loginAgreementEnabled.value || hasAcceptedLoginAgreement(loginAgreementRevision.value)
   showAgreementModal.value =

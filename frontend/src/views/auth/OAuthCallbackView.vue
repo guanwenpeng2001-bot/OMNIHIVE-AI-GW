@@ -72,6 +72,19 @@
               @keyup.enter="handleSubmitRegistration"
             />
           </div>
+          <LoginAgreementPrompt
+            v-if="loginAgreementEnabled"
+            :enabled="loginAgreementEnabled"
+            :accepted="agreementAccepted"
+            :documents="loginAgreementDocuments"
+            :mode="loginAgreementMode"
+            :updated-at="loginAgreementUpdatedAt"
+            :visible="showAgreementModal"
+            @accept="acceptAgreement"
+            @reject="rejectAgreement"
+            @open="showAgreementModal = true"
+            @close="showAgreementModal = false"
+          />
           <ErrorState
             v-if="registrationError"
             :title="registrationError"
@@ -167,10 +180,13 @@
 
 <script setup lang="ts">
 import AuthLayout from '@/components/layout/AuthLayout.vue'
+import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import { Badge, Button, ErrorState, Skeleton } from '@/components/ui'
 import { authStorage } from '@/api/tokenRefresh'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
+import { buildSignupAgreementPayload, resolveAgreementState } from '@/features/public/legal'
+import type { LoginAgreementDocument } from '@/types'
 
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -181,6 +197,7 @@ import { apiClient } from '@/api/client'
 import { buildApiUrl } from '@/api/url'
 import {
   exchangePendingOAuthCompletion,
+  getPublicSettings,
   persistOAuthTokenContext,
   type OAuthTokenResponse
 } from '@/api/auth'
@@ -209,6 +226,13 @@ const registrationError = ref('')
 const pendingProvider = ref<'github' | 'google'>('github')
 const redirectTo = ref('/dashboard')
 const invalidCallback = ref(false)
+const loginAgreementEnabled = ref(false)
+const loginAgreementMode = ref<'modal' | 'checkbox' | string>('modal')
+const loginAgreementUpdatedAt = ref('')
+const loginAgreementRevision = ref('')
+const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
+const agreementAccepted = ref(false)
+const showAgreementModal = ref(false)
 
 type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
   error?: string
@@ -239,6 +263,7 @@ const canSubmitRegistration = computed(() => {
   if (password.value.length < 6) return false
   if (password.value !== confirmPassword.value) return false
   if (invitationRequired.value && !invitationCode.value.trim()) return false
+  if (loginAgreementEnabled.value && !agreementAccepted.value) return false
   return true
 })
 
@@ -316,6 +341,7 @@ async function resumePendingEmailOAuth(code?: string) {
     if (completion.error === 'invitation_required' || completion.error === 'registration_completion_required') {
       invitationRequired.value = completion.error === 'invitation_required' || completion.invitation_required === true
       registrationEmail.value = String(completion.resolved_email || completion.email || '').trim()
+      await loadAgreementSettings()
       needsRegistrationCompletion.value = true
       isProcessing.value = false
       return
@@ -355,9 +381,21 @@ async function handleSubmitRegistration() {
 
   isSubmitting.value = true
   try {
-    const payload: { password: string; invitation_code?: string; aff_code?: string } = {
+    const agreementPayload = buildSignupAgreementPayload(
+      loginAgreementEnabled.value,
+      agreementAccepted.value,
+      loginAgreementRevision.value
+    )
+    const payload: {
+      password: string
+      invitation_code?: string
+      aff_code?: string
+      login_agreement_accepted?: boolean
+      login_agreement_revision?: string
+    } = {
       password: password.value,
-      ...oauthAffiliatePayload(loadOAuthAffiliateCode())
+      ...oauthAffiliatePayload(loadOAuthAffiliateCode()),
+      ...agreementPayload
     }
     if (invitationRequired.value) {
       payload.invitation_code = code
@@ -370,12 +408,45 @@ async function handleSubmitRegistration() {
     await finalizeTokenResponse(data, redirectTo.value)
   } catch (e: unknown) {
     if (!isActive()) return
+    if (extractApiErrorCode(e) === 'LOGIN_AGREEMENT_REQUIRED') {
+      agreementAccepted.value = false
+      await loadAgreementSettings()
+      registrationError.value = t('publicPortal.legal.agreementRequiredRefresh')
+      return
+    }
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     registrationError.value =
       extractApiErrorMessage(err, '') || t('auth.oidc.completeRegistrationFailed')
   } finally {
     if (isActive()) isSubmitting.value = false
   }
+}
+
+async function loadAgreementSettings(): Promise<void> {
+  try {
+    const settings = await getPublicSettings()
+    if (!isActive()) return
+    const agreement = resolveAgreementState(settings)
+    loginAgreementDocuments.value = agreement.documents
+    loginAgreementEnabled.value = agreement.enabled
+    loginAgreementMode.value = agreement.mode
+    loginAgreementUpdatedAt.value = agreement.updatedAt
+    loginAgreementRevision.value = agreement.revision
+    agreementAccepted.value = !agreement.enabled
+    showAgreementModal.value = agreement.enabled && agreement.mode !== 'checkbox'
+  } catch {
+    // Keep existing agreement state; backend still enforces if enabled.
+  }
+}
+
+function acceptAgreement(): void {
+  agreementAccepted.value = true
+  showAgreementModal.value = false
+}
+
+function rejectAgreement(): void {
+  agreementAccepted.value = false
+  showAgreementModal.value = false
 }
 
 onMounted(async () => {

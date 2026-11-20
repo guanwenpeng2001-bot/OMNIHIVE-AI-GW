@@ -19,7 +19,9 @@ const SHELL_MESSAGES = {
     status: 'Service Status',
     docsExternal: 'Docs ↗',
     docs: 'Docs',
-    compatibility: 'Updates & Compatibility'
+    compatibility: 'Updates & Compatibility',
+    terms: 'Terms of Service',
+    privacy: 'Privacy Policy'
   },
   zh: {
     brandSubtitle: '统一 AI 推理网关',
@@ -30,7 +32,9 @@ const SHELL_MESSAGES = {
     status: '服务状态',
     docsExternal: '开放文档 ↗',
     docs: '接入文档',
-    compatibility: '更新与兼容性'
+    compatibility: '更新与兼容性',
+    terms: '服务条款',
+    privacy: '隐私政策'
   }
 } as const
 
@@ -202,6 +206,18 @@ onBeforeUnmount(() => {
                 class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
               >
                 {{ tr('compatibility') }}
+              </router-link>
+              <router-link
+                to="/legal/terms"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('terms') }}
+              </router-link>
+              <router-link
+                to="/legal/privacy"
+                class="oh-focus-ring rounded-oh-xs transition-colors hover:text-oh-primary"
+              >
+                {{ tr('privacy') }}
               </router-link>
             </nav>
           </div>

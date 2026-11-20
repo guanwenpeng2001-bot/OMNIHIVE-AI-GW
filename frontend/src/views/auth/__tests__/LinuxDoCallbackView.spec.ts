@@ -808,4 +808,55 @@ describe('LinuxDoCallbackView', () => {
     expect(setToken).toHaveBeenCalledWith('2fa-access-token')
     expect(replace).toHaveBeenCalledWith('/profile')
   })
+
+  it('requires and submits agreement revision during invitation-required OAuth registration when enabled', async () => {
+    getPublicSettings.mockResolvedValue({
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'rev-linuxdo-1',
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms', content_md: 'Terms' },
+        { id: 'privacy-policy', title: 'Privacy Policy', content_md: 'Privacy' }
+      ]
+    })
+    exchangePendingOAuthCompletion.mockResolvedValue({
+      error: 'invitation_required',
+      redirect: '/dashboard'
+    })
+    completeLinuxDoOAuthRegistration.mockResolvedValue({
+      access_token: 'linuxdo-agreed-token'
+    })
+
+    const wrapper = mount(LinuxDoCallbackView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          RouterLink: { template: '<a><slot /></a>' },
+          LoginAgreementPrompt: {
+            props: ['enabled', 'accepted'],
+            emits: ['accept'],
+            template: '<button type="button" data-testid="linuxdo-agreement-accept" @click="$emit(\'accept\')">accept</button>'
+          },
+          transition: false
+        }
+      }
+    })
+    await flushPromises()
+
+    await wrapper.get('input[type="text"]').setValue('INVITE-LD')
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="linuxdo-agreement-accept"]').trigger('click')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+
+    expect(completeLinuxDoOAuthRegistration).toHaveBeenCalledWith(
+      'INVITE-LD',
+      { adoptDisplayName: false, adoptAvatar: false },
+      undefined,
+      { login_agreement_accepted: true, login_agreement_revision: 'rev-linuxdo-1' }
+    )
+    expect(setToken).toHaveBeenCalledWith('linuxdo-agreed-token')
+  })
 })

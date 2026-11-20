@@ -1,0 +1,85 @@
+export default {
+  publicPortal: {
+    legal: {
+      retry: 'Retry',
+      settingsLoadFailedHint: 'Unable to load site legal and registration settings. Please retry before continuing.',
+      templateNoticeTitle: 'Default template shown',
+      templateNoticeBody: 'The site operator has not published custom text for this slot yet. Contact site support for operator-specific legal entity, data retention, and regional terms.',
+      contactOperator: 'Contact support',
+      documentsNavAria: 'Legal documents',
+      backToHome: 'Back to home',
+      viewTermsButton: 'View Terms of Service',
+      viewPrivacyButton: 'View Privacy Policy',
+      openFullDocument: 'Open full document in new tab',
+      agreementRequiredRefresh: 'The site legal documents were updated. Please review and accept the latest version to continue.',
+      slotTitles: {
+        terms: 'OmniHive Terms of Service',
+        privacy: 'OmniHive Privacy Policy',
+        usagePolicy: 'OmniHive Acceptable Use Policy',
+        refundPolicy: 'OmniHive Refund and Billing Policy',
+        supportedRegions: 'Supported Countries and Regions',
+        serviceSpecificTerms: 'Service-Specific Terms'
+      },
+      promptSummary: {
+        terms: '## Service and accounts\nOmniHive provides model API access, account management, and usage information. Protect passwords and API keys and follow applicable laws and your selected provider’s requirements.\n\n## Charges and support\nReview displayed prices, quotas, and validity periods before using paid features. Contact the site administrator about services, billing, or your account.\n\nRead the full Terms of Service using the link below.',
+        privacy: '## Information and purposes\nAccount information, requests, and usage records support verification, services, billing, and security. Your selected upstream provider may process model requests. Avoid submitting unrelated personal information or sensitive credentials.\n\n## Storage and contact\nBrowser storage supports sign-in, preferences, and registration. Contact the site operator about retention periods, deployment region, and access, correction, or deletion requests.\n\nRead the full Privacy Policy using the link below.'
+      },
+      templates: {
+        terms: `## Service scope
+OmniHive provides account management, model API access, usage information, and related gateway features. Available features, models, and quotas depend on this site's settings and your account permissions.
+
+## Accounts and credentials
+Provide accurate registration details, safeguard your passwords and API keys, and remain responsible for activity under your account. Update compromised credentials immediately and contact the site administrator.
+
+## Acceptable use
+Comply with applicable laws and your selected model provider's requirements. Do not attempt unauthorized access, abuse endpoints, or infringe third-party rights. Submit only content you are authorized to process and verify model outputs before relying on them.
+
+## Fees and quotas
+Before using paid features, review the pricing, billing rules, quotas, and validity periods published on this site. Contact site support for billing, refund, or invoice inquiries.
+
+## Third-party providers and availability
+Model requests may be routed to selected upstream providers, whose availability and outputs affect responses. Maintenance, rate limits, or upstream outages may cause errors; evaluate responses before retrying.
+
+## Updates and contact
+Review published terms and updates before using the service. Contact the site operator if you have questions about service scope, account actions, or these terms.`,
+        privacy: `## Information involved
+Registration, sign-in, and use of OmniHive involve account information you provide (such as email and username), verification records, API requests, usage records, and billing/order history depending on enabled features.
+
+## Purposes
+This information supports identity verification, model request routing, usage accounting, billing, troubleshooting, and service security. Avoid submitting unrelated personal information or sensitive credentials.
+
+## Service providers and upstream processing
+Model requests may be processed by the selected upstream model provider. When third-party sign-in, captcha, or payment providers are enabled, those services process information needed for their function.
+
+## Browser storage
+Local and session storage hold sign-in state, interface preferences, agreement state, and registration workflow state. Clearing browser storage may require signing in again.
+
+## Retention, region, and user rights
+Logging scope, retention periods, deployment region, and access controls depend on the site operator's configuration. Use the site's support channel to request access, correction, export, or account deletion.
+
+## Contact and updates
+Contact the site operator regarding privacy or account security with only the details needed to handle your request.`,
+        usagePolicy: `## Prohibited activities
+Do not use this gateway for unlawful activities, unauthorized security scanning, credential stuffing, abusive automated traffic, or bypassing rate/quota controls.
+
+## Content responsibility
+Ensure prompts and payloads comply with applicable regulations and upstream provider policies.
+
+## Enforcement
+Violations may result in rate limiting, key revocation, or account suspension according to operator policy.`,
+        refundPolicy: `## Balance, plans, and disputes
+Completed usage charges are settled according to published pricing and quota rules. Unconsumed balances or failed transactions are handled according to the site operator's policy.
+
+## Submitting a billing or refund request
+Include your order ID, payment channel, timestamp, and request/trace details when contacting support.`,
+        supportedRegions: `## Service availability
+Supported countries, regions, and payment methods depend on the site operator's deployment and upstream provider restrictions.
+
+## Compliance responsibility
+Users are responsible for ensuring their access and usage comply with local laws and applicable export or service rules.`,
+        serviceSpecificTerms: `## Additional service rules
+Specific models, experimental endpoints, batch jobs, or third-party plugins may carry additional limits, rate caps, or billing terms published in the pricing and compatibility pages.`
+      }
+    }
+  }
+}

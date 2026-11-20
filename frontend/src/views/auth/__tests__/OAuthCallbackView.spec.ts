@@ -11,6 +11,7 @@ const {
   setTokenMock,
   copyToClipboardMock,
   exchangePendingOAuthCompletionMock,
+  getPublicSettingsMock,
   apiPostMock,
 } = vi.hoisted(() => ({
   routeState: {
@@ -29,6 +30,7 @@ const {
   setTokenMock: vi.fn(),
   copyToClipboardMock: vi.fn(),
   exchangePendingOAuthCompletionMock: vi.fn(),
+  getPublicSettingsMock: vi.fn(),
   apiPostMock: vi.fn(),
 }))
 
@@ -66,6 +68,7 @@ vi.mock('@/api/auth', async () => {
   return {
     ...actual,
     exchangePendingOAuthCompletion: (...args: any[]) => exchangePendingOAuthCompletionMock(...args),
+    getPublicSettings: (...args: any[]) => getPublicSettingsMock(...args),
     persistOAuthTokenContext: vi.fn(),
   }
 })
@@ -94,6 +97,8 @@ describe('OAuthCallbackView', () => {
     setTokenMock.mockReset()
     copyToClipboardMock.mockReset()
     exchangePendingOAuthCompletionMock.mockReset()
+    getPublicSettingsMock.mockReset()
+    getPublicSettingsMock.mockResolvedValue({ login_agreement_enabled: false, login_agreement_documents: [] })
     apiPostMock.mockReset()
     window.sessionStorage.clear()
   })
@@ -248,4 +253,61 @@ describe('OAuthCallbackView', () => {
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
+  it('requires agreement acceptance and submits agreement revision when login_agreement_enabled is true', async () => {
+    routeState.path = '/auth/oauth/callback'
+    getPublicSettingsMock.mockResolvedValueOnce({
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'rev-oauth-1',
+      login_agreement_documents: [
+        { id: 'terms', title: 'Terms', content_md: 'Terms' },
+        { id: 'privacy-policy', title: 'Privacy Policy', content_md: 'Privacy' }
+      ]
+    })
+    exchangePendingOAuthCompletionMock.mockResolvedValue({
+      error: 'registration_completion_required',
+      provider: 'github',
+      redirect: '/dashboard',
+      resolved_email: 'oauth-user@example.com',
+      invitation_required: false,
+    })
+    apiPostMock.mockResolvedValue({
+      data: { access_token: 'token-agreed' },
+    })
+
+    const wrapper = mount(OAuthCallbackView, {
+      global: {
+        stubs: {
+          LoginAgreementPrompt: {
+            props: ['enabled', 'accepted'],
+            emits: ['accept'],
+            template: '<button type="button" data-testid="oauth-agreement-accept" @click="$emit(\'accept\')">accept</button>'
+          }
+        }
+      }
+    })
+    await vi.dynamicImportSettled()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="oauth-agreement-accept"]').exists()).toBe(true)
+    const passwordInputs = wrapper.findAll('input[type="password"]')
+    await passwordInputs[0].setValue('test-pass-123')
+    await passwordInputs[1].setValue('test-pass-123')
+
+    const submitBtn = wrapper.findAll('button').filter((btn) => btn.attributes('data-testid') !== 'oauth-agreement-accept')[0]
+    expect(submitBtn.attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="oauth-agreement-accept"]').trigger('click')
+    await flushPromises()
+    expect(submitBtn.attributes('disabled')).toBeUndefined()
+
+    await submitBtn.trigger('click')
+    await flushPromises()
+
+    expect(apiPostMock).toHaveBeenCalledWith('/auth/oauth/github/complete-registration', expect.objectContaining({
+      password: 'test-pass-123',
+      login_agreement_accepted: true,
+      login_agreement_revision: 'rev-oauth-1'
+    }))
+  })
 })
