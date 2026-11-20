@@ -541,7 +541,7 @@ const scheduleForm = ref<BackupScheduleConfig>({
   enabled: false,
   cron_expr: '0 2 * * *',
   retain_days: 14,
-  retain_count: 10,
+  retain_count: 0,
 })
 const savingSchedule = ref(false)
 
@@ -736,8 +736,8 @@ async function loadSchedule() {
     scheduleForm.value = {
       enabled: cfg.enabled,
       cron_expr: cfg.cron_expr || '0 2 * * *',
-      retain_days: cfg.retain_days || 14,
-      retain_count: cfg.retain_count || 10,
+      retain_days: cfg.retain_days ?? 14,
+      retain_count: cfg.retain_count ?? 0,
     }
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))

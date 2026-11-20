@@ -714,3 +714,7 @@ gateway:
 **Cipher Suites (TLS 1.2):** `49195`, `49196`, `49199`, `49200` (ECDHE variants)
 
 **Curves:** `29` (X25519), `23` (P-256), `24` (P-384), `25` (P-521)
+
+### Product backups and disaster recovery
+
+Configure a persistent TOTP encryption key and an S3-compatible bucket in the backup administration page. Enable a schedule after testing a manual backup. Production restore also requires a dedicated journal database, a rehearsal database on a separate PostgreSQL cluster and an administrator session with fresh TOTP step-up. The optional Compose overlay, retention settings and cutover procedure are in the [Docker deployment guide](DOCKER.md#product-backups-and-disaster-recovery).

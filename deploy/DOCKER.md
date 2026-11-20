@@ -84,6 +84,52 @@ A CLI `--env-file` controls interpolation; if using an alternate application env
 also override the service's `env_file` path. Inspect `docker compose config` locally
 (it contains secrets) before deployment.
 
+## Product backups and disaster recovery
+
+1. Preserve the release artifacts, deployment configuration, JWT secret, persistent
+   `TOTP_ENCRYPTION_KEY` and backup-store credentials outside the application DB.
+   In Admin → Backups, configure an S3-compatible store. For example, use bucket
+   `omnihive-dr`, prefix `production` and the bucket's region. For a private S3
+   service also enter its application-reachable HTTPS endpoint and enable path-style
+   access if required. Test connectivity and create a manual backup. The service
+   needs bucket access and object upload, read and delete permissions.
+2. Enable a cron schedule explicitly (for example `0 2 * * *` daily in the process
+   timezone). Omitting `retain_days` selects 14 days. An explicit zero disables
+   age-based deletion. `retain_count` independently limits the number kept.
+   Cleanup runs after a scheduled backup and covers completed manual backups too.
+   Keep a separate off-host copy and set an independent policy for pre-restore
+   snapshot manifests and parts.
+3. For bundled Compose, set distinct `RESTORE_JOURNAL_PASSWORD` and
+   `RESTORE_ISOLATED_PASSWORD` values in the protected `.env` (generate each with
+   `openssl rand -hex 32`). Start the optional dependencies and application together:
+
+   ```bash
+   docker compose -f docker-compose.yml -f compose.restore.yml config --quiet
+   docker compose -f docker-compose.yml -f compose.restore.yml up -d
+   ```
+
+   The overlay adds two private PostgreSQL services with persistent volumes.
+   Back up the journal independently. For externally managed PostgreSQL, set
+   `OMNIHIVE_RESTORE_JOURNAL_DSN` and `OMNIHIVE_RESTORE_ISOLATED_DSN` on **all**
+   gateway, control and worker replicas. Use explicit PostgreSQL URLs with user,
+   host, port, database and sslmode. Use TLS verification across hosts. The
+   journal may share the production cluster in its own database. Rehearsal needs
+   a distinct cluster system identifier from both. Roles need access to
+   `pg_control_system()`, journal schema creation or target DDL as applicable.
+4. Keep a worker running. Allow private temporary space for uncompressed SQL and
+   verification files, plus database space for transactional replacement and checks.
+   Enroll the admin in TOTP, rehearse the selected backup, then make a fresh
+   production preview and complete session step-up. During cutover the serving
+   replicas return HTTP 503. Record the verified operation ID and check balances,
+   keys and settings before declaring recovery complete. Follow the
+   [operator recovery procedure](../contracts/migrations/restore/INTEGRATION.md#execution-and-review)
+   for an interrupted commit.
+
+Product archives, multipart manifests and pre-restore snapshots use S3 object keys.
+For disk-backed storage, run a separately managed S3-compatible service with a
+persistent volume and replicate its bucket off-host. A local directory on an
+application replica cannot provide the shared archive namespace used by workers.
+
 ## Application defaults
 
 | Variable | Default | Purpose |
@@ -92,13 +138,15 @@ also override the service's `env_file` path. Inspect `docker compose config` loc
 | `SERVER_MAX_REQUEST_BODY_SIZE` | `268435456` | Global request cap, 256 MiB. |
 | `GATEWAY_MAX_BODY_SIZE` | `268435456` | Gateway request cap, 256 MiB. |
 | `GATEWAY_UPSTREAM_RESPONSE_READ_MAX_BYTES` | `134217728` | Non-stream upstream response cap, 128 MiB. |
-| `DATABASE_MAX_OPEN_CONNS` / `DATABASE_MAX_IDLE_CONNS` | `256` / `128` | Application PostgreSQL pool ceilings. |
+| `DATABASE_MAX_OPEN_CONNS` / `DATABASE_MAX_IDLE_CONNS` | `32` / `8` | Application PostgreSQL pool ceilings. |
 | `REDIS_POOL_SIZE` / `REDIS_MIN_IDLE_CONNS` | `1024` / `128` | Application Redis pool. |
 | `REDIS_MAXCLIENTS` | `10000` | Bundled Redis server connection ceiling. |
 
-The stock PostgreSQL server ceiling is 100 connections, independent of the application's
-pool ceiling. Budget all replicas and maintenance clients; explicitly adjust server or
-application limits for the deployment's resources before increasing load.
+The bundled PostgreSQL server allows 100 connections. Budget the sum of all application pools,
+including gateway, control and worker replicas, plus auxiliary clients, restore sessions, monitoring
+and PostgreSQL reserved slots. For example, three processes at 24 open connections each leave
+28 slots for other clients and maintenance. Size `POSTGRES_MAX_CONNECTIONS` with the host's
+memory budget before increasing any pool. Idle connections count toward the open limit.
 
 ## Startup, probes and security
 
