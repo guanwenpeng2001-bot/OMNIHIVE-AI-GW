@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, getCurrentInstance, onMounted, reactive, ref } from 'vue'
+import { computed, getCurrentInstance, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -15,16 +15,21 @@ import { EM_DASH, formatNullableInteger } from '@/features/console/format'
 import { identityApi, useConsoleScope } from '@/features/console/scope'
 import { tasksApi } from '@/features/tasks/api'
 import TaskCreateModal from '@/features/tasks/components/TaskCreateModal.vue'
-import TaskDetailDrawer from '@/features/tasks/components/TaskDetailDrawer.vue'
+import TaskDetailDrawer, { type ArtifactPreviewEntry } from '@/features/tasks/components/TaskDetailDrawer.vue'
 import TaskPaidRetryModal from '@/features/tasks/components/TaskPaidRetryModal.vue'
 import {
+  formatTaskKindLabel,
   formatTaskSettlementLabel,
   formatTaskStageLabel,
   formatTaskStateLabel,
+  inferArtifactExtension,
+  inferArtifactMediaCategory,
   resolveHonestTaskProgress,
+  taskKindTone,
   taskStateTone
 } from '@/features/tasks/progressRules'
 import type {
+  AsyncTaskKind,
   ImageTaskArtifact,
   ImageTaskCreateInput,
   ImageTaskDetail,
@@ -60,6 +65,7 @@ const pageNotice = ref<ConsoleAsyncNotice | null>(null)
 const confirmedNotice = ref<ConsoleAsyncNotice | null>(null)
 
 const filters = reactive({
+  kind: '',
   state: '',
   modelId: '',
   from: '',
@@ -67,7 +73,7 @@ const filters = reactive({
 })
 
 const hasActiveFilters = computed(() =>
-  Boolean(filters.state || filters.modelId.trim() || filters.from || filters.to)
+  Boolean(filters.kind || filters.state || filters.modelId.trim() || filters.from || filters.to)
 )
 
 const drawerOpen = ref(false)
@@ -76,6 +82,7 @@ const drawerNotice = ref<ConsoleAsyncNotice | null>(null)
 const selectedDetail = ref<ImageTaskDetail | null>(null)
 const selectedItems = ref<ImageTaskItem[]>([])
 const actionBusyId = ref('')
+const artifactPreviews = ref<Record<string, ArtifactPreviewEntry>>({})
 
 const retryModalOpen = ref(false)
 const retryPreselectedIds = ref<string[]>([])
@@ -83,8 +90,27 @@ const retrySubmitting = ref(false)
 
 const createModalOpen = ref(false)
 const createSubmitting = ref(false)
+const createModelsLoading = ref(false)
+const createActiveKind = ref<AsyncTaskKind>('image')
 const createKeys = ref<Array<{ id: string; name: string; prefix?: string; scopeLabel?: string }>>([])
 const createModels = ref<CatalogModelItem[]>([])
+
+function revokeAllArtifactPreviews(): void {
+  if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
+    for (const previewEntry of Object.values(artifactPreviews.value)) {
+      URL.revokeObjectURL(previewEntry.url)
+    }
+  }
+  artifactPreviews.value = {}
+}
+
+watch(drawerOpen, (isOpen) => {
+  if (!isOpen) revokeAllArtifactPreviews()
+})
+
+onBeforeUnmount(() => {
+  revokeAllArtifactPreviews()
+})
 
 const summaryCounts = computed(() => {
   let active = 0
@@ -126,6 +152,7 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
     const page = await tasksApi.listTasks(wsId, projId, {
       cursor: options?.cursor,
       limit: 25,
+      kind: filters.kind ? [filters.kind] : undefined,
       state: filters.state ? [filters.state] : undefined,
       model_id: filters.modelId.trim() ? [filters.modelId.trim()] : undefined,
       from: filters.from ? new Date(filters.from).toISOString() : undefined,
@@ -154,6 +181,7 @@ function applyFilters(): void {
 }
 
 function clearFilters(): void {
+  filters.kind = ''
   filters.state = ''
   filters.modelId = ''
   filters.from = ''
@@ -176,6 +204,9 @@ function goPrevPage(): void {
 }
 
 async function openTaskDetail(taskId: string): Promise<void> {
+  if (selectedDetail.value?.id !== taskId) {
+    revokeAllArtifactPreviews()
+  }
   drawerOpen.value = true
   drawerLoading.value = true
   drawerNotice.value = null
@@ -281,7 +312,10 @@ async function handleDownloadArtifact(artifact: ImageTaskArtifact): Promise<void
     if (typeof window !== 'undefined' && typeof URL.createObjectURL === 'function') {
       const blobUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
-      const ext = (ticket.content_type || artifact.content_type || 'image/png').split('/')[1] || 'bin'
+      const ext = inferArtifactExtension(
+        ticket.content_type || artifact.content_type,
+        selectedDetail.value.kind
+      )
       anchor.href = blobUrl
       anchor.download = `${taskId}-${artifact.id}.${ext}`
       document.body.appendChild(anchor)
@@ -304,6 +338,70 @@ async function handleDownloadArtifact(artifact: ImageTaskArtifact): Promise<void
   } finally {
     actionBusyId.value = ''
   }
+}
+
+async function handlePreviewArtifact(artifact: ImageTaskArtifact): Promise<void> {
+  if (!selectedDetail.value) return
+  actionBusyId.value = `preview:${artifact.id}`
+  drawerNotice.value = null
+  const wsId = scope.activeWorkspaceId.value || '1'
+  const projId = scope.activeProjectId.value || '1'
+  const taskId = selectedDetail.value.id
+  const taskKind = selectedDetail.value.kind
+
+  try {
+    const ticket = await tasksApi.issueArtifactDownloadTicket(wsId, projId, taskId, artifact.id)
+    const blob = await tasksApi.fetchArtifactContentBlob(wsId, projId, taskId, artifact.id, ticket)
+    if (typeof window !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const existing = artifactPreviews.value[artifact.id]
+      if (existing) URL.revokeObjectURL(existing.url)
+      const resolvedContentType = ticket.content_type || artifact.content_type || blob.type || ''
+      artifactPreviews.value = {
+        ...artifactPreviews.value,
+        [artifact.id]: {
+          url: URL.createObjectURL(blob),
+          contentType: resolvedContentType,
+          mediaCategory: inferArtifactMediaCategory(resolvedContentType, taskKind)
+        }
+      }
+    }
+  } catch (err) {
+    drawerNotice.value = classifyConsoleError(err, {
+      requiredGrantFallback: 'tasks.artifacts.read',
+      isZh: isZh.value
+    })
+    await openTaskDetail(taskId)
+  } finally {
+    actionBusyId.value = ''
+  }
+}
+
+async function loadModelsForKind(kind: AsyncTaskKind): Promise<void> {
+  const wsId = scope.activeWorkspaceId.value || '1'
+  const projId = scope.activeProjectId.value || '1'
+  createModelsLoading.value = true
+  try {
+    const scopedModels = await catalogApi.listScopedModels(wsId, projId, {
+      modality: [kind],
+      limit: 50
+    })
+    if (createActiveKind.value === kind) {
+      createModels.value = scopedModels
+    }
+  } catch {
+    if (createActiveKind.value === kind) {
+      createModels.value = []
+    }
+  } finally {
+    if (createActiveKind.value === kind) {
+      createModelsLoading.value = false
+    }
+  }
+}
+
+function handleCreateKindChange(kind: AsyncTaskKind): void {
+  createActiveKind.value = kind
+  void loadModelsForKind(kind)
 }
 
 async function handleRevokeArtifact(artifact: ImageTaskArtifact): Promise<void> {
@@ -337,6 +435,7 @@ async function openCreateModal(): Promise<void> {
   createModalOpen.value = true
   const wsId = scope.activeWorkspaceId.value || '1'
   const projId = scope.activeProjectId.value || '1'
+  createModelsLoading.value = true
   const [projKeysRes, userKeysRes, mRes] = await Promise.allSettled([
     scope.activeWorkspaceId.value &&
     scope.activeProjectId.value &&
@@ -346,8 +445,9 @@ async function openCreateModal(): Promise<void> {
         })
       : Promise.resolve({ items: [] }),
     keysAPI.list(1, 50, { status: 'active' }),
-    catalogApi.listScopedModels(wsId, projId, { modality: ['image'], limit: 50 })
+    catalogApi.listScopedModels(wsId, projId, { modality: [createActiveKind.value], limit: 50 })
   ])
+  createModelsLoading.value = false
 
   const merged = new Map<string, { id: string; name: string; prefix?: string; scopeLabel?: string }>()
   if (projKeysRes.status === 'fulfilled') {
@@ -394,12 +494,14 @@ async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
   try {
     const created = await tasksApi.createTask(wsId, projId, payload)
     createModalOpen.value = false
+    const createdKindLabel = formatTaskKindLabel(created.kind || payload.kind, isZh.value)
     confirmedNotice.value = {
       kind: 'confirmed',
       title: isZh.value
-        ? `图像任务 ${created.id} 已提交准入`
-        : `Image task ${created.id} accepted`
+        ? `${createdKindLabel}任务 ${created.id} 已提交准入`
+        : `${createdKindLabel} task ${created.id} accepted`
     }
+    revokeAllArtifactPreviews()
     selectedDetail.value = created
     selectedItems.value = []
     drawerOpen.value = true
@@ -457,8 +559,8 @@ onMounted(() => {
           <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{
               isZh
-                ? '统一管理异步图像与批处理作业 · 真实生命周期进度 · 受控票据产物下载与付费重试'
-                : 'Asynchronous image & batch executions · Honest lifecycle progress · Scope-bound artifact tickets & paid retry'
+                ? '统一管理图像、音频与视频异步生成作业 · 真实生命周期进度 · 受控票据预览下载与付费重试'
+                : 'Asynchronous image, audio & video executions · Honest lifecycle progress · Scope-bound artifact preview, download & paid retry'
             }}
           </p>
         </div>
@@ -470,7 +572,7 @@ onMounted(() => {
             size="sm"
             @click="openCreateModal"
           >
-            {{ isZh ? '+ 新建图像任务' : '+ New Image Task' }}
+            {{ isZh ? '+ 新建异步任务' : '+ New Async Task' }}
           </Button>
         </div>
       </header>
@@ -528,6 +630,23 @@ onMounted(() => {
       <!-- Filter Bar -->
       <section class="flex flex-wrap items-end justify-between gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
         <div class="flex flex-wrap items-end gap-2.5">
+          <label class="space-y-1 text-xs">
+            <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+              {{ isZh ? '任务类型' : 'Kind' }}
+            </span>
+            <select
+              v-model="filters.kind"
+              data-testid="filter-task-kind"
+              class="h-8 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+              @change="applyFilters"
+            >
+              <option value="">{{ isZh ? '全部类型' : 'All Kinds' }}</option>
+              <option value="image">{{ isZh ? '图像 (Image)' : 'Image' }}</option>
+              <option value="audio">{{ isZh ? '音频 (Audio)' : 'Audio' }}</option>
+              <option value="video">{{ isZh ? '视频 (Video)' : 'Video' }}</option>
+            </select>
+          </label>
+
           <label class="space-y-1 text-xs">
             <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
               {{ isZh ? '任务状态' : 'State' }}
@@ -610,13 +729,13 @@ onMounted(() => {
           :title="isZh ? '暂无异步生成或批处理任务' : 'No Asynchronous Tasks Yet'"
           :description="
             isZh
-              ? '提交图像生成或批量推理后，可在此实时追踪真实生命周期、下载私有归档产物或发起付费重试。'
-              : 'Create an image generation task or submit via the OpenAI-compatible image gateway to track progress, download private artifacts, or trigger paid retries.'
+              ? '提交图像、音频或视频生成任务后，可在此实时追踪真实生命周期、在线预览/下载私有归档产物或发起付费重试。'
+              : 'Create an image, audio, or video generation task to track progress, preview and download private artifacts, or trigger paid retries.'
           "
         >
           <template #actions>
             <Button variant="primary" size="sm" @click="openCreateModal">
-              {{ isZh ? '创建首个图像任务' : 'Create First Image Task' }}
+              {{ isZh ? '创建首个异步任务' : 'Create First Async Task' }}
             </Button>
           </template>
         </EmptyState>
@@ -631,6 +750,7 @@ onMounted(() => {
           <thead>
             <tr class="border-b border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
               <th class="px-3.5 py-2.5">{{ isZh ? '任务 ID' : 'Task ID' }}</th>
+              <th class="px-3.5 py-2.5">{{ isZh ? '类型' : 'Kind' }}</th>
               <th class="px-3.5 py-2.5">{{ isZh ? '模型' : 'Model' }}</th>
               <th class="px-3.5 py-2.5">{{ isZh ? '状态 / 阶段' : 'State / Stage' }}</th>
               <th class="px-3.5 py-2.5 text-right">{{ isZh ? '进度' : 'Progress' }}</th>
@@ -649,6 +769,11 @@ onMounted(() => {
             >
               <td class="px-3.5 py-3 font-mono font-semibold tabular-nums text-[var(--oh-ink,var(--foreground))]">
                 {{ task.id }}
+              </td>
+              <td class="px-3.5 py-3">
+                <Badge :tone="taskKindTone(task.kind)" variant="subtle" mono>
+                  {{ formatTaskKindLabel(task.kind, isZh) }}
+                </Badge>
               </td>
               <td class="px-3.5 py-3 font-mono text-[var(--oh-ink,var(--foreground))]">
                 {{ task.model_id }}
@@ -739,6 +864,7 @@ onMounted(() => {
       :items="selectedItems"
       :loading="drawerLoading"
       :action-busy-id="actionBusyId"
+      :artifact-previews="artifactPreviews"
       :notice="drawerNotice"
       :is-zh="isZh"
       :teleport-disabled="props.teleportDisabled"
@@ -746,6 +872,7 @@ onMounted(() => {
       @refresh="selectedDetail && openTaskDetail(selectedDetail.id)"
       @cancel="handleCancelTask"
       @open-retry="handleOpenPaidRetry"
+      @preview-artifact="handlePreviewArtifact"
       @download-artifact="handleDownloadArtifact"
       @revoke-artifact="handleRevokeArtifact"
       @select-task="openTaskDetail"
@@ -767,10 +894,12 @@ onMounted(() => {
       v-model:open="createModalOpen"
       :keys="createKeys"
       :models="createModels"
+      :models-loading="createModelsLoading"
       :submitting="createSubmitting"
       :is-zh="isZh"
       :teleport-disabled="props.teleportDisabled"
       @submit="handleCreateTask"
+      @kind-change="handleCreateKindChange"
       @navigate-keys="handleNavigateToKeysFromCreate"
     />
   </AppLayout>

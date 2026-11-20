@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
@@ -20,7 +20,7 @@ import {
   publicTokenPrice,
   publicValue
 } from '@/features/public/format'
-import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
+import { listPublicModels, type ListParams, type PublicModelSummary, type PublicRate } from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
 
@@ -44,6 +44,182 @@ const providerOptions = ref<string[]>([])
 const searchContainerRef = ref<HTMLElement | null>(null)
 let requestSeq = 0
 let appliedQuery = ''
+
+const TOKEN_UNITS = new Set(['token', 'tokens', 'input_token', 'output_token', 'cached_input_token'])
+const estimatorModelId = ref('')
+const estimatorInputMillions = ref(10)
+const estimatorOutputMillions = ref(3)
+const estimatorRunsPerMonth = ref(30)
+
+const estimatorPresets = computed(() => [
+  {
+    id: 'starter',
+    label: isZh.value ? '原型验证' : 'Prototype',
+    inputM: 1,
+    outputM: 0.5,
+    runs: 30
+  },
+  {
+    id: 'team',
+    label: isZh.value ? '团队开发' : 'Team Coding',
+    inputM: 10,
+    outputM: 3,
+    runs: 30
+  },
+  {
+    id: 'production',
+    label: isZh.value ? '生产集群' : 'Production',
+    inputM: 50,
+    outputM: 15,
+    runs: 30
+  }
+])
+
+const billingModeCards = computed(() => [
+  {
+    id: 'payg',
+    badge: isZh.value ? '弹性按量' : 'Pay-as-you-go',
+    tone: 'info' as const,
+    title: isZh.value ? '按量计费 (Pay-as-you-go)' : 'Pay-as-you-go Metering',
+    summary: isZh.value
+      ? '按实际消耗的 Input / Output Token 精确十进制结算，零最低消费，每次请求均绑定冻结的费率快照版本。'
+      : 'Exact decimal settlement per Input / Output token with zero minimum commit. Every request locks its active price version at dispatch.',
+    highlights: isZh.value
+      ? ['单次请求透明回执与成本对账', '支持按项目/密钥设置预算上限', '适合探索评估与波峰波谷生产流量']
+      : ['Per-request receipt & cost reconciliation', 'Project and API key budget guardrails', 'Ideal for prototyping & bursty production workloads']
+  },
+  {
+    id: 'subscription',
+    badge: isZh.value ? '周期配额' : 'Subscription',
+    tone: 'accent' as const,
+    title: isZh.value ? '订阅套餐 (Subscription Plans)' : 'Subscription & Coding Plans',
+    summary: isZh.value
+      ? '固定月度/周期额度与阶梯折扣，内置 5 小时 / 日 / 周滑动窗口配额调度，助力研发团队平滑控制支出。'
+      : 'Predictable recurring quotas with tiered discounts and 5h / daily / weekly rolling window protection for steady team usage.',
+    highlights: isZh.value
+      ? ['适配 Claude Code / Codex CLI / Cursor 高频编码', '可叠加多套餐自动路由与配额续期', '支持兑换码与自助在线续订']
+      : ['Tailored for Claude Code, Codex CLI & Cursor workflows', 'Stackable plans with automatic quota routing', 'Supports redemption codes and self-serve renewals']
+  },
+  {
+    id: 'byok',
+    badge: isZh.value ? '自有凭据' : 'BYOK',
+    tone: 'success' as const,
+    title: isZh.value ? '租户自有凭据 (BYOK)' : 'Bring Your Own Key (BYOK)',
+    summary: isZh.value
+      ? '在工作空间直接托管自有上游 API Key 或企业账户，零加价复用网关统一协议转换、智能路由、审计与故障切换。'
+      : 'Connect your own upstream provider keys or enterprise seats while inheriting unified routing, fallback, rate limits, and audit telemetry.',
+    highlights: isZh.value
+      ? ['上游 Token 费用直结您的供应商账单', '支持工作空间级权限与凭据隔离', '兼容多区域合规策略与零留存约束']
+      : ['Upstream token spend settles directly with your vendor', 'Workspace-isolated credential vault and RBAC', 'Enforces regional routing & zero-retention policies']
+  }
+])
+
+function ratePerMillion(rate?: PublicRate | null): number | null {
+  if (!rate || !TOKEN_UNITS.has(rate.unit)) return null
+  const amountVal = Number(rate.amount)
+  const perVal = Number(rate.per)
+  if (!Number.isFinite(amountVal) || !Number.isFinite(perVal) || perVal <= 0) return null
+  return (amountVal / perVal) * 1_000_000
+}
+
+const estimatableModels = computed(() =>
+  models.value.filter(
+    (entry) =>
+      entry.price_state === 'free' ||
+      ratePerMillion(entry.input_rate) !== null ||
+      ratePerMillion(entry.output_rate) !== null
+  )
+)
+
+watch(
+  estimatableModels,
+  (list) => {
+    if (!list.length) return
+    if (!list.some((entry) => entry.id === estimatorModelId.value)) {
+      const firstPriced = list.find((entry) => entry.price_state !== 'free') ?? list[0]
+      estimatorModelId.value = firstPriced.id
+    }
+  },
+  { immediate: true }
+)
+
+const selectedEstimatorModel = computed(() =>
+  estimatableModels.value.find((entry) => entry.id === estimatorModelId.value) ?? null
+)
+
+const sanitizedInputMillions = computed(() => {
+  const numeric = Number(estimatorInputMillions.value)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
+})
+
+const sanitizedOutputMillions = computed(() => {
+  const numeric = Number(estimatorOutputMillions.value)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
+})
+
+const sanitizedRunsPerMonth = computed(() => {
+  const numeric = Number(estimatorRunsPerMonth.value)
+  return Number.isFinite(numeric) && numeric >= 1 ? Math.min(365, Math.round(numeric)) : 1
+})
+
+const estimatorBreakdown = computed(() => {
+  const target = selectedEstimatorModel.value
+  if (!target) {
+    return {
+      currencyPrefix: '$',
+      isFree: false,
+      inputUnitPrice: null as number | null,
+      outputUnitPrice: null as number | null,
+      inputCost: 0,
+      outputCost: 0,
+      singleTotal: 0,
+      monthlyTotal: 0
+    }
+  }
+  const currency = target.input_rate?.currency || target.output_rate?.currency || 'USD'
+  const currencyPrefix = currency === 'USD' ? '$' : `${currency} `
+  if (target.price_state === 'free') {
+    return {
+      currencyPrefix,
+      isFree: true,
+      inputUnitPrice: 0,
+      outputUnitPrice: 0,
+      inputCost: 0,
+      outputCost: 0,
+      singleTotal: 0,
+      monthlyTotal: 0
+    }
+  }
+  const inputUnitPrice = ratePerMillion(target.input_rate) ?? 0
+  const outputUnitPrice = ratePerMillion(target.output_rate) ?? 0
+  const inputCost = sanitizedInputMillions.value * inputUnitPrice
+  const outputCost = sanitizedOutputMillions.value * outputUnitPrice
+  const singleTotal = inputCost + outputCost
+  const monthlyTotal = singleTotal * sanitizedRunsPerMonth.value
+  return {
+    currencyPrefix,
+    isFree: false,
+    inputUnitPrice,
+    outputUnitPrice,
+    inputCost,
+    outputCost,
+    singleTotal,
+    monthlyTotal
+  }
+})
+
+function formatMoneyAmount(value: number, prefix = '$'): string {
+  if (!Number.isFinite(value) || value <= 0) return `${prefix}0.00`
+  if (value < 0.01) return `${prefix}${value.toFixed(4)}`
+  if (value >= 1000) return `${prefix}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `${prefix}${value.toFixed(2)}`
+}
+
+function applyEstimatorPreset(preset: { inputM: number; outputM: number; runs: number }): void {
+  estimatorInputMillions.value = preset.inputM
+  estimatorOutputMillions.value = preset.outputM
+  estimatorRunsPerMonth.value = preset.runs
+}
 
 const modalityChips = computed(() => [
   { value: 'text', label: isZh.value ? '文本 Text' : 'Text' },
@@ -179,6 +355,225 @@ onBeforeUnmount(() => {
         </RouterLink>
       </div>
     </header>
+
+    <section class="mt-6 grid gap-3 md:grid-cols-3" :aria-label="isZh ? '计费模式说明' : 'Billing models overview'">
+      <article
+        v-for="mode in billingModeCards"
+        :key="mode.id"
+        class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4"
+      >
+        <div>
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-oh-primary">{{ mode.title }}</h2>
+            <Badge :tone="mode.tone" size="xs" variant="subtle">{{ mode.badge }}</Badge>
+          </div>
+          <p class="mt-2 text-xs leading-relaxed text-oh-secondary">{{ mode.summary }}</p>
+        </div>
+        <ul class="mt-3 space-y-1.5 border-t border-oh-subtle pt-3 text-xs text-oh-secondary">
+          <li v-for="point in mode.highlights" :key="point" class="flex items-start gap-1.5">
+            <span class="mt-0.5 font-mono text-[10px] text-oh-accent-text" aria-hidden="true">✓</span>
+            <span>{{ point }}</span>
+          </li>
+        </ul>
+      </article>
+    </section>
+
+    <section
+      class="mt-6 rounded-oh-md border border-oh-default bg-oh-surface p-4 sm:p-5"
+      :aria-label="isZh ? '交互式 Token 费用估算器' : 'Interactive token cost estimator'"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-oh-subtle pb-4">
+        <div class="min-w-0">
+          <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-oh-muted">
+            {{ isZh ? '实时预算模拟 · COST CALCULATOR' : 'COST CALCULATOR' }}
+          </p>
+          <h2 class="mt-1 text-base font-semibold text-oh-primary">
+            {{ isZh ? '交互式 Token 费用估算器' : 'Interactive Token Cost Estimator' }}
+          </h2>
+          <p class="mt-1 text-xs text-oh-secondary">
+            {{
+              isZh
+                ? '选择目录内任意已定价模型，拖动或输入百万 Input / Output Tokens 数量，实时预览单次批次与月度预估费用。'
+                : 'Pick any published model and adjust million Input / Output tokens to estimate per-batch and monthly gateway spend.'
+            }}
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '快速预设：' : 'Presets:' }}</span>
+          <button
+            v-for="preset in estimatorPresets"
+            :key="preset.id"
+            type="button"
+            class="oh-focus-ring rounded-full border border-oh-default px-2.5 py-1 text-xs text-oh-secondary transition-colors hover:border-oh-strong hover:text-oh-primary"
+            @click="applyEstimatorPreset(preset)"
+          >
+            {{ preset.label }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="estimatableModels.length > 0" class="mt-4 grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+        <div class="min-w-0 space-y-4">
+          <label class="block space-y-1.5">
+            <span class="block font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+              {{ isZh ? '选择估算模型' : 'Target Model' }}
+            </span>
+            <select
+              v-model="estimatorModelId"
+              class="oh-focus-ring h-9 w-full rounded-oh-md border border-oh-default bg-oh-subtle px-3 font-mono text-xs text-oh-primary hover:border-oh-strong"
+            >
+              <option v-for="entry in estimatableModels" :key="entry.id" :value="entry.id">
+                {{ entry.display_name || entry.model }} ({{ publicValue(entry.provider, 'N/A') }} · In {{ rateText(entry, 'input') }} / Out {{ rateText(entry, 'output') }})
+              </option>
+            </select>
+          </label>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 p-3">
+              <div class="flex items-center justify-between gap-2">
+                <label for="calc-input-m" class="text-xs font-medium text-oh-secondary">
+                  {{ isZh ? 'Input Tokens (百万 / 1M)' : 'Input Tokens (Millions)' }}
+                </label>
+                <input
+                  id="calc-input-m"
+                  v-model.number="estimatorInputMillions"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.5"
+                  class="oh-focus-ring h-7 w-24 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
+                />
+              </div>
+              <input
+                v-model.number="estimatorInputMillions"
+                type="range"
+                min="0"
+                max="200"
+                step="0.5"
+                :aria-label="isZh ? '拖动调整 Input 百万 Tokens' : 'Slide input million tokens'"
+                class="w-full accent-[var(--oh-accent,#f59e0b)]"
+              />
+              <div class="flex justify-between font-mono text-[10px] text-oh-muted">
+                <span>0M</span>
+                <span>{{ isZh ? '单价' : 'Rate' }}: {{ selectedEstimatorModel ? rateText(selectedEstimatorModel, 'input') : '—' }}/1M</span>
+                <span>200M</span>
+              </div>
+            </div>
+
+            <div class="space-y-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 p-3">
+              <div class="flex items-center justify-between gap-2">
+                <label for="calc-output-m" class="text-xs font-medium text-oh-secondary">
+                  {{ isZh ? 'Output Tokens (百万 / 1M)' : 'Output Tokens (Millions)' }}
+                </label>
+                <input
+                  id="calc-output-m"
+                  v-model.number="estimatorOutputMillions"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.5"
+                  class="oh-focus-ring h-7 w-24 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
+                />
+              </div>
+              <input
+                v-model.number="estimatorOutputMillions"
+                type="range"
+                min="0"
+                max="100"
+                step="0.5"
+                :aria-label="isZh ? '拖动调整 Output 百万 Tokens' : 'Slide output million tokens'"
+                class="w-full accent-[var(--oh-accent,#f59e0b)]"
+              />
+              <div class="flex justify-between font-mono text-[10px] text-oh-muted">
+                <span>0M</span>
+                <span>{{ isZh ? '单价' : 'Rate' }}: {{ selectedEstimatorModel ? rateText(selectedEstimatorModel, 'output') : '—' }}/1M</span>
+                <span>100M</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-oh-sm border border-oh-subtle bg-oh-subtle/40 px-3 py-2 text-xs">
+            <label for="calc-runs-month" class="text-oh-secondary">
+              {{ isZh ? '月度折算周期（按上述用量每月重复次数 / 天数）' : 'Monthly multiplier (cycles / active days per month)' }}
+            </label>
+            <div class="flex items-center gap-2">
+              <input
+                id="calc-runs-month"
+                v-model.number="estimatorRunsPerMonth"
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                class="oh-focus-ring h-7 w-20 rounded-oh-xs border border-oh-default bg-oh-surface px-2 text-right font-mono text-xs tabular-nums text-oh-primary"
+              />
+              <span class="font-mono text-[11px] text-oh-muted">{{ isZh ? '次/月' : '× / mo' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-subtle/50 p-4">
+          <div class="space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+                {{ isZh ? '估算结果摘要' : 'Estimated Spend' }}
+              </span>
+              <Badge v-if="estimatorBreakdown.isFree" tone="success" size="xs" variant="subtle">
+                {{ isZh ? '免费额度模型' : 'Free Tier' }}
+              </Badge>
+              <Badge v-else tone="info" size="xs" variant="subtle" mono>
+                {{ sanitizedInputMillions }}M In · {{ sanitizedOutputMillions }}M Out
+              </Badge>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div class="rounded-oh-sm border border-oh-subtle bg-oh-surface p-3">
+                <p class="font-mono text-[10px] uppercase text-oh-muted">
+                  {{ isZh ? '单次 / 单日预估成本' : 'Single-Cycle Estimate' }}
+                </p>
+                <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
+                  {{ formatMoneyAmount(estimatorBreakdown.singleTotal, estimatorBreakdown.currencyPrefix) }}
+                </p>
+              </div>
+              <div class="rounded-oh-sm border border-oh-accent/40 bg-oh-accent-subtle/40 p-3">
+                <p class="font-mono text-[10px] uppercase text-oh-accent-text">
+                  {{ isZh ? `月度预估 (×${sanitizedRunsPerMonth})` : `Monthly Est. (×${sanitizedRunsPerMonth})` }}
+                </p>
+                <p class="mt-1 font-mono text-xl font-semibold tabular-nums text-oh-primary">
+                  {{ formatMoneyAmount(estimatorBreakdown.monthlyTotal, estimatorBreakdown.currencyPrefix) }}
+                </p>
+              </div>
+            </div>
+
+            <dl class="space-y-1.5 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
+              <div class="flex items-center justify-between gap-2">
+                <dt class="text-oh-secondary">{{ isZh ? '输入 Token 费用' : 'Input token subtotal' }}</dt>
+                <dd class="text-oh-primary">{{ formatMoneyAmount(estimatorBreakdown.inputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+              </div>
+              <div class="flex items-center justify-between gap-2">
+                <dt class="text-oh-secondary">{{ isZh ? '输出 Token 费用' : 'Output token subtotal' }}</dt>
+                <dd class="text-oh-primary">{{ formatMoneyAmount(estimatorBreakdown.outputCost, estimatorBreakdown.currencyPrefix) }}</dd>
+              </div>
+            </dl>
+          </div>
+
+          <p class="mt-3 border-t border-oh-subtle pt-2.5 text-[11px] leading-relaxed text-oh-muted">
+            {{
+              isZh
+                ? '估算基于当前公开基准单价；若命中提示词缓存、分时折扣或阶梯费率，实际账单可能进一步降低。'
+                : 'Based on published base per-token rates; prompt caching, time-of-day multipliers, or subscription discounts may further reduce actual spend.'
+            }}
+          </p>
+        </div>
+      </div>
+
+      <p v-else class="mt-4 text-xs text-oh-muted">
+        {{
+          loading
+            ? (isZh ? '正在加载模型费率目录以初始化估算器…' : 'Loading published model rates to initialize calculator…')
+            : (isZh ? '当前筛选结果中暂无按百万 Token 标价的模型，请清空下方筛选或待管理员发布模型费率。' : 'No per-token priced models in the current view; clear filters or wait for catalog rates.')
+        }}
+      </p>
+    </section>
 
     <section class="flex flex-col gap-3.5 py-6">
       <div class="flex flex-wrap items-center gap-3">

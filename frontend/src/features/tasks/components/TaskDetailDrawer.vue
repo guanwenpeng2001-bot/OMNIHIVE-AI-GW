@@ -18,14 +18,23 @@ import {
   buildTaskLifecycleSteps,
   classifyTaskArtifact,
   formatProgressSourceLabel,
+  formatTaskKindLabel,
   formatTaskSettlementLabel,
   formatTaskSourceLabel,
   formatTaskStageLabel,
   formatTaskStateLabel,
+  inferArtifactMediaCategory,
   resolveHonestTaskProgress,
+  taskKindTone,
   taskStateTone
 } from '../progressRules'
 import type { ImageTaskArtifact, ImageTaskDetail, ImageTaskItem } from '../types'
+
+export interface ArtifactPreviewEntry {
+  url: string
+  contentType: string
+  mediaCategory: 'image' | 'audio' | 'video' | 'other'
+}
 
 const props = withDefaults(
   defineProps<{
@@ -34,6 +43,7 @@ const props = withDefaults(
     items: ImageTaskItem[]
     loading?: boolean
     actionBusyId?: string
+    artifactPreviews?: Record<string, ArtifactPreviewEntry>
     notice?: ConsoleAsyncNotice | null
     isZh?: boolean
     teleportDisabled?: boolean
@@ -42,6 +52,7 @@ const props = withDefaults(
   {
     loading: false,
     actionBusyId: '',
+    artifactPreviews: () => ({}),
     notice: null,
     isZh: false,
     teleportDisabled: false,
@@ -55,6 +66,7 @@ const emit = defineEmits<{
   refresh: []
   cancel: [taskId: string]
   'open-retry': [payload: { taskId: string; preselectedItemIds: string[] }]
+  'preview-artifact': [artifact: ImageTaskArtifact]
   'download-artifact': [artifact: ImageTaskArtifact]
   'revoke-artifact': [artifact: ImageTaskArtifact]
   'select-task': [taskId: string]
@@ -114,6 +126,17 @@ function handleClose(): void {
   emit('update:open', false)
   emit('close')
 }
+
+function artifactMediaCategory(artifact: ImageTaskArtifact): 'image' | 'audio' | 'video' | 'other' {
+  return inferArtifactMediaCategory(artifact.content_type, props.detail?.kind)
+}
+
+function previewActionLabel(artifact: ImageTaskArtifact): string {
+  const category = artifactMediaCategory(artifact)
+  if (category === 'audio') return props.isZh ? '在线播放' : 'Play Audio'
+  if (category === 'video') return props.isZh ? '在线播放' : 'Play Video'
+  return props.isZh ? '预览图片' : 'Preview'
+}
 </script>
 
 <template>
@@ -148,6 +171,9 @@ function handleClose(): void {
         <!-- Status & Actions Header -->
         <div class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-3">
           <div class="flex flex-wrap items-center gap-2">
+            <Badge :tone="taskKindTone(detail.kind)" variant="subtle" mono>
+              {{ formatTaskKindLabel(detail.kind, isZh) }}
+            </Badge>
             <Badge :tone="taskStateTone(detail.state)" variant="subtle" mono>
               {{ formatTaskStateLabel(detail.state, isZh) }}
             </Badge>
@@ -412,6 +438,20 @@ function handleClose(): void {
 
                 <div class="flex items-center gap-1.5">
                   <Button
+                    v-if="
+                      artifactMediaCategory(artifact) !== 'other' &&
+                      classifyTaskArtifact(artifact, detail.allowed_actions, effectiveNowMs).canDownload &&
+                      !artifactPreviews[artifact.id]
+                    "
+                    :data-testid="`preview-artifact-${artifact.id}`"
+                    variant="secondary"
+                    size="xs"
+                    :loading="actionBusyId === `preview:${artifact.id}`"
+                    @click="emit('preview-artifact', artifact)"
+                  >
+                    {{ previewActionLabel(artifact) }}
+                  </Button>
+                  <Button
                     :data-testid="`download-artifact-${artifact.id}`"
                     variant="secondary"
                     size="xs"
@@ -432,6 +472,31 @@ function handleClose(): void {
                     {{ isZh ? '撤销产物' : 'Revoke' }}
                   </Button>
                 </div>
+              </div>
+
+              <div
+                v-if="artifactPreviews[artifact.id]"
+                :data-testid="`artifact-media-preview-${artifact.id}`"
+                class="mt-3 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-2.5"
+              >
+                <img
+                  v-if="artifactPreviews[artifact.id].mediaCategory === 'image'"
+                  :src="artifactPreviews[artifact.id].url"
+                  :alt="artifact.id"
+                  class="max-h-72 max-w-full rounded object-contain"
+                />
+                <audio
+                  v-else-if="artifactPreviews[artifact.id].mediaCategory === 'audio'"
+                  controls
+                  :src="artifactPreviews[artifact.id].url"
+                  class="w-full"
+                />
+                <video
+                  v-else-if="artifactPreviews[artifact.id].mediaCategory === 'video'"
+                  controls
+                  :src="artifactPreviews[artifact.id].url"
+                  class="max-h-72 w-full rounded"
+                />
               </div>
 
               <p

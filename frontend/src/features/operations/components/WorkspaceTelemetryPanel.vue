@@ -491,9 +491,9 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
     :title="isZh ? '工作空间遥测导出配置' : 'Workspace Telemetry Export'"
     :subtitle="isZh ? '注册公网 HTTPS 遥测采集端，配置时序指标采样率、保留窗口并监控投递队列深度。' : 'Register HTTPS collectors, configure timing export sampling and retention windows, and inspect delivery queue depth.'"
   >
-    <template #actions>
-      <div class="flex flex-wrap items-end gap-2">
-        <div v-if="workspaceSelectOptions.length > 0" class="w-48">
+    <div class="min-w-0 space-y-4">
+      <div class="flex min-w-0 flex-wrap items-end gap-2 border-b border-oh-subtle pb-3">
+        <div v-if="workspaceSelectOptions.length > 0" class="w-full min-w-0 sm:w-48">
           <Select
             :model-value="effectiveWorkspaceId"
             size="sm"
@@ -502,7 +502,7 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
             @update:model-value="handleWorkspaceSelect"
           />
         </div>
-        <div class="w-36">
+        <div class="w-full min-w-0 sm:w-36">
           <Input
             id="telemetry-workspace-id"
             v-model="workspaceIdInput"
@@ -513,9 +513,6 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
           />
         </div>
       </div>
-    </template>
-
-    <div class="space-y-4">
       <div
         v-if="permissionDenied"
         role="alert"
@@ -549,7 +546,7 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
 
       <div class="grid gap-4 xl:grid-cols-2">
         <!-- Left Column: HTTPS Destinations -->
-        <div class="space-y-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/40 p-3.5">
+        <div class="min-w-0 space-y-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/40 p-3.5">
           <div class="space-y-0.5">
             <h4 class="text-sm font-semibold text-oh-primary">
               {{ isZh ? '1. HTTPS 遥测采集端管理' : '1. HTTPS Collector Destinations' }}
@@ -671,7 +668,7 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
         </div>
 
         <!-- Right Column: Create Export Pipeline -->
-        <div class="space-y-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/40 p-3.5">
+        <div class="min-w-0 space-y-3 rounded-oh-md border border-oh-subtle bg-oh-subtle/40 p-3.5">
           <div class="space-y-0.5">
             <h4 class="text-sm font-semibold text-oh-primary">
               {{ isZh ? '2. 创建遥测导出流水线' : '2. Create Telemetry Export Pipeline' }}

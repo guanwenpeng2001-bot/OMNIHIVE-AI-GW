@@ -33,6 +33,7 @@ interface FactRow {
   badge?: string
   badgeTone?: UiTone
   sourceNote?: string
+  undeclared?: boolean
 }
 
 const { locale } = useI18n()
@@ -44,8 +45,22 @@ let request = 0
 const loading = ref(true)
 const error = ref<unknown>(null)
 const snippetTab = ref<'curl' | 'ts' | 'python'>('curl')
+const showUndeclaredDetails = ref(false)
 
-const modelId = computed(() => String(route.params.id ?? ''))
+const modelId = computed(() => {
+  const rawParam = route.params.id
+  const raw = Array.isArray(rawParam) ? rawParam.join('/') : String(rawParam ?? '')
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+})
+
+const compareRouteTarget = computed(() => ({
+  path: '/model-plaza/compare',
+  query: { ids: model.value?.id || modelId.value }
+}))
 
 const primaryFact = computed(() => {
   const list = detail.value?.model_facts ?? []
@@ -125,6 +140,7 @@ function boolFactRow(key: string, label: string, val?: boolean | null, source?: 
     label,
     badge: isZh.value ? '未声明' : 'Undeclared',
     badgeTone: 'unknown',
+    undeclared: true,
     sourceNote: isZh.value ? '模型注册表与上游观测尚未声明此能力' : 'Not declared by model registry or upstream verification'
   }
 }
@@ -152,6 +168,7 @@ const trainingGovernance = computed<FactRow>(() => {
     label: isZh.value ? '请求数据用于训练' : 'Training on data',
     badge: isZh.value ? '未声明' : 'Undeclared',
     badgeTone: 'unknown',
+    undeclared: true,
     sourceNote: isZh.value
       ? '上游供应商尚未发布经核验的数据留存与训练隐私声明'
       : 'No verified training/privacy declaration published for active endpoints'
@@ -184,6 +201,7 @@ const stabilityGovernance = computed<FactRow>(() => {
     label: isZh.value ? '稳定性与生命周期' : 'Stability & Maturity',
     badge: isZh.value ? '未声明 / 未观测' : 'Undeclared / Unobserved',
     badgeTone: 'unknown',
+    undeclared: true,
     sourceNote: metricsStateReason(metricsState, isZh.value)
   }
 })
@@ -203,6 +221,7 @@ const facts = computed<FactRow[]>(() => {
       value: ctxTokens ? `${Number(ctxTokens).toLocaleString()} tokens (${formatContextTokens(ctxTokens)})` : undefined,
       badge: ctxTokens ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
       badgeTone: 'unknown',
+      undeclared: !ctxTokens,
       sourceNote: detail.value?.context_basis || (fact?.context_kind ? `basis: ${fact.context_kind}` : undefined)
     },
     {
@@ -210,14 +229,16 @@ const facts = computed<FactRow[]>(() => {
       label: isZh.value ? '最大输出长度' : 'Max output tokens',
       value: fact?.max_output_tokens ? `${Number(fact.max_output_tokens).toLocaleString()} tokens` : undefined,
       badge: fact?.max_output_tokens ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
-      badgeTone: 'unknown'
+      badgeTone: 'unknown',
+      undeclared: !fact?.max_output_tokens
     },
     {
       key: 'modalities',
       label: isZh.value ? '支持模态' : 'Modalities',
       value: modalities.length ? modalities.join(', ') : undefined,
       badge: modalities.length ? undefined : (isZh.value ? '未声明' : 'Undeclared'),
-      badgeTone: 'unknown'
+      badgeTone: 'unknown',
+      undeclared: modalities.length === 0
     },
     boolFactRow('tools', isZh.value ? '工具 / 函数调用 (Tools)' : 'Tool / Function Calling', fact?.tools, sourceHint),
     boolFactRow('reasoning', isZh.value ? '深度推理 (Reasoning)' : 'Reasoning / Thinking', fact?.reasoning, sourceHint),
@@ -227,6 +248,11 @@ const facts = computed<FactRow[]>(() => {
     stabilityGovernance.value
   ]
 })
+
+const declaredFacts = computed(() => facts.value.filter((entry) => !entry.undeclared))
+const undeclaredFacts = computed(() => facts.value.filter((entry) => entry.undeclared))
+const shouldCompactUndeclared = computed(() => undeclaredFacts.value.length >= 2)
+const visibleFacts = computed(() => (shouldCompactUndeclared.value ? declaredFacts.value : facts.value))
 
 function displayPrice(kind: 'input' | 'output'): string {
   if (model.value?.price_state === 'free') return isZh.value ? '免费' : 'Free'
@@ -238,6 +264,7 @@ async function load(): Promise<void> {
   const currentRequest = ++request
   loading.value = true
   error.value = null
+  showUndeclaredDetails.value = false
   try {
     const response = await getPublicModel(modelId.value)
     if (currentRequest === request) detail.value = response
@@ -323,7 +350,7 @@ onMounted(() => void load())
             {{ isZh ? '官方文档 ↗' : 'Provider Docs ↗' }}
           </a>
           <RouterLink
-            :to="{ path: '/model-plaza/compare', query: { ids: model.id } }"
+            :to="compareRouteTarget"
             class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-[13px] font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
           >
             {{ isZh ? '加入对比' : 'Compare' }}
@@ -410,13 +437,13 @@ onMounted(() => void load())
         </div>
       </section>
 
-      <section class="mb-6 rounded-oh-md border border-oh-default bg-oh-surface">
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">
-          <div class="flex items-center gap-2">
+      <section class="mb-6 min-w-0 max-w-full overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface">
+        <div class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-oh-default px-4 py-2.5">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
             <h2 class="text-xs font-semibold uppercase tracking-wider text-oh-secondary">
               {{ isZh ? '快速调用示例' : 'Quickstart Integration' }}
             </h2>
-            <div class="flex items-center gap-1" role="tablist" :aria-label="isZh ? 'SDK 语言切换' : 'SDK language tabs'">
+            <div class="flex min-w-0 flex-wrap items-center gap-1" role="tablist" :aria-label="isZh ? 'SDK 语言切换' : 'SDK language tabs'">
               <button
                 v-for="tab in [
                   { id: 'curl', label: 'cURL' },
@@ -446,7 +473,7 @@ onMounted(() => void load())
           />
         </div>
         <pre
-          class="oh-focus-ring overflow-x-auto p-4 font-mono text-xs leading-relaxed text-oh-primary"
+          class="oh-focus-ring min-w-0 max-w-full overflow-x-auto p-4 font-mono text-xs leading-relaxed text-oh-primary"
           tabindex="0"
           role="region"
           :aria-label="isZh ? '模型调用代码示例' : 'Model API code snippet'"
@@ -454,7 +481,7 @@ onMounted(() => void load())
       </section>
 
       <section class="grid gap-6 py-2 lg:grid-cols-2">
-        <div>
+        <div class="min-w-0">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-oh-primary">
               {{ isZh ? '模型规格与数据治理声明' : 'Capabilities & Data Governance' }}
@@ -464,7 +491,7 @@ onMounted(() => void load())
             </span>
           </div>
           <dl class="mt-3 divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
-            <div v-for="fact in facts" :key="fact.key" class="px-4 py-3">
+            <div v-for="fact in visibleFacts" :key="fact.key" class="px-4 py-3">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <dt class="text-xs font-medium text-oh-secondary">{{ fact.label }}</dt>
                 <dd class="min-w-0 break-words text-right font-mono text-xs tabular-nums text-oh-primary">
@@ -478,10 +505,52 @@ onMounted(() => void load())
                 {{ fact.sourceNote }}
               </p>
             </div>
+            <div v-if="shouldCompactUndeclared" class="bg-oh-subtle/40 px-4 py-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="font-mono text-[11px] font-medium text-oh-muted">
+                  {{
+                    isZh
+                      ? `其余 ${undeclaredFacts.length} 项能力/治理字段暂未声明`
+                      : `${undeclaredFacts.length} additional fields not yet declared`
+                  }}
+                </span>
+                <button
+                  type="button"
+                  class="oh-focus-ring rounded-oh-xs font-mono text-[11px] text-oh-accent-text hover:underline"
+                  :aria-expanded="showUndeclaredDetails"
+                  @click="showUndeclaredDetails = !showUndeclaredDetails"
+                >
+                  {{
+                    showUndeclaredDetails
+                      ? (isZh ? '收起说明' : 'Hide details')
+                      : (isZh ? '查看说明' : 'Show details')
+                  }}
+                </button>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <span
+                  v-for="item in undeclaredFacts"
+                  :key="item.key"
+                  class="inline-flex items-center gap-1 rounded-full border border-oh-subtle bg-oh-surface px-2.5 py-0.5 text-[11px] text-oh-muted"
+                >
+                  <span>{{ item.label }}</span>
+                  <span class="font-mono text-[10px] opacity-75">· {{ isZh ? '未声明' : 'N/A' }}</span>
+                </span>
+              </div>
+              <div v-if="showUndeclaredDetails" class="mt-3 space-y-2 border-t border-oh-subtle pt-2.5">
+                <div v-for="item in undeclaredFacts" :key="`${item.key}-note`" class="text-[11px] text-oh-muted">
+                  <span class="font-medium text-oh-secondary">{{ item.label }}:</span>
+                  {{
+                    item.sourceNote ||
+                    (isZh ? '模型注册表与上游探测尚未提供该字段的核验声明。' : 'Not yet declared by registry or upstream verification.')
+                  }}
+                </div>
+              </div>
+            </div>
           </dl>
         </div>
 
-        <div class="space-y-6">
+        <div class="min-w-0 space-y-6">
           <div>
             <h2 class="text-sm font-semibold text-oh-primary">
               {{ isZh ? '已验证协议与能力矩阵' : 'Verified Protocols & Endpoints' }}

@@ -40,6 +40,74 @@ export function formatTaskStateLabel(state: string | null | undefined, isZh = fa
   return map[state] || state
 }
 
+export function formatTaskKindLabel(kind: string | null | undefined, isZh = false): string {
+  if (!kind) return EM_DASH
+  const normalized = kind.toLowerCase()
+  if (normalized === 'image') return isZh ? '图像' : 'Image'
+  if (normalized === 'audio') return isZh ? '音频' : 'Audio'
+  if (normalized === 'video') return isZh ? '视频' : 'Video'
+  return kind
+}
+
+export function taskKindTone(kind: string | null | undefined): UiTone {
+  const normalized = (kind || '').toLowerCase()
+  if (normalized === 'audio') return 'info'
+  if (normalized === 'video') return 'accent'
+  return 'neutral'
+}
+
+export function inferArtifactMediaCategory(
+  contentType?: string | null,
+  taskKind?: string | null
+): 'image' | 'audio' | 'video' | 'other' {
+  const cleanMime = (contentType || '').split(';')[0].trim().toLowerCase()
+  if (cleanMime.startsWith('image/')) return 'image'
+  if (cleanMime.startsWith('audio/')) return 'audio'
+  if (cleanMime.startsWith('video/')) return 'video'
+  const normalizedKind = (taskKind || '').toLowerCase()
+  if (normalizedKind === 'image' || normalizedKind === 'audio' || normalizedKind === 'video') {
+    return normalizedKind
+  }
+  return 'other'
+}
+
+export function inferArtifactExtension(
+  contentType?: string | null,
+  taskKind?: string | null
+): string {
+  const cleanMime = (contentType || '').split(';')[0].trim().toLowerCase()
+  const mimeMap: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'audio/mpeg': 'mp3',
+    'audio/mp3': 'mp3',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/wave': 'wav',
+    'audio/ogg': 'ogg',
+    'audio/opus': 'opus',
+    'audio/flac': 'flac',
+    'audio/aac': 'aac',
+    'audio/mp4': 'm4a',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov'
+  }
+  if (cleanMime && mimeMap[cleanMime]) return mimeMap[cleanMime]
+  const slashParts = cleanMime.split('/')
+  if (slashParts.length === 2 && /^[a-z0-9]{1,8}$/.test(slashParts[1])) {
+    return slashParts[1]
+  }
+  const normalizedKind = (taskKind || '').toLowerCase()
+  if (normalizedKind === 'image') return 'png'
+  if (normalizedKind === 'audio') return 'mp3'
+  if (normalizedKind === 'video') return 'mp4'
+  return 'bin'
+}
+
 export function formatTaskStageLabel(stage: string | null | undefined, isZh = false): string {
   if (!stage) return EM_DASH
   if (!isZh) return stage

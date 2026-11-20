@@ -12,7 +12,8 @@ import { useRoutingPolicy } from './useRoutingPolicy'
 import './routing.css'
 
 const props = defineProps<{ workspaceId?: string }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
 
 const workspaces = shallowRef<RoutingWorkspace[]>([])
 const discoveryLoading = ref(true)
@@ -80,6 +81,73 @@ const scenarioProjectAnchor = computed(() => scope.value?.type === 'project' || 
 const expired = computed(() => Boolean(simulation.value && Date.parse(simulation.value.expires_at) <= now.value))
 const canMutate = computed(() => !blocked.value && online.value)
 const publishReady = computed(() => canMutate.value && canPublish(head.value, simulation.value, dirty.value, now.value))
+const isStaleSimulationIssue = computed(() => {
+  const currentIssue = simulationIssue.value
+  if (!currentIssue) return false
+  const reason = (currentIssue.reason ?? '').toUpperCase()
+  return (
+    currentIssue.status === 410 ||
+    reason === 'SNAPSHOT_EXPIRED' ||
+    reason === 'SIMULATION_STALE' ||
+    (currentIssue.status === 409 && reason.includes('SIMULATION'))
+  )
+})
+
+const workflowSteps = computed(() => {
+  const hasSavedDraft = Boolean(head.value) && !dirty.value
+  const hasValidSimulation = Boolean(simulation.value) && !expired.value && !isStaleSimulationIssue.value
+  const hasActiveVersion = Boolean(head.value?.active_version)
+  const hasRollbackTargets = versions.value.some((entry) => entry.id !== head.value?.active_version)
+
+  return [
+    {
+      id: 'draft',
+      index: '01',
+      href: '#routing-editor',
+      title: isZh.value ? '保存草稿' : 'Save Draft',
+      detail: !head.value
+        ? (isZh.value ? '待创建策略草稿' : 'Create initial draft')
+        : dirty.value
+          ? (isZh.value ? '有未保存修改' : 'Unsaved changes')
+          : (isZh.value ? '草稿已同步' : 'Draft saved'),
+      state: hasSavedDraft ? 'done' : 'current'
+    },
+    {
+      id: 'simulate',
+      index: '02',
+      href: '#routing-simulator',
+      title: isZh.value ? '运行候选集模拟' : 'Run Simulation',
+      detail: isStaleSimulationIssue.value || expired.value
+        ? (isZh.value ? '快照已过期，需重跑' : 'Snapshot expired, re-run')
+        : hasValidSimulation
+          ? (isZh.value ? '凭证有效，待发布' : 'Proof valid')
+          : (isZh.value ? '验证候选路由轨迹' : 'Verify candidate trace'),
+      state: hasValidSimulation ? 'done' : hasSavedDraft ? 'current' : 'pending'
+    },
+    {
+      id: 'publish',
+      index: '03',
+      href: '#routing-simulator',
+      title: isZh.value ? '验证通过后发布' : 'Publish Verified',
+      detail: publishReady.value
+        ? (isZh.value ? '可立即发布生效' : 'Ready to publish')
+        : hasActiveVersion
+          ? (isZh.value ? '已存在生效版本' : 'Active version live')
+          : (isZh.value ? '完成模拟后解锁' : 'Unlocks after simulation'),
+      state: hasActiveVersion && !head.value?.draft_version ? 'done' : publishReady.value ? 'current' : 'pending'
+    },
+    {
+      id: 'rollback',
+      index: '04',
+      href: '#routing-versions',
+      title: isZh.value ? '一键回滚' : 'One-Click Rollback',
+      detail: hasRollbackTargets
+        ? (isZh.value ? `${versions.value.length} 个历史版本可回滚` : `${versions.value.length} versions available`)
+        : (isZh.value ? '发布后保留历史快照' : 'History kept after publish'),
+      state: hasRollbackTargets ? 'done' : 'pending'
+    }
+  ] as const
+})
 const candidateCount = computed(() =>
   scope.value && !expired.value ? countRankingCandidates(baseline.value, form.value, scope.value, simulation.value?.trace ?? null) : null,
 )
@@ -191,6 +259,13 @@ function runSimulation() {
   }
   scenarioInvalid.value = !validScenario(request)
   if (!scenarioInvalid.value) void simulate(request)
+}
+
+function rerunFreshSimulation() {
+  if (snapshot.value.trim()) {
+    snapshot.value = ''
+  }
+  runSimulation()
 }
 
 function openCommand(kind: 'publish' | 'rollback', version: string) {
@@ -427,6 +502,52 @@ onUnmounted(() => {
             <template #actions><Button variant="primary" :disabled="!canMutate" @click="opening = true">{{ t('routing.create') }}</Button></template>
           </EmptyState>
           <template v-else>
+            <section
+              class="routing-panel space-y-2.5"
+              :aria-label="isZh ? '策略模拟与发布步骤引导' : 'Policy simulation and publish workflow'"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-muted">
+                  {{ isZh ? '变更安全闭环 · WORKFLOW' : 'SAFE RELEASE WORKFLOW' }}
+                </p>
+                <span class="text-[11px] text-oh-muted">
+                  {{ isZh ? '保存草稿 → 运行候选集模拟 → 验证通过后发布 → 一键回滚' : 'Save Draft → Run Simulation → Publish Verified → Rollback' }}
+                </span>
+              </div>
+              <ol class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <li v-for="step in workflowSteps" :key="step.id" class="min-w-0">
+                  <a
+                    :href="step.href"
+                    class="oh-focus-ring flex h-full items-start gap-2.5 rounded-oh-sm border px-3 py-2.5 transition-colors"
+                    :class="
+                      step.state === 'done'
+                        ? 'border-emerald-500/30 bg-emerald-500/5 hover:border-emerald-500/60'
+                        : step.state === 'current'
+                          ? 'border-oh-accent/60 bg-oh-accent-subtle/40 hover:border-oh-accent'
+                          : 'border-oh-subtle bg-oh-subtle/30 hover:border-oh-default'
+                    "
+                  >
+                    <span
+                      class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-semibold"
+                      :class="
+                        step.state === 'done'
+                          ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                          : step.state === 'current'
+                            ? 'bg-[var(--oh-accent,#f59e0b)] text-slate-950'
+                            : 'bg-oh-subtle text-oh-muted'
+                      "
+                    >
+                      {{ step.state === 'done' ? '✓' : step.index }}
+                    </span>
+                    <span class="min-w-0">
+                      <span class="block text-xs font-semibold text-oh-primary">{{ step.title }}</span>
+                      <span class="mt-0.5 block text-[11px] text-oh-secondary">{{ step.detail }}</span>
+                    </span>
+                  </a>
+                </li>
+              </ol>
+            </section>
+
             <section v-if="head" class="routing-panel grid gap-3 sm:grid-cols-3">
               <div v-for="item in [
                 { title: t('routing.activeVersion'), value: head.active_version },
@@ -508,10 +629,58 @@ onUnmounted(() => {
                     </div>
                   </form>
                 </section>
+                <section
+                  v-if="isStaleSimulationIssue || expired"
+                  role="status"
+                  class="routing-panel space-y-2.5 border-amber-500/40 bg-amber-500/5"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <Badge tone="warning" size="xs" variant="subtle" mono>
+                        {{
+                          simulationIssue?.reason ||
+                          (simulationIssue?.status === 410 ? 'SNAPSHOT_EXPIRED' : 'SIMULATION_STALE')
+                        }}
+                      </Badge>
+                      <h4 class="text-xs font-semibold text-oh-primary">
+                        {{
+                          isZh
+                            ? '实时模拟快照或发布凭证已过期'
+                            : 'Live simulation snapshot or publish proof has expired'
+                        }}
+                      </h4>
+                    </div>
+                  </div>
+                  <p class="text-xs leading-relaxed text-oh-secondary">
+                    {{
+                      isZh
+                        ? '网关候选集快照或策略草稿状态已更新，当前发布凭证已自动失效。无需重写策略配置，点击下方按钮即可基于最新实时状态重新运行模拟并刷新发布凭证。'
+                        : 'The gateway snapshot or draft state changed and the previous publish proof expired. Your draft edits are intact—re-run a live simulation below to refresh your publish proof.'
+                    }}
+                  </p>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      :loading="simulationLoading"
+                      :disabled="!head || dirty || !canMutate"
+                      @click="rerunFreshSimulation"
+                    >
+                      {{
+                        isZh
+                          ? '重新运行实时模拟并刷新发布凭证'
+                          : 'Re-run Live Simulation & Refresh Publish Proof'
+                      }}
+                    </Button>
+                    <span v-if="dirty" class="text-[11px] text-oh-muted">
+                      {{ isZh ? '检测到未保存草稿，请先点击左侧「保存」' : 'Save draft edits first before re-running simulation' }}
+                    </span>
+                  </div>
+                </section>
                 <ErrorState
-                  v-if="simulationIssue"
-                  :title="t(simulationIssue.status === 403 ? 'routing.permission' : simulationIssue.status === 410 || simulationIssue.reason === 'SIMULATION_STALE' ? 'routing.snapshotStale' : 'routing.simulationError')"
-                  :variant="simulationIssue.status === 403 ? 'permission' : simulationIssue.status === 410 ? 'stale' : 'error'"
+                  v-else-if="simulationIssue"
+                  :title="t(simulationIssue.status === 403 ? 'routing.permission' : 'routing.simulationError')"
+                  :variant="simulationIssue.status === 403 ? 'permission' : 'error'"
                   :message="simulationIssue.status === 403 ? t('routing.simulatePermission') : simulationIssue.message"
                   :retryable="false"
                 />

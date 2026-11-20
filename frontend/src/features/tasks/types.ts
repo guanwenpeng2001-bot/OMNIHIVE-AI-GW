@@ -1,3 +1,5 @@
+export type AsyncTaskKind = 'image' | 'audio' | 'video'
+
 export type ImageTaskState =
   | 'queued'
   | 'running'
@@ -13,7 +15,7 @@ export interface ImageTaskMoney {
 
 export interface ImageTaskSummary {
   id: string
-  kind: 'image' | string
+  kind: AsyncTaskKind | string
   state: ImageTaskState
   stage: string
   model_id: string
@@ -82,13 +84,18 @@ export interface ImageTaskItemPage {
 }
 
 export interface ImageTaskCreateInput {
-  kind: 'image'
+  kind: AsyncTaskKind
   model_id: string
   api_key_id: string
   input: {
     prompt: string
     size?: string
     count?: number
+    voice?: string
+    format?: string
+    duration_seconds?: number
+    aspect_ratio?: string
+    resolution?: string
   }
   funding_acknowledged: true
 }

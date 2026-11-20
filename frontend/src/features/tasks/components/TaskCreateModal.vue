@@ -1,19 +1,21 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import Button from '@/components/ui/Button.vue'
 import Modal from '@/components/ui/Modal.vue'
-import type { ImageTaskCreateInput } from '../types'
+import type { AsyncTaskKind, ImageTaskCreateInput } from '../types'
 
 const props = withDefaults(
   defineProps<{
     open: boolean
     keys: Array<{ id: string; name: string; prefix?: string; scopeLabel?: string }>
     models: Array<{ id: string; slug: string; displayName: string }>
+    modelsLoading?: boolean
     submitting?: boolean
     isZh?: boolean
     teleportDisabled?: boolean
   }>(),
   {
+    modelsLoading: false,
     submitting: false,
     isZh: false,
     teleportDisabled: false
@@ -24,15 +26,66 @@ const emit = defineEmits<{
   'update:open': [value: boolean]
   submit: [payload: ImageTaskCreateInput]
   'navigate-keys': []
+  'kind-change': [kind: AsyncTaskKind]
 }>()
 
 const form = reactive({
+  kind: 'image' as AsyncTaskKind,
   apiKeyId: '',
   modelId: '',
   prompt: '',
   size: '1024x1024',
   count: 1,
+  voice: 'alloy',
+  format: 'mp3',
+  aspectRatio: '16:9',
+  durationSeconds: 5,
+  resolution: '720p',
   acknowledged: false
+})
+
+const taskKindOptions = computed<Array<{ value: AsyncTaskKind; label: string }>>(() => [
+  { value: 'image', label: props.isZh ? '图像生成 (Image)' : 'Image' },
+  { value: 'audio', label: props.isZh ? '音频生成 (Audio)' : 'Audio' },
+  { value: 'video', label: props.isZh ? '视频生成 (Video)' : 'Video' }
+])
+
+const modalTitle = computed(() => {
+  if (form.kind === 'audio') {
+    return props.isZh ? '新建音频异步任务' : 'New Audio Generation Task'
+  }
+  if (form.kind === 'video') {
+    return props.isZh ? '新建视频异步任务' : 'New Video Generation Task'
+  }
+  return props.isZh ? '新建图像生成任务' : 'New Image Generation Task'
+})
+
+const modelFieldLabel = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '音频模型' : 'Audio Model'
+  if (form.kind === 'video') return props.isZh ? '视频模型' : 'Video Model'
+  return props.isZh ? '图像模型' : 'Image Model'
+})
+
+const modelPlaceholder = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '输入音频模型 ID（例如 tts-1 / gpt-4o-mini-tts）' : 'Audio model slug/ID'
+  if (form.kind === 'video') return props.isZh ? '输入视频模型 ID（例如 sora / veo）' : 'Video model slug/ID'
+  return props.isZh ? '输入图像模型 ID' : 'Image model slug/ID'
+})
+
+const promptFieldLabel = computed(() => {
+  if (form.kind === 'audio') return props.isZh ? '音频文本 / 合成提示词' : 'Audio Script / Prompt'
+  if (form.kind === 'video') return props.isZh ? '视频脚本 / 分镜提示词' : 'Video Prompt'
+  return props.isZh ? '图像提示词' : 'Prompt'
+})
+
+const promptPlaceholder = computed(() => {
+  if (form.kind === 'audio') {
+    return props.isZh ? '输入待合成语音的文本或音频生成描述…' : 'Enter speech text or describe the audio to generate…'
+  }
+  if (form.kind === 'video') {
+    return props.isZh ? '描述镜头画面、主体动作与光影氛围…' : 'Describe camera motion, subject, and scene details…'
+  }
+  return props.isZh ? '输入图像生成提示词…' : 'Describe the image to generate…'
 })
 
 watch(
@@ -45,21 +98,38 @@ watch(
   { immediate: true }
 )
 
+function selectKind(nextKind: AsyncTaskKind): void {
+  if (form.kind === nextKind) return
+  form.kind = nextKind
+  form.modelId = ''
+  emit('kind-change', nextKind)
+}
+
 function handleClose(): void {
   emit('update:open', false)
 }
 
 function handleSubmit(): void {
   if (!form.apiKeyId || !form.modelId || !form.prompt.trim() || !form.acknowledged) return
+  const input: ImageTaskCreateInput['input'] = {
+    prompt: form.prompt.trim()
+  }
+  if (form.kind === 'image') {
+    input.size = form.size || undefined
+    input.count = Math.max(1, Math.min(4, Math.trunc(form.count || 1)))
+  } else if (form.kind === 'audio') {
+    input.voice = form.voice.trim() || undefined
+    input.format = form.format || undefined
+  } else if (form.kind === 'video') {
+    input.aspect_ratio = form.aspectRatio || undefined
+    input.duration_seconds = Math.max(1, Math.min(60, Math.trunc(form.durationSeconds || 5)))
+    input.resolution = form.resolution || undefined
+  }
   emit('submit', {
-    kind: 'image',
+    kind: form.kind,
     model_id: form.modelId.trim(),
     api_key_id: form.apiKeyId.trim(),
-    input: {
-      prompt: form.prompt.trim(),
-      size: form.size || undefined,
-      count: Math.max(1, Math.min(4, Math.trunc(form.count || 1)))
-    },
+    input,
     funding_acknowledged: true
   })
 }
@@ -70,7 +140,7 @@ function handleSubmit(): void {
     :open="open"
     size="md"
     :teleport-disabled="teleportDisabled"
-    :title="isZh ? '新建图像生成任务' : 'New Image Generation Task'"
+    :title="modalTitle"
     :description="
       isZh
         ? '异步生成产物将归档至受控私有存储（保留窗口 24 小时）。'
@@ -80,6 +150,31 @@ function handleSubmit(): void {
     @close="handleClose"
   >
     <div data-testid="task-create-modal" class="space-y-3 text-xs">
+      <div class="space-y-1">
+        <span class="block text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ isZh ? '任务模态类型' : 'Task Modality' }}
+        </span>
+        <div class="grid grid-cols-3 gap-1.5" role="radiogroup" :aria-label="isZh ? '任务类型选择' : 'Task kind selector'">
+          <button
+            v-for="opt in taskKindOptions"
+            :key="opt.value"
+            type="button"
+            :data-testid="`create-task-kind-${opt.value}`"
+            role="radio"
+            :aria-checked="form.kind === opt.value"
+            class="oh-focus-ring h-8 rounded-[var(--oh-r-sm,6px)] border px-2 font-mono text-xs transition-colors"
+            :class="
+              form.kind === opt.value
+                ? 'border-[var(--oh-accent,#f59e0b)] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] font-semibold text-[var(--oh-accent-text,var(--brand-text,#d97706))]'
+                : 'border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] text-[var(--oh-ink-secondary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]'
+            "
+            @click="selectKind(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+      </div>
+
       <div class="space-y-1.5">
         <div class="flex items-center justify-between gap-2">
           <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -131,7 +226,10 @@ function handleSubmit(): void {
 
       <label class="block space-y-1">
         <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-          {{ isZh ? '图像模型' : 'Image Model' }}
+          {{ modelFieldLabel }}
+          <span v-if="modelsLoading" class="ml-1 font-mono text-[10px] opacity-75">
+            {{ isZh ? '加载中…' : 'loading…' }}
+          </span>
         </span>
         <select
           v-if="models.length > 0"
@@ -146,12 +244,12 @@ function handleSubmit(): void {
         <input
           v-model="form.modelId"
           type="text"
-          :placeholder="isZh ? '输入图像模型 ID' : 'Image model slug/ID'"
+          :placeholder="modelPlaceholder"
           class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
         />
       </label>
 
-      <div class="grid grid-cols-2 gap-2">
+      <div v-if="form.kind === 'image'" class="grid grid-cols-2 gap-2">
         <label class="block space-y-1">
           <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{ isZh ? '图像尺寸' : 'Image Size' }}
@@ -179,15 +277,88 @@ function handleSubmit(): void {
         </label>
       </div>
 
+      <div v-else-if="form.kind === 'audio'" class="grid grid-cols-2 gap-2">
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '音色 / Voice' : 'Voice' }}
+          </span>
+          <select
+            v-model="form.voice"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="alloy">alloy</option>
+            <option value="echo">echo</option>
+            <option value="fable">fable</option>
+            <option value="onyx">onyx</option>
+            <option value="nova">nova</option>
+            <option value="shimmer">shimmer</option>
+          </select>
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '输出音频格式' : 'Audio Format' }}
+          </span>
+          <select
+            v-model="form.format"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="mp3">mp3</option>
+            <option value="wav">wav</option>
+            <option value="opus">opus</option>
+            <option value="flac">flac</option>
+          </select>
+        </label>
+      </div>
+
+      <div v-else class="grid grid-cols-3 gap-2">
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '画面比例' : 'Aspect Ratio' }}
+          </span>
+          <select
+            v-model="form.aspectRatio"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+          </select>
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '目标时长 (秒)' : 'Duration (s)' }}
+          </span>
+          <input
+            v-model.number="form.durationSeconds"
+            type="number"
+            min="1"
+            max="60"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+          />
+        </label>
+        <label class="block space-y-1">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '清晰度' : 'Resolution' }}
+          </span>
+          <select
+            v-model="form.resolution"
+            class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
+          >
+            <option value="720p">720p</option>
+            <option value="1080p">1080p</option>
+          </select>
+        </label>
+      </div>
+
       <label class="block space-y-1">
         <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-          {{ isZh ? '图像提示词' : 'Prompt' }}
+          {{ promptFieldLabel }}
         </span>
         <textarea
           v-model="form.prompt"
           rows="3"
           maxlength="8000"
-          :placeholder="isZh ? '输入图像生成提示词…' : 'Describe the image to generate…'"
+          :placeholder="promptPlaceholder"
           class="w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5 text-sm text-[var(--oh-ink,var(--foreground))]"
         />
       </label>

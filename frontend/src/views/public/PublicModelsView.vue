@@ -48,9 +48,71 @@ const selectedActions = ref<string[]>([])
 const selectedModalities = ref<string[]>([])
 const selectedProtocols = ref<string[]>([])
 const searchContainerRef = ref<HTMLElement | null>(null)
+const onlyFavorites = ref(false)
+const FAVORITES_STORAGE_KEY = 'omnihive.public.favorite_models'
+const favoriteIds = ref<string[]>([])
+const compareIds = ref<string[]>([])
 
 const providerOptions = ref<string[]>([])
 let appliedQuery = ''
+
+const favoriteSet = computed(() => new Set(favoriteIds.value))
+const compareSet = computed(() => new Set(compareIds.value))
+
+function loadFavorites(): void {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      favoriteIds.value = parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    }
+  } catch {
+    favoriteIds.value = []
+  }
+}
+
+function persistFavorites(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favoriteIds.value))
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+function toggleFavorite(modelId: string): void {
+  if (favoriteSet.value.has(modelId)) {
+    favoriteIds.value = favoriteIds.value.filter((entry) => entry !== modelId)
+  } else {
+    favoriteIds.value = [...favoriteIds.value, modelId]
+  }
+  persistFavorites()
+}
+
+function toggleCompare(modelId: string): void {
+  if (compareSet.value.has(modelId)) {
+    compareIds.value = compareIds.value.filter((entry) => entry !== modelId)
+    return
+  }
+  if (compareIds.value.length >= 3) return
+  compareIds.value = [...compareIds.value, modelId]
+}
+
+function clearCompare(): void {
+  compareIds.value = []
+}
+
+function compareLabel(modelId: string): string {
+  const match = models.value.find((entry) => entry.id === modelId)
+  return match?.display_name || match?.model || modelId
+}
+
+const displayedModels = computed(() => {
+  if (!onlyFavorites.value) return models.value
+  return models.value.filter((entry) => favoriteSet.value.has(entry.id))
+})
 
 const categoryChips = computed(() => [
   { value: 'text.chat', label: isZh.value ? '对话推理' : 'Chat & Reasoning' },
@@ -88,6 +150,7 @@ const activeFilters = computed(
     selectedActions.value.length > 0 ||
     selectedModalities.value.length > 0 ||
     selectedProtocols.value.length > 0 ||
+    onlyFavorites.value ||
     query.value.trim().length > 0
 )
 
@@ -165,6 +228,7 @@ function resetFilters(): void {
   selectedActions.value = []
   selectedModalities.value = []
   selectedProtocols.value = []
+  onlyFavorites.value = false
   sort.value = 'name'
   void load()
 }
@@ -205,6 +269,7 @@ function handleGlobalShortcut(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  loadFavorites()
   window.addEventListener('keydown', handleGlobalShortcut)
   void load()
 })
@@ -263,6 +328,22 @@ onBeforeUnmount(() => {
         <Button variant="secondary" @click="load()">{{ isZh ? '搜索' : 'Search' }}</Button>
 
         <div class="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            class="oh-focus-ring inline-flex h-9 items-center gap-1.5 rounded-oh-md border px-3 text-xs font-medium transition-colors"
+            :class="
+              onlyFavorites
+                ? 'border-oh-accent bg-oh-accent-subtle text-oh-accent-text'
+                : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="onlyFavorites"
+            @click="onlyFavorites = !onlyFavorites"
+          >
+            <span aria-hidden="true">{{ onlyFavorites ? '★' : '☆' }}</span>
+            <span>{{ isZh ? '仅看收藏' : 'Favorites' }}</span>
+            <span class="font-mono text-[11px] tabular-nums">({{ favoriteIds.length }})</span>
+          </button>
+
           <label class="sr-only" for="public-models-sort">{{ isZh ? '排序方式' : 'Sort models' }}</label>
           <select
             id="public-models-sort"
@@ -378,6 +459,53 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    <section
+      v-if="compareIds.length > 0"
+      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/40 bg-oh-accent-subtle/50 px-4 py-3"
+      role="region"
+      :aria-label="isZh ? '快捷模型对比栏' : 'Quick model comparison bar'"
+    >
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
+        <span class="font-mono text-xs font-semibold text-oh-accent-text">
+          {{ isZh ? `已选对比 (${compareIds.length}/3)` : `Compare tray (${compareIds.length}/3)` }}
+        </span>
+        <span
+          v-for="selectedId in compareIds"
+          :key="selectedId"
+          class="inline-flex max-w-full items-center gap-1.5 rounded-full border border-oh-default bg-oh-surface px-2.5 py-0.5 text-xs text-oh-primary"
+        >
+          <span class="truncate max-w-[12rem]">{{ compareLabel(selectedId) }}</span>
+          <button
+            type="button"
+            class="oh-focus-ring rounded-full px-0.5 font-mono text-oh-muted hover:text-oh-primary"
+            :aria-label="isZh ? `从对比移除 ${compareLabel(selectedId)}` : `Remove ${compareLabel(selectedId)} from comparison`"
+            @click="toggleCompare(selectedId)"
+          >
+            ×
+          </button>
+        </span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="oh-focus-ring rounded-oh-xs text-xs text-oh-secondary hover:text-oh-primary hover:underline"
+          @click="clearCompare"
+        >
+          {{ isZh ? '清空' : 'Clear' }}
+        </button>
+        <RouterLink
+          :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
+          class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
+        >
+          {{
+            compareIds.length >= 2
+              ? (isZh ? `横向对比 (${compareIds.length}) →` : `Compare (${compareIds.length}) →`)
+              : (isZh ? '进入对比页添加更多 →' : 'Open Compare →')
+          }}
+        </RouterLink>
+      </div>
+    </section>
+
     <Skeleton v-if="loading" class="py-4" :lines="8" :label="isZh ? '正在加载公开模型目录' : 'Loading model catalog'" />
     <ErrorState
       v-else-if="error"
@@ -387,12 +515,14 @@ onBeforeUnmount(() => {
       @retry="load()"
     />
     <EmptyState
-      v-else-if="models.length === 0"
+      v-else-if="displayedModels.length === 0"
       :variant="activeFilters ? 'filtered' : 'empty'"
       :title="
-        activeFilters
-          ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
-          : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
+        onlyFavorites
+          ? (isZh ? '当前列表下暂无已收藏模型' : 'No favorited models in this view')
+          : activeFilters
+            ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
+            : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
       "
       :description="
         activeFilters
@@ -428,12 +558,27 @@ onBeforeUnmount(() => {
               <th class="px-4 py-2.5 text-right">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</th>
               <th class="px-4 py-2.5 text-right">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</th>
               <th class="px-4 py-2.5 text-right">{{ isZh ? '首字延迟 (TTFT)' : 'TTFT' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '操作' : 'Actions' }}</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
+            <tr v-for="model in displayedModels" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
               <td class="max-w-[18rem] break-all px-4 py-3 xl:max-w-[24rem]">
                 <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="oh-focus-ring shrink-0 rounded-oh-xs px-0.5 text-sm leading-none transition-colors"
+                    :class="favoriteSet.has(model.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
+                    :aria-pressed="favoriteSet.has(model.id)"
+                    :aria-label="
+                      favoriteSet.has(model.id)
+                        ? (isZh ? `取消收藏 ${model.display_name || model.model}` : `Remove ${model.display_name || model.model} from favorites`)
+                        : (isZh ? `收藏 ${model.display_name || model.model}` : `Favorite ${model.display_name || model.model}`)
+                    "
+                    @click="toggleFavorite(model.id)"
+                  >
+                    {{ favoriteSet.has(model.id) ? '★' : '☆' }}
+                  </button>
                   <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
                     {{ model.display_name || model.model }}
                   </RouterLink>
@@ -486,28 +631,62 @@ onBeforeUnmount(() => {
                   </RouterLink>
                 </Tooltip>
               </td>
+              <td class="px-4 py-3 text-right">
+                <button
+                  type="button"
+                  class="oh-focus-ring inline-flex h-7 items-center rounded-oh-xs border px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                  :class="
+                    compareSet.has(model.id)
+                      ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                      : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+                  "
+                  :disabled="!compareSet.has(model.id) && compareIds.length >= 3"
+                  :aria-pressed="compareSet.has(model.id)"
+                  @click="toggleCompare(model.id)"
+                >
+                  {{ compareSet.has(model.id) ? (isZh ? '已加入' : 'Added') : (isZh ? '+ 对比' : '+ Compare') }}
+                </button>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
 
       <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        <RouterLink
-          v-for="model in models"
+        <div
+          v-for="model in displayedModels"
           :key="model.id"
-          :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-          class="oh-focus-ring group flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
+          class="group flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
-          <div class="flex items-start justify-between gap-3">
+          <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <p class="truncate font-medium text-oh-primary group-hover:text-oh-accent-text">
+              <RouterLink
+                :to="`/model-plaza/${encodeURIComponent(model.id)}`"
+                class="oh-focus-ring block truncate font-medium text-oh-primary group-hover:text-oh-accent-text"
+              >
                 {{ model.display_name || model.model }}
-              </p>
+              </RouterLink>
               <p class="break-all font-mono text-[11px] text-oh-muted">
                 {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ model.model }}
               </p>
             </div>
-            <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                class="oh-focus-ring rounded-oh-xs px-1 text-sm leading-none transition-colors"
+                :class="favoriteSet.has(model.id) ? 'text-amber-500' : 'text-oh-muted hover:text-amber-500'"
+                :aria-pressed="favoriteSet.has(model.id)"
+                :aria-label="
+                  favoriteSet.has(model.id)
+                    ? (isZh ? `取消收藏 ${model.display_name || model.model}` : `Remove ${model.display_name || model.model} from favorites`)
+                    : (isZh ? `收藏 ${model.display_name || model.model}` : `Favorite ${model.display_name || model.model}`)
+                "
+                @click="toggleFavorite(model.id)"
+              >
+                {{ favoriteSet.has(model.id) ? '★' : '☆' }}
+              </button>
+              <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
+            </div>
           </div>
           <dl class="mt-4 grid grid-cols-2 gap-2 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
             <div>
@@ -529,7 +708,29 @@ onBeforeUnmount(() => {
               <dd class="mt-0.5 text-oh-secondary">{{ maturityLabel(model.maturity, isZh) }}</dd>
             </div>
           </dl>
-        </RouterLink>
+          <div class="mt-3 flex items-center justify-between gap-2 border-t border-oh-subtle pt-2.5">
+            <RouterLink
+              :to="`/model-plaza/${encodeURIComponent(model.id)}`"
+              class="oh-focus-ring rounded-oh-xs text-xs font-medium text-oh-accent-text hover:underline"
+            >
+              {{ isZh ? '查看详情 →' : 'View details →' }}
+            </RouterLink>
+            <button
+              type="button"
+              class="oh-focus-ring inline-flex h-7 items-center rounded-oh-xs border px-2 font-mono text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              :class="
+                compareSet.has(model.id)
+                  ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                  : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+              "
+              :disabled="!compareSet.has(model.id) && compareIds.length >= 3"
+              :aria-pressed="compareSet.has(model.id)"
+              @click="toggleCompare(model.id)"
+            >
+              {{ compareSet.has(model.id) ? (isZh ? '已加入对比' : 'In compare') : (isZh ? '+ 加入对比' : '+ Compare') }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <ErrorState
@@ -542,11 +743,44 @@ onBeforeUnmount(() => {
       />
       <div class="flex flex-col items-center gap-2 py-8">
         <p role="status" class="text-xs text-oh-muted">
-          {{ isZh ? `已加载 ${models.length} 个模型` : `${models.length} models loaded` }}
+          {{
+            onlyFavorites
+              ? (isZh ? `当前已展示 ${displayedModels.length} 个收藏模型（共加载 ${models.length} 个）` : `Showing ${displayedModels.length} favorited of ${models.length} loaded`)
+              : (isZh ? `已加载 ${models.length} 个模型` : `${models.length} models loaded`)
+          }}
         </p>
         <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">
           {{ isZh ? '加载更多' : 'Load more' }}
         </Button>
+      </div>
+
+      <div
+        v-if="compareIds.length > 0"
+        class="sticky bottom-4 z-20 mt-2 flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-accent/50 bg-oh-surface/95 px-4 py-2.5 shadow-lg backdrop-blur"
+      >
+        <div class="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+          <span class="font-mono font-semibold text-oh-accent-text">
+            {{ isZh ? `对比托盘 ${compareIds.length}/3` : `Compare ${compareIds.length}/3` }}
+          </span>
+          <span class="truncate text-oh-secondary">
+            {{ compareIds.map((selectedId) => compareLabel(selectedId)).join(' · ') }}
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="oh-focus-ring rounded-oh-xs text-xs text-oh-muted hover:text-oh-primary"
+            @click="clearCompare"
+          >
+            {{ isZh ? '清空' : 'Clear' }}
+          </button>
+          <RouterLink
+            :to="{ path: '/model-plaza/compare', query: { ids: compareIds.join(',') } }"
+            class="oh-focus-ring inline-flex h-8 items-center rounded-oh-md bg-[var(--oh-accent,#f59e0b)] px-3 text-xs font-semibold text-slate-950 transition-opacity hover:opacity-90"
+          >
+            {{ isZh ? '前往对比 →' : 'Compare now →' }}
+          </RouterLink>
+        </div>
       </div>
     </template>
   </PublicShell>

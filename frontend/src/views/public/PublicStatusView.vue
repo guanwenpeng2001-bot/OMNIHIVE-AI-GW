@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
 import Badge from '@/components/ui/Badge.vue'
@@ -44,8 +44,21 @@ const detailLoading = ref(false)
 const detailError = ref<unknown>(null)
 const activeIncidentDetail = ref<PublicStatusIncident | null>(null)
 const selectedIncidentId = ref<string>('')
+const compactHistoryViewport = ref(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 
 const components = computed(() => status.value?.components ?? [])
+const isOverallUnknown = computed(() => !status.value?.overall || status.value.overall === 'unknown')
+
+function updateViewportMode(): void {
+  if (typeof window === 'undefined') return
+  compactHistoryViewport.value = window.innerWidth < 640
+}
+
+function visibleHistoryDays<T>(history?: T[] | null): T[] {
+  if (!history?.length) return []
+  const maxBars = compactHistoryViewport.value ? 30 : 90
+  return history.length > maxBars ? history.slice(-maxBars) : history
+}
 
 const mergedIncidents = computed<PublicStatusIncidentSummary[]>(() => {
   const byId = new Map<string, PublicStatusIncidentSummary>()
@@ -107,7 +120,19 @@ async function inspectIncident(summary: PublicStatusIncidentSummary): Promise<vo
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  updateViewportMode()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', updateViewportMode, { passive: true })
+  }
+  void load()
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updateViewportMode)
+  }
+})
 </script>
 
 <template>
@@ -181,15 +206,43 @@ onMounted(load)
         </div>
       </section>
 
+      <section
+        v-if="isOverallUnknown"
+        role="status"
+        class="mb-6 rounded-oh-md border border-oh-accent/30 bg-oh-accent-subtle/50 px-4 py-3.5 text-xs text-oh-primary"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0 space-y-1">
+            <p class="font-semibold text-oh-primary">
+              {{
+                isZh
+                  ? '正在汇聚实时探测与网关流量样本 · Aggregating live probe & gateway telemetry'
+                  : 'Aggregating live probe & gateway telemetry · 正在汇聚实时探测与网关流量样本'
+              }}
+            </p>
+            <p class="leading-relaxed text-oh-secondary">
+              {{
+                isZh
+                  ? '当前所选统计窗口内的有效请求样本数尚未达到最小置信阈值，因此系统如实标记为“样本不足 / 未知”而非默认展示 100% 正常。您可以切换 7D / 30D 窗口，或在网关持续产生请求后刷新查看实时成功率与 TTFT 分位。'
+                  : 'The selected rollup window has not yet reached the minimum statistical sample threshold, so status stays transparently marked as unobserved rather than assuming 100% uptime. Try a wider 7D / 30D window or refresh as live gateway traffic accumulates.'
+              }}
+            </p>
+          </div>
+          <Badge tone="accent" size="xs" variant="outline" mono>
+            {{ windowRange.toUpperCase() }}
+          </Badge>
+        </div>
+      </section>
+
       <section aria-labelledby="status-components-heading">
         <h2 id="status-components-heading" class="mb-3 text-sm font-semibold text-oh-primary">
           {{ isZh ? '网关子系统观测指标' : 'Gateway Components' }}
         </h2>
 
-        <div v-if="components.length > 0" class="divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
-          <div v-for="component in components" :key="component.id" class="space-y-2.5 px-4 py-4">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div>
+        <div v-if="components.length > 0" class="min-w-0 overflow-hidden divide-y divide-oh-subtle rounded-oh-md border border-oh-default bg-oh-surface">
+          <div v-for="component in components" :key="component.id" class="min-w-0 space-y-2.5 px-4 py-4">
+            <div class="flex min-w-0 flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                   <p class="text-sm font-medium text-oh-primary">
                     {{ componentDisplayName(component.id, component.name, isZh) }}
@@ -237,26 +290,38 @@ onMounted(load)
               </div>
             </div>
 
-            <div
-              v-if="component.history?.length"
-              class="flex items-center gap-1 pt-1"
-              :aria-label="isZh ? '每日健康历史' : 'Daily status history'"
-            >
-              <span
-                v-for="day in component.history"
-                :key="day.date"
-                :title="`${day.date} · ${statusStateLabel(day.state, isZh)} (${day.sample_count} samples)`"
-                :class="[
-                  'h-2.5 flex-1 rounded-[2px]',
-                  day.state === 'operational'
-                    ? 'bg-emerald-500/80'
-                    : day.state === 'outage'
-                      ? 'bg-red-500/80'
-                      : day.state === 'degraded' || day.state === 'maintenance'
-                        ? 'bg-amber-500/80'
-                        : 'bg-oh-subtle border border-oh-default'
-                ]"
-              />
+            <div v-if="component.history?.length" class="min-w-0 space-y-1 pt-1">
+              <div
+                class="flex min-w-0 max-w-full items-center gap-0.5 overflow-hidden sm:gap-1"
+                :aria-label="isZh ? '每日健康历史' : 'Daily status history'"
+              >
+                <span
+                  v-for="day in visibleHistoryDays(component.history)"
+                  :key="day.date"
+                  :title="`${day.date} · ${statusStateLabel(day.state, isZh)} (${day.sample_count} samples)`"
+                  :class="[
+                    'h-2.5 min-w-0 flex-1 rounded-[2px]',
+                    day.state === 'operational'
+                      ? 'bg-emerald-500/80'
+                      : day.state === 'outage'
+                        ? 'bg-red-500/80'
+                        : day.state === 'degraded' || day.state === 'maintenance'
+                          ? 'bg-amber-500/80'
+                          : 'bg-oh-default/40 sm:border sm:border-oh-default sm:bg-oh-subtle'
+                  ]"
+                />
+              </div>
+              <div class="flex items-center justify-between font-mono text-[10px] text-oh-muted">
+                <span>{{ visibleHistoryDays(component.history)[0]?.date }}</span>
+                <span>
+                  {{
+                    isZh
+                      ? `展示最近 ${visibleHistoryDays(component.history).length} 天`
+                      : `Last ${visibleHistoryDays(component.history).length}d`
+                  }}
+                </span>
+                <span>{{ visibleHistoryDays(component.history)[visibleHistoryDays(component.history).length - 1]?.date }}</span>
+              </div>
             </div>
           </div>
         </div>

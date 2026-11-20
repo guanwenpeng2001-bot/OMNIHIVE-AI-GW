@@ -148,7 +148,11 @@ export function useRoutingPolicy(workspace: Ref<string>, scope: Ref<PolicyScope 
     } catch (error) {
       if (signal.aborted || isSilentRequestError(error)) return
       const failure = normalizeApiError(error)
-      if (failure.reason === 'SIMULATION_STALE') {
+      if (
+        failure.reason === 'SIMULATION_STALE' ||
+        failure.reason === 'SNAPSHOT_EXPIRED' ||
+        failure.status === 410
+      ) {
         clearSimulation()
         simulationIssue.value = failure
       } else if (failure.status === 409 || failure.status === 412) {
