@@ -364,7 +364,7 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 			h.redirectOAuthTokenPair(c, frontendCallback, tokenPair, redirectTo)
 			return
 		}
-		if !errors.Is(err, service.ErrOAuthInvitationRequired) {
+		if !errors.Is(err, service.ErrOAuthInvitationRequired) && !errors.Is(err, service.ErrRegistrationAgreement) {
 			redirectOAuthError(c, frontendCallback, "session_error", infraerrors.Reason(err), infraerrors.Message(err))
 			return
 		}
@@ -467,6 +467,7 @@ func (h *AuthHandler) createLinuxDoOAuthChoicePendingSession(
 }
 
 type completeLinuxDoOAuthRequest struct {
+	service.SignupAgreement
 	InvitationCode   string `json:"invitation_code" binding:"required"`
 	AffCode          string `json:"aff_code,omitempty"`
 	AdoptDisplayName *bool  `json:"adopt_display_name,omitempty"`
@@ -552,7 +553,7 @@ func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 		return
 	}
 	tokenPair, user, err := h.authService.LoginOrRegisterOAuthWithTokenPairAndPromoCode(
-		c.Request.Context(),
+		req.SignupAgreement.Context(c.Request.Context()),
 		email,
 		username,
 		req.InvitationCode,

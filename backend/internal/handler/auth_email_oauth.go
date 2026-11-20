@@ -197,7 +197,7 @@ func (h *AuthHandler) emailOAuthCallbackWithProfile(
 		readOAuthPromoCode(c),
 	)
 	if err != nil {
-		if errors.Is(err, service.ErrOAuthInvitationRequired) {
+		if errors.Is(err, service.ErrOAuthInvitationRequired) || errors.Is(err, service.ErrRegistrationAgreement) {
 			if pendingErr := h.createEmailOAuthRegistrationPendingSession(c, provider, frontendCallback, redirectTo, profile); pendingErr != nil {
 				redirectOAuthError(c, frontendCallback, infraerrors.Reason(pendingErr), infraerrors.Message(pendingErr), "")
 				return
@@ -333,6 +333,7 @@ func (h *AuthHandler) createEmailOAuthRegistrationPendingSession(
 }
 
 type completeEmailOAuthRequest struct {
+	service.SignupAgreement
 	Password       string `json:"password" binding:"required,min=6"`
 	InvitationCode string `json:"invitation_code,omitempty"`
 	AffCode        string `json:"aff_code,omitempty"`
@@ -369,7 +370,7 @@ func (h *AuthHandler) completeEmailOAuthRegistration(c *gin.Context, provider st
 	}
 
 	tokenPair, user, err := h.authService.RegisterVerifiedOAuthEmailAccount(
-		c.Request.Context(),
+		req.SignupAgreement.Context(c.Request.Context()),
 		strings.TrimSpace(session.ResolvedEmail),
 		req.Password,
 		strings.TrimSpace(req.InvitationCode),

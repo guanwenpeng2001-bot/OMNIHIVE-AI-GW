@@ -154,16 +154,20 @@ func (s *AuthService) RegisterOAuthEmailAccount(
 	grantPlan := s.resolveSignupGrantPlan(ctx, signupSource)
 
 	user := &User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		Status:       StatusActive,
-		SignupSource: signupSource,
+		SignupAgreement: signupAgreementFromContext(ctx),
+		Email:           email,
+		PasswordHash:    hashedPassword,
+		Role:            RoleUser,
+		Balance:         grantPlan.Balance,
+		Concurrency:     grantPlan.Concurrency,
+		Status:          StatusActive,
+		SignupSource:    signupSource,
 	}
 
 	if err := s.createUserWithRegistrationEmailGuard(ctx, user); err != nil {
+		if errors.Is(err, ErrRegistrationAgreement) {
+			return nil, nil, err
+		}
 		switch {
 		case errors.Is(err, ErrEmailExists):
 			return nil, nil, ErrEmailExists
@@ -240,17 +244,21 @@ func (s *AuthService) RegisterVerifiedOAuthEmailAccount(
 		defaultRPMLimit = s.settingService.GetDefaultUserRPMLimit(ctx)
 	}
 	user := &User{
-		Email:        email,
-		PasswordHash: hashedPassword,
-		Role:         RoleUser,
-		Balance:      grantPlan.Balance,
-		Concurrency:  grantPlan.Concurrency,
-		RPMLimit:     defaultRPMLimit,
-		Status:       StatusActive,
-		SignupSource: signupSource,
+		SignupAgreement: signupAgreementFromContext(ctx),
+		Email:           email,
+		PasswordHash:    hashedPassword,
+		Role:            RoleUser,
+		Balance:         grantPlan.Balance,
+		Concurrency:     grantPlan.Concurrency,
+		RPMLimit:        defaultRPMLimit,
+		Status:          StatusActive,
+		SignupSource:    signupSource,
 	}
 
 	if err := s.createUserWithRegistrationEmailGuard(ctx, user); err != nil {
+		if errors.Is(err, ErrRegistrationAgreement) {
+			return nil, nil, err
+		}
 		switch {
 		case errors.Is(err, ErrEmailExists):
 			return nil, nil, ErrEmailExists

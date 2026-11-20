@@ -159,6 +159,21 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
 	}
 
+	if consent := userIn.SignupAgreement; consent != nil {
+		settings, err := NewSettingRepository(txClient).GetMultiple(txCtx, []string{service.SettingKeyLoginAgreementEnabled, service.SettingKeyLoginAgreementUpdatedAt, service.SettingKeyLoginAgreementDocuments})
+		if err != nil {
+			return err
+		}
+		revision, err := consent.AcceptedRevision(settings)
+		if err != nil {
+			return err
+		}
+		if revision != "" {
+			if _, err := txClient.ExecContext(txCtx, "INSERT INTO registration_agreements(user_id,revision) VALUES ($1,$2)", created.ID, revision); err != nil {
+				return err
+			}
+		}
+	}
 	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, created.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
