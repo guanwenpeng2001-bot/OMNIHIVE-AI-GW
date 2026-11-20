@@ -77,7 +77,7 @@ type Archives interface {
 }
 type Database interface {
 	Dump(context.Context) (io.ReadCloser, error)
-	Restore(context.Context, io.Reader) error
+	RestoreChecked(context.Context, string, string, func() error, func() error, func() error) error
 }
 type Target struct {
 	DB       *sql.DB

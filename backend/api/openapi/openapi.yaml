@@ -8588,6 +8588,12 @@ components:
             - snapshot
             - applying
             - verify_counts
+            - tx_apply
+            - tx_verify
+            - committing
+            - rolled_back
+            - manual_recovery
+            - reconciled
             - verified
         report:
           anyOf:

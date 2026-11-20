@@ -176,6 +176,8 @@ func TestPgDumperRestoreStreamsAtomicScript(t *testing.T) {
 	require.NoError(t, dumper.Restore(context.Background(), strings.NewReader("SELECT 1;")))
 	require.Contains(t, cmd.Env, "PGPASSWORD=secret")
 	require.Contains(t, cmd.Env, "PGSSLMODE=require")
+	require.Contains(t, cmd.Env, "PGTZ=UTC")
+	require.Contains(t, cmd.Env, "PGDATESTYLE=ISO, YMD")
 }
 
 func TestPgDumperRestoreReportsScriptFailure(t *testing.T) {

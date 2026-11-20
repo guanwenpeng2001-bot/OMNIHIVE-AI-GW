@@ -69,12 +69,7 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 		commandContext = exec.CommandContext
 	}
 	cmd := commandContext(ctx, "pg_dump", args...)
-	if d.cfg.Password != "" {
-		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
-	}
-	if d.cfg.SSLMode != "" {
-		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
-	}
+	d.setCommandEnv(cmd)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -87,6 +82,16 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 	}
 
 	return &cmdReadCloser{ReadCloser: stdout, cmd: cmd, release: releaseLock}, nil
+}
+
+func (d *PgDumper) setCommandEnv(cmd *exec.Cmd) {
+	cmd.Env = append(cmd.Environ(), "PGTZ=UTC", "PGDATESTYLE=ISO, YMD")
+	if d.cfg.Password != "" {
+		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
+	}
+	if d.cfg.SSLMode != "" {
+		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
+	}
 }
 
 func releaseBackupMigrationLock(conn *sql.Conn) error {
@@ -163,12 +168,7 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 		commandContext = exec.CommandContext
 	}
 	cmd := commandContext(ctx, "psql", args...)
-	if d.cfg.Password != "" {
-		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
-	}
-	if d.cfg.SSLMode != "" {
-		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
-	}
+	d.setCommandEnv(cmd)
 
 	cmd.Stdin = script
 

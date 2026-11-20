@@ -235,7 +235,7 @@ func (s *Service) Execute(ctx context.Context, a Actor, key string, cmd ExecuteI
 		return Operation{}, prerequisite
 	}
 	var active bool
-	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.operations WHERE target=$1 AND state IN ('queued','running','unknown'))
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.operations WHERE target=$1 AND (state IN ('queued','running','unknown') OR stage='manual_recovery'))
  OR ($1='production' AND EXISTS(SELECT FROM restore_journal.backups WHERE review_required))`, cmd.Target).Scan(&active)
 	if err != nil {
 		return Operation{}, err

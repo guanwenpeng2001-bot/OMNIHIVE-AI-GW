@@ -194,7 +194,7 @@ func (r *Runtime) Project(ctx context.Context, records []service.BackupRecord, f
 		return records, nil
 	}
 	rows, err := r.Journal.QueryContext(ctx, `SELECT DISTINCT ON(id) id,record,operation,state,stamp,reason FROM (
- SELECT b.id,p.record,coalesce(l.id,o.id) AS operation,o.state,o.updated_at AS stamp,o.report->>'reason' AS reason,o.created_at
+ SELECT b.id,p.record,coalesce(l.id,o.id) AS operation,CASE WHEN o.stage='manual_recovery' THEN 'unknown' ELSE o.state END AS state,o.updated_at AS stamp,o.report->>'reason' AS reason,o.created_at
  FROM restore_journal.operations o JOIN restore_journal.previews p ON p.id=o.preview_id JOIN restore_journal.backups b ON b.id=p.backup_id
  LEFT JOIN restore_journal.legacy_requests l ON l.production_id=o.id
  WHERE o.target='production' AND b.removed_at IS NULL AND ($1='' OR b.id=$1) UNION ALL SELECT b.id,b.record,r.id,CASE WHEN r.state='pending' THEN 'queued' ELSE 'failed' END,r.created_at,r.reason,r.created_at

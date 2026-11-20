@@ -11,10 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
+	"net/http"
+	"net/http/httptest"
 	"os"
-
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/restore/testfixture"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +22,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/ops/restore/testfixture"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,7 @@ type archives struct {
 	data         []byte
 	snapshots    map[string][]byte
 	failSnapshot bool
+	onSnapshot   func()
 }
 
 func (a *archives) Record(context.Context, string) (json.RawMessage, error) {
@@ -62,6 +64,9 @@ func (a *archives) Snapshot(_ context.Context, k string, raw io.ReadCloser) (Sna
 	}
 	if a.failSnapshot {
 		return Snapshot{}, errors.New("fixture snapshot unavailable")
+	}
+	if a.onSnapshot != nil {
+		a.onSnapshot()
 	}
 	a.snapshots[k] = b
 	return Snapshot{Key: k, Digest: "sha256:" + strings.Repeat("1", 64)}, nil
@@ -80,15 +85,18 @@ func compress(t *testing.T, raw io.ReadCloser) []byte {
 
 type alterAfterRestore struct {
 	Database
-	db *sql.DB
 }
 
-func (d alterAfterRestore) Restore(ctx context.Context, r io.Reader) error {
-	if e := d.Database.Restore(ctx, r); e != nil {
-		return e
+func (d alterAfterRestore) RestoreChecked(ctx context.Context, source, checks string, locked, applied, verified func() error) error {
+	f, err := os.OpenFile(source, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return err
 	}
-	_, e := d.db.ExecContext(ctx, "UPDATE users SET value='different users, same count'")
-	return e
+	_, err = io.WriteString(f, "UPDATE public.users SET value='different users, same count';\n")
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
+	}
+	return d.Database.RestoreChecked(ctx, source, checks, locked, applied, verified)
 }
 
 type crashAfterCommit struct {
@@ -96,8 +104,8 @@ type crashAfterCommit struct {
 	stop context.CancelFunc
 }
 
-func (d crashAfterCommit) Restore(ctx context.Context, script io.Reader) error {
-	if err := d.Database.Restore(ctx, script); err != nil {
+func (d crashAfterCommit) RestoreChecked(ctx context.Context, source, checks string, locked, applied, verified func() error) error {
+	if err := d.Database.RestoreChecked(ctx, source, checks, locked, applied, verified); err != nil {
 		return err
 	}
 	d.stop()
@@ -110,13 +118,22 @@ func TestFencedRestore(t *testing.T) {
 	isolated, icfg := testfixture.Database(t, "BE09_TEST_ISOLATED_DSN", "be09_rehearsal_test")
 	require.NoError(t, testresources.ValidatePostgres(os.Getenv("UPSTREAM_JOB_TEST_DSN"), "job_test"))
 	prod, pcfg := testfixture.Database(t, "UPSTREAM_JOB_TEST_DSN", "job_test")
+	_, e := prod.Exec("ALTER DATABASE " + pcfg.Database.DBName + " SET timezone TO 'Asia/Shanghai'")
+	require.NoError(t, e)
+	_, e = isolated.Exec("ALTER DATABASE " + icfg.Database.DBName + " SET timezone TO 'UTC'")
+	require.NoError(t, e)
 	for _, table := range tables {
-		_, e := prod.Exec("CREATE TABLE " + table + " (id bigint PRIMARY KEY, value text NOT NULL); INSERT INTO " + table + " VALUES(1,'original')")
+		_, e := prod.Exec("CREATE TABLE " + table + " (id bigint PRIMARY KEY, value text NOT NULL, stamp timestamptz DEFAULT now()); INSERT INTO " + table + " VALUES(1,'original')")
 		require.NoError(t, e)
 	}
 	source := repository.NewPgDumper(pcfg, prod)
-	raw, e := source.Dump(ctx)
+	// Exercise an archive written by the previous release in a +08 session.
+	dumpCmd := exec.CommandContext(ctx, "pg_dump", "--clean", "--if-exists", "--no-owner", "--no-acl", "-h", pcfg.Database.Host, "-p", fmt.Sprint(pcfg.Database.Port), "-U", pcfg.Database.User, "-d", pcfg.Database.DBName)
+	dumpCmd.Env = append(dumpCmd.Environ(), "PGTZ=Asia/Shanghai", "PGPASSWORD="+pcfg.Database.Password)
+	legacy, e := dumpCmd.Output()
 	require.NoError(t, e)
+	require.Contains(t, string(legacy), "+08\n")
+	raw := io.NopCloser(bytes.NewReader(legacy))
 	archive := &archives{data: compress(t, raw), snapshots: map[string][]byte{}}
 	s := Service{Journal: journal, Access: grants{}, StepUp: grants{}, Archives: archive, Targets: map[string]Target{Production: {prod, source}, Isolated: {isolated, repository.NewPgDumper(icfg, isolated)}}}
 	peer := s
@@ -128,6 +145,14 @@ func TestFencedRestore(t *testing.T) {
 	require.Error(t, bad.Initialize(ctx))
 	require.NoError(t, s.Initialize(ctx))
 	require.NoError(t, peer.Initialize(ctx))
+	// The worker must wait for a peer's already admitted handler.
+	peer.Maintenance(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		deadline, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		require.Error(t, s.drainRequests(deadline))
+		require.ErrorIs(t, deadline.Err(), context.DeadlineExceeded)
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.NoError(t, s.drainRequests(ctx))
 	a := Actor{1, 9, "verified"}
 	preview := func(key, target string) Preview {
 		p, e := s.Preview(ctx, a, key, PreviewInput{BackupID: "backup", Target: target})
@@ -179,7 +204,7 @@ func TestFencedRestore(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, "succeeded", current.State)
 	require.EqualValues(t, 2, current.Generation)
-	stale.Stage = "verify_counts"
+	stale.Stage = "committing"
 	require.ErrorIs(t, s.finish(ctx, stale, stale.Evidence, ""), ErrLeaseLost)
 	require.ErrorIs(t, s.renew(ctx, stale), ErrLeaseLost)
 	require.Contains(t, archive.snapshots, fmt.Sprintf("%s/2", stale.ID))
@@ -195,11 +220,35 @@ func TestFencedRestore(t *testing.T) {
 	_, e = s.Execute(ctx, Actor{1, 9, ""}, "prod", ExecuteInput{prodPreview.ID, Production, current.ID})
 	require.ErrorIs(t, e, fault.Forbidden)
 	prodOp := execute(prodPreview, "prod", Production, current.ID)
+	admitted := false
+	handler := peer.Maintenance(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { admitted = true }))
+	request := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		return rec
+	}
+	archive.onSnapshot = func() {
+		for _, path := range []string{"/v1/messages", "/api/v1/admin/backups"} {
+			reply := request(path)
+			require.Equal(t, 503, reply.Code)
+			require.Contains(t, reply.Body.String(), "RESTORE_MAINTENANCE")
+		}
+		require.False(t, admitted)
+		tx, err := prod.Begin()
+		require.NoError(t, err)
+		defer tx.Rollback()
+		_, err = tx.Exec("SET LOCAL lock_timeout='100ms'; UPDATE users SET value='racing-write'")
+		require.ErrorContains(t, err, "lock timeout")
+	}
+
 	_, e = prod.Exec("UPDATE users SET value='pre-cutover'")
 	require.NoError(t, e)
 	worked, e = s.Work(ctx)
 	require.True(t, worked)
 	require.NoError(t, e)
+	archive.onSnapshot = nil
+	require.Equal(t, 200, request("/v1/messages").Code)
+	require.True(t, admitted)
 	completed, e := peer.Get(ctx, a, prodOp.ID)
 	require.NoError(t, e)
 	require.Equal(t, "succeeded", completed.State)
@@ -207,7 +256,7 @@ func TestFencedRestore(t *testing.T) {
 	require.Equal(t, "original", value)
 	require.Contains(t, string(archive.snapshots[fmt.Sprintf("%s/1", prodOp.ID)]), "pre-cutover")
 	iso := s.Targets[Isolated]
-	s.Targets[Isolated] = Target{iso.DB, alterAfterRestore{iso.Database, iso.DB}}
+	s.Targets[Isolated] = Target{iso.DB, alterAfterRestore{iso.Database}}
 	badOp := execute(preview("bad", Isolated), "bad", Isolated, "")
 	worked, e = s.Work(ctx)
 	require.True(t, worked)
@@ -230,11 +279,24 @@ func TestFencedRestore(t *testing.T) {
 	require.Equal(t, "SNAPSHOT_FAILED", noSnapshot.Report.Reason)
 	archive.failSnapshot = false
 	require.NoError(t, isolated.QueryRow("SELECT value FROM users").Scan(&value))
-	require.Equal(t, "different users, same count", value)
-	crash := execute(preview("crash", Isolated), "crash", Isolated, "")
+	require.Equal(t, "original", value)
+	s.Targets[Production] = Target{prod, alterAfterRestore{source}}
+	_, e = prod.Exec("UPDATE users SET value='preserve-on-failure'")
+	require.NoError(t, e)
+	badProd := execute(preview("bad-prod", Production), "bad-prod", Production, current.ID)
+	_, e = s.Work(ctx)
+	require.NoError(t, e)
+	badProd, e = s.Get(ctx, a, badProd.ID)
+	require.NoError(t, e)
+	require.Equal(t, "failed", badProd.State)
+	require.Equal(t, "rolled_back", badProd.Stage)
+	require.Equal(t, "VERIFICATION_FAILED", badProd.Report.Reason)
+	require.NoError(t, prod.QueryRow("SELECT value FROM users").Scan(&value))
+	require.Equal(t, "preserve-on-failure", value)
+	crash := execute(preview("crash", Production), "crash", Production, current.ID)
 	interrupted, stop := context.WithCancel(ctx)
 	defer stop()
-	s.Targets[Isolated] = Target{iso.DB, crashAfterCommit{iso.Database, stop}}
+	s.Targets[Production] = Target{prod, crashAfterCommit{source, stop}}
 	worked, e = s.Work(interrupted)
 	require.True(t, worked)
 	require.ErrorIs(t, e, context.Canceled)
@@ -245,13 +307,17 @@ func TestFencedRestore(t *testing.T) {
 	require.ErrorIs(t, e, sql.ErrNoRows)
 	uncertain, e := peer.Get(ctx, a, crash.ID)
 	require.NoError(t, e)
-	require.Equal(t, "unknown", uncertain.State)
-	require.Equal(t, "applying", uncertain.Stage)
+	require.Equal(t, "failed", uncertain.State)
+	require.Equal(t, "manual_recovery", uncertain.Stage)
 
-	_, e = s.Execute(ctx, a, "blocked", ExecuteInput{preview("blocked", Isolated).ID, Isolated, ""})
+	_, e = s.Execute(ctx, a, "blocked", ExecuteInput{preview("blocked", Production).ID, Production, current.ID})
 	require.ErrorIs(t, e, busy)
 	require.NoError(t, journal.QueryRow("SELECT count(*) FROM restore_journal.events WHERE operation_id=$1 AND state='succeeded'", crash.ID).Scan(&n))
 	require.Zero(t, n)
+	require.Equal(t, 503, request("/v1/messages").Code)
+	_, e = journal.Exec("UPDATE restore_journal.operations SET stage='reconciled' WHERE id=$1 AND stage='manual_recovery'", crash.ID)
+	require.NoError(t, e)
+	require.Equal(t, 200, request("/v1/messages").Code)
 	op, e := peer.ReadOperation(ctx, 1, 9, current.ID)
 	require.NoError(t, e)
 	require.EqualValues(t, 9, op.OwnerID)

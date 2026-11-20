@@ -3863,7 +3863,7 @@ export interface components {
             /** @enum {unknown} */
             state: "queued" | "running" | "succeeded" | "failed" | "unknown";
             /** @enum {unknown} */
-            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "verified";
+            stage: "queued" | "check_source" | "snapshot" | "applying" | "verify_counts" | "tx_apply" | "tx_verify" | "committing" | "rolled_back" | "manual_recovery" | "reconciled" | "verified";
             report: null | components["schemas"]["RestoreReport"];
         };
         RestorePreview: {
