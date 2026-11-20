@@ -115,11 +115,9 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 		return s.persistenceError(input.Key, err)
 	}
 	if prepared.State == UsageSettlementPending {
-		charge, err := frozenReceiptCharge(prepared.Usage.PricingSnapshot)
-		if err != nil {
+		if err := prepared.Command.BindFrozenCharge(prepared.Usage.PricingSnapshot); err != nil {
 			return s.persistenceError(prepared.Key, err)
 		}
-		prepared.Command.ChargedAmount = charge
 	}
 	writeCtx, cancel := detachedBillingContext(ctx)
 	stored, err := s.repo.Persist(writeCtx, prepared)
@@ -178,6 +176,12 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 			result, err = s.settleIdentity(ctx, key, fingerprint)
 		}
 		if err != nil {
+			if errors.Is(err, ErrUsageSettlementNeedsReview) {
+				if plan != nil {
+					plan.setReceiptState(UsageSettlementNeedsReview)
+				}
+				return
+			}
 			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
 			return
 		}
@@ -219,6 +223,11 @@ func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSe
 	}()
 	result, err = s.repo.Settle(ctx, key, fingerprint)
 	if err != nil {
+		if errors.Is(err, ErrUsageSettlementNeedsReview) && s.cache != nil {
+			if cacheErr := s.cache.InvalidateUserBalance(ctx, key.UserID); cacheErr != nil {
+				slog.Warn("review refund cache invalidation", "request_id", key.RequestID, "failure_category", billingFailureCategory(cacheErr))
+			}
+		}
 		if ctx.Err() != nil || errors.Is(err, ErrUsageBillingRequestConflict) || errors.Is(err, ErrUsageSettlementNeedsReview) {
 			return nil, err
 		}
@@ -334,10 +343,9 @@ func freezeSettlementPricing(cost *CostBreakdown, model, provider string, accoun
 	return nil
 }
 
-func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage *UsageLog, p *postUsageBillingParams, deps *billingDeps, interrupted bool) error {
-	if s == nil || s.repo == nil {
-		return fmt.Errorf("usage settlement repository is required")
-	}
+// assembleUsageReceipt freezes the shared log after the optional account pricing
+// effect has been added. Recovery replays this exact output.
+func assembleUsageReceipt(usage *UsageLog, p *postUsageBillingParams, interrupted bool) (*UsageSettlementReceipt, error) {
 	if p.Cost.PricingState != PricingStateUnpriced && p.Cost.PricingState != PricingStateError {
 		if err := freezeSettlementPricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
 			p.Cost.PricingState = PricingStateError
@@ -345,7 +353,7 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	}
 	cmd := buildUsageBillingCommand(usage.RequestID, usage, p)
 	if cmd == nil {
-		return ErrUsageBillingRequestIDRequired
+		return nil, ErrUsageBillingRequestIDRequired
 	}
 	completion := "complete"
 	if interrupted {
@@ -356,6 +364,17 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	if _, err := PrepareUsageSettlementReceipt(receipt); err != nil {
 		receipt.Usage.PricingState = PricingStateError
 		receipt.ResolutionState = "unresolved"
+	}
+	return receipt, nil
+}
+
+func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage *UsageLog, p *postUsageBillingParams, deps *billingDeps, interrupted bool) error {
+	if s == nil || s.repo == nil {
+		return fmt.Errorf("usage settlement repository is required")
+	}
+	receipt, err := assembleUsageReceipt(usage, p, interrupted)
+	if err != nil {
+		return err
 	}
 	// Only the production provider with the quota hook may reach this branch.
 	p.QuotaDerived = true

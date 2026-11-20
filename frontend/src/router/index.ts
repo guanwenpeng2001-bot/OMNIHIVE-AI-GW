@@ -218,6 +218,10 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/models',
+    redirect: '/model-plaza'
+  },
+  {
     path: '/model-plaza',
     name: 'ModelPlaza',
     component: () => import('@/views/public/PublicModelsView.vue'),
@@ -268,6 +272,41 @@ const routes: RouteRecordRaw[] = [
       titleZh: '服务状态'
     }
   },
+  {
+    path: '/docs',
+    name: 'PublicDocs',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: {
+      requiresAuth: false,
+      shellTier: 'public',
+      title: 'Documentation',
+      titleZh: '接入文档',
+      titleKey: 'helpGuide.title'
+    }
+  },
+  {
+    path: '/help',
+    name: 'HelpGuide',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: {
+      requiresAuth: false,
+      shellTier: 'public',
+      title: 'Documentation',
+      titleZh: '接入文档',
+      titleKey: 'helpGuide.title'
+    }
+  },
+  {
+    path: '/compatibility',
+    name: 'PublicCompatibility',
+    component: () => import('@/views/public/PublicCompatibilityView.vue'),
+    meta: {
+      requiresAuth: false,
+      shellTier: 'public',
+      title: 'Updates & Compatibility',
+      titleZh: '更新与兼容性'
+    }
+  },
 
   // ==================== User Routes ====================
   {
@@ -307,13 +346,6 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'dashboard.title',
       descriptionKey: 'dashboard.welcomeMessage'
     }
-  },
-  {
-    path: '/help',
-    name: 'HelpGuide',
-    alias: ['/docs'],
-    component: () => import('@/views/HelpGuide.vue'),
-    meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
   },
   {
     path: '/keys',
@@ -724,8 +756,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/admin/pools',
     name: 'AdminPools',
-    component: () => import('@/views/admin/GroupsView.vue'),
-    props: { initialSection: 'pools' },
+    component: () => import('@/features/pools/PoolsWorkbenchView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: true,
@@ -1087,7 +1118,7 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
-const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/monitor'])
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/pools', '/admin/routing', '/admin/proxies', '/admin/proxy-groups', '/admin/channels/pricing', '/admin/channels/monitor', '/monitor'])
 for (const resourceRoute of [...routes]) {
   if (!workspaceResourcePaths.has(resourceRoute.path)) continue
   const suffix = resourceRoute.path.replace(/^\/admin/, '')
@@ -1124,7 +1155,7 @@ const router = createRouter({
     if (savedPosition) {
       return savedPosition
     }
-    if (_to.path === '/help' && helpSectionIds.some(id => `#${id}` === _to.hash)) {
+    if ((_to.path === '/help' || _to.path === '/docs') && helpSectionIds.some(id => `#${id}` === _to.hash)) {
       return { el: _to.hash, top: helpScrollOffset }
     }
     // Scroll to top for new routes

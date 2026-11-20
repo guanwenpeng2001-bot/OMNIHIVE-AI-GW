@@ -15,7 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/gin-gonic/gin"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -200,6 +204,55 @@ func TestMcpGrantPublicRankings(t *testing.T) {
 	w := mcpRequest(NewMCPGrantHandler(), 0, "", "GET", "/rankings", "")
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 	require.Contains(t, w.Body.String(), "Public model rankings are unavailable")
+}
+
+func TestPublicRankingsObservedAndInsufficientSamples(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	h := NewMCPGrantHandler()
+	h.SetPulseUsageHandler(&UsageHandler{usageService: service.NewUsageService(nil, nil, client, nil)})
+	type rankings struct {
+		State  string
+		Window struct{ Start, End time.Time }
+		Items  []service.PublicModelRanking
+	}
+	query := "WITH publication AS"
+	rows := func() *sqlmock.Rows {
+		return sqlmock.NewRows([]string{"model", "provider", "requests", "success_rate", "latency_samples", "avg_latency", "published"})
+	}
+	mock.ExpectQuery(query).WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(rows().
+		AddRow("private-client-alias", "custom", 100, 1, 80, 5, false).
+		AddRow("published", "provider", 15, 0.8, 10, 200.5, true).
+		AddRow("few", "provider", 2, 0.5, 1, 11, true))
+	observed := mcpData[rankings](t, mcpRequest(h, 0, "", "GET", "/rankings?limit=90", ""))
+	require.Len(t, observed.Items, 2)
+	require.Equal(t, 24*time.Hour, observed.Window.End.Sub(observed.Window.Start))
+	require.Equal(t, "observed", observed.State)
+	require.Equal(t, "published", observed.Items[0].Model)
+	require.Equal(t, int64(15), observed.Items[0].Requests)
+	require.Equal(t, 0.8, *observed.Items[0].SuccessRate)
+	require.Equal(t, 200.5, *observed.Items[0].AverageLatency)
+	require.Nil(t, observed.Items[1].SuccessRate)
+	require.Nil(t, observed.Items[1].AverageLatency)
+	many := rows()
+	for i := 0; i < 51; i++ {
+		many.AddRow(fmt.Sprintf("rank-%02d", i), "public", 51-i, 1, 0, nil, true)
+	}
+	mock.ExpectQuery(query).WillReturnRows(many)
+	require.Len(t, mcpData[rankings](t, mcpRequest(h, 0, "", "GET", "/rankings?limit=99", "")).Items, 50)
+	mock.ExpectQuery(query).WillReturnRows(rows().AddRow("first", "provider", 5, 1, 1, 11, true).AddRow("second", "provider", 2, 1, 1, 11, true))
+	require.Len(t, mcpData[rankings](t, mcpRequest(h, 0, "", "GET", "/rankings?limit=0", "")).Items, 1)
+	mock.ExpectQuery(query).WillReturnRows(rows())
+	empty := mcpData[rankings](t, mcpRequest(h, 0, "", "GET", "/rankings", ""))
+	require.Equal(t, "insufficient_samples", empty.State)
+	require.NotNil(t, empty.Items)
+	require.Empty(t, empty.Items)
+	mock.ExpectQuery(query).WillReturnError(errors.New("database unavailable"))
+	require.Equal(t, 503, mcpRequest(h, 0, "", "GET", "/rankings", "").Code)
+	require.Equal(t, 400, mcpRequest(h, 0, "", "GET", "/rankings?limit=bad", "").Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 type mcpPulseReader struct{ fail bool }

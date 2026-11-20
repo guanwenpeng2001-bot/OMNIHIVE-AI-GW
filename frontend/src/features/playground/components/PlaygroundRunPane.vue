@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -36,7 +37,47 @@ const emit = defineEmits<{
   'inject-tool-response': [payload: { toolCallId: string; name: string }]
 }>()
 
+const { t } = useI18n()
 const reasoningExpanded = ref(true)
+const diagnosticsOpen = ref(false)
+const diagnosticsTab = ref<'request' | 'events'>('request')
+
+const formattedSubmittedPayload = computed(() => {
+  if (!props.session.submittedPayload) return ''
+  return JSON.stringify(props.session.submittedPayload, null, 2)
+})
+
+const totalEventFramesCount = computed(
+  () => props.session.sseFrames.length + (props.session.rawEvents?.length ?? 0)
+)
+
+const formattedSseFramesText = computed(() =>
+  JSON.stringify(
+    {
+      sseFrames: props.session.sseFrames,
+      rawEvents: props.session.rawEvents ?? []
+    },
+    null,
+    2
+  )
+)
+
+function formatFramePayload(raw: string): string {
+  if (!raw) return EM_DASH
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
+function formatRawEvent(event: unknown): string {
+  try {
+    return JSON.stringify(event, null, 2)
+  } catch {
+    return String(event)
+  }
+}
 
 const isStreaming = computed(
   () => props.session.status === 'submitting' || props.session.status === 'streaming'
@@ -135,6 +176,21 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">
+        <Button
+          variant="ghost"
+          size="xs"
+          :aria-expanded="diagnosticsOpen"
+          :data-testid="`toggle-diagnostics-${sideKey}`"
+          @click="diagnosticsOpen = !diagnosticsOpen"
+        >
+          {{ t('playgroundDiagnostics.togglePane') }}
+          <span
+            v-if="totalEventFramesCount > 0"
+            class="ml-1 rounded bg-[var(--oh-bg-subtle,var(--surface-2))] px-1 font-mono text-[10px] tabular-nums"
+          >
+            {{ totalEventFramesCount }}
+          </span>
+        </Button>
         <Button
           v-if="compareMode"
           variant="ghost"
@@ -364,6 +420,147 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           <span v-if="diag.reason"> · {{ diag.reason }}</span>
         </li>
       </ul>
+
+      <!-- Collapsible Raw Request JSON & SSE Event Frames Inspector -->
+      <section
+        v-if="diagnosticsOpen"
+        :data-testid="`playground-diagnostics-inspector-${sideKey}`"
+        class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-3 space-y-2.5"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div
+            role="tablist"
+            :aria-label="t('playgroundDiagnostics.tabsAriaLabel')"
+            class="inline-flex rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-0.5"
+          >
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="diagnosticsTab === 'request'"
+              :data-testid="`diagnostics-tab-request-${sideKey}`"
+              :class="[
+                'rounded-[4px] px-2.5 py-1 font-mono text-[11px] transition-colors',
+                diagnosticsTab === 'request'
+                  ? 'bg-[var(--oh-accent-subtle,rgba(245,158,11,0.14))] font-semibold text-[var(--oh-ink,var(--foreground))]'
+                  : 'text-[var(--oh-ink-secondary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]'
+              ]"
+              @click="diagnosticsTab = 'request'"
+            >
+              {{ t('playgroundDiagnostics.tabRawRequest') }}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="diagnosticsTab === 'events'"
+              :data-testid="`diagnostics-tab-sse-${sideKey}`"
+              :class="[
+                'rounded-[4px] px-2.5 py-1 font-mono text-[11px] transition-colors',
+                diagnosticsTab === 'events'
+                  ? 'bg-[var(--oh-accent-subtle,rgba(245,158,11,0.14))] font-semibold text-[var(--oh-ink,var(--foreground))]'
+                  : 'text-[var(--oh-ink-secondary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]'
+              ]"
+              @click="diagnosticsTab = 'events'"
+            >
+              {{ t('playgroundDiagnostics.tabSseFrames') }} ({{ totalEventFramesCount }})
+            </button>
+          </div>
+
+          <CopyButton
+            v-if="diagnosticsTab === 'request' && formattedSubmittedPayload"
+            :value="formattedSubmittedPayload"
+            :label="t('playgroundDiagnostics.copyPayload')"
+            size="xs"
+          />
+          <CopyButton
+            v-else-if="diagnosticsTab === 'events' && totalEventFramesCount > 0"
+            :value="formattedSseFramesText"
+            :label="t('playgroundDiagnostics.copyFrames')"
+            size="xs"
+          />
+        </div>
+
+        <div v-if="diagnosticsTab === 'request'" class="space-y-1.5">
+          <p class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+            {{ t('playgroundDiagnostics.rawRequestLabel') }}
+          </p>
+          <pre
+            v-if="formattedSubmittedPayload"
+            :data-testid="`diagnostics-submitted-payload-${sideKey}`"
+            class="max-h-64 overflow-auto rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]"
+          >{{ formattedSubmittedPayload }}</pre>
+          <p
+            v-else
+            :data-testid="`diagnostics-submitted-payload-empty-${sideKey}`"
+            class="py-3 text-center font-mono text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]"
+          >
+            {{ t('playgroundDiagnostics.rawRequestEmpty') }}
+          </p>
+        </div>
+
+        <div v-else class="space-y-2">
+          <p
+            v-if="totalEventFramesCount === 0"
+            :data-testid="`diagnostics-sse-empty-${sideKey}`"
+            class="py-3 text-center font-mono text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]"
+          >
+            {{ t('playgroundDiagnostics.sseFramesEmpty') }}
+          </p>
+          <template v-else>
+            <div v-if="session.sseFrames.length > 0" class="space-y-1.5">
+              <p class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ t('playgroundDiagnostics.sseFramesLabel') }} ({{ session.sseFrames.length }})
+              </p>
+              <ul
+                :data-testid="`diagnostics-sse-frames-${sideKey}`"
+                class="max-h-64 space-y-1.5 overflow-auto"
+              >
+                <li
+                  v-for="(frame, idx) in session.sseFrames"
+                  :key="`${frame.id}-${idx}`"
+                  class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-2 font-mono text-[11px] tabular-nums"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center gap-1.5">
+                      <Badge tone="neutral" variant="outline" mono>{{ frame.event }}</Badge>
+                      <span class="font-semibold text-[var(--oh-ink,var(--foreground))]">
+                        #{{ frame.seq ?? EM_DASH }}
+                      </span>
+                    </div>
+                    <span class="text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                      +{{ frame.receivedAtMs }}ms
+                    </span>
+                  </div>
+                  <p v-if="frame.summary" class="mt-1 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                    {{ frame.summary }}
+                  </p>
+                  <pre
+                    v-if="frame.rawData"
+                    class="mt-1.5 max-h-32 overflow-auto rounded bg-[var(--oh-bg-subtle,var(--surface-2))] p-2 text-[10px] leading-4 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]"
+                  >{{ formatFramePayload(frame.rawData) }}</pre>
+                </li>
+              </ul>
+            </div>
+
+            <div v-if="(session.rawEvents?.length ?? 0) > 0" class="space-y-1.5">
+              <p class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ t('playgroundDiagnostics.rawEventsLabel') }} ({{ session.rawEvents.length }})
+              </p>
+              <ul
+                :data-testid="`diagnostics-raw-events-${sideKey}`"
+                class="max-h-56 space-y-1.5 overflow-auto"
+              >
+                <li
+                  v-for="(rawEvent, idx) in session.rawEvents"
+                  :key="idx"
+                  class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-2"
+                >
+                  <pre class="max-h-32 overflow-auto font-mono text-[10px] leading-4 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]">{{ formatRawEvent(rawEvent) }}</pre>
+                </li>
+              </ul>
+            </div>
+          </template>
+        </div>
+      </section>
     </div>
 
     <!-- Footer Usage & Settlement Strip -->

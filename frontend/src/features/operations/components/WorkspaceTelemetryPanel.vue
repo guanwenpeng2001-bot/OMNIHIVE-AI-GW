@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Badge, Button, Card, CopyButton, Input, Select, Switch, pushUiToast } from '@/components/ui'
 import { useConsoleScope } from '@/features/console/scope'
 import { classifyAsyncError, redactSensitiveText } from '@/features/shared/asyncState'
@@ -70,19 +70,83 @@ function handleWorkspaceSelect(value: string | number) {
 const sessionDestinations = ref<Array<TelemetryDestination & { hostHint?: string }>>([])
 const sessionExports = ref<TelemetryExportConfig[]>([])
 const activeExportDetail = ref<TelemetryExportDetail | null>(null)
-
 const permissionDenied = ref(false)
 const bannerError = ref('')
 const bannerSuccess = ref('')
+const workspaceTelemetryUnavailable = ref(false)
+let telemetryLoadSeq = 0
+let telemetryLoadController: AbortController | null = null
 
-watch(effectiveWorkspaceId, () => {
-  sessionDestinations.value = []
-  sessionExports.value = []
-  activeExportDetail.value = null
-  permissionDenied.value = false
-  bannerError.value = ''
-  bannerSuccess.value = ''
-})
+function unwrapItemsList<T>(payload: unknown): T[] | null {
+  if (Array.isArray(payload)) return payload as T[]
+  if (payload && typeof payload === 'object') {
+    const items = (payload as { items?: unknown }).items
+    if (Array.isArray(items)) return items as T[]
+  }
+  return null
+}
+
+async function loadWorkspaceTelemetryFromServer(wsId: string): Promise<void> {
+  telemetryLoadController?.abort()
+  telemetryLoadController = null
+  if (!isValidPositiveIntString(wsId)) {
+    return
+  }
+  const seq = ++telemetryLoadSeq
+  const controller = new AbortController()
+  telemetryLoadController = controller
+  workspaceTelemetryUnavailable.value = false
+
+  const [destResult, exportResult] = await Promise.allSettled([
+    requestGet<unknown>(
+      `/workspaces/${encodeURIComponent(wsId)}/observability/destinations`,
+      undefined,
+      undefined,
+      controller.signal
+    ),
+    requestGet<unknown>(
+      `/workspaces/${encodeURIComponent(wsId)}/observability/exports`,
+      undefined,
+      undefined,
+      controller.signal
+    )
+  ])
+
+  if (controller.signal.aborted || seq !== telemetryLoadSeq || effectiveWorkspaceId.value !== wsId) {
+    return
+  }
+
+  for (const outcome of [destResult, exportResult]) {
+    if (outcome.status === 'rejected') {
+      const normalized = normalizeApiError(outcome.reason)
+      if (normalized.status === 403) {
+        permissionDenied.value = true
+        return
+      }
+      if (normalized.status !== 404 && normalized.status !== 405) {
+        workspaceTelemetryUnavailable.value = true
+      }
+    }
+  }
+
+  if (destResult.status === 'fulfilled') {
+    const list = unwrapItemsList<TelemetryDestination & { endpoint?: string }>(destResult.value)
+    if (list) {
+      sessionDestinations.value = list.map((item) => ({
+        ...item,
+        ...(typeof item.endpoint === 'string' && item.endpoint
+          ? { hostHint: extractSafeHostHint(item.endpoint) }
+          : {})
+      }))
+    }
+  }
+  if (exportResult.status === 'fulfilled') {
+    const list = unwrapItemsList<TelemetryExportConfig>(exportResult.value)
+    if (list) {
+      sessionExports.value = list
+    }
+  }
+}
 
 function requireValidWorkspace(): string | null {
   const wsId = effectiveWorkspaceId.value
@@ -453,6 +517,9 @@ async function updateExportPipeline() {
 function formatDestinationState(state: string): string {
   if (state === 'registered') return props.isZh ? '已注册' : 'Registered'
   if (state === 'revoked') return props.isZh ? '已撤销' : 'Revoked'
+  if (!state || state === 'unknown' || state === 'unavailable') {
+    return props.isZh ? '未知' : 'Unknown'
+  }
   return state
 }
 
@@ -466,15 +533,25 @@ function formatExportState(state: string): string {
       return props.isZh ? '投递异常' : 'Failed'
     case 'disabled':
       return props.isZh ? '已停用' : 'Disabled'
+    case 'unavailable':
+      return props.isZh ? '暂不可用' : 'Unavailable'
+    case 'unknown':
+    case '':
+      return props.isZh ? '未知 / 未观测' : 'Unknown'
     default:
-      return state
+      return props.isZh ? `未知 (${state})` : `Unknown (${state})`
   }
 }
 
-function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutral' {
+function exportStateTone(
+  state: string,
+  lastSuccessAt?: string | null,
+  lastErrorReason?: string | null
+): 'info' | 'success' | 'danger' | 'neutral' {
+  if (lastErrorReason) return 'danger'
   switch (state) {
     case 'active':
-      return 'success'
+      return lastSuccessAt ? 'success' : 'neutral'
     case 'validating':
       return 'info'
     case 'failed':
@@ -483,6 +560,82 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
       return 'neutral'
   }
 }
+
+const telemetryHealthSummary = computed<{
+  status: 'healthy' | 'degraded' | 'unknown' | 'unavailable'
+  tone: 'success' | 'danger' | 'neutral'
+  label: string
+}>(() => {
+  if (permissionDenied.value || workspaceTelemetryUnavailable.value) {
+    return {
+      status: 'unavailable',
+      tone: 'neutral',
+      label: props.isZh ? '遥测状态不可用' : 'Unavailable'
+    }
+  }
+  const detail = activeExportDetail.value
+  if (!detail) {
+    return {
+      status: 'unknown',
+      tone: 'neutral',
+      label: props.isZh ? '遥测健康未知' : 'Unknown'
+    }
+  }
+  if (detail.state === 'failed' || Boolean(detail.last_error_reason)) {
+    return {
+      status: 'degraded',
+      tone: 'danger',
+      label: props.isZh ? '投递异常' : 'Degraded'
+    }
+  }
+  if ((detail.state as string) === 'unavailable') {
+    return {
+      status: 'unavailable',
+      tone: 'neutral',
+      label: props.isZh ? '遥测状态不可用' : 'Unavailable'
+    }
+  }
+  // Never report green healthy unless an active pipeline has observed at least one successful delivery
+  if (detail.state === 'active' && Boolean(detail.last_success_at)) {
+    return {
+      status: 'healthy',
+      tone: 'success',
+      label: props.isZh ? '投递健康' : 'Healthy'
+    }
+  }
+  return {
+    status: 'unknown',
+    tone: 'neutral',
+    label: props.isZh ? '未观测 / 未知' : 'Unknown'
+  }
+})
+
+watch(
+  effectiveWorkspaceId,
+  (wsId) => {
+    telemetryLoadSeq += 1
+    telemetryLoadController?.abort()
+    telemetryLoadController = null
+    sessionDestinations.value = []
+    sessionExports.value = []
+    activeExportDetail.value = null
+    exportDestinationId.value = ''
+    exportLookupId.value = ''
+    permissionDenied.value = false
+    workspaceTelemetryUnavailable.value = false
+    bannerError.value = ''
+    bannerSuccess.value = ''
+    if (wsId) {
+      void loadWorkspaceTelemetryFromServer(wsId)
+    }
+  },
+  { immediate: true }
+)
+
+onBeforeUnmount(() => {
+  telemetryLoadSeq += 1
+  telemetryLoadController?.abort()
+})
 </script>
 
 <template>
@@ -492,7 +645,8 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
     :subtitle="isZh ? '注册公网 HTTPS 遥测采集端，配置时序指标采样率、保留窗口并监控投递队列深度。' : 'Register HTTPS collectors, configure timing export sampling and retention windows, and inspect delivery queue depth.'"
   >
     <div class="min-w-0 space-y-4">
-      <div class="flex min-w-0 flex-wrap items-end gap-2 border-b border-oh-subtle pb-3">
+      <div class="flex min-w-0 flex-wrap items-end justify-between gap-2 border-b border-oh-subtle pb-3">
+        <div class="flex min-w-0 flex-wrap items-end gap-2">
         <div v-if="workspaceSelectOptions.length > 0" class="w-full min-w-0 sm:w-48">
           <Select
             :model-value="effectiveWorkspaceId"
@@ -502,7 +656,7 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
             @update:model-value="handleWorkspaceSelect"
           />
         </div>
-        <div class="w-full min-w-0 sm:w-36">
+        <div v-else class="w-full min-w-0 sm:w-36">
           <Input
             id="telemetry-workspace-id"
             v-model="workspaceIdInput"
@@ -511,6 +665,18 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
             :label="isZh ? '工作空间 ID' : 'Workspace ID'"
             :placeholder="isZh ? '例如：1' : 'e.g. 1'"
           />
+        </div>
+        </div>
+        <div class="flex items-center gap-1.5 pb-1">
+          <Badge
+            :tone="telemetryHealthSummary.tone"
+            size="xs"
+            dot
+            data-testid="telemetry-health-badge"
+            :data-health-state="telemetryHealthSummary.status"
+          >
+            {{ telemetryHealthSummary.label }}
+          </Badge>
         </div>
       </div>
       <div
@@ -804,7 +970,18 @@ function exportStateTone(state: string): 'info' | 'success' | 'danger' | 'neutra
           <div class="space-y-1">
             <span class="text-oh-muted">{{ isZh ? '运行状态 / 版本' : 'State / Version' }}</span>
             <div class="flex items-center gap-1.5">
-              <Badge :tone="exportStateTone(activeExportDetail.state)" size="xs" dot>
+              <Badge
+                :tone="
+                  exportStateTone(
+                    activeExportDetail.state,
+                    activeExportDetail.last_success_at,
+                    activeExportDetail.last_error_reason
+                  )
+                "
+                size="xs"
+                dot
+                data-testid="telemetry-export-state-badge"
+              >
                 {{ formatExportState(activeExportDetail.state) }}
               </Badge>
               <span class="font-mono text-oh-secondary">

@@ -356,7 +356,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	// Create usage log
-	durationMs := int(result.Duration.Milliseconds())
 	accountRateMultiplier := account.BillingRateMultiplier()
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
 	if result.OpenAIWSMode && GatewayRequestPlanFromContext(ctx).journalIdentity() == "" {
@@ -401,115 +400,74 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// Keep the image cache split in the existing usage_logs JSONB payload.
 		imageSizeBreakdown["image_cache_read_tokens"] = result.Usage.ImageCacheReadTokens
 	}
-	usageLog := &UsageLog{
-		TokenUsageObservation: result.TokenUsageObservation,
-		PricingState:          cost.PricingState, PricingSnapshot: cost.PricingSnapshot,
-		UserID:                   user.ID,
-		APIKeyID:                 apiKey.ID,
-		AccountID:                account.ID,
-		RequestID:                requestID,
-		UpstreamRequestID:        usageUpstreamRequestIDPtr(account, result.UpstreamHeaders, result.OpenAIWSMode),
+	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
+	mode := BillingModeToken
+	logMultiplier := multiplier
+	if isVideoUsage {
+		mode = BillingModeVideo
+		if cost.BillingMode != string(BillingModeToken) {
+			logMultiplier = videoMultiplier
+		}
+	} else if result.ImageCount > 0 {
+		mode = BillingModeImage
+		if cost.BillingMode != string(BillingModeToken) {
+			logMultiplier = imageMultiplier
+		}
+	}
+	logTokens := tokens
+	logTokens.InputTokens = actualInputTokens
+	logTokens.ImageInputTokens = result.Usage.ImageInputTokens
+	usageLog := (UsageEvidence{RequestID: requestID,
 		Model:                    result.Model,
 		RequestedModel:           requestedModel,
-		UpstreamModel:            optionalTrimmedStringPtr(result.UpstreamModel),
-		UpstreamResponseModel:    optionalTrimmedStringPtr(result.UpstreamResponseModel),
-		UpstreamModelMismatch:    upstreamModelMismatch(sentModel, result.UpstreamResponseModel),
-		ThinkingEnabled:          result.ThinkingEnabled,
-		PriceSource:              optionalTrimmedStringPtr(cost.PriceSource),
-		PriceCardVersion:         optionalTrimmedStringPtr(cost.PriceCardVersion),
+		UpstreamModel:            result.UpstreamModel,
+		ResponseModel:            result.UpstreamResponseModel,
+		Key:                      apiKey,
+		User:                     user,
+		Account:                  account,
+		Subscription:             subscription,
+		Cost:                     cost,
+		Tokens:                   logTokens,
+		UpstreamHeaders:          result.UpstreamHeaders,
 		ServiceTier:              result.ServiceTier,
 		ReasoningEffort:          result.ReasoningEffort,
-		RequestedReasoningEffort: optionalTrimmedStringPtr(optionalStringValue(result.RequestedReasoningEffort)),
-		InboundEndpoint:          optionalTrimmedStringPtr(input.InboundEndpoint),
-		UpstreamEndpoint:         optionalTrimmedStringPtr(input.UpstreamEndpoint),
-		InputTokens:              actualInputTokens,
-		OutputTokens:             result.Usage.OutputTokens,
-		CacheCreationTokens:      result.Usage.CacheCreationInputTokens,
-		CacheReadTokens:          result.Usage.CacheReadInputTokens,
-		ImageInputTokens:         result.Usage.ImageInputTokens,
-		ImageOutputTokens:        result.Usage.ImageOutputTokens,
+		RequestedReasoningEffort: result.RequestedReasoningEffort,
+		RateMultiplier:           logMultiplier,
+		AccountRateMultiplier:    accountRateMultiplier,
+		BillingType:              billingType,
+		Mode:                     mode,
 		ImageCount:               result.ImageCount,
-		ImageSize:                optionalTrimmedStringPtr(result.ImageSize),
-		ImageInputSize:           optionalTrimmedStringPtr(result.ImageInputSize),
-		ImageOutputSize:          optionalTrimmedStringPtr(result.ImageOutputSize),
-		ImageSizeSource:          optionalTrimmedStringPtr(result.ImageSizeSource),
+		ImageSize:                result.ImageSize,
+		ImageInputSize:           result.ImageInputSize,
+		ImageOutputSize:          result.ImageOutputSize,
+		ImageSizeSource:          result.ImageSizeSource,
+		Stream:                   result.Stream,
+		Duration:                 result.Duration,
+		FirstTokenMs:             result.FirstTokenMs,
+		ChannelID:                input.ChannelID,
+		InboundEndpoint:          input.InboundEndpoint,
+		UpstreamEndpoint:         input.UpstreamEndpoint,
+		ModelMappingChain:        input.ModelMappingChain,
+		UserAgent:                input.UserAgent,
+		IPAddress:                input.IPAddress,
+		SessionID:                input.SessionID,
 		ImageSizeBreakdown:       imageSizeBreakdown,
-		NativeCompactionV2:       input.NativeCompactionV2,
-	}
-	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
-	if isVideoUsage {
-		usageLog.VideoCount = result.VideoCount
-		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
-		videoDurationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
-		usageLog.VideoDurationSeconds = &videoDurationSeconds
-	}
-	if cost != nil {
-		usageLog.InputCost = cost.InputCost
-		usageLog.ImageInputCost = cost.ImageInputCost
-		usageLog.OutputCost = cost.OutputCost
-		usageLog.ImageOutputCost = cost.ImageOutputCost
-		usageLog.CacheCreationCost = cost.CacheCreationCost
-		usageLog.CacheReadCost = cost.CacheReadCost
-		usageLog.TotalCost = cost.TotalCost
-		usageLog.ActualCost = QuantizeUsageBillingAmount(cost.ActualCost)
-		usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
-	}
-	if isVideoUsage && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
-		usageLog.RateMultiplier = videoMultiplier
-	} else if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
-		usageLog.RateMultiplier = imageMultiplier
-	} else {
-		usageLog.RateMultiplier = multiplier
-	}
-	usageLog.AccountRateMultiplier = &accountRateMultiplier
-	recordQianwenNativeAudioUnits(usageLog, result)
-	recordQianwenVoiceEnrollmentUnits(usageLog, result)
-	usageLog.BillingType = billingType
-	usageLog.Stream = result.Stream
+		WebSocket:                result.OpenAIWSMode,
+	}).usageLog()
+	usageLog.TokenUsageObservation = result.TokenUsageObservation
+	usageLog.ThinkingEnabled = result.ThinkingEnabled
+	usageLog.NativeCompactionV2 = input.NativeCompactionV2
 	if input.CyberBlocked {
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}
-	usageLog.OpenAIWSMode = result.OpenAIWSMode
-	usageLog.DurationMs = &durationMs
-	usageLog.FirstTokenMs = result.FirstTokenMs
-	usageLog.CreatedAt = time.Now()
-	// 设置渠道信息
-	usageLog.ChannelID = optionalInt64Ptr(input.ChannelID)
-	usageLog.ModelMappingChain = optionalTrimmedStringPtr(input.ModelMappingChain)
-	// 设置计费模式
-	if cost != nil && cost.BillingMode != "" {
-		billingMode := cost.BillingMode
-		usageLog.BillingMode = &billingMode
-	} else if isVideoUsage {
-		billingMode := string(BillingModeVideo)
-		usageLog.BillingMode = &billingMode
-	} else if result.ImageCount > 0 {
-		billingMode := string(BillingModeImage)
-		usageLog.BillingMode = &billingMode
-	} else {
-		billingMode := string(BillingModeToken)
-		usageLog.BillingMode = &billingMode
+	if isVideoUsage {
+		usageLog.VideoCount = result.VideoCount
+		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
+		duration := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+		usageLog.VideoDurationSeconds = &duration
 	}
-	// 添加 UserAgent
-	if input.UserAgent != "" {
-		usageLog.UserAgent = &input.UserAgent
-	}
-
-	// 添加 IPAddress
-	if input.IPAddress != "" {
-		usageLog.IPAddress = &input.IPAddress
-	}
-
-	// 添加 SessionID（客户端显式会话标识；缺失/无效时保持 nil）
-	usageLog.SessionID = optionalTrimmedStringPtr(input.SessionID)
-
-	if apiKey.GroupID != nil {
-		usageLog.GroupID = apiKey.GroupID
-	}
-	if subscription != nil {
-		usageLog.SubscriptionID = &subscription.ID
-	}
-
+	recordQianwenNativeAudioUnits(usageLog, result)
+	recordQianwenVoiceEnrollmentUnits(usageLog, result)
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
 		applyAccountStatsCost(ctx, usageLog, s.channelService, s.billingService,
@@ -629,9 +587,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	if result != nil && result.AudioUsage != nil {
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved != nil &&
 			(resolved.Mode == BillingModePerRequest) {
-			gid := apiKey.Group.ID
+			gid := pricingGroupID(apiKey)
 			return s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
-				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+				Ctx: ctx, Model: billingModel, GroupID: gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
 				RateMultiplier: webSearchMultiplier, Resolver: s.resolver, Resolved: resolved,
 				ReasoningEffort: optionalStringValue(result.ReasoningEffort),
@@ -792,9 +750,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 		thinking = thinkingEnabled[0]
 	}
 	if s.resolver != nil && apiKey.Group != nil {
-		gid := apiKey.Group.ID
+		gid := pricingGroupID(apiKey)
 		return s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
-			Ctx: ctx, Provider: provider, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+			Ctx: ctx, Provider: provider, Model: billingModel, GroupID: gid, Group: apiKey.Group,
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
 			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: s.resolver,
 			LongContextBillingEnabled: longContextBillingGate,
@@ -829,9 +787,9 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup &&
 		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
-		gid := apiKey.Group.ID
+		gid := pricingGroupID(apiKey)
 		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
-			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+			Ctx: ctx, Model: billingModel, GroupID: gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: sizeTier,
 			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 			RateMultiplier:  multiplier, Resolver: s.resolver, Resolved: resolved,
@@ -854,11 +812,11 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel &&
 		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
-		gid := apiKey.Group.ID
+		gid := pricingGroupID(apiKey)
 		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 			Ctx:             ctx,
 			Model:           billingModel,
-			GroupID:         &gid,
+			GroupID:         gid,
 			Group:           apiKey.Group,
 			RequestCount:    result.ImageCount,
 			SizeTier:        sizeTier,
@@ -894,9 +852,9 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 	}
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup && resolved.Mode == BillingModeVideo {
-		gid := apiKey.Group.ID
+		gid := pricingGroupID(apiKey)
 		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
-			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+			Ctx: ctx, Model: billingModel, GroupID: gid, Group: apiKey.Group,
 			UsageUnits: float64(videoCount * durationSeconds), SizeTier: resolution,
 			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 			RateMultiplier:  multiplier, Resolver: s.resolver, Resolved: resolved,
@@ -920,7 +878,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 	if resolved != nil && resolved.Source == PricingSourceChannel &&
 		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage || resolved.Mode == BillingModeVideo) {
 		// 渠道 per_request/image 定价保持"按请求次数"口径（价格由管理员按次配置），不乘视频时长。
-		gid := apiKey.Group.ID
+		gid := pricingGroupID(apiKey)
 		units := float64(videoCount)
 		if resolved.Mode == BillingModeVideo {
 			units = float64(videoCount * durationSeconds)
@@ -928,7 +886,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 			Ctx:             ctx,
 			Model:           billingModel,
-			GroupID:         &gid,
+			GroupID:         gid,
 			Group:           apiKey.Group,
 			RequestCount:    videoCount,
 			UsageUnits:      units,
@@ -1034,15 +992,7 @@ func (s *OpenAIGatewayService) filterCNProviderBillingModelCandidates(ctx contex
 }
 
 func (s *OpenAIGatewayService) resolveOpenAIChannelPricing(ctx context.Context, billingModel string, apiKey *APIKey) *ResolvedPricing {
-	if s.resolver == nil || apiKey == nil || apiKey.Group == nil {
-		return nil
-	}
-	gid := apiKey.Group.ID
-	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
-	if resolved.Source == PricingSourceGroup || resolved.Source == PricingSourceChannel {
-		return resolved
-	}
-	return nil
+	return s.resolver.configuredForKey(ctx, billingModel, apiKey)
 }
 
 // ParseCodexRateLimitHeaders extracts Codex usage limits from response headers.

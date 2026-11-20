@@ -32,6 +32,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 GITHUB_REPO="guanwenpeng2001-bot/OMNIHIVE-AI-GW"
+MINIMUM_ROLLBACK_VERSION="0.2.5"
 INSTALL_DIR="/opt/omnihive"
 SERVICE_NAME="omnihive"
 SERVICE_USER="omnihive"
@@ -477,6 +478,14 @@ check_dependencies() {
         missing+=("tar")
     fi
 
+    if ! command -v python3 &> /dev/null; then
+        missing+=("python3")
+    fi
+
+    if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
+        missing+=("sha256sum (or shasum)")
+    fi
+
     if [ ${#missing[@]} -gt 0 ]; then
         print_error "$(msg 'missing_deps'): ${missing[*]}"
         print_info "$(msg 'install_deps_first')"
@@ -644,74 +653,146 @@ get_current_version() {
     fi
 }
 
-# Download and extract
-download_and_extract() {
-    local version_num=${LATEST_VERSION#v}
-    local suffix="${version_num}_${OS}_${ARCH}.tar.gz"
-    local release_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}"
-    local project archive_name=""
+checksum_entry() {
+    awk -v name="$2" '
+        $2 == name || $2 == "*" name { count++; hash = $1 }
+        END {
+            if (count == 0) exit 2
+            if (count != 1 || length(hash) != 64 || hash !~ /^[[:xdigit:]]+$/) exit 1
+            print tolower(hash)
+        }' "$1"
+}
 
-    TEMP_DIR=$(mktemp -d)
-    trap 'rm -rf -- "$TEMP_DIR"' EXIT
-
-    for project in omnihive omnihive-ai-gw sub2api; do
-        local candidate="${project}_${suffix}"
-        print_info "$(msg 'downloading') ${candidate}..."
-        if curl -qfsSL "$release_url/$candidate" -o "$TEMP_DIR/$candidate"; then
-            archive_name="$candidate"
-            break
-        fi
-    done
-    if [ -z "$archive_name" ]; then
-        print_error "$(msg 'download_failed')"
+verify_release_checksum() {
+    local file="$1" expected="$2" digest
+    if command -v sha256sum >/dev/null; then
+        digest=$(sha256sum "$file") || return 1
+    elif command -v shasum >/dev/null; then
+        digest=$(shasum -a 256 "$file") || return 1
+    else
         return 1
     fi
-    if [ "$project" != omnihive ]; then
-        print_warning "Using deprecated release asset name $archive_name."
+    [ "${digest%% *}" = "$expected" ]
+}
+
+verify_release_manifest() {
+    python3 - "$1" "$LATEST_VERSION" "$MINIMUM_ROLLBACK_VERSION" <<'PYTHON'
+import json
+import re
+import sys
+
+number = r"(?:0|[1-9][0-9]*)"
+label = r"[0-9A-Za-z-]+"
+version_pattern = re.compile(
+    rf"v?({number})[.]({number})[.]({number})(?:-({label}(?:[.]{label})*))?(?:[+]({label}(?:[.]{label})*))?"
+)
+
+def release_version(value, stable=False):
+    match = version_pattern.fullmatch(value) if isinstance(value, str) else None
+    if match is None or (stable and (match[4] or match[5])):
+        raise ValueError(f"Invalid release version {value!r}")
+    if any(part.isdigit() and len(part) > 1 and part.startswith("0") for part in (match[4] or "").split(".")):
+        raise ValueError(f"Invalid prerelease version {value!r}")
+    return tuple(map(int, match.groups()[:3])) + (match[4], match[5])
+
+try:
+    with open(sys.argv[1], "rb") as manifest_file:
+        data = manifest_file.read(65537)
+    if len(data) > 65536:
+        raise ValueError("Release manifest exceeds the size limit")
+    manifest = json.loads(data)
+    if not isinstance(manifest, dict) or manifest.get("product") != "omnihive":
+        raise ValueError("Wrong product in release manifest. Expected omnihive.")
+    target = release_version(sys.argv[2])
+    if release_version(manifest.get("version")) != target:
+        raise ValueError("Release manifest version does not match the requested release")
+    floor = max(release_version(sys.argv[3], stable=True), release_version(manifest.get("minimum_rollback_version"), stable=True))
+    if target[:3] < floor[:3] or (target[:3] == floor[:3] and target[3]):
+        floor_label = ".".join(map(str, floor[:3]))
+        raise ValueError(f"Release {sys.argv[2]} is below the database rollback compatibility floor {floor_label}")
+except (OSError, ValueError) as error:
+    sys.exit(str(error))
+PYTHON
+}
+
+# Download, verify and extract the official release before touching the installation.
+download_and_extract() {
+    if ! [[ "$LATEST_VERSION" =~ ^v?[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z.+-]+)?$ ]]; then
+        print_error "Invalid OmniHive release version: $LATEST_VERSION"
+        return 1
     fi
+    local version_num=${LATEST_VERSION#v}
+    local candidate="omnihive_${version_num}_${OS}_${ARCH}.tar.gz"
+    local release_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}"
+    local checksums manifest_name manifest_hash archive_hash status extracted
+
+    TEMP_DIR=$(mktemp -d) || return 1
+    trap 'rm -rf -- "$TEMP_DIR"' EXIT
+    checksums="$TEMP_DIR/checksums.txt"
 
     print_info "$(msg 'verifying_checksum')"
-    if curl -qfsSL "$release_url/checksums.txt" -o "$TEMP_DIR/checksums.txt"; then
-        local expected_checksum=$(awk -v name="$archive_name" '$2 == name || $2 == "*" name {print $1; exit}' "$TEMP_DIR/checksums.txt")
-        local actual_checksum=$(sha256sum "$TEMP_DIR/$archive_name" | awk '{print $1}')
-
-        if [ "$expected_checksum" != "$actual_checksum" ]; then
-            print_error "$(msg 'checksum_failed')"
-            print_error "Expected: $expected_checksum"
-            print_error "Actual: $actual_checksum"
-            exit 1
-        fi
-        print_success "$(msg 'checksum_verified')"
-    elif [ "$project" = omnihive ]; then
+    if ! curl -qfsSL "$release_url/checksums.txt" -o "$checksums"; then
         print_error "$(msg 'checksum_not_found')"
         return 1
-    else
-        print_warning "$(msg 'checksum_not_found')"
     fi
-
-    # Extract
-    print_info "$(msg 'extracting')"
-    tar -xzf "$TEMP_DIR/$archive_name" -C "$TEMP_DIR"
-
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
-
-    local binary="" name
-    for name in omnihive omnihive-ai-gw sub2api; do
-        if [ -f "$TEMP_DIR/$name" ] && [ ! -L "$TEMP_DIR/$name" ]; then
-            binary="$TEMP_DIR/$name"
-            break
+    if ! archive_hash=$(checksum_entry "$checksums" "$candidate"); then
+        print_error "Missing or invalid SHA256 checksum for the OmniHive release asset $candidate."
+        return 1
+    fi
+    manifest_name="omnihive-release-manifest.json"
+    manifest_hash=$(checksum_entry "$checksums" "$manifest_name") || {
+        status=$?
+        if [ "$status" -ne 2 ]; then
+            print_error "Invalid SHA256 checksum for the OmniHive release manifest."
+            return 1
         fi
-    done
-    if [ -z "$binary" ]; then
+        manifest_name="release-manifest.json"
+        if ! manifest_hash=$(checksum_entry "$checksums" "$manifest_name"); then
+            print_error "Missing or invalid SHA256 checksum for the OmniHive release manifest."
+            return 1
+        fi
+    }
+
+    if ! curl -qfsSL "$release_url/$manifest_name" -o "$TEMP_DIR/$manifest_name" ||
+        ! verify_release_checksum "$TEMP_DIR/$manifest_name" "$manifest_hash"; then
+        print_error "Could not verify the OmniHive release manifest checksum."
+        return 1
+    fi
+    verify_release_manifest "$TEMP_DIR/$manifest_name" || return 1
+
+    print_info "$(msg 'downloading') ${candidate}..."
+    if ! curl -qfsSL "$release_url/$candidate" -o "$TEMP_DIR/$candidate"; then
+        print_error "$(msg 'download_failed'): expected OmniHive release asset $candidate"
+        return 1
+    fi
+    if ! verify_release_checksum "$TEMP_DIR/$candidate" "$archive_hash"; then
+        print_error "$(msg 'checksum_failed'): $candidate"
+        return 1
+    fi
+    print_success "$(msg 'checksum_verified')"
+
+    print_info "$(msg 'extracting')"
+    extracted="$TEMP_DIR/extracted"
+    mkdir "$extracted" || return 1
+    tar -xzf "$TEMP_DIR/$candidate" -C "$extracted" || return 1
+
+    local binary="$extracted/omnihive"
+    if [ -e "$extracted/$LEGACY_SERVICE_NAME" ] || [ -e "$extracted/omnihive-ai-gw" ]; then
+        print_error "Wrong product executable in the OmniHive release archive."
+        return 1
+    fi
+    if [ ! -s "$binary" ] || [ ! -f "$binary" ] || [ -L "$binary" ]; then
         print_error "Release does not contain an OmniHive executable."
         return 1
     fi
-    if [ "$name" != omnihive ]; then
-        print_warning "Using deprecated executable name $name from the release archive."
+
+    mkdir -p "$INSTALL_DIR" || return 1
+    if [ -n "${1:-}" ]; then
+        cp "$2" "$1" || return 1
+        print_info "$(msg 'backup_created'): $1"
     fi
     local staged_binary
-    staged_binary=$(mktemp "$INSTALL_DIR/.omnihive.XXXXXX")
+    staged_binary=$(mktemp "$INSTALL_DIR/.omnihive.XXXXXX") || return 1
     if ! install -m 0755 "$binary" "$staged_binary" || ! mv -f "$staged_binary" "$INSTALL_DIR/omnihive"; then
         rm -f -- "$staged_binary"
         return 1
@@ -722,14 +803,14 @@ download_and_extract() {
 
     # Ship readable pricing resources alongside the embedded defaults.
     # Older releases may not include them; their existing install path still works.
-    if [ -d "$TEMP_DIR/resources/model-pricing" ]; then
+    if [ -d "$extracted/resources/model-pricing" ]; then
         mkdir -p "$INSTALL_DIR/resources/model-pricing"
-        cp "$TEMP_DIR/resources/model-pricing/"*.json "$INSTALL_DIR/resources/model-pricing/"
+        cp "$extracted/resources/model-pricing/"*.json "$INSTALL_DIR/resources/model-pricing/"
     fi
 
     # Copy deploy files if they exist in the archive
-    if [ -d "$TEMP_DIR/deploy" ]; then
-        cp -r "$TEMP_DIR/deploy/"* "$INSTALL_DIR/" 2>/dev/null || true
+    if [ -d "$extracted/deploy" ]; then
+        cp -r "$extracted/deploy/"* "$INSTALL_DIR/" 2>/dev/null || true
     fi
 
     print_success "$(msg 'binary_installed') $INSTALL_DIR/omnihive"
@@ -937,13 +1018,9 @@ upgrade() {
     CURRENT_VERSION=$(get_current_version)
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
-    # Backup current binary
-    cp "$previous_binary" "$INSTALL_DIR/omnihive.backup"
-    print_info "$(msg 'backup_created'): $INSTALL_DIR/omnihive.backup"
-
-    # Download and install new version
+    # Keep a backup once the new version has been verified.
     get_latest_version
-    download_and_extract
+    download_and_extract "$INSTALL_DIR/omnihive.backup" "$previous_binary"
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/omnihive"
@@ -984,23 +1061,15 @@ install_version() {
         exit 0
     fi
 
-    # Backup current binary (for potential recovery)
-    if [ -f "$previous_binary" ]; then
-        local backup_name
-        if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
-            backup_name="omnihive.backup.${current_version}"
-        else
-            backup_name="omnihive.backup.$(date +%Y%m%d%H%M%S)"
-        fi
-        cp "$previous_binary" "$INSTALL_DIR/$backup_name"
-        print_info "$(msg 'backup_created'): $INSTALL_DIR/$backup_name"
+    local backup_name
+    if [ "$current_version" != "unknown" ] && [ "$current_version" != "not_installed" ]; then
+        backup_name="omnihive.backup.${current_version}"
+    else
+        backup_name="omnihive.backup.$(date +%Y%m%d%H%M%S)"
     fi
 
-    # Set LATEST_VERSION to the target version for download_and_extract
     LATEST_VERSION="$target_version"
-
-    # Download and install
-    download_and_extract
+    download_and_extract "$INSTALL_DIR/$backup_name" "$previous_binary"
 
     # Set permissions
     chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/omnihive"

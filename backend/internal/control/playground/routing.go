@@ -22,17 +22,25 @@ import (
 
 var unavailableModel = &fault.Fault{Status: 422, Reason: "NO_ELIGIBLE_ENDPOINT", Message: "No verified endpoint supports this call in the selected scope."}
 
-func selectModel(s catalog.Snapshot, id string, replay bool) (catalog.Detail, error) {
-	var matches []catalog.Detail
+func selectModel(s catalog.Snapshot, id string, _ bool) (catalog.Detail, error) {
+	var exact, bySlug []catalog.Detail
 	for _, m := range s.Details {
-		if (m.Model.ID == id || replay && m.Model.Model == id) && m.Model.AccessState == "allowed" && m.Model.RouteState == "eligible" {
-			matches = append(matches, m)
+		if m.Model.AccessState != "allowed" || m.Model.RouteState != "eligible" {
+			continue
+		}
+		if m.Model.ID == id {
+			exact = append(exact, m)
+		} else if m.Model.Model == id || slices.Contains(m.Aliases, id) {
+			bySlug = append(bySlug, m)
 		}
 	}
-	if len(matches) != 1 {
-		return catalog.Detail{}, unavailableModel
+	if len(exact) == 1 {
+		return exact[0], nil
 	}
-	return matches[0], nil
+	if len(exact) == 0 && len(bySlug) == 1 {
+		return bySlug[0], nil
+	}
+	return catalog.Detail{}, unavailableModel
 }
 func (g *Gateway) route(ctx context.Context, a scope.Authorized, group int64, s policy.Scenario, version string, m catalog.Detail, funding string) (trace.DecisionTrace, int64, error) {
 	now := time.Now().UTC()

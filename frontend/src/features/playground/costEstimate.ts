@@ -257,16 +257,20 @@ export function resolveCatalogQuoteModelId(
 function rateFromQuoteLine(
   numerator: string | undefined,
   denominator: string | undefined,
+  quantity: string | undefined,
   currency: string,
   unit: string
 ): CatalogModelRate | null {
   if (!numerator || !denominator) return null
   const num = Number(numerator)
   const den = Number(denominator)
+  const qty = quantity !== undefined && quantity !== '' ? Number(quantity) : 1
   if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return null
+  if (!Number.isFinite(qty) || qty <= 0) return null
+  const unitNum = qty === 1 ? numerator : String(Number((num / qty).toPrecision(12)))
   return {
     currency,
-    amount: numerator,
+    amount: unitNum,
     unit,
     per: denominator
   }
@@ -304,10 +308,10 @@ export function applyAuthoritativeQuoteToEstimate(
   const inputLine = quote.components?.find((c) => c.kind === 'input')
   const outputLine = quote.components?.find((c) => c.kind === 'output')
   const derivedInputRate =
-    rateFromQuoteLine(inputLine?.numerator, inputLine?.denominator, currency, 'input_token') ??
+    rateFromQuoteLine(inputLine?.numerator, inputLine?.denominator, inputLine?.quantity, currency, 'input_token') ??
     base.inputRate
   const derivedOutputRate =
-    rateFromQuoteLine(outputLine?.numerator, outputLine?.denominator, currency, 'output_token') ??
+    rateFromQuoteLine(outputLine?.numerator, outputLine?.denominator, outputLine?.quantity, currency, 'output_token') ??
     base.outputRate
 
   if (quote.state === 'free') {

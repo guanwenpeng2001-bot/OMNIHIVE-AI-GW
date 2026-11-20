@@ -963,6 +963,14 @@
               {{ isZh ? `一键绑定「${recommendedDefaultGroup.label}」` : `Bind "${recommendedDefaultGroup.label}"` }}
             </button>
           </div>
+          <p
+            v-if="!showEditModal && issueProjectPolicyCredential && !groupsLoading && !groupsLoadFailed && resolvedProjectGroupId === null"
+            role="alert"
+            data-testid="project-key-group-required-alert"
+            class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300"
+          >
+            {{ t('keys.projectGroupRequired') }}
+          </p>
         </div>
 
         <!-- Custom Key Section (only for create) -->
@@ -1486,7 +1494,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (!issueProjectPolicyCredential && (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
+            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || (issueProjectPolicyCredential ? resolvedProjectGroupId === null : (!formData.group_id || !groups.some(group => group.id === formData.group_id)))))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1546,7 +1554,7 @@
     <UseKeyModal
       :show="showUseKeyModal"
       :api-key="'<YOUR_API_KEY>'"
-      :base-url="publicSettings?.api_base_url || ''"
+      :base-url="publicSettings?.api_base_url || defaultGatewayOrigin"
       :site-name="publicSettings?.site_name"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
@@ -2049,6 +2057,7 @@ const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
 const showUseKeyModal = ref(false)
+const defaultGatewayOrigin = typeof window !== 'undefined' ? window.location.origin : ''
 const showRotateModal = ref(false)
 const rotateTarget = ref<ApiKey | null>(null)
 const showSecretDialog = ref(false)
@@ -2228,6 +2237,21 @@ const recommendedDefaultGroup = computed<GroupOption | null>(() => {
     candidates.map((item) => ({ id: item.value, subscription_type: item.subscriptionType }))
   )
   return candidates.find((item) => item.value === defaultId) ?? candidates[0] ?? null
+})
+
+const resolvedProjectGroupId = computed<number | null>(() => {
+  if (formData.value.group_id !== null && groups.value.some((group) => group.id === formData.value.group_id)) {
+    return formData.value.group_id
+  }
+  const recommended = recommendedDefaultGroup.value?.value ?? null
+  if (recommended !== null && groups.value.some((group) => group.id === recommended)) {
+    return recommended
+  }
+  const fallback = resolveDefaultRoutingGroupId(groups.value)
+  if (fallback !== null && groups.value.some((group) => group.id === fallback)) {
+    return fallback
+  }
+  return null
 })
 
 const selectedFormGroupLabel = computed(() => {
@@ -2646,16 +2670,24 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
-  if (!showEditModal.value && issueProjectPolicyCredential.value && formData.value.group_id === null && recommendedDefaultGroup.value) {
-    formData.value.group_id = recommendedDefaultGroup.value.value
+  if (!showEditModal.value && issueProjectPolicyCredential.value) {
+    if (groupsLoading.value || groupsLoadFailed.value) {
+      appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.projectGroupRequired'))
+      return
+    }
+    if (resolvedProjectGroupId.value === null) {
+      appStore.showError(t('keys.projectGroupRequired'))
+      return
+    }
+    formData.value.group_id = resolvedProjectGroupId.value
   }
   if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
     return
   }
   // Validate group_id is required
-  if (formData.value.group_id === null && !issueProjectPolicyCredential.value) {
-    appStore.showError(t('keys.groupRequired'))
+  if (!showEditModal.value && formData.value.group_id === null) {
+    appStore.showError(t(issueProjectPolicyCredential.value ? 'keys.projectGroupRequired' : 'keys.groupRequired'))
     return
   }
 
@@ -2734,15 +2766,16 @@ const handleSubmit = async () => {
       activeConsoleScope.value.workspaceId &&
       activeConsoleScope.value.projectId
     ) {
-      const projectGroupId =
-        formData.value.group_id ??
-        recommendedDefaultGroup.value?.value ??
-        resolveDefaultRoutingGroupId(groups.value)
+      const projectGroupId = resolvedProjectGroupId.value
+      if (projectGroupId === null) {
+        appStore.showError(t('keys.projectGroupRequired'))
+        return
+      }
       const created = await identityApi.createProjectKey(
         activeConsoleScope.value.workspaceId,
         activeConsoleScope.value.projectId,
         {
-          ...(projectGroupId ? { group_id: String(projectGroupId) } : {}),
+          group_id: String(projectGroupId),
           name: formData.value.name.trim(),
           model_access: { mode: 'inherit', ids: [] },
           actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],

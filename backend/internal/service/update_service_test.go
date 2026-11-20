@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,6 +41,8 @@ type updateServiceGitHubClientStub struct {
 	repo           string
 	archive        []byte
 	checksums      []byte
+	checksumErr    error
+	manifest       []byte
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
@@ -55,6 +58,9 @@ func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, str
 }
 
 func (s *updateServiceGitHubClientStub) DownloadFile(_ context.Context, _ string, dest string, _ int64) error {
+	if filepath.Base(dest) == releaseManifestName || filepath.Base(dest) == "release-manifest.json" {
+		return os.WriteFile(dest, s.manifest, 0600)
+	}
 	if s.archive != nil {
 		return os.WriteFile(dest, s.archive, 0600)
 	}
@@ -62,6 +68,9 @@ func (s *updateServiceGitHubClientStub) DownloadFile(_ context.Context, _ string
 }
 
 func (s *updateServiceGitHubClientStub) FetchChecksumFile(context.Context, string) ([]byte, error) {
+	if s.checksumErr != nil {
+		return nil, s.checksumErr
+	}
 	if s.checksums != nil {
 		return s.checksums, nil
 	}
@@ -73,11 +82,11 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 		&updateServiceCacheStub{},
 		&updateServiceGitHubClientStub{
 			release: &GitHubRelease{
-				TagName: "v0.1.132",
-				Name:    "v0.1.132",
+				TagName: "v0.2.132",
+				Name:    "v0.2.132",
 			},
 		},
-		"0.1.132",
+		"0.2.132",
 		"release",
 	)
 
@@ -99,50 +108,50 @@ func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateSe
 
 func TestUpdateServiceListRollbackVersionsFiltersAndCaps(t *testing.T) {
 	releases := []*GitHubRelease{
-		{TagName: "v0.1.148", PublishedAt: "2026-07-09T00:00:00Z"},                       // newer than current: excluded
-		{TagName: "v0.1.147", PublishedAt: "2026-07-08T00:00:00Z"},                       // current: excluded
-		{TagName: "v0.1.146-rc1", PublishedAt: "2026-07-07T12:00:00Z", Prerelease: true}, // prerelease: excluded
-		{TagName: "v0.1.146", PublishedAt: "2026-07-07T00:00:00Z"},
-		{TagName: "v0.1.145", PublishedAt: "2026-07-06T00:00:00Z", Draft: true}, // draft: excluded
-		{TagName: "v0.1.144", PublishedAt: "2026-07-05T00:00:00Z"},
-		{TagName: "v0.1.144", PublishedAt: "2026-07-05T00:00:00Z"}, // duplicate: excluded
-		{TagName: "v0.1.143", PublishedAt: "2026-07-04T00:00:00Z"},
-		{TagName: "v0.1.142", PublishedAt: "2026-07-03T00:00:00Z"}, // beyond cap of 3: excluded
+		{TagName: "v0.2.148", PublishedAt: "2026-07-09T00:00:00Z"},                       // newer than current: excluded
+		{TagName: "v0.2.147", PublishedAt: "2026-07-08T00:00:00Z"},                       // current: excluded
+		{TagName: "v0.2.146-rc1", PublishedAt: "2026-07-07T12:00:00Z", Prerelease: true}, // prerelease: excluded
+		{TagName: "v0.2.146", PublishedAt: "2026-07-07T00:00:00Z"},
+		{TagName: "v0.2.145", PublishedAt: "2026-07-06T00:00:00Z", Draft: true}, // draft: excluded
+		{TagName: "v0.2.144", PublishedAt: "2026-07-05T00:00:00Z"},
+		{TagName: "v0.2.144", PublishedAt: "2026-07-05T00:00:00Z"}, // duplicate: excluded
+		{TagName: "v0.2.143", PublishedAt: "2026-07-04T00:00:00Z"},
+		{TagName: "v0.2.142", PublishedAt: "2026-07-03T00:00:00Z"}, // beyond cap of 3: excluded
 	}
-	svc := newRollbackTestService("0.1.147", releases)
+	svc := newRollbackTestService("0.2.147", releases)
 
 	versions, err := svc.ListRollbackVersions(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, versions, 3)
-	require.Equal(t, "0.1.146", versions[0].Version)
-	require.Equal(t, "0.1.144", versions[1].Version)
-	require.Equal(t, "0.1.143", versions[2].Version)
+	require.Equal(t, "0.2.146", versions[0].Version)
+	require.Equal(t, "0.2.144", versions[1].Version)
+	require.Equal(t, "0.2.143", versions[2].Version)
 }
 
 func TestUpdateServiceListRollbackVersionsSortsUnorderedInput(t *testing.T) {
 	releases := []*GitHubRelease{
-		{TagName: "v0.1.144"},
-		{TagName: "v0.1.146"},
-		{TagName: "v0.1.145"},
+		{TagName: "v0.2.144"},
+		{TagName: "v0.2.146"},
+		{TagName: "v0.2.145"},
 	}
-	svc := newRollbackTestService("0.1.147", releases)
+	svc := newRollbackTestService("0.2.147", releases)
 
 	versions, err := svc.ListRollbackVersions(context.Background())
 
 	require.NoError(t, err)
 	require.Len(t, versions, 3)
-	require.Equal(t, "0.1.146", versions[0].Version)
-	require.Equal(t, "0.1.145", versions[1].Version)
-	require.Equal(t, "0.1.144", versions[2].Version)
+	require.Equal(t, "0.2.146", versions[0].Version)
+	require.Equal(t, "0.2.145", versions[1].Version)
+	require.Equal(t, "0.2.144", versions[2].Version)
 }
 
 func TestUpdateServiceListRollbackVersionsEmptyWhenNoneOlder(t *testing.T) {
 	releases := []*GitHubRelease{
-		{TagName: "v0.1.147"},
-		{TagName: "v0.1.148"},
+		{TagName: "v0.2.147"},
+		{TagName: "v0.2.148"},
 	}
-	svc := newRollbackTestService("0.1.147", releases)
+	svc := newRollbackTestService("0.2.147", releases)
 
 	versions, err := svc.ListRollbackVersions(context.Background())
 
@@ -154,7 +163,7 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},
 		&updateServiceGitHubClientStub{recentErr: errors.New("github unavailable")},
-		"0.1.147",
+		"0.2.147",
 		"release",
 	)
 
@@ -166,22 +175,22 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 
 func TestUpdateServiceRollbackToVersionRejectsDisallowedTargets(t *testing.T) {
 	releases := []*GitHubRelease{
-		{TagName: "v0.1.148"},
-		{TagName: "v0.1.147"},
-		{TagName: "v0.1.146"},
-		{TagName: "v0.1.145"},
-		{TagName: "v0.1.144"},
-		{TagName: "v0.1.143"},
-		{TagName: "v0.1.142"},
+		{TagName: "v0.2.148"},
+		{TagName: "v0.2.147"},
+		{TagName: "v0.2.146"},
+		{TagName: "v0.2.145"},
+		{TagName: "v0.2.144"},
+		{TagName: "v0.2.143"},
+		{TagName: "v0.2.142"},
 	}
-	svc := newRollbackTestService("0.1.147", releases)
+	svc := newRollbackTestService("0.2.147", releases)
 
 	for _, target := range []string{
 		"",         // empty
-		"0.1.147",  // current version
-		"v0.1.147", // current version with prefix
-		"0.1.148",  // newer than current
-		"0.1.142",  // older than the 3 most recent
+		"0.2.147",  // current version
+		"v0.2.147", // current version with prefix
+		"0.2.148",  // newer than current
+		"0.2.142",  // older than the 3 most recent
 		"9.9.9",    // nonexistent
 	} {
 		err := svc.RollbackToVersion(context.Background(), target)
@@ -193,12 +202,12 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	// No platform asset in the release: the target passes the allowlist check
 	// and fails later at asset lookup, proving the version itself was accepted.
 	releases := []*GitHubRelease{
-		{TagName: "v0.1.147"},
-		{TagName: "v0.1.146"},
+		{TagName: "v0.2.147"},
+		{TagName: "v0.2.146"},
 	}
-	svc := newRollbackTestService("0.1.147", releases)
+	svc := newRollbackTestService("0.2.147", releases)
 
-	err := svc.RollbackToVersion(context.Background(), "v0.1.146")
+	err := svc.RollbackToVersion(context.Background(), "v0.2.146")
 
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
@@ -273,12 +282,10 @@ func TestUpdateServicePersistentUpdateAndRollback(t *testing.T) {
 				previous = "staged-old"
 				require.NoError(t, os.WriteFile(current, []byte(previous), 0755))
 			}
-			archive := updateTestArchive(t, "omnihive-ai-gw", "new-binary")
-			archiveName := fmt.Sprintf("omnihive-ai-gw_0.2.5_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
-			client := &updateServiceGitHubClientStub{archive: archive, checksums: []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), archiveName))}
+			archive := updateTestArchive(t, "omnihive", "new-binary")
+			client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 			svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
 			svc.executablePath = func() (string, error) { return exe, nil }
-			assets := []Asset{{Name: archiveName, DownloadURL: "https://api.github.com/repos/owner/repo/releases/assets/123"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/owner/repo/releases/assets/124"}}
 			require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 			content, err := os.ReadFile(current)
 			require.NoError(t, err)
@@ -313,25 +320,106 @@ func TestUpdateServiceExtractBinaryNames(t *testing.T) {
 			archive := filepath.Join(dir, "release.tar.gz")
 			require.NoError(t, os.WriteFile(archive, updateTestArchive(t, name, "binary"), 0600))
 			svc := &UpdateService{}
-			require.NoError(t, svc.extractBinary(archive, filepath.Join(dir, "extracted")))
+			dest := filepath.Join(dir, "extracted")
+			err := svc.extractBinary(archive, dest)
+			if name == "omnihive" || name == "omnihive.exe" {
+				require.NoError(t, err)
+				require.FileExists(t, dest)
+			} else {
+				require.ErrorContains(t, err, "wrong product executable")
+				require.NoFileExists(t, dest)
+			}
 		})
 	}
 }
 
-func TestUpdateServiceChecksumFailureDoesNotStage(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("OMNIHIVE_DATA_DIR", root)
-	exe := filepath.Join(root, "sub2api")
-	require.NoError(t, os.WriteFile(exe, []byte("original"), 0755))
-	client := &updateServiceGitHubClientStub{archive: updateTestArchive(t, "sub2api", "bad"), checksums: []byte("incorrect  omnihive_0.2.5_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz\n")}
-	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
-	svc.executablePath = func() (string, error) { return exe, nil }
-	err := svc.applyReleaseAssets(context.Background(), "0.2.5", []Asset{{Name: "omnihive_0.2.5_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}})
-	require.ErrorContains(t, err, "checksum mismatch")
-	content, err := os.ReadFile(exe)
+func updateTestRelease(version string, archive []byte, product, floor string) (*updateServiceGitHubClientStub, []Asset) {
+	archiveName := fmt.Sprintf("omnihive_%s_%s_%s.tar.gz", version, runtime.GOOS, runtime.GOARCH)
+	manifest := []byte(fmt.Sprintf(`{"product":%q,"version":%q,"minimum_rollback_version":%q}`, product, version, floor))
+	checksums := []byte(fmt.Sprintf("%x  %s\n%x  %s\n", sha256.Sum256(archive), archiveName, sha256.Sum256(manifest), releaseManifestName))
+	assets := []Asset{
+		{Name: archiveName, DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"},
+		{Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"},
+		{Name: releaseManifestName, DownloadURL: "https://api.github.com/repos/o/r/releases/assets/3"},
+	}
+	return &updateServiceGitHubClientStub{archive: archive, checksums: checksums, manifest: manifest}, assets
+}
+
+func TestUpdateServiceRejectsUnverifiedReleasesBeforeReplacingBinary(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*updateServiceGitHubClientStub, []Asset)
+		want   string
+	}{
+		{"wrong_product_asset", func(_ *updateServiceGitHubClientStub, assets []Asset) {
+			assets[0].Name = strings.Replace(assets[0].Name, "omnihive_", "sub2api_", 1)
+		}, "wrong product release asset"},
+		{"missing_checksums", func(_ *updateServiceGitHubClientStub, assets []Asset) {
+			assets[1] = Asset{}
+		}, "checksums.txt not found"},
+		{"checksums_download_failure", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			client.checksumErr = errors.New("HTTP 404")
+		}, "failed to download checksums"},
+		{"missing_checksum_entry", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			_, rest, _ := strings.Cut(string(client.checksums), "\n")
+			client.checksums = []byte(rest)
+		}, "checksum not found for omnihive_"},
+		{"tampered_binary", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			client.archive = updateTestArchive(t, "omnihive", "tampered binary")
+		}, "checksum mismatch"},
+		{"missing_manifest", func(_ *updateServiceGitHubClientStub, assets []Asset) {
+			assets[2] = Asset{}
+		}, "release manifest"},
+		{"tampered_manifest", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			client.manifest = []byte("{}")
+		}, "release manifest verification failed"},
+		{"wrong_manifest_product", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			bad, _ := updateTestRelease("0.2.5", client.archive, "sub2api", "0.2.5")
+			client.manifest, client.checksums = bad.manifest, bad.checksums
+		}, "wrong product"},
+		{"below_manifest_floor", func(client *updateServiceGitHubClientStub, _ []Asset) {
+			bad, _ := updateTestRelease("0.2.5", client.archive, "omnihive", "0.2.6")
+			client.manifest, client.checksums = bad.manifest, bad.checksums
+		}, "database rollback compatibility floor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("OMNIHIVE_DATA_DIR", root)
+			exe := filepath.Join(root, "omnihive")
+			require.NoError(t, os.WriteFile(exe, []byte("original"), 0755))
+			client, assets := updateTestRelease("0.2.5", updateTestArchive(t, "omnihive", "candidate"), "omnihive", "0.2.5")
+			tc.mutate(client, assets)
+			release := &GitHubRelease{TagName: "v0.2.5"}
+			for _, asset := range assets {
+				release.Assets = append(release.Assets, GitHubAsset{Name: asset.Name, BrowserDownloadURL: asset.DownloadURL})
+			}
+			client.release = release
+			client.recentReleases = []*GitHubRelease{release}
+			update := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.4", "release")
+			update.executablePath = func() (string, error) { return exe, nil }
+			require.ErrorContains(t, update.PerformUpdate(context.Background()), tc.want)
+			rollback := NewUpdateService(&updateServiceCacheStub{}, client, "0.2.6", "release")
+			rollback.executablePath = update.executablePath
+			require.ErrorContains(t, rollback.RollbackToVersion(context.Background(), "0.2.5"), tc.want)
+
+			content, err := os.ReadFile(exe)
+			require.NoError(t, err)
+			require.Equal(t, "original", string(content))
+			require.NoFileExists(t, exe+".backup")
+			require.NoDirExists(t, filepath.Join(root, ".updates"))
+		})
+	}
+}
+
+func TestUpdateServiceRollbackRejectsVersionBelowSchemaFloor(t *testing.T) {
+	svc := newRollbackTestService("0.2.6", []*GitHubRelease{{TagName: "v0.2.5"}, {TagName: "v0.2.4"}})
+	versions, err := svc.ListRollbackVersions(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, "original", string(content))
-	require.NoDirExists(t, filepath.Join(root, ".updates"))
+	require.Len(t, versions, 1)
+	require.Equal(t, "0.2.5", versions[0].Version)
+	err = svc.RollbackToVersion(context.Background(), "v0.2.4")
+	require.ErrorIs(t, err, ErrRollbackVersionNotAllowed)
+	require.ErrorContains(t, err, "database rollback compatibility floor v0.2.5")
 }
 
 func TestUpdateServiceStagingDirectoryFallback(t *testing.T) {
@@ -373,12 +461,11 @@ func TestUpdateServicePersistentStageWhenDirectSwapFails(t *testing.T) {
 	// A nonempty backup directory deterministically prevents the direct rename.
 	require.NoError(t, os.Mkdir(exe+".backup", 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(exe+".backup", "blocker"), []byte("x"), 0600))
-	name := "omnihive-ai-gw_0.2.5_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
-	archive := updateTestArchive(t, "sub2api", "updated")
-	client := &updateServiceGitHubClientStub{archive: archive, checksums: []byte(fmt.Sprintf("%x  %s\n", sha256.Sum256(archive), name))}
+	archive := updateTestArchive(t, "omnihive", "updated")
+	client, assets := updateTestRelease("0.2.5", archive, "omnihive", "0.2.5")
 	svc := NewUpdateService(nil, client, "0.2.4", "release")
 	svc.executablePath = func() (string, error) { return exe, nil }
-	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", []Asset{{Name: name, DownloadURL: "https://api.github.com/repos/o/r/releases/assets/1"}, {Name: "checksums.txt", DownloadURL: "https://api.github.com/repos/o/r/releases/assets/2"}}))
+	require.NoError(t, svc.applyReleaseAssets(context.Background(), "0.2.5", assets))
 	content, err := os.ReadFile(exe)
 	require.NoError(t, err)
 	require.Equal(t, "original", string(content))

@@ -9,12 +9,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -66,6 +70,165 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		}
 	}
 
+	holdFor := func(t *testing.T, r *service.UsageSettlementReceipt, now time.Time) *service.KeyBudgetReservation {
+		t.Helper()
+		_, err := db.Exec(`UPDATE api_keys SET budget_period_mode='duration',budget_period_seconds=60,budget_limit=10 WHERE id=$1`, r.Key.APIKeyID)
+		require.NoError(t, err)
+		hold, err := repo.(service.KeyBudgetReservationRepository).ReserveKeyBudget(ctx, &service.KeyBudgetReservationCommand{APIKeyID: r.Key.APIKeyID, UserID: r.Key.UserID, RequestID: uuid.NewString(), HoldAmount: 3, Now: now, TTL: time.Minute})
+		require.NoError(t, err)
+		require.NotNil(t, hold.Reservation)
+		r.Command.BudgetReservationID = hold.Reservation.ID
+		return hold.Reservation
+	}
+	t.Run("pending_receipt_retains_expired_hold_across_period_boundary", func(t *testing.T) {
+		r := fixture(t, 2)
+		h := holdFor(t, r, time.Now().UTC().Add(-time.Hour))
+		stored, err := repo.Persist(ctx, r)
+		require.NoError(t, err)
+		budgets := repo.(service.KeyBudgetReservationRepository)
+		next, err := budgets.ReserveKeyBudget(ctx, &service.KeyBudgetReservationCommand{APIKeyID: r.Key.APIKeyID, UserID: r.Key.UserID, RequestID: uuid.NewString(), HoldAmount: 1})
+		require.NoError(t, err)
+		require.True(t, next.Reservation.PeriodStart.After(h.PeriodStart))
+		for range 2 {
+			_, err = budgets.ReleaseExpiredKeyBudgetReservations(ctx, time.Now().UTC(), 500)
+			require.NoError(t, err)
+			var occupied bool
+			require.NoError(t, db.QueryRow(`SELECT h.status='reserved' AND h.expires_at<now() AND u.balance=96 FROM api_key_budget_reservations h JOIN users u ON u.id=h.user_id WHERE h.id=$1`, h.ID).Scan(&occupied))
+			require.True(t, occupied)
+		}
+		_, err = repo.Settle(ctx, r.Key, stored.Command.RequestFingerprint)
+		require.NoError(t, err)
+		var correct bool
+		require.NoError(t, db.QueryRow(`SELECT h.status='settled' AND p.used_amount=2 AND u.balance=97 FROM api_key_budget_reservations h JOIN api_key_budget_periods p USING(api_key_id,period_start) JOIN users u ON u.id=h.user_id WHERE h.id=$1`, h.ID).Scan(&correct))
+		require.True(t, correct)
+	})
+	t.Run("active_dispatch_retains_expired_hold_before_receipt", func(t *testing.T) {
+		r := fixture(t, 2)
+		h := holdFor(t, r, time.Now().UTC().Add(-time.Hour))
+		id := uuid.NewString()
+		_, err := db.Exec(`INSERT INTO gateway_executions(request_id,workspace_id,project_id,actor_id,api_key_id,owner_id,funding_user_id,authorization_version,kind,route,model,legacy_id,reservation_ref,attempt_budget,deadline,model_version,price_version,pricing_at)
+    SELECT $1,k.workspace_id,identity_default_project(k.workspace_id),$2,k.id,$2,$2,1,'request','/messages','test','',$4,1,now()-interval '1 hour','1','1',now() FROM api_keys k WHERE k.id=$3`, id, r.Key.UserID, r.Key.APIKeyID, h.RequestID)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO gateway_execution_attempts(attempt_id,request_id,ordinal,account_id,dispatched_at,acceptance,outcome) VALUES($1,$2,1,$3,now(),'unknown','dispatching')`, uuid.NewString(), id, r.Command.AccountID)
+		require.NoError(t, err)
+		_, err = repo.(service.KeyBudgetReservationRepository).ReleaseExpiredKeyBudgetReservations(ctx, time.Now(), 500)
+		require.NoError(t, err)
+		var kept bool
+		require.NoError(t, db.QueryRow(`SELECT status='reserved' FROM api_key_budget_reservations WHERE id=$1`, h.ID).Scan(&kept))
+		require.True(t, kept)
+	})
+	t.Run("review_conflict_releases_key_and_project_exactly_once", func(t *testing.T) {
+		r := fixture(t, 2)
+		h := holdFor(t, r, time.Now())
+		ref := uuid.NewString()
+		r.Command.ProjectReservationRef = ref
+		require.NoError(t, db.QueryRow(`SELECT workspace_id,identity_default_project(workspace_id) FROM api_keys WHERE id=$1`, r.Key.APIKeyID).Scan(&r.Command.ProjectWorkspaceID, &r.Command.ProjectID))
+		_, err := db.Exec(`INSERT INTO billing_project_budgets VALUES($1,$2,'USD','hard',10,'calendar_month','UTC',false,1) ON CONFLICT DO NOTHING`, r.Command.ProjectWorkspaceID, r.Command.ProjectID)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO billing_project_holds VALUES($1,$2,'USD',$3,3,now(),NULL)`, r.Command.ProjectWorkspaceID, r.Command.ProjectID, ref)
+		require.NoError(t, err)
+		stored, err := repo.Persist(ctx, r)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO usage_billing_dedup_archive(request_id,api_key_id,request_fingerprint,created_at) VALUES($1,$2,$3,now())`, r.Key.RequestID, r.Key.APIKeyID, stored.Command.RequestFingerprint)
+		require.NoError(t, err)
+		// A blocked project release forces the entire review transaction to
+		// roll back, including the already attempted key balance refund.
+		blocker, err := db.BeginTx(ctx, nil)
+		require.NoError(t, err)
+		defer func() { _ = blocker.Rollback() }()
+		_, err = blocker.ExecContext(ctx, `SELECT request_id FROM billing_project_holds WHERE workspace_id=$1 AND project_id=$2 AND request_id=$3 FOR UPDATE`, r.Command.ProjectWorkspaceID, r.Command.ProjectID, ref)
+		require.NoError(t, err)
+		timed, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		_, err = repo.Settle(timed, r.Key, stored.Command.RequestFingerprint)
+		cancel()
+		require.Error(t, err)
+		require.NoError(t, blocker.Rollback())
+		var intact bool
+		require.NoError(t, db.QueryRow(`SELECT r.state='pending' AND u.balance=97 AND h.status='reserved' FROM usage_settlement_receipts r JOIN users u ON u.id=r.user_id JOIN api_key_budget_reservations h ON h.id=$2 WHERE r.id=$1`, stored.ID, h.ID).Scan(&intact))
+		require.True(t, intact)
+		for range 2 {
+			_, err = repo.Settle(ctx, r.Key, stored.Command.RequestFingerprint)
+			require.ErrorIs(t, err, service.ErrUsageSettlementNeedsReview)
+			var correct bool
+			require.NoError(t, db.QueryRow(`SELECT r.state='needs_review' AND u.balance=100 AND k.budget_reserved=0 AND k.budget_used=0 AND k.quota_used=0
+    AND h.status='released' AND p.released_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM usage_logs WHERE request_id=r.request_id AND api_key_id=k.id)
+    FROM usage_settlement_receipts r JOIN users u ON u.id=r.user_id JOIN api_keys k ON k.id=r.api_key_id JOIN api_key_budget_reservations h ON h.id=$2
+    JOIN billing_project_holds p ON p.request_id=$3 WHERE r.id=$1`, stored.ID, h.ID, ref).Scan(&correct))
+			require.True(t, correct)
+		}
+	})
+	t.Run("legacy_review_ref_releases_original_project", func(t *testing.T) {
+		r := fixture(t, 0)
+		r.Command.ProjectReservationRef = uuid.NewString()
+		r.Usage.PricingState = service.PricingStateUnpriced
+		var workspace, project int64
+		require.NoError(t, db.QueryRow(`INSERT INTO projects(workspace_id,name) SELECT workspace_id,'legacy held project' FROM api_keys WHERE id=$1 RETURNING workspace_id,id`, r.Key.APIKeyID).Scan(&workspace, &project))
+		_, err := db.Exec(`INSERT INTO billing_project_budgets VALUES($1,$2,'USD','hard',10,'calendar_month','UTC',false,1)`, workspace, project)
+		require.NoError(t, err)
+		_, err = db.Exec(`INSERT INTO billing_project_holds VALUES($1,$2,'USD',$3,1,now(),NULL)`, workspace, project, r.Command.ProjectReservationRef)
+		require.NoError(t, err)
+		stored, err := repo.Persist(ctx, r)
+		require.NoError(t, err)
+		require.Equal(t, service.UsageSettlementNeedsReview, stored.State)
+		var released bool
+		require.NoError(t, db.QueryRow(`SELECT released_at IS NOT NULL FROM billing_project_holds WHERE workspace_id=$1 AND project_id=$2 AND request_id=$3`, workspace, project, r.Command.ProjectReservationRef).Scan(&released))
+		require.True(t, released)
+	})
+	t.Run("project_hard_budget_distinguishes_unpriced_from_explicit_free", func(t *testing.T) {
+		var owner scope.Authorized
+		require.NoError(t, db.QueryRow(`INSERT INTO projects(workspace_id,name) SELECT id,'hard-budget-'||$1::text FROM workspaces WHERE is_default RETURNING workspace_id,id`, uuid.NewString()).Scan(&owner.WorkspaceID, &owner.ProjectID))
+		_, err := db.Exec(`INSERT INTO billing_project_budgets VALUES($1,$2,'USD','hard',0,'calendar_month','UTC',false,1)`, owner.WorkspaceID, owner.ProjectID)
+		require.NoError(t, err)
+		store := readmodel.Store{DB: db}
+		held, err := store.ReserveProjectBudget(ctx, owner, "unknown", nil)
+		require.Error(t, err)
+		require.False(t, held)
+		free, err := money.NewMoney("USD", "0")
+		require.NoError(t, err)
+		held, err = store.ReserveProjectBudget(ctx, owner, "free", &free)
+		require.NoError(t, err)
+		require.True(t, held)
+		var onlyFree bool
+		require.NoError(t, db.QueryRow(`SELECT count(*)=1 AND bool_and(request_id='free' AND amount=0 AND released_at IS NULL) FROM billing_project_holds WHERE workspace_id=$1 AND project_id=$2`, owner.WorkspaceID, owner.ProjectID).Scan(&onlyFree))
+		require.True(t, onlyFree)
+	})
+	t.Run("large_exact_key_hold_enforces_last_ledger_unit", func(t *testing.T) {
+		r := fixture(t, 0)
+		_, err := db.Exec(`UPDATE api_keys SET budget_period_mode='duration',budget_period_seconds=60,budget_limit=987654321.12345678 WHERE id=$1`, r.Key.APIKeyID)
+		require.NoError(t, err)
+		_, err = db.Exec(`UPDATE users SET balance=1000000000 WHERE id=$1`, r.Key.UserID)
+		require.NoError(t, err)
+		budget := repo.(*usageSettlementReceiptRepository)
+		cmd := service.KeyBudgetReservationCommand{UserID: r.Key.UserID, APIKeyID: r.Key.APIKeyID, RequestID: uuid.NewString()}
+		above, err := money.NewMoney("USD", "987654321.12345679")
+		require.NoError(t, err)
+		_, err = budget.ReserveKeyBudgetAmount(ctx, &cmd, above)
+		require.ErrorIs(t, err, service.ErrAPIKeyBudgetExceeded)
+		limit, err := money.NewMoney("USD", "987654321.12345678")
+		require.NoError(t, err)
+		hold, err := budget.ReserveKeyBudgetAmount(ctx, &cmd, limit)
+		require.NoError(t, err)
+		var exact bool
+		require.NoError(t, db.QueryRow(`SELECT h.hold_amount=k.budget_limit AND k.budget_reserved=k.budget_limit AND 1000000000-u.balance=k.budget_limit FROM api_key_budget_reservations h JOIN users u ON u.id=h.user_id JOIN api_keys k ON k.id=h.api_key_id WHERE h.id=$1`, hold.Reservation.ID).Scan(&exact))
+		require.True(t, exact)
+		require.NoError(t, budget.ReleaseKeyBudgetReservation(ctx, r.Key.APIKeyID, cmd.RequestID))
+		require.NoError(t, db.QueryRow(`SELECT u.balance=1000000000 AND k.budget_reserved=0 FROM users u JOIN api_keys k ON k.user_id=u.id WHERE k.id=$1`, r.Key.APIKeyID).Scan(&exact))
+		require.True(t, exact)
+	})
+	t.Run("frozen_decimal_matches_wallet_and_key_effects_to_last_digit", func(t *testing.T) {
+		r := fixture(t, 987654321.1234568)
+		r.Usage.PricingSnapshot = strings.ReplaceAll(r.Usage.PricingSnapshot, "987654321.1234568", "987654321.12345678")
+		_, err := db.Exec(`UPDATE users SET balance=1000000000 WHERE id=$1`, r.Key.UserID)
+		require.NoError(t, err)
+		svc := service.NewUsageSettlementService(repo, nil, nil)
+		require.NoError(t, svc.Submit(ctx, r, nil))
+		var correct bool
+		require.NoError(t, db.QueryRow(`SELECT r.state='settled' AND (r.billing_command->'charged_amount'->>'amount')::numeric=987654321.12345678
+    AND 1000000000-u.balance=987654321.12345678 AND k.quota_used=987654321.12345678 AND k.usage_5h=987654321.12345678 AND (SELECT actual_cost FROM usage_logs WHERE id=r.usage_log_id)=987654321.12345678
+ AND EXISTS(SELECT 1 FROM billing_wallet_events w JOIN billing_settlement_outbox o ON o.transaction_id=w.transaction_id WHERE o.receipt_id=r.id AND w.amount=-987654321.12345678)
+    FROM usage_settlement_receipts r JOIN users u ON u.id=r.user_id JOIN api_keys k ON k.id=r.api_key_id WHERE r.request_id=$1`, r.Key.RequestID).Scan(&correct))
+		require.True(t, correct)
+	})
 	t.Run("Audit TPM identity conflict survives service recovery", func(t *testing.T) {
 		original := fixture(t, 0.1)
 		_, err := db.Exec(`UPDATE api_keys SET tpm_limit=1000 WHERE id=$1`, original.Key.APIKeyID)
@@ -445,7 +608,10 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		require.NoError(t, err)
 		_, err = repo.Settle(ctx, input.Key, stored.Command.RequestFingerprint)
 		require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
-		check(t, input, false)
+		require.ErrorIs(t, err, service.ErrUsageSettlementNeedsReview)
+		var intact bool
+		require.NoError(t, db.QueryRow(`SELECT r.state='needs_review' AND u.balance=100 AND k.quota_used=0 AND NOT EXISTS(SELECT 1 FROM usage_billing_dedup d WHERE d.api_key_id=k.id AND d.request_id=r.request_id) FROM usage_settlement_receipts r JOIN users u ON u.id=r.user_id JOIN api_keys k ON k.id=r.api_key_id WHERE r.id=$1`, stored.ID).Scan(&intact))
+		require.True(t, intact)
 	})
 	t.Run("existing_canonical_log_conflict_rolls_back_claim", func(t *testing.T) {
 		input := fixture(t, 2)

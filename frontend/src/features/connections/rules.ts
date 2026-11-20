@@ -843,6 +843,21 @@ export function isVerificationFresh(
   return expiresMs > nowMs
 }
 
+export function hasUnavailableVerificationEvidence(
+  verification: ConnectionVerification | null | undefined
+): boolean {
+  if (!verification || !Array.isArray(verification.checks)) return false
+  return verification.checks.some(
+    (check) =>
+      check.reason === 'EVIDENCE_UNAVAILABLE' ||
+      check.state === 'unknown' ||
+      (check.name === 'discover_models' && check.state === 'unsupported') ||
+      ((check.name === 'network' || check.name === 'authorization') &&
+        check.state !== 'passed' &&
+        check.state !== 'failed')
+  )
+}
+
 export function isConnectionRedacted(result: unknown): result is { version: string; redactions: string[] } {
   if (!result || typeof result !== 'object') return false
   const record = result as Record<string, unknown>
@@ -1111,8 +1126,8 @@ export function formatVerificationCheckReason(
   if (!reason) return ''
   if (reason === 'EVIDENCE_UNAVAILABLE') {
     return isZh
-      ? '当前兼容协议暂无内置主动探针，已跳过自动验证；可继续下一步手工填写模型 ID，或调整 Endpoint 后重试。'
-      : 'No built-in active probe for this compatible schema; you can proceed to configure model IDs manually or retry.'
+      ? '上游端点未能返回有效的连通或鉴权证据（探针不可达、鉴权被拒或当前协议无内置主动探针）。请检查配置后重试验证探针，或先保存为草稿并退出。'
+      : 'Verification evidence is unavailable (upstream probe unreachable, auth rejected, or active probe unsupported). Retry the verification probe or save as draft and exit.'
   }
   if (reason === 'CHECK_UNSUPPORTED') {
     return isZh
@@ -1137,8 +1152,8 @@ export function formatVerificationCheckReason(
     }
     if (checkName === 'discover_models') {
       return isZh
-        ? '上游模型目录拉取失败，稍后可在下一步手工录入模型 ID。'
-        : 'Upstream model list probe failed; you can enter model IDs manually in the next step.'
+        ? '上游模型目录探测未通过，请确认服务端点支持模型发现接口后重试。'
+        : 'Upstream model discovery probe failed. Verify endpoint compatibility and retry.'
     }
     return isZh ? '上游验证探针执行未通过。' : 'Upstream verification probe failed.'
   }

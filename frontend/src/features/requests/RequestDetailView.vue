@@ -18,6 +18,23 @@ import ScopePicker from './components/ScopePicker.vue'
 
 const { t, locale } = useI18n()
 const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+
+function formatBillingSource(source?: string | null): string {
+  if (!source) return '—'
+  const map: Record<string, { zh: string; en: string }> = {
+    wallet: { zh: '钱包余额', en: 'Wallet Balance' },
+    subscription: { zh: '订阅套餐额度', en: 'Subscription Allowance' },
+    byok: { zh: '自带密钥 (BYOK)', en: 'Tenant BYOK' },
+    platform: { zh: '平台资金池', en: 'Platform Pool' }
+  }
+  return map[source] ? (isZh.value ? map[source].zh : map[source].en) : source
+}
+
+function shortPriceVersion(version?: string | null): string {
+  if (!version) return '—'
+  if (version.length <= 24) return version
+  return `${version.slice(0, 12)}…${version.slice(-8)}`
+}
 const route = useRoute()
 const router = useRouter()
 const { scope, scopeKey, admin, access, choose, can } = useProjectScope()
@@ -224,8 +241,12 @@ async function handleExportRequest() {
                 </div>
                 <p v-if="!finance" class="text-sm text-oh-secondary">{{ t('costLedger.state.requiredGrant', { grant: 'billing.ledger.read' }) }}</p>
                 <dl v-else class="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                  <dt class="text-oh-secondary">{{ t('costLedger.billing.fundingSource') }}</dt><dd class="break-all font-mono">{{ record.billing.billing_source ?? '—' }}</dd>
-                  <dt class="text-oh-secondary">{{ t('costLedger.requests.priceVersion') }}</dt><dd class="break-all font-mono">{{ record.billing.price_version ?? '—' }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.billing.fundingSource') }}</dt><dd class="break-all font-medium">{{ formatBillingSource(record.billing.billing_source) }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.priceVersion') }}</dt>
+                  <dd class="flex flex-wrap items-center gap-1.5 font-mono text-xs" :title="record.billing.price_version ?? undefined">
+                    <span>{{ shortPriceVersion(record.billing.price_version) }}</span>
+                    <CopyButton v-if="record.billing.price_version" :value="record.billing.price_version" variant="ghost" />
+                  </dd>
                   <dt class="text-oh-secondary">{{ t('costLedger.requests.reserved') }}</dt>
                   <dd data-testid="billing-reserved-value" class="break-all font-mono tabular-nums">
                     <Badge v-if="isDirectWalletSettlement" tone="info" variant="subtle" size="xs">{{ t('costLedger.requests.directWalletSettlement') }}</Badge>

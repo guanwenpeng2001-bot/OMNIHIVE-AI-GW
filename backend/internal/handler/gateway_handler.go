@@ -16,6 +16,7 @@ import (
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/antigravity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	pkgerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
@@ -342,6 +343,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return
@@ -693,6 +698,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				service.WithCompositeTargetAdvancement(c.Request.Context()),
 				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
+				if errors.Is(err, policy.NativePolicyDenied) {
+					h.handleStreamingAwareErrorWithCode(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason, policy.NativePolicyDenied.Message, streamStarted)
+					return
+				}
 				if failoverClientGone(c) {
 					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
 					return

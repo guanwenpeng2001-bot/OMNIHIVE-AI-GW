@@ -1,42 +1,70 @@
 import type { UiTone } from '@/components/ui/types'
-import type { PublicRate } from './api'
+import {
+  formatCatalogRateBand,
+  formatTokenRatePerMillion
+} from '@/features/shared/pricePresentation'
+import type { PublicCatalogMetrics, PublicRate } from './api'
 
-const TOKEN_UNITS = new Set(['token', 'tokens', 'input_token', 'output_token', 'cached_input_token'])
+export function formatPriceSourceLabel(source?: string | null, isZh = false): string {
+  if (!source) return ''
+  switch (source) {
+    case 'public_plaza_reference':
+      return isZh ? '公开目录参考价' : 'Catalog Reference'
+    case 'scoped_plaza_reference':
+      return isZh ? '空间目录参考价' : 'Workspace Reference'
+    case 'published':
+      return isZh ? '已发布生效价格' : 'Published Rate'
+    case 'reference':
+      return isZh ? '基准参考费率' : 'Reference Rate'
+    default:
+      return source
+  }
+}
+
+export function formatShortVersion(version?: string | null): string {
+  if (!version) return ''
+  if (version.length <= 20) return version
+  return `${version.slice(0, 12)}…${version.slice(-6)}`
+}
+
+export function formatRateBandKind(kind?: string | null, isZh = false): string {
+  if (!kind) return '—'
+  const map: Record<string, { zh: string; en: string }> = {
+    cache_read: { zh: '缓存读取 (Cache Read)', en: 'Cache Read' },
+    cached_input: { zh: '缓存输入 (Cached Input)', en: 'Cached Input' },
+    cache_write: { zh: '缓存写入 (Cache Write)', en: 'Cache Write' },
+    cache_write_1h: { zh: '1小时缓存写入 (1h Cache Write)', en: '1h Cache Write' },
+    reasoning: { zh: '推理思考 (Reasoning)', en: 'Reasoning Tokens' },
+    input: { zh: '阶梯输入 (Tiered Input)', en: 'Tiered Input' },
+    output: { zh: '阶梯输出 (Tiered Output)', en: 'Tiered Output' }
+  }
+  return map[kind] ? (isZh ? map[kind].zh : map[kind].en) : kind
+}
 
 export function publicValue(value?: string | null, fallback = '—'): string {
   return value && value !== 'unknown' ? value : fallback
 }
 
-export function publicTokenPrice(rate?: PublicRate | null, digits: 2 | 4 = 2, isZh = false): string {
-  if (!rate || !TOKEN_UNITS.has(rate.unit)) return '—'
-  const amount = /^(\d+)(?:\.(\d+))?$/.exec(rate.amount)
-  if (!amount || !/^\d+$/.test(rate.per)) return '—'
-  const per = BigInt(rate.per)
-  if (per === 0n) return '—'
-
-  const fraction = amount[2] ?? ''
-  const units = BigInt(amount[1] + fraction)
-  if (units === 0n) return isZh ? '免费' : 'Free'
-
-  const scale = 10n ** BigInt(digits)
-  const denominator = per * 10n ** BigInt(fraction.length)
-  const numerator = units * 1_000_000n * scale
-  const rounded = (2n * numerator + denominator) / (2n * denominator)
-  const currency = rate.currency === 'USD' ? '$' : `${rate.currency} `
-  const display = (value: bigint) =>
-    `${currency}${value / scale}.${String(value % scale).padStart(digits, '0')}`
-  return rounded === 0n ? `< ${display(1n)}` : display(rounded)
+export function publicTokenPrice(
+  rate?: PublicRate | null,
+  _digits: 2 | 4 | 'adaptive' = 'adaptive',
+  isZh = false
+): string {
+  return formatTokenRatePerMillion(rate, {
+    minDecimals: 2,
+    maxDecimals: 4,
+    locale: isZh ? 'zh' : 'en',
+    zeroAsFree: true
+  })
 }
 
 export function formatRateBandPrice(rate?: PublicRate | null, isZh = false): string {
-  if (!rate) return '—'
-  if (TOKEN_UNITS.has(rate.unit)) {
-    const tokenPrice = publicTokenPrice(rate, 4, isZh)
-    return tokenPrice === '—' ? '—' : `${tokenPrice} / 1M`
-  }
-  const currency = rate.currency === 'USD' ? '$' : `${rate.currency} `
-  const perText = rate.per === '1' ? rate.unit : `${rate.per} ${rate.unit}`
-  return `${currency}${rate.amount} / ${perText}`
+  return formatCatalogRateBand(rate, {
+    minDecimals: 2,
+    maxDecimals: 4,
+    locale: isZh ? 'zh' : 'en',
+    zeroAsFree: true
+  })
 }
 
 export function formatContextTokens(value?: string | number | null): string {
@@ -52,11 +80,58 @@ export function formatContextTokens(value?: string | number | null): string {
 }
 
 export function formatPublicTimestamp(iso?: string | null): string {
-  if (!iso) return '—'
+  if (!iso || iso.startsWith('0001-')) return '—'
   const parsed = new Date(iso)
   if (Number.isNaN(parsed.getTime())) return iso
   const pad = (num: number) => String(num).padStart(2, '0')
   return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+}
+
+export function formatMetricsWindow(
+  metrics?: PublicCatalogMetrics | null,
+  isZh = false
+): string {
+  const fallback = isZh ? '未观测' : 'Unobserved'
+  if (!metrics) return fallback
+  const explicit = metrics.window?.trim()
+  if (explicit && explicit !== 'unknown') {
+    return explicit
+  }
+  const startValid = Boolean(metrics.window_start && !metrics.window_start.startsWith('0001-'))
+  const endValid = Boolean(metrics.window_end && !metrics.window_end.startsWith('0001-'))
+  if (startValid && endValid) {
+    const startText = formatPublicTimestamp(metrics.window_start)
+    const endText = formatPublicTimestamp(metrics.window_end)
+    const startMs = Date.parse(metrics.window_start!)
+    const endMs = Date.parse(metrics.window_end!)
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+      const hours = (endMs - startMs) / 3_600_000
+      if (Math.abs(hours - 24) < 0.25) {
+        return `24h (${startText} → ${endText})`
+      }
+    }
+    return `${startText} → ${endText}`
+  }
+  if (startValid) return formatPublicTimestamp(metrics.window_start)
+  if (endValid) return formatPublicTimestamp(metrics.window_end)
+  return fallback
+}
+
+export function formatMetricsSource(source?: string | null, isZh = false): string {
+  const normalized = source?.trim()
+  if (!normalized || normalized === 'unknown' || normalized === 'unavailable') {
+    return isZh ? '未观测' : 'Unobserved'
+  }
+  switch (normalized) {
+    case 'gateway_observations':
+    case 'gateway':
+      return isZh ? '网关真实流量观测' : 'Gateway live traffic'
+    case 'catalog_rollup':
+    case 'telemetry_rollup':
+      return isZh ? '网关遥测聚合' : 'Gateway telemetry rollup'
+    default:
+      return normalized
+  }
 }
 
 export function routeStateLabel(state?: string | null, isZh = false): string {

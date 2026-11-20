@@ -25,14 +25,14 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 	if c == nil || key == nil {
 		return true
 	}
-	if err := reserveRequestBudget(c.Request.Context(), key, model, body); err != nil {
+	if err := reserveRequestBudget(c.Request.Context(), key, model, body, c.GetHeader("Content-Type")); err != nil {
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
 	return true
 }
 
-func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte) error {
+func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string, body []byte, contentType ...string) error {
 	plan := service.GatewayRequestPlanFromContext(ctx)
 	if !key.HasPeriodBudget() && !plan.HasProjectBudgetCoordinator() {
 		return nil
@@ -40,23 +40,24 @@ func reserveRequestBudget(ctx context.Context, key *service.APIKey, model string
 	if plan == nil {
 		return service.ErrAPIKeyBudgetUnavailable
 	}
-	return plan.ReserveBudget(ctx, gatewayRequestBudgetEstimate(plan, key, model, body))
+	return plan.ReserveBudget(ctx, gatewayRequestBudgetEstimate(plan, key, model, body, contentType...))
 }
 
-// gatewayRequestBudgetEstimate 选择本次请求的预留上界。
-//
-// 媒体/音频/realtime 的请求体只带生成参数，没有 token 用量：本地 token 估算器是
-// Anthropic 文本形状的，用它去数图片参数只会得到一个无意义的小数字，等于把
-// 媒体请求伪装成 token 请求。这些协议因此直接丢掉 body 派生的估算，只用文档化的
-// 有界上界，真正的金额仍由结算阶段按实际上游计量决定。
-func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte) service.RequestBudgetEstimate {
+// Media units come from the inbound protocol and the generation parameters.
+func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte, contentType ...string) service.RequestBudgetEstimate {
 	estimate := service.RequestBudgetEstimate{
 		Model:           model,
 		SkipKeyBudget:   !key.HasPeriodBudget(),
 		RateMultiplier:  gatewayRequestRateMultiplier(key),
 		SkipBalanceHold: key != nil && key.Group != nil && key.Group.IsSubscriptionType(),
 	}
+	if key != nil {
+		estimate.Group = key.Group
+	}
+	estimate.ServiceTier = gjson.GetBytes(body, "service_tier").String()
+	estimate.ReasoningEffort = gjson.GetBytes(body, "reasoning.effort").String()
 	if plan != nil && budgetEstimateIgnoresBody(plan.Snapshot().Protocol) {
+		estimate.Meter = requestMediaMeter(plan.Snapshot(), body, contentType...)
 		return estimate
 	}
 	estimate.InputTokens = estimateGatewayRequestInputTokens(body)

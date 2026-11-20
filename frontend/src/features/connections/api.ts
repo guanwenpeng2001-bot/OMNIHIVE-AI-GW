@@ -258,6 +258,22 @@ export const connectionsApi = {
     return postIdempotentCreate<ConnectionPool>(`${workspaceBase(workspaceId)}/pools`, payload)
   },
 
+  async updatePool(
+    id: string,
+    payload: { name?: string; max_concurrency?: number },
+    workspaceId?: string
+  ): Promise<ConnectionPool> {
+    const { data } = await apiClient.patch<ConnectionPool>(
+      `${workspaceBase(workspaceId)}/pools/${encodeURIComponent(id)}`,
+      payload
+    )
+    return data
+  },
+
+  async deletePool(id: string, workspaceId?: string): Promise<void> {
+    await apiClient.delete(`${workspaceBase(workspaceId)}/pools/${encodeURIComponent(id)}`)
+  },
+
   async getOperation(statusUrl: string): Promise<ConnectionOperation> {
     const normalizedUrl = statusUrl.startsWith('/api/') ? statusUrl.slice('/api'.length) : statusUrl
     const { data } = await apiClient.get<ConnectionOperation>(normalizedUrl)

@@ -1,0 +1,28 @@
+export default {
+  consoleScopeBar: {
+    scopeLabel: 'ACTIVE SCOPE',
+    noVisibleProject: 'No visible project (—)',
+    syncingScope: 'Syncing scope…',
+    defaultPersonalScope: 'Default Personal Scope',
+    refreshing: 'Refreshing',
+    sync: 'Sync',
+  },
+  playgroundDiagnostics: {
+    title: 'Diagnostics Inspector',
+    expandDrawer: 'Show Inspector',
+    collapseDrawer: 'Hide Inspector',
+    togglePane: 'Raw Request / SSE',
+    tabsAriaLabel: 'Raw request and SSE event inspector tabs',
+    tabRawRequest: 'Raw Request JSON',
+    tabSseFrames: 'Raw SSE Frames',
+    rawRequestLabel: 'Submitted Request Payload (JSON)',
+    rawRequestEmpty: 'No request submitted yet. Run a request to inspect the exact JSON payload.',
+    sseFramesLabel: 'SSE Event Frames',
+    sseFramesEmpty: 'No SSE event frames recorded yet.',
+    rawEventsLabel: 'Upstream Raw Events (rawEvents)',
+    rawEventsEmpty: 'No upstream raw events captured.',
+    framePayloadLabel: 'Payload',
+    copyPayload: 'Copy JSON',
+    copyFrames: 'Copy Frames',
+  },
+}

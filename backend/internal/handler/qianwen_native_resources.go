@@ -100,6 +100,9 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeSyncResource(c *gin.Context, o
 	// Voice listing and deletion are resource management, not generation.
 	if operation != service.QianwenNativeVoiceEnrollment || gjson.GetBytes(body, "input.action").String() == "create" {
 		defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "resources", h.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := h.gatewayService.ForwardQianwenNative(c.Request.Context(), c, account, operation, body, false)

@@ -1,12 +1,14 @@
 package admin
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,6 +23,48 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPluginUploadAdvertisesOmniHiveFormatAndLegacySunset(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Plugins.DataDir = t.TempDir()
+	cfg.Plugins.MaxUploadBytes = 4096
+	handler := NewPluginHandler(service.NewPluginManager(nil, nil, cfg, service.PluginHostInfo{}))
+	router := gin.New()
+	router.POST("/plugins", handler.Upload)
+
+	for _, tt := range []struct {
+		filename string
+		message  string
+		legacy   bool
+	}{
+		{"plugin.zip", ".ohplugin", false},
+		{"plugin.ohplugin", "ZIP", false},
+		{"plugin.s2plugin", "ZIP", true},
+	} {
+		t.Run(tt.filename, func(t *testing.T) {
+			var payload bytes.Buffer
+			form := multipart.NewWriter(&payload)
+			file, err := form.CreateFormFile("plugin", tt.filename)
+			require.NoError(t, err)
+			_, err = file.Write([]byte("invalid ZIP fixture"))
+			require.NoError(t, err)
+			require.NoError(t, form.Close())
+			req := httptest.NewRequest(http.MethodPost, "/plugins", &payload)
+			req.Header.Set("Content-Type", form.FormDataContentType())
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+			require.Equal(t, http.StatusBadRequest, res.Code)
+			require.Contains(t, res.Body.String(), tt.message)
+			notice := res.Header().Get("X-OmniHive-Plugin-Deprecation")
+			if tt.legacy {
+				require.Contains(t, notice, "legacy migration")
+				require.Contains(t, notice, "v0.4.0")
+			} else {
+				require.Empty(t, notice)
+			}
+		})
+	}
+}
 
 // pluginUIEncryptor issues opaque handles and rejects any unissued ciphertext.
 type pluginUIEncryptor struct {

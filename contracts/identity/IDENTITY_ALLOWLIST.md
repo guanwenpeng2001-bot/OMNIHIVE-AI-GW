@@ -234,9 +234,6 @@ The root [NOTICE](../../NOTICE) credits the inherited source alongside the exist
 | `backend/migrations/229_plugins.sql` | 3 | Immutable applied SQL migration or its comments |
 | `backend/migrations/cursor_platform_integration_test.go` | 34 | Test-only example, retained configuration fixture or regression note |
 | `backend/migrations/new_platforms_integration_test.go` | 45 | Test-only example, retained configuration fixture or regression note |
-| `deploy/DATAMANAGEMENTD_CN.md` | 9, 16–17, 19–20, 26–28, 34, 37, 39–40, 46, 56, 61, 65, 67 | Retired data-management integration |
-| `deploy/install-datamanagementd.sh` | 8, 12–14, 23, 28, 84–86, 88, 97, 110, 113, 118–120 | Retired data-management integration |
-| `deploy/sub2api-datamanagementd.service` | 2, 8–13 | Retired data-management integration |
 | `docs/account-model-access.md` | 7, 116 | Archived worktree, integration or retirement reference |
 | `docs/model-registry-contract.md` | 7, 237 | Archived worktree, integration or retirement reference |
 | `frontend/src/api/__tests__/settings.authSourceDefaults.spec.ts` | 102, 165 | Test-only example, retained configuration fixture or regression note |

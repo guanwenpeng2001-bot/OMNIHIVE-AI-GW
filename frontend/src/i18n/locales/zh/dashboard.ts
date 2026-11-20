@@ -195,6 +195,7 @@ export default {
     groupsLoadFailed: '加载分组失败，请重试后创建密钥。',
     noAvailableGroups: '当前没有可用分组或无分组权限。请联系管理员创建分组、开通权限，或开通有效的分组订阅。',
     groupRequired: '请选择分组',
+    projectGroupRequired: '项目级 API 密钥必须绑定至少一个可用模型分组，否则网关调用将返回 403。请先为当前工作空间/项目关联可用模型分组。',
     usage: '用量',
     today: '今日',
     total: '近30天',

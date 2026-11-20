@@ -86,6 +86,25 @@ func (r scopedKeyPriceResolver) ResolveKeyPrice(ctx context.Context, p catalog.P
 					SELECT 1 FROM project_resources pr
 					WHERE pr.kind = 'api_keys' AND pr.resource_id = k.id AND pr.workspace_id = $2 AND pr.project_id = $3
 				)
+				OR (
+					k.workspace_id = $2
+					AND EXISTS (
+						SELECT 1 FROM projects d
+						WHERE d.workspace_id = $2 AND d.id = $3 AND d.is_default
+					)
+					AND NOT EXISTS (
+						SELECT 1 FROM project_key_policies pkp2
+						WHERE pkp2.api_key_id = k.id AND pkp2.workspace_id = $2 AND pkp2.project_id <> $3
+					)
+					AND NOT EXISTS (
+						SELECT 1 FROM project_resources pr2
+						WHERE pr2.kind = 'api_keys' AND pr2.resource_id = k.id AND pr2.workspace_id = $2 AND pr2.project_id <> $3
+					)
+					AND NOT EXISTS (
+						SELECT 1 FROM identity_scope_quarantine q
+						WHERE q.kind = 'api_keys' AND q.resource_id = k.id
+					)
+				)
 			  )
 		)`, keyID, p.Workspace, p.Project).Scan(&exists)
 	if err != nil {
@@ -119,7 +138,7 @@ func Register(parent *gin.RouterGroup, h *Handler, public, session []gin.Handler
 	project := parent.Group("/workspaces/:workspace_id/projects/:project_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	for _, g := range []*gin.RouterGroup{anonymous, scoped} {
 		g.GET("", h.serve(h.list))
-		g.GET("/:id", h.serve(h.detail))
+		g.GET("/*id", h.serve(h.detail))
 		g.POST("/compare", h.serve(h.compare))
 	}
 	project.POST("/quotes", h.serve(func(ctx context.Context, p catalog.Perspective, c *gin.Context) (any, error) {
@@ -199,8 +218,10 @@ func (h *Handler) detail(ctx context.Context, p catalog.Perspective, c *gin.Cont
 			return nil, fault.Invalid("/" + field)
 		}
 	}
-	id := c.Param("id")
-	if !isIdentifier(id, "m_", 32) {
+	id := strings.TrimPrefix(c.Param("id"), "/")
+	stableID := isIdentifier(id, "m_", 32)
+	provider, model, slug := strings.Cut(id, "/")
+	if !stableID && (!slug || provider == "" || model == "") {
 		return nil, fault.NotFound
 	}
 	snapshot, err := h.reader.Snapshot(ctx, p, time.Time{})
@@ -210,10 +231,19 @@ func (h *Handler) detail(ctx context.Context, p catalog.Perspective, c *gin.Cont
 	if version := q.Get("catalog_version"); version != "" && version != snapshot.Version {
 		return nil, snapshotExpired
 	}
+	var modelMatch *catalog.Detail
+	ambiguous := false
 	for _, d := range snapshot.Details {
-		if d.Model.ID == id {
+		if d.Model.ID == id || (slug && d.Model.Provider == provider && d.Model.Model == model) {
 			return d, nil
 		}
+		if slug && d.Model.Model == id {
+			ambiguous = modelMatch != nil
+			modelMatch = &d
+		}
+	}
+	if modelMatch != nil && !ambiguous {
+		return *modelMatch, nil
 	}
 	return nil, fault.NotFound
 }

@@ -25,6 +25,11 @@ import (
 // reusable only for this short window; it cannot authenticate an API session.
 const pluginUISessionTTL = 5 * time.Minute
 
+const (
+	legacyPluginSunset = "v0.4.0"
+	legacyPluginNotice = ".s2plugin is deprecated and accepted for legacy migration until " + legacyPluginSunset + "; use .ohplugin"
+)
+
 // PluginHandler 提供插件安装、生命周期、配置和隔离 UI 资源接口。
 type PluginHandler struct {
 	manager *service.PluginManager
@@ -75,8 +80,12 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	}
 	defer func() { _ = file.Close() }()
 	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".s2plugin" && ext != ".ohplugin" {
-		response.BadRequest(c, "插件包扩展名必须是 .ohplugin 或 .s2plugin")
+	switch ext {
+	case ".ohplugin":
+	case ".s2plugin":
+		c.Header("X-OmniHive-Plugin-Deprecation", legacyPluginNotice)
+	default:
+		response.BadRequest(c, "请上传 .ohplugin 插件包。.s2plugin 仅用于旧版迁移，将于 "+legacyPluginSunset+" 停止支持。")
 		return
 	}
 	var installedBy *int64
@@ -88,6 +97,9 @@ func (h *PluginHandler) Upload(c *gin.Context) {
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+	if plugin.Manifest.SchemaVersion == 1 {
+		c.Header("X-OmniHive-Plugin-Deprecation", legacyPluginNotice)
 	}
 	response.Created(c, plugin)
 }

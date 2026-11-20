@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/policy"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
 	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -196,6 +197,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		c.Request = c.Request.WithContext(selectContext)
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(service.WithCompositeTargetAdvancement(selectContext), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
+			if errors.Is(err, policy.NativePolicyDenied) {
+				h.chatCompletionsErrorResponse(c, policy.NativePolicyDenied.Status, "permission_error", policy.NativePolicyDenied.Reason+": "+policy.NativePolicyDenied.Message)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("gateway.cc.account_select_aborted_client_disconnected", zap.Error(err))
 				return

@@ -345,6 +345,9 @@
         <p v-else-if="policyLoading" role="status" class="text-sm text-[var(--muted-foreground)]">
           {{ isZh ? '正在读取路由策略…' : 'Loading routing policy…' }}
         </p>
+        <p v-else-if="!policyError" role="status" class="text-sm text-[var(--muted-foreground)]">
+          {{ isZh ? '暂无可用的路由策略配置。' : 'Routing policy configuration is currently unavailable.' }}
+        </p>
       </section>
     </div>
   </AppLayout>
@@ -414,6 +417,7 @@ async function loadRoutingPolicies() {
     if (request === policyRequest) routingPolicy.value = config
   } catch (error) {
     if (request === policyRequest) {
+      routingPolicy.value = null
       policyError.value =
         normalizeApiError(error).message ||
         (isZh.value ? '路由策略暂时无法读取，请重试。' : 'Failed to load routing policy. Please try again.')

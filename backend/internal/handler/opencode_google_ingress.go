@@ -88,6 +88,9 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, modelName, "gemini", h.maxAccountSwitchesGemini)()
+	if c.IsAborted() {
+		return
+	}
 	// 入口前置 hold：先把周期预算占用下来再调用上游，结算时按实际消耗修正。
 	if !reserveGatewayRequestBudget(c, apiKey, modelName, body) {
 		return

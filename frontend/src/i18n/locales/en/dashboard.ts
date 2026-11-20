@@ -196,6 +196,7 @@ export default {
     groupsLoadFailed: 'Could not load groups. Retry before creating a key.',
     noAvailableGroups: 'No groups are available to your account. Ask an administrator to create a group or grant access, or activate a group subscription.',
     groupRequired: 'Please select a group',
+    projectGroupRequired: 'Project-scoped API keys must bind to an available model group to prevent 403 gateway errors. Please associate an available model group with this workspace/project first.',
     usage: 'Usage',
     today: 'Today',
     total: 'Last 30d',

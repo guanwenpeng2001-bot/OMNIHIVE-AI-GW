@@ -29,6 +29,59 @@ type ViewMode = 'table' | 'cards'
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
+
+const MODELS_FILTER_MESSAGES = {
+  en: {
+    regionLabel: 'Region',
+    regionUs: 'US',
+    regionEu: 'EU',
+    regionApac: 'APAC',
+    regionGlobal: 'Global',
+    retentionLabel: 'Retention',
+    retentionZero: 'Zero Retention',
+    retentionNone: 'No Retention',
+    retentionLimited: 'Limited Retention',
+    retentionStandard: 'Standard'
+  },
+  zh: {
+    regionLabel: '部署区域',
+    regionUs: '北美 US',
+    regionEu: '欧洲 EU',
+    regionApac: '亚太 APAC',
+    regionGlobal: '全球 Global',
+    retentionLabel: '留存合规',
+    retentionZero: '零留存 Zero',
+    retentionNone: '不落盘 None',
+    retentionLimited: '受限审计留存',
+    retentionStandard: '标准策略'
+  }
+} as const
+
+type ModelsFilterMessageKey = keyof typeof MODELS_FILTER_MESSAGES.en
+
+function toMessageFunctions<T extends Record<string, string>>(dict: T) {
+  return Object.fromEntries(
+    Object.entries(dict).map(([k, v]) => [k, () => v])
+  ) as Record<keyof T, () => string>
+}
+
+const { t: tFilter } = useI18n({
+  useScope: 'local',
+  messages: {
+    en: toMessageFunctions(MODELS_FILTER_MESSAGES.en),
+    zh: toMessageFunctions(MODELS_FILTER_MESSAGES.zh),
+    'zh-CN': toMessageFunctions(MODELS_FILTER_MESSAGES.zh)
+  }
+})
+
+function tf(key: ModelsFilterMessageKey): string {
+  const translated = tFilter(key)
+  if (translated && translated !== key) return translated
+  const active = String(locale?.value || 'en').toLowerCase()
+  const dict = active.startsWith('zh') ? MODELS_FILTER_MESSAGES.zh : MODELS_FILTER_MESSAGES.en
+  return dict[key]
+}
+
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -47,6 +100,8 @@ const providers = ref<string[]>([])
 const selectedActions = ref<string[]>([])
 const selectedModalities = ref<string[]>([])
 const selectedProtocols = ref<string[]>([])
+const selectedRegions = ref<string[]>([])
+const selectedRetentions = ref<string[]>([])
 const searchContainerRef = ref<HTMLElement | null>(null)
 const onlyFavorites = ref(false)
 const FAVORITES_STORAGE_KEY = 'omnihive.public.favorite_models'
@@ -54,6 +109,7 @@ const favoriteIds = ref<string[]>([])
 const compareIds = ref<string[]>([])
 
 const providerOptions = ref<string[]>([])
+const discoveredRegions = ref<string[]>([])
 let appliedQuery = ''
 
 const favoriteSet = computed(() => new Set(favoriteIds.value))
@@ -137,6 +193,27 @@ const protocolChips = computed(() => [
   { value: 'gemini_generate', label: 'Gemini' }
 ])
 
+const regionChips = computed(() => {
+  const defaults = [
+    { value: 'us', label: tf('regionUs') },
+    { value: 'eu', label: tf('regionEu') },
+    { value: 'apac', label: tf('regionApac') },
+    { value: 'global', label: tf('regionGlobal') }
+  ]
+  const known = new Set(defaults.map((entry) => entry.value))
+  const extras = discoveredRegions.value
+    .filter((code) => !known.has(code.toLowerCase()))
+    .map((code) => ({ value: code.toLowerCase(), label: code.toUpperCase() }))
+  return [...defaults, ...extras]
+})
+
+const retentionChips = computed(() => [
+  { value: 'zero', label: tf('retentionZero') },
+  { value: 'none', label: tf('retentionNone') },
+  { value: 'limited', label: tf('retentionLimited') },
+  { value: 'standard', label: tf('retentionStandard') }
+])
+
 const sortOptions = computed(() => [
   { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
   { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
@@ -150,6 +227,8 @@ const activeFilters = computed(
     selectedActions.value.length > 0 ||
     selectedModalities.value.length > 0 ||
     selectedProtocols.value.length > 0 ||
+    selectedRegions.value.length > 0 ||
+    selectedRetentions.value.length > 0 ||
     onlyFavorites.value ||
     query.value.trim().length > 0
 )
@@ -173,6 +252,8 @@ async function load(reset = true): Promise<void> {
       action: selectedActions.value.length ? selectedActions.value : undefined,
       modality: selectedModalities.value.length ? selectedModalities.value : undefined,
       protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
+      region: selectedRegions.value.length ? selectedRegions.value : undefined,
+      retention: selectedRetentions.value.length ? selectedRetentions.value : undefined,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
       limit: 20
@@ -183,14 +264,22 @@ async function load(reset = true): Promise<void> {
       !providers.value.length &&
       !selectedActions.value.length &&
       !selectedModalities.value.length &&
-      !selectedProtocols.value.length
+      !selectedProtocols.value.length &&
+      !selectedRegions.value.length &&
+      !selectedRetentions.value.length
     ) {
       const seen = new Set(providerOptions.value)
+      const seenRegions = new Set(discoveredRegions.value)
       for (const model of page.items ?? []) {
         const provider = model.provider?.trim()
         if (provider && provider !== 'unknown') seen.add(provider)
+        for (const reg of model.regions ?? []) {
+          const cleaned = reg?.trim().toLowerCase()
+          if (cleaned && cleaned !== 'unknown') seenRegions.add(cleaned)
+        }
       }
       providerOptions.value = [...seen].sort()
+      discoveredRegions.value = [...seenRegions].sort()
     }
     models.value = reset ? page.items ?? [] : [...models.value, ...(page.items ?? [])]
     nextCursor.value = page.next_cursor ?? null
@@ -208,12 +297,17 @@ async function load(reset = true): Promise<void> {
   }
 }
 
-function toggleFilterByKey(kind: 'action' | 'modality' | 'protocol' | 'provider', item: string): void {
+function toggleFilterByKey(
+  kind: 'action' | 'modality' | 'protocol' | 'provider' | 'region' | 'retention',
+  item: string
+): void {
   const map = {
     action: selectedActions,
     modality: selectedModalities,
     protocol: selectedProtocols,
-    provider: providers
+    provider: providers,
+    region: selectedRegions,
+    retention: selectedRetentions
   }
   const target = map[kind]
   target.value = target.value.includes(item)
@@ -228,6 +322,8 @@ function resetFilters(): void {
   selectedActions.value = []
   selectedModalities.value = []
   selectedProtocols.value = []
+  selectedRegions.value = []
+  selectedRetentions.value = []
   onlyFavorites.value = false
   sort.value = 'name'
   void load()
@@ -236,7 +332,7 @@ function resetFilters(): void {
 function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
   if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.input_rate : model.output_rate
-  return publicTokenPrice(rate, 2, isZh.value)
+  return publicTokenPrice(rate, 'adaptive', isZh.value)
 }
 
 function modelTtftMs(model: PublicModelSummary): number | null {
@@ -426,6 +522,52 @@ onBeforeUnmount(() => {
         >
           {{ chip.label }}
         </button>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5" data-testid="filter-governance-row">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ tf('regionLabel') }}
+        </span>
+        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-region-group">
+          <button
+            v-for="chip in regionChips"
+            :key="chip.value"
+            type="button"
+            :data-testid="`filter-region-${chip.value}`"
+            class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
+            :class="
+              selectedRegions.includes(chip.value)
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="selectedRegions.includes(chip.value)"
+            @click="toggleFilterByKey('region', chip.value)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+
+        <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ tf('retentionLabel') }}
+        </span>
+        <div class="inline-flex flex-wrap items-center gap-1.5" data-testid="filter-retention-group">
+          <button
+            v-for="chip in retentionChips"
+            :key="chip.value"
+            type="button"
+            :data-testid="`filter-retention-${chip.value}`"
+            class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
+            :class="
+              selectedRetentions.includes(chip.value)
+                ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+                : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+            "
+            :aria-pressed="selectedRetentions.includes(chip.value)"
+            @click="toggleFilterByKey('retention', chip.value)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
       </div>
 
       <div v-if="providerOptions.length > 0 || activeFilters || asOf" class="flex flex-wrap items-center gap-1.5">

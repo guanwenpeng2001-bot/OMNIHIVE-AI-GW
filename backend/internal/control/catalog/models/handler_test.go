@@ -15,6 +15,8 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 )
 
 type fixtureCatalog struct{ revision string }
@@ -84,4 +86,52 @@ func TestCatalogExactCompareEstimate(t *testing.T) {
 	require.Equal(t, "200", result.Components[1].Quantity)
 	_, err = scenarioQuantities(scenario{Input: "1000", Cached: "1001"})
 	require.Error(t, err)
+}
+
+type detailCatalog struct{}
+
+func (detailCatalog) Snapshot(context.Context, catalog.Perspective, time.Time) (catalog.Snapshot, error) {
+	const model = "auto/gemini-3.8-flash"
+	return catalog.Snapshot{Details: []catalog.Detail{
+		{Model: catalog.Summary{ID: catalog.StableID("openai", model), Provider: "openai", Model: model}},
+	}}, nil
+}
+
+type catalogDetailAccess struct{}
+
+func (catalogDetailAccess) Evaluate(_ context.Context, actor, workspace, project int64, action string) (identity.Access, error) {
+	return identity.Access{ActorID: actor, WorkspaceID: workspace, ProjectID: project, Actions: []string{action}}, nil
+}
+
+func TestCatalogDetailResolvesCanonicalModelSlugs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	modelID := catalog.StableID("openai", "auto/gemini-3.8-flash")
+	for _, rawPath := range []bool{false, true} {
+		router := gin.New()
+		router.UseRawPath = rawPath
+		auth := func(c *gin.Context) {
+			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1})
+			c.Next()
+		}
+		Register(router.Group("/api/v2"), New(detailCatalog{}, catalogDetailAccess{}, &config.Config{}), nil, []gin.HandlerFunc{auth})
+		for _, prefix := range []string{"/api/v2/public/models/", "/api/v2/workspaces/1/projects/2/models/"} {
+			for _, identifier := range []string{
+				modelID,
+				"auto%2Fgemini-3.8-flash",
+				"openai%2Fauto%2Fgemini-3.8-flash",
+				"auto/gemini-3.8-flash",
+				"openai/auto/gemini-3.8-flash",
+			} {
+				path := prefix + identifier
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+				require.Equal(t, http.StatusOK, w.Code, "%s (UseRawPath=%t): %s", path, rawPath, w.Body.String())
+				var response struct{ Data catalog.Detail }
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+				require.Equal(t, modelID, response.Data.Model.ID)
+				require.Equal(t, "openai", response.Data.Model.Provider)
+				require.Equal(t, "auto/gemini-3.8-flash", response.Data.Model.Model)
+			}
+		}
+	}
 }

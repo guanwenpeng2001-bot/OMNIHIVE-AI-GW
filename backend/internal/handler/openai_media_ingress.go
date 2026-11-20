@@ -258,6 +258,9 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 
 	if platform == service.PlatformOpenRouter || platform == service.PlatformKaggle {
 		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 		if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
 			return
 		}
@@ -342,6 +345,9 @@ func (h *OpenAIGatewayHandler) handleVideoSubmit(c *gin.Context, action, platfor
 	// submission its TPM repository and scope before it can contact upstream.
 	if platform != service.PlatformOpenRouter && platform != service.PlatformKaggle {
 		defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+		if c.IsAborted() {
+			return
+		}
 	}
 	template := &service.UpstreamJob{
 		Platform:  platform,

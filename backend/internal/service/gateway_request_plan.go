@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
-	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,7 +16,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
-	"github.com/shopspring/decimal"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/routing/trace"
 )
 
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
@@ -84,6 +84,7 @@ type GatewayRequestPlan struct {
 	state            GatewayRequestState
 	leases           map[*gatewayPlanLease]struct{}
 	usage            atomic.Bool
+	traceEmitted     atomic.Bool
 	// rateLimitCounted 是本逻辑请求的用户级 RPM 计数名额；rateLimitScopes 是已经
 	// 计过数的分组维度。重试/账号切换/同组兜底复用同一个请求计划，因此不会把
 	// 同一个逻辑请求重复计成多次（T3-2.13）。
@@ -94,6 +95,8 @@ type GatewayRequestPlan struct {
 	projectRef       string
 	projectHold      *money.Money
 	projectReleased  bool
+	budgetRate       func(context.Context, int64, int64, float64) float64
+	keyBudgetAmount  *money.Money
 	budgetHold       *KeyBudgetReservation
 	budgetAdmitted   bool
 	tpmAttempts      map[int]*tpmPlanAttempt
@@ -235,10 +238,14 @@ func (p *GatewayRequestPlan) bindBudgetReceipt(command *UsageBillingCommand) {
 	defer p.mu.Unlock()
 	if p.projectHold != nil {
 		command.ProjectReservationRef = p.projectRef
+		command.ProjectWorkspaceID, command.ProjectID = p.budgetScope.WorkspaceID, p.budgetScope.ProjectID
 		command.Estimate, command.Reserved = p.projectHold, p.projectHold
 	}
 	if hold := p.budgetHold; hold != nil {
 		command.BudgetReservationID = hold.ID
+		if command.Reserved == nil && p.keyBudgetAmount != nil {
+			command.Estimate, command.Reserved = p.keyBudgetAmount, p.keyBudgetAmount
+		}
 		if command.Reserved == nil {
 			amount, err := money.NewMoney("USD", quantizedBillingDecimal(hold.HoldAmount).StringFixed(UsageBillingMonetaryScale))
 			if err == nil {
@@ -262,10 +269,13 @@ func (p *GatewayRequestPlan) releaseProjectBudget() {
 // RequestBudgetEstimate is the bounded cost estimate used to reserve budget
 // before a request is forwarded. Token counts are upper bounds, never usage.
 type RequestBudgetEstimate struct {
-	Model          string
-	InputTokens    int
-	OutputTokens   int
-	RateMultiplier float64
+	Model                        string
+	Group                        *Group
+	Meter                        *BudgetMeter
+	ServiceTier, ReasoningEffort string
+	InputTokens                  int
+	OutputTokens                 int
+	RateMultiplier               float64
 	// SkipBalanceHold keeps the reservation on the period budget only.
 	SkipBalanceHold bool
 	SkipKeyBudget   bool
@@ -278,11 +288,7 @@ const (
 	defaultBudgetEstimateOutputTokens = 4096
 )
 
-// NormalizeBudgetEstimateBounds 把调用方给出的估算收敛成预留用的有界上界。
-//
-// 这些是**上界**，不是用量：媒体/音频/异步 job 请求没有 token 用量，调用方给出的
-// 上界为 0 时使用文档化的默认上界，绝不允许把图片/视频参数折算成 token 数冒充用量。
-// 真正的计费始终来自结算阶段的实际上游用量。
+// NormalizeBudgetEstimateBounds supplies defaults for token-priced requests.
 func NormalizeBudgetEstimateBounds(estimate RequestBudgetEstimate) (inputTokens, outputTokens int, multiplier float64) {
 	inputTokens = estimate.InputTokens
 	if inputTokens <= 0 {
@@ -377,26 +383,27 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 	if p.state.Finalized || p.spec.APIKeyID <= 0 || p.spec.UserID <= 0 || strings.TrimSpace(p.spec.ExecutionID) == "" {
 		return ErrAPIKeyBudgetUnavailable
 	}
-	hold, amount := p.estimateBudgetHold(estimate)
+	amount := p.estimateBudgetHold(ctx, estimate)
 	// Acquire the key hold first. If project admission fails the request's
 	// finalizer refunds it, including after client cancellation.
 	if !estimate.SkipKeyBudget && p.budgetHold == nil {
-		if p.settlement == nil {
+		if p.settlement == nil || amount == nil {
 			return ErrAPIKeyBudgetUnavailable
 		}
 		payer := p.spec.UserID
 		if p.store != nil {
 			payer = p.execution.Scope.FundingUserID
 		}
-		outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
+		outcome, err := p.settlement.reserveBudgetAmount(ctx, &KeyBudgetReservationCommand{
 			RequestID: p.spec.ExecutionID, APIKeyID: p.spec.APIKeyID, UserID: payer,
-			HoldAmount: hold, SkipBalanceHold: estimate.SkipBalanceHold,
-		})
+			SkipBalanceHold: estimate.SkipBalanceHold,
+		}, *amount)
 		if err != nil {
 			return err
 		}
 		if outcome != nil {
 			p.budgetHold = outcome.Reservation
+			p.keyBudgetAmount = amount
 		}
 	}
 	if p.projectBudget != nil {
@@ -417,31 +424,6 @@ func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate Request
 	}
 	p.budgetAdmitted = true
 	return nil
-}
-
-// estimateBudgetHold keeps an unpriced bound distinct from an explicitly free
-// model. The legacy key budget port still takes a float.
-func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) (float64, *money.Money) {
-	if p.billing == nil {
-		return 0, nil
-	}
-	input, output, multiplier := NormalizeBudgetEstimateBounds(estimate)
-	cost, err := p.billing.CalculateCost(estimate.Model, UsageTokens{InputTokens: input, OutputTokens: output}, multiplier)
-	if err != nil || cost == nil {
-		return 0, nil
-	}
-	hold := cost.ActualCost
-	if hold < 0 || math.IsNaN(hold) || math.IsInf(hold, 0) {
-		return 0, nil
-	}
-	bound := decimal.NewFromFloat(hold)
-	text := bound.RoundCeil(UsageBillingMonetaryScale).StringFixed(UsageBillingMonetaryScale)
-	amount, err := money.NewMoney("USD", text)
-	if err != nil {
-		return 0, nil
-	}
-	legacy, _ := bound.Round(UsageBillingMonetaryScale).Float64()
-	return legacy, &amount
 }
 
 func (p *GatewayRequestPlan) Finalize(clientCommitted bool) { p.finish(false, clientCommitted) }
@@ -534,6 +516,7 @@ type gatewayPlanFactory struct {
 	channels   *ChannelService
 	settlement *UsageSettlementService
 	catalog    AccountRepository
+	budgetRate func(context.Context, int64, int64, float64) float64
 }
 
 func (f gatewayPlanFactory) capture(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
@@ -541,14 +524,14 @@ func (f gatewayPlanFactory) capture(ctx context.Context, spec GatewayRequestSpec
 		return ctx, existing
 	}
 	ctx, p := captureGatewayRequestPlan(ctx, spec, f.settings, f.billing, f.channels)
-	p.settlement, p.catalogRepo = f.settlement, f.catalog
+	p.settlement, p.catalogRepo, p.budgetRate = f.settlement, f.catalog, f.budgetRate
 	return p.admitExecution(ctx, spec.ExecutionID)
 }
 
 func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
 	var factory gatewayPlanFactory
 	if s != nil {
-		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo}
+		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo, s.ResolveUserGroupRateMultiplier}
 	}
 	return factory.capture(ctx, spec)
 }
@@ -556,7 +539,7 @@ func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayReq
 func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
 	var factory gatewayPlanFactory
 	if s != nil {
-		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo}
+		factory = gatewayPlanFactory{s.settingService, s.billingService, s.channelService, s.usageSettlement, s.accountRepo, s.ResolveUserGroupRateMultiplier}
 	}
 	return factory.capture(ctx, spec)
 }
@@ -567,7 +550,7 @@ func (p *GatewayRequestPlan) admitExecution(ctx context.Context, legacyID string
 		p.projectBudget, _ = ctx.Value(projectBudgetKey{}).(ProjectBudgetCoordinator)
 		p.budgetScope = owner
 	}
-	p.store = journal.From(ctx)
+	p.store = journal.ForAdmission(ctx)
 	if p.store == nil {
 		return ctx, p
 	}
@@ -609,6 +592,16 @@ func (p *GatewayRequestPlan) AdmittedExecution() (journal.AdmittedExecution, err
 	return p.execution, p.admissionErr
 }
 
+func (p *GatewayRequestPlan) MarkTraceEmitted() {
+	if p != nil {
+		p.traceEmitted.Store(true)
+	}
+}
+
+func (p *GatewayRequestPlan) HasTraceEmitted() bool {
+	return p != nil && p.traceEmitted.Load()
+}
+
 func (p *GatewayRequestPlan) logJournalError(err error) {
 	if err != nil {
 		p.mu.Lock()
@@ -637,6 +630,22 @@ func (p *GatewayRequestPlan) journalDispatch(ctx context.Context, accountID int6
 	}
 	a, err := p.store.Dispatch(ctx, p.execution, number, accountID)
 	p.logJournalError(err)
+	if err == nil && number == 1 && accountID > 0 && !p.HasTraceEmitted() {
+		id := strconv.FormatInt(accountID, 10)
+		rank := 1
+		trace.Emit(ctx, trace.DecisionTrace{
+			SchemaVersion:    1,
+			Mode:             trace.Execution,
+			SnapshotID:       journal.NewID(),
+			AsOf:             time.Now().UTC(),
+			CatalogVersion:   p.execution.Versions.Model,
+			PriceVersion:     p.execution.Versions.Price,
+			Candidates:       []trace.Candidate{{ID: id, State: "eligible", Rank: &rank}},
+			Selected:         &trace.Selection{CandidateID: id, ModelID: p.spec.Model},
+			ExecutionOutcome: "selected",
+			SelectionLayer:   "gateway",
+		})
+	}
 	return a, err
 }
 

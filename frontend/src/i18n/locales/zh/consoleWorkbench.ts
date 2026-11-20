@@ -1,0 +1,28 @@
+export default {
+  consoleScopeBar: {
+    scopeLabel: '当前作用域',
+    noVisibleProject: '无可见项目 (—)',
+    syncingScope: '同步作用域…',
+    defaultPersonalScope: '默认个人作用域',
+    refreshing: '刷新中',
+    sync: '刷新',
+  },
+  playgroundDiagnostics: {
+    title: '诊断检查器',
+    expandDrawer: '展开诊断抽屉',
+    collapseDrawer: '收起诊断抽屉',
+    togglePane: '原始请求 / SSE 帧',
+    tabsAriaLabel: '原始请求与响应事件标签页',
+    tabRawRequest: '原始请求 JSON',
+    tabSseFrames: '原始 SSE 帧',
+    rawRequestLabel: '已提交请求载荷 (JSON)',
+    rawRequestEmpty: '尚未提交请求，运行后可在此查看标准请求 JSON 载荷。',
+    sseFramesLabel: '流式 SSE 事件帧',
+    sseFramesEmpty: '暂无流式 SSE 事件帧记录。',
+    rawEventsLabel: '上游原始事件 (rawEvents)',
+    rawEventsEmpty: '未开启或暂无上游原始事件帧。',
+    framePayloadLabel: '事件载荷',
+    copyPayload: '复制 JSON',
+    copyFrames: '复制全部帧',
+  },
+}

@@ -312,7 +312,7 @@ async function refresh() {
     <div class="min-w-0 space-y-5">
       <PageHeader :title="t('costLedger.billing.title')" :description="t('costLedger.billing.description')">
         <template #actions>
-          <div class="flex flex-wrap items-center gap-2">
+          <div class="flex flex-wrap items-end gap-3">
             <SegmentedControl
               v-if="scope && can('billing.read')"
               v-model="activityScopeMode"

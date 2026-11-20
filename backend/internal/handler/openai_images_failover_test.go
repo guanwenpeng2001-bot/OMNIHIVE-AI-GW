@@ -13,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/logger"
 	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -63,10 +65,14 @@ type openAIImagesFailoverHTTPUpstream struct {
 	service.HTTPUpstream
 	mu         sync.Mutex
 	accountIDs []int64
+	beforeSend func(int, int64)
 }
 
 func (u *openAIImagesFailoverHTTPUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
 	u.mu.Lock()
+	if u.beforeSend != nil {
+		u.beforeSend(len(u.accountIDs)+1, accountID)
+	}
 	u.accountIDs = append(u.accountIDs, accountID)
 	u.mu.Unlock()
 	return &http.Response{
@@ -118,7 +124,11 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 		accounts[index] = preparedGatewayFixtureAccount(accounts[index])
 	}
 	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
-	upstream := &openAIImagesFailoverHTTPUpstream{}
+	store := &entrypointJournal{}
+	upstream := &openAIImagesFailoverHTTPUpstream{beforeSend: func(n int, account int64) {
+		require.EqualValues(t, n, store.ordinal.Load(), "upstream entered before durable ordinal")
+		require.Equal(t, account, store.account.Load(), "dispatch must authorize the selected account")
+	}}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	gatewayService := service.ProvideOpenAIGatewayService(
 		accountRepo,
@@ -162,13 +172,17 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	body := []byte(`{"model":"gpt-image-1","prompt":"draw a cat","quality":"high","size":"1536x1024"}`)
 	core, observedLogs := observer.New(zap.DebugLevel)
 	requestCtx := logger.IntoContext(context.Background(), zap.New(core))
+	owner := scope.Authorized{WorkspaceID: 7, ProjectID: 8, ActorID: 100, KeyOwnerID: 100, FundingUserID: 100, KeyID: 99, Version: 1}
+	requestCtx = journal.WithReauthorization(journal.WithStore(scope.With(requestCtx, owner), store), func(context.Context, scope.Authorized, string) error { return nil })
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body)).WithContext(requestCtx)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "image-request")
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = req
 	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
 		ID:      99,
+		UserID:  100,
 		GroupID: &groupID,
 		Group: &service.Group{
 			ID:                   groupID,

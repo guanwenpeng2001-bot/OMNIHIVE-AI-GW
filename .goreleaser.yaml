@@ -2,6 +2,14 @@ version: 2
 
 project_name: omnihive
 
+# The global hooks run before GoReleaser checks that dist is empty.
+before:
+  hooks:
+    - >-
+      sh -c 'mkdir -p .cache/omnihive-release &&
+      printf "{\"product\":\"omnihive\",\"version\":\"%s\",\"minimum_rollback_version\":\"0.2.5\",\"commit\":\"%s\"}\n"
+      "{{ .Version }}" "{{ .Commit }}" > .cache/omnihive-release/omnihive-release-manifest.json'
+
 builds:
   - id: omnihive
     dir: backend
@@ -28,6 +36,46 @@ builds:
       - -X main.Commit={{.Commit}}
       - -X main.Date={{.Date}}
       - -X main.BuildType=release
+  - id: omnihivectl
+    dir: backend
+    main: ./cmd/omnihivectl/refactor/standalone
+    binary: omnihivectl
+    flags:
+      - -mod=readonly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+  - id: omnihive-retire
+    dir: backend
+    main: ./cmd/omnihive-retire
+    binary: omnihive-retire
+    flags:
+      - -mod=readonly
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
 
 archives:
   - id: default
@@ -41,7 +89,23 @@ archives:
       - LICENSE*
       - NOTICE
       - README*
-      - deploy/*
+      - deploy/APPLE_CONTAINER.md
+      - deploy/Caddyfile
+      - deploy/DOCKER.md
+      - deploy/Dockerfile
+      - deploy/EDGE_SECURITY.md
+      - deploy/Makefile
+      - deploy/README.md
+      - deploy/apple-container.sh
+      - deploy/build_image.sh
+      - deploy/codex-instructions.md.tmpl
+      - deploy/omnihive*.service
+      - deploy/install.sh
+      - deploy/config.example.yaml
+      - deploy/docker-compose*.yml
+      - deploy/docker-deploy.sh
+      - deploy/docker-entrypoint.sh
+      - deploy/mihomo
       - src: backend/resources/model-pricing/*.json
         dst: resources/model-pricing
         strip_parent: true
@@ -49,6 +113,8 @@ archives:
 checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
+  extra_files:
+    - glob: .cache/omnihive-release/omnihive-release-manifest.json
 
 changelog:
   # 禁用自动 changelog，完全使用 tag 消息
@@ -179,6 +245,8 @@ docker_manifests:
       - "ghcr.io/{{ .Env.GITHUB_REPO_OWNER_LOWER }}/omnihive-ai-gw:{{ .Version }}-arm64"
 
 release:
+  extra_files:
+    - glob: .cache/omnihive-release/omnihive-release-manifest.json
   github:
     owner: "{{ .Env.GITHUB_REPO_OWNER }}"
     name: "{{ .Env.GITHUB_REPO_NAME }}"

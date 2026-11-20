@@ -2,6 +2,7 @@ package apicompat
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -296,21 +297,16 @@ func TestAnthropicToChatCompletionsRequest_ReasoningEffortOmitted(t *testing.T) 
 	require.Empty(t, out.ReasoningEffort)
 }
 
-func TestAnthropicToChatCompletionsRequest_ServerToolDropped(t *testing.T) {
-	req := &AnthropicRequest{
-		Model:     "claude-sonnet-4-20250514",
-		MaxTokens: 100,
-		Tools: []AnthropicTool{
-			{Type: "web_search_20250305", Name: "web_search"},
-			{Name: "get_weather", InputSchema: json.RawMessage(`{"type":"object","properties":{}}`)},
-		},
-		Messages: []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"hi"`)}},
+func TestAnthropicToChatCompletionsRequest_RejectsServerTools(t *testing.T) {
+	for _, kind := range []string{"web_search_20250305", "computer_20250124", "bash_20250124", "text_editor_20250124", "future_type"} {
+		for i, tools := range [][]AnthropicTool{{{Type: kind, Name: "builtin"}}, {{Type: "custom", Name: "local"}, {Type: kind, Name: "builtin"}}} {
+			out, err := AnthropicToChatCompletionsRequest(&AnthropicRequest{Tools: tools, ToolChoice: json.RawMessage(`{"type":"tool","name":"builtin"}`)})
+			var unsupported *ChatToolCapabilityError
+			require.ErrorAs(t, err, &unsupported)
+			require.Equal(t, fmt.Sprintf("tools[%d].type", i), unsupported.Field)
+			require.Nil(t, out)
+		}
 	}
-
-	out, err := AnthropicToChatCompletionsRequest(req)
-	require.NoError(t, err)
-	require.Len(t, out.Tools, 1, "web_search server tool should be dropped")
-	require.Equal(t, "get_weather", out.Tools[0].Function.Name)
 }
 
 // ---------------------------------------------------------------------------
@@ -1033,44 +1029,34 @@ func TestChatCompletionsResponseToAnthropic_GeneratesIDWhenMissing(t *testing.T)
 	require.NotEmpty(t, out.ID, "response id must be generated when the upstream omits one")
 }
 
-func TestAnthropicToChatCompletionsRequest_ToolChoiceUndeclaredDropped(t *testing.T) {
-	// A named tool_choice pointing at a dropped/unknown tool is not forwarded —
-	// chat upstreams 400 on tool_choice referencing an undeclared tool.
-	base := AnthropicRequest{
-		Model:     "deepseek-v4-pro",
-		MaxTokens: 100,
-		Tools: []AnthropicTool{
-			{Name: "get_weather", InputSchema: json.RawMessage(`{"type":"object"}`)},
-			{Name: "web_search_20250305", Type: "web_search_20250305", InputSchema: json.RawMessage(`{"type":"object"}`)},
-		},
-		Messages: []AnthropicMessage{
-			{Role: "user", Content: json.RawMessage(`"hi"`)},
-		},
+func TestAnthropicToChatCompletionsRequest_RejectsUnrepresentableToolOptions(t *testing.T) {
+	for _, tc := range []struct{ body, field string }{
+		{`{"tools":[{"name":"f","future_option":true}]}`, "tools[0].future_option"},
+		{`{"tools":[{"name":"f with spaces"}]}`, "tools[0].name"},
+		{`{"tools":[{"name":"f","input_schema":[]}]}`, "tools[0].input_schema"},
+		{`{"tools":[{"name":"f","cache_control":{"type":"ephemeral"}}]}`, "tools[0].cache_control"},
+		{`{"tool_choice":{"type":"tool","name":"missing"}}`, "tool_choice.name"},
+		{`{"tool_choice":{"type":"any"}}`, "tool_choice.type"},
+		{`{"tools":[{"name":"f"}],"tool_choice":{"type":"tool","name":"missing"}}`, "tool_choice.name"},
+		{`{"tools":[{"name":"f"}],"tool_choice":{"type":"unknown"}}`, "tool_choice.type"},
+		{`{"tools":[{"name":"f"}],"tool_choice":{"type":"auto","other":true}}`, "tool_choice.other"},
+		{`{"tools":[{"name":"f"}],"tool_choice":{"type":"auto","disable_parallel_tool_use":"false"}}`, "tool_choice.disable_parallel_tool_use"},
+	} {
+		var req AnthropicRequest
+		require.NoError(t, json.Unmarshal([]byte(tc.body), &req))
+		out, err := AnthropicToChatCompletionsRequest(&req)
+		var unsupported *ChatToolCapabilityError
+		require.ErrorAs(t, err, &unsupported)
+		require.Equal(t, tc.field, unsupported.Field)
+		require.Nil(t, out)
 	}
-
-	undeclared := base
-	undeclared.ToolChoice = json.RawMessage(`{"type":"tool","name":"nonexistent"}`)
-	out, err := AnthropicToChatCompletionsRequest(&undeclared)
+	var req AnthropicRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"tools":[{"type":"custom","name":"f","strict":true}],"tool_choice":{"type":"tool","name":"f","disable_parallel_tool_use":true}}`), &req))
+	out, err := AnthropicToChatCompletionsRequest(&req)
 	require.NoError(t, err)
-	require.Empty(t, out.ToolChoice, "tool_choice for an undeclared tool must be dropped")
-
-	droppedServerTool := base
-	droppedServerTool.ToolChoice = json.RawMessage(`{"type":"tool","name":"web_search_20250305"}`)
-	out, err = AnthropicToChatCompletionsRequest(&droppedServerTool)
-	require.NoError(t, err)
-	require.Empty(t, out.ToolChoice, "tool_choice for a dropped server tool must be dropped")
-
-	unknownType := base
-	unknownType.ToolChoice = json.RawMessage(`{"type":"mystery"}`)
-	out, err = AnthropicToChatCompletionsRequest(&unknownType)
-	require.NoError(t, err)
-	require.Empty(t, out.ToolChoice, "unknown tool_choice types must be dropped")
-
-	declared := base
-	declared.ToolChoice = json.RawMessage(`{"type":"tool","name":"get_weather"}`)
-	out, err = AnthropicToChatCompletionsRequest(&declared)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"type":"function","function":{"name":"get_weather"}}`, string(out.ToolChoice))
+	require.False(t, *out.ParallelToolCalls)
+	require.True(t, *out.Tools[0].Function.Strict)
+	require.JSONEq(t, `{"type":"function","function":{"name":"f"}}`, string(out.ToolChoice))
 }
 
 func TestDirectBridge_NonStreamingMatchesDoubleConversion_EmptyChoices(t *testing.T) {

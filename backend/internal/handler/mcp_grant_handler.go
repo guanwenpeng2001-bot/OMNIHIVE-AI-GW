@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/gatewayerror"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/response"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -63,15 +64,16 @@ type mcpUserState struct {
 // MCPGrantHandler stores authorization metadata, not executable MCP
 // credentials. Records are isolated by principal and reset on process restart.
 type MCPGrantHandler struct {
-	mu            sync.Mutex
-	users         map[int64]*mcpUserState
-	pulseReader   adminPulseReader
-	extensions    []PluginExtensionDTO
-	extensionSave func(string) error
-	rates         map[string][]time.Time
-	costs         map[string]extensionCost
-	cache         map[string]extensionCache
-	cacheOrder    []string
+	mu             sync.Mutex
+	users          map[int64]*mcpUserState
+	pulseReader    adminPulseReader
+	rankingsReader publicRankingsReader
+	extensions     []PluginExtensionDTO
+	extensionSave  func(string) error
+	rates          map[string][]time.Time
+	costs          map[string]extensionCost
+	cache          map[string]extensionCache
+	cacheOrder     []string
 }
 
 func NewMCPGrantHandler() *MCPGrantHandler {
@@ -317,14 +319,44 @@ func (h *MCPGrantHandler) UpdateOnboarding(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// No public usage aggregate currently supplies the legacy ranking dimensions.
+type publicRankingsReader interface {
+	PublicModelRankings(context.Context, time.Time, time.Time, int) ([]service.PublicModelRanking, error)
+}
+
 func (h *MCPGrantHandler) GetModelRankings(c *gin.Context) {
-	c.Header("Cache-Control", "no-store")
-	response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if err != nil {
+		response.BadRequest(c, "limit must be an integer")
+		return
+	}
+	limit = min(50, max(1, limit))
+	if h.rankingsReader == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+		return
+	}
+	end := time.Now().UTC().Truncate(time.Minute)
+	start := end.Add(-24 * time.Hour)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2500*time.Millisecond)
+	defer cancel()
+	items, err := h.rankingsReader.PublicModelRankings(ctx, start, end, limit)
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Public model rankings are unavailable")
+		return
+	}
+	state := "observed"
+	if len(items) == 0 {
+		items = []service.PublicModelRanking{}
+		state = "insufficient_samples"
+	}
+	c.Header("Cache-Control", "public, max-age=60")
+	response.Success(c, gin.H{"items": items, "state": state, "sample_state": state, "window": gin.H{"start": start, "end": end}, "source": "channel_monitor_v2_metrics_1m"})
 }
 
 // SetPulseUsageHandler reuses the monitoring dependency during route registration.
 func (h *MCPGrantHandler) SetPulseUsageHandler(usage *UsageHandler) {
+	if usage != nil && usage.usageService != nil {
+		h.rankingsReader = usage.usageService
+	}
 	if usage != nil && usage.opsService != nil {
 		h.pulseReader = usage.opsService
 	}
@@ -1258,7 +1290,16 @@ func (w *extensionWriter) Write(b []byte) (int, error) {
 }
 func (w *extensionWriter) WriteString(s string) (int, error) { return w.Write([]byte(s)) }
 func (h *MCPGrantHandler) GatewayExtensionMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) { h.executeExtensions(c, func() { c.Next() }) }
+	return func(c *gin.Context) {
+		ctx, err := service.WithGatewayRoutingHeaders(c.Request.Context(), c.Request.Header)
+		if err != nil {
+			gatewayerror.Write(c, http.StatusBadRequest, "INVALID_ROUTING_CONSTRAINT", err.Error())
+			c.Abort()
+			return
+		}
+		c.Request = c.Request.WithContext(ctx)
+		h.executeExtensions(c, func() { c.Next() })
+	}
 }
 func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	// A route may invoke PlaygroundChat behind the middleware; execute only once.
@@ -1354,7 +1395,7 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 	}
 	isBatchPath := strings.HasPrefix(c.Request.URL.Path, "/v1/images/batches") || strings.HasPrefix(c.Request.URL.Path, "/images/batches")
 	// Paid Playground runs require their own dispatch, journal and settlement.
-	if cacheConfig != nil && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
+	if cacheConfig != nil && !service.HasGatewayRoutingConstraints(c.Request.Context()) && !ctxkey.PrivateGatewayContent(c.Request.Context()) && bodyBuffered && !isBatchPath && c.Request.Method == "POST" && strings.Contains(ct, "application/json") && input != nil && input["stream"] != true {
 		limit = int(extFloat(cacheConfig, "max_payload_kb")) * 1024
 		if limit > 16<<20 {
 			limit = 16 << 20

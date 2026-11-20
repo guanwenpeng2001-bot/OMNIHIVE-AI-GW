@@ -1,4 +1,5 @@
-.PHONY: build build-backend build-frontend test test-backend test-frontend test-frontend-critical
+.PHONY: build build-backend build-frontend test test-backend test-backend-unit test-backend-integration \
+	test-frontend test-frontend-critical test-e2e test-e2e-live
 
 FRONTEND_CRITICAL_VITEST := \
 	src/i18n/__tests__/localeKeyCompleteness.spec.ts \
@@ -50,6 +51,23 @@ test: test-backend test-frontend
 
 test-backend:
 	@$(MAKE) -C backend test
+
+# Strict Go gates (scripts/go-test-strict.sh): any unexpected Test* skip fails.
+# Provide TEST_DSN/TEST_REDIS_ADDR (and, for the full unit matrix, the dedicated
+# fixture topology documented in backend/Makefile) or use the CI workflow.
+test-backend-unit:
+	@$(MAKE) -C backend test-unit
+
+test-backend-integration:
+	@$(MAKE) -C backend test-integration
+
+# Golden E2E fixtures (no external services required).
+test-e2e:
+	@$(MAKE) -C backend test-e2e
+
+# Live E2E suite against BASE_URL with CLAUDE_API_KEY/GEMINI_API_KEY/ADMIN_PASSWORD.
+test-e2e-live:
+	@$(MAKE) -C backend test-e2e-live
 
 test-frontend: test-frontend-check
 	@pnpm --dir frontend run test:run

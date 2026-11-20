@@ -57,7 +57,7 @@ const props = withDefaults(
   }
 )
 
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 
@@ -67,6 +67,7 @@ const mobilePane = ref<'params' | 'session' | 'inspector'>('session')
 const compareMode = ref(false)
 const inspectedSide = ref<'A' | 'B'>('A')
 const inspectorTab = ref<'telemetry' | 'payload' | 'events'>('telemetry')
+const inspectorOpen = ref(true)
 
 const bootstrapLoading = ref(true)
 const bootstrapRefreshing = ref(false)
@@ -618,12 +619,29 @@ onBeforeUnmount(() => {
 const requestPayloadSnippet = computed(() => {
   const payload = inspectedSession.value.submittedPayload
   if (!payload) {
-    return isZh.value ? '// 尚未提交请求，运行后可在此查看标准请求载荷' : '// Submit a run to inspect the dispatched request payload'
+    return `// ${t('playgroundDiagnostics.rawRequestEmpty')}`
   }
   const sanitized: Record<string, unknown> = { ...payload }
   delete sanitized.funding_acknowledged
   return JSON.stringify(sanitized, null, 2)
 })
+
+function formatInspectorFrameData(raw: string): string {
+  if (!raw) return EM_DASH
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
+function formatInspectorRawEvent(rawEvent: unknown): string {
+  try {
+    return JSON.stringify(rawEvent, null, 2)
+  } catch {
+    return String(rawEvent)
+  }
+}
 
 const linkedRequestPath = computed(() => {
   const reqId = inspectedSession.value.requestId
@@ -699,6 +717,16 @@ function formatSettlementState(state: string | null | undefined): string {
             ]"
             @update:model-value="(v) => (compareMode = v === 'compare')"
           />
+          <Button
+            variant="ghost"
+            size="sm"
+            class="hidden lg:inline-flex"
+            :aria-expanded="inspectorOpen"
+            data-testid="toggle-inspector-drawer"
+            @click="inspectorOpen = !inspectorOpen"
+          >
+            {{ inspectorOpen ? t('playgroundDiagnostics.collapseDrawer') : t('playgroundDiagnostics.expandDrawer') }}
+          </Button>
           <Button variant="ghost" size="sm" @click="navigateTo('/tasks')">
             {{ isZh ? '图像/异步任务中心 →' : 'Async Task Center →' }}
           </Button>
@@ -747,7 +775,10 @@ function formatSettlementState(state: string | null | undefined): string {
       <!-- 3-Pane Desktop Workbench -->
       <div
         v-else
-        class="grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)_340px]"
+        :class="[
+          'grid items-start gap-4',
+          inspectorOpen ? 'lg:grid-cols-[280px_minmax(0,1fr)_340px]' : 'lg:grid-cols-[280px_minmax(0,1fr)]'
+        ]"
       >
         <!-- LEFT PANE: Parameters & Credentials -->
         <aside
@@ -783,7 +814,7 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
               >
                 <option v-for="k in availableKeys" :key="k.id" :value="k.id">
-                  {{ k.name }} (#{{ k.id }} · {{ k.prefix }})
+                  {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                 </option>
               </select>
               <input
@@ -828,10 +859,11 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
                 <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
-                  {{ m.displayName }} ({{ m.slug }})
+                  {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>
               <input
+                v-else
                 v-model="sideA.modelId"
                 data-testid="input-model-a"
                 type="text"
@@ -936,7 +968,7 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
               >
                 <option v-for="k in availableKeys" :key="k.id" :value="k.id">
-                  {{ k.name }} (#{{ k.id }} · {{ k.prefix }})
+                  {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                 </option>
               </select>
               <input
@@ -960,10 +992,11 @@ function formatSettlementState(state: string | null | undefined): string {
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
                 <option v-for="m in filteredModels" :key="m.id" :value="m.slug || m.id">
-                  {{ m.displayName }} ({{ m.slug }})
+                  {{ m.displayName && m.displayName !== m.slug ? `${m.displayName} (${m.slug})` : (m.slug || m.displayName) }}
                 </option>
               </select>
               <input
+                v-else
                 v-model="sideB.modelId"
                 data-testid="input-model-b"
                 type="text"
@@ -1264,7 +1297,7 @@ function formatSettlementState(state: string | null | undefined): string {
           data-testid="playground-right-pane"
           :class="[
             'space-y-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5',
-            mobilePane !== 'inspector' ? 'hidden lg:block' : 'block'
+            mobilePane !== 'inspector' ? (inspectorOpen ? 'hidden lg:block' : 'hidden') : 'block'
           ]"
         >
           <div class="flex items-center justify-between gap-2">
@@ -1387,30 +1420,52 @@ function formatSettlementState(state: string | null | undefined): string {
 
           <div v-else class="space-y-2 pt-1">
             <p
-              v-if="inspectedSession.sseFrames.length === 0"
+              v-if="inspectedSession.sseFrames.length === 0 && inspectedSession.rawEvents.length === 0"
               class="py-6 text-center font-mono text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]"
             >
-              {{ isZh ? '暂无流式事件帧 (—)' : 'No SSE frames recorded yet (—)' }}
+              {{ t('playgroundDiagnostics.sseFramesEmpty') }}
             </p>
-            <ul v-else class="max-h-96 space-y-1.5 overflow-auto">
-              <li
-                v-for="(frame, idx) in inspectedSession.sseFrames"
-                :key="`${frame.id}-${idx}`"
-                class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2 font-mono text-[11px] tabular-nums"
-              >
-                <div class="flex items-center justify-between gap-2">
-                  <span class="font-semibold text-[var(--oh-ink,var(--foreground))]">
-                    #{{ frame.seq ?? EM_DASH }} · {{ frame.event }}
-                  </span>
-                  <span class="text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                    +{{ frame.receivedAtMs }}ms
-                  </span>
-                </div>
-                <p class="mt-0.5 truncate text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                  {{ frame.summary }}
+            <template v-else>
+              <ul v-if="inspectedSession.sseFrames.length > 0" class="max-h-96 space-y-1.5 overflow-auto">
+                <li
+                  v-for="(frame, idx) in inspectedSession.sseFrames"
+                  :key="`${frame.id}-${idx}`"
+                  class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2 font-mono text-[11px] tabular-nums"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="font-semibold text-[var(--oh-ink,var(--foreground))]">
+                      #{{ frame.seq ?? EM_DASH }} · {{ frame.event }}
+                    </span>
+                    <span class="text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                      +{{ frame.receivedAtMs }}ms
+                    </span>
+                  </div>
+                  <p class="mt-0.5 truncate text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                    {{ frame.summary }}
+                  </p>
+                  <details v-if="frame.rawData" class="mt-1">
+                    <summary class="cursor-pointer text-[10px] text-[var(--oh-ink-tertiary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]">
+                      {{ t('playgroundDiagnostics.framePayloadLabel') }}
+                    </summary>
+                    <pre class="mt-1 max-h-32 overflow-auto rounded bg-[var(--oh-surface,var(--card))] p-1.5 text-[10px] leading-4 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]">{{ formatInspectorFrameData(frame.rawData) }}</pre>
+                  </details>
+                </li>
+              </ul>
+              <div v-if="inspectedSession.rawEvents.length > 0" class="space-y-1.5 pt-1">
+                <p class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                  {{ t('playgroundDiagnostics.rawEventsLabel') }} ({{ inspectedSession.rawEvents.length }})
                 </p>
-              </li>
-            </ul>
+                <ul class="max-h-56 space-y-1.5 overflow-auto">
+                  <li
+                    v-for="(rawEv, idx) in inspectedSession.rawEvents"
+                    :key="idx"
+                    class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2"
+                  >
+                    <pre class="max-h-32 overflow-auto font-mono text-[10px] leading-4 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]">{{ formatInspectorRawEvent(rawEv) }}</pre>
+                  </li>
+                </ul>
+              </div>
+            </template>
           </div>
         </aside>
       </div>

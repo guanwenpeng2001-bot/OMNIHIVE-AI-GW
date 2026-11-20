@@ -360,8 +360,8 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
         source: 'published',
         estimated_charge: { currency: 'USD', amount: '0.01500000' },
         components: [
-          { kind: 'input', quantity: '20', raw_amount: '0.00005000', numerator: '2.50', denominator: '1000000' },
-          { kind: 'output', quantity: '1000', raw_amount: '0.01495000', numerator: '14.95', denominator: '1000000' }
+          { kind: 'input', quantity: '20', raw_amount: '0.00005000', numerator: '50', denominator: '1000000' },
+          { kind: 'output', quantity: '1000', raw_amount: '0.01495000', numerator: '14950', denominator: '1000000' }
         ],
         rounding_adjustment: null,
         effective_scope: { workspace_id: '1', project_id: '2', scope_version: '4' }
@@ -373,7 +373,7 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
     expect(priced.maxTotalCost).toBe('0.01500000')
     expect(priced.priceVersion).toBe('pv_2026_11')
     expect(priced.fundingSource).toBe('wallet')
-    expect(priced.inputRate?.amount).toBe('2.50')
+    expect(priced.inputRate?.amount).toBe('2.5')
     expect(priced.outputRate?.amount).toBe('14.95')
 
     const unpriced = applyAuthoritativeQuoteToEstimate(base, {

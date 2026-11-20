@@ -81,7 +81,11 @@ RUN VERSION_VALUE="${VERSION}" && \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -o /app/omnihive \
-    ./cmd/server
+    ./cmd/server && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" -trimpath -o /app/omnihivectl ./cmd/omnihivectl/refactor/standalone && \
+    CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w" -trimpath -o /app/omnihive-retire ./cmd/omnihive-retire
 
 # -----------------------------------------------------------------------------
 # Stage 3: PostgreSQL Client (version-matched with docker-compose)
@@ -128,6 +132,8 @@ WORKDIR /app
 
 # Copy binary/resources with ownership to avoid extra full-layer chown copy
 COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihive /app/omnihive
+COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihivectl /app/omnihivectl
+COPY --from=backend-builder --chown=omnihive:omnihive /app/omnihive-retire /app/omnihive-retire
 COPY --from=backend-builder --chown=omnihive:omnihive /app/backend/resources /app/resources
 
 # Create data directory

@@ -11,12 +11,16 @@ import workspaces from './workspaces'
 import modelAccess from './modelAccess'
 import routing from './routing'
 import costLedger from './costLedger'
+import membersAccess from './membersAccess'
+import consoleWorkbench from './consoleWorkbench'
 
 export default {
   workspaces,
   modelAccess,
   routing,
   costLedger,
+  membersAccess,
+  ...consoleWorkbench,
   ...capabilities,
   helpGuide,
   ...landing,

@@ -20,7 +20,16 @@ import {
   publicTokenPrice,
   publicValue
 } from '@/features/public/format'
-import { listPublicModels, type ListParams, type PublicModelSummary, type PublicRate } from '@/features/public/api'
+import {
+  addRationals,
+  currencyPrefixFor,
+  formatExactRationalCurrency,
+  parseNonNegativeDecimal,
+  reduceRational,
+  scaleRateToPerMillion,
+  type ExactRational
+} from '@/features/shared/pricePresentation'
+import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
 
@@ -45,7 +54,6 @@ const searchContainerRef = ref<HTMLElement | null>(null)
 let requestSeq = 0
 let appliedQuery = ''
 
-const TOKEN_UNITS = new Set(['token', 'tokens', 'input_token', 'output_token', 'cached_input_token'])
 const estimatorModelId = ref('')
 const estimatorInputMillions = ref(10)
 const estimatorOutputMillions = ref(3)
@@ -114,20 +122,12 @@ const billingModeCards = computed(() => [
   }
 ])
 
-function ratePerMillion(rate?: PublicRate | null): number | null {
-  if (!rate || !TOKEN_UNITS.has(rate.unit)) return null
-  const amountVal = Number(rate.amount)
-  const perVal = Number(rate.per)
-  if (!Number.isFinite(amountVal) || !Number.isFinite(perVal) || perVal <= 0) return null
-  return (amountVal / perVal) * 1_000_000
-}
-
 const estimatableModels = computed(() =>
   models.value.filter(
     (entry) =>
       entry.price_state === 'free' ||
-      ratePerMillion(entry.input_rate) !== null ||
-      ratePerMillion(entry.output_rate) !== null
+      scaleRateToPerMillion(entry.input_rate) !== null ||
+      scaleRateToPerMillion(entry.output_rate) !== null
   )
 )
 
@@ -164,43 +164,60 @@ const sanitizedRunsPerMonth = computed(() => {
 
 const estimatorBreakdown = computed(() => {
   const target = selectedEstimatorModel.value
+  const zeroRational: ExactRational = { num: 0n, den: 1n }
   if (!target) {
     return {
+      currency: 'USD',
       currencyPrefix: '$',
       isFree: false,
-      inputUnitPrice: null as number | null,
-      outputUnitPrice: null as number | null,
-      inputCost: 0,
-      outputCost: 0,
-      singleTotal: 0,
-      monthlyTotal: 0
+      inputCost: zeroRational,
+      outputCost: zeroRational,
+      singleTotal: zeroRational,
+      monthlyTotal: zeroRational
     }
   }
   const currency = target.input_rate?.currency || target.output_rate?.currency || 'USD'
-  const currencyPrefix = currency === 'USD' ? '$' : `${currency} `
+  const currencyPrefix = currencyPrefixFor(currency)
   if (target.price_state === 'free') {
     return {
+      currency,
       currencyPrefix,
       isFree: true,
-      inputUnitPrice: 0,
-      outputUnitPrice: 0,
-      inputCost: 0,
-      outputCost: 0,
-      singleTotal: 0,
-      monthlyTotal: 0
+      inputCost: zeroRational,
+      outputCost: zeroRational,
+      singleTotal: zeroRational,
+      monthlyTotal: zeroRational
     }
   }
-  const inputUnitPrice = ratePerMillion(target.input_rate) ?? 0
-  const outputUnitPrice = ratePerMillion(target.output_rate) ?? 0
-  const inputCost = sanitizedInputMillions.value * inputUnitPrice
-  const outputCost = sanitizedOutputMillions.value * outputUnitPrice
-  const singleTotal = inputCost + outputCost
-  const monthlyTotal = singleTotal * sanitizedRunsPerMonth.value
+  const inputMillions =
+    parseNonNegativeDecimal(sanitizedInputMillions.value) ?? zeroRational
+  const outputMillions =
+    parseNonNegativeDecimal(sanitizedOutputMillions.value) ?? zeroRational
+  const inputScaled = scaleRateToPerMillion(target.input_rate) ?? {
+    ...zeroRational,
+    currency
+  }
+  const outputScaled = scaleRateToPerMillion(target.output_rate) ?? {
+    ...zeroRational,
+    currency
+  }
+  const inputCost = reduceRational(
+    inputMillions.num * inputScaled.num,
+    inputMillions.den * inputScaled.den
+  )
+  const outputCost = reduceRational(
+    outputMillions.num * outputScaled.num,
+    outputMillions.den * outputScaled.den
+  )
+  const singleTotal = addRationals(inputCost, outputCost)
+  const monthlyTotal = reduceRational(
+    singleTotal.num * BigInt(sanitizedRunsPerMonth.value),
+    singleTotal.den
+  )
   return {
+    currency,
     currencyPrefix,
     isFree: false,
-    inputUnitPrice,
-    outputUnitPrice,
     inputCost,
     outputCost,
     singleTotal,
@@ -208,11 +225,13 @@ const estimatorBreakdown = computed(() => {
   }
 })
 
-function formatMoneyAmount(value: number, prefix = '$'): string {
-  if (!Number.isFinite(value) || value <= 0) return `${prefix}0.00`
-  if (value < 0.01) return `${prefix}${value.toFixed(4)}`
-  if (value >= 1000) return `${prefix}${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  return `${prefix}${value.toFixed(2)}`
+function formatMoneyAmount(value: ExactRational, _prefix = '$'): string {
+  return formatExactRationalCurrency(value, estimatorBreakdown.value.currency, {
+    minDecimals: 2,
+    maxDecimals: 4,
+    zeroAsFree: false,
+    groupThousands: true
+  })
 }
 
 function applyEstimatorPreset(preset: { inputM: number; outputM: number; runs: number }): void {
@@ -296,7 +315,7 @@ function resetFilters(): void {
 function rateText(model: PublicModelSummary, kind: 'input' | 'output'): string {
   if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
   const rate = kind === 'input' ? model.input_rate : model.output_rate
-  return publicTokenPrice(rate, 4, isZh.value)
+  return publicTokenPrice(rate, 'adaptive', isZh.value)
 }
 
 function priceStateBadge(model: PublicModelSummary): { label: string; tone: 'success' | 'info' | 'unknown' | 'warning' } {

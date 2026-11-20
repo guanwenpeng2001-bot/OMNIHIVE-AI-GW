@@ -11,6 +11,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/attempt"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/protocol"
 )
 
 type Postgres struct{ db *sql.DB }
@@ -18,12 +19,18 @@ type Postgres struct{ db *sql.DB }
 func New(db *sql.DB) *Postgres { return &Postgres{db} }
 
 func (s *Postgres) Admit(ctx context.Context, in Admission) (AdmittedExecution, bool, error) {
+	if s == nil || s.db == nil {
+		return AdmittedExecution{}, false, ErrDispatch
+	}
 	a, ok := scope.From(ctx)
 	if !ok || a.ActorID <= 0 || a.KeyOwnerID <= 0 || a.KeyID <= 0 || a.FundingUserID <= 0 || a.ProjectID <= 0 || a.Version <= 0 {
 		return AdmittedExecution{}, false, ErrScope
 	}
 	var key, payload any
 	var fingerprint []byte
+	if in.Registration == nil && in.Kind == "job" {
+		in.Registration = JobRegistrationFrom(ctx, in.Route)
+	}
 	if in.Registration != nil {
 		key, payload = in.Registration.key[:], in.Registration.payload[:]
 		fingerprint = in.Registration.payload[:]
@@ -75,11 +82,17 @@ func (s *Postgres) Admit(ctx context.Context, in Admission) (AdmittedExecution, 
 
 func (s *Postgres) Dispatch(ctx context.Context, e AdmittedExecution, n int, account int64) (Attempt, error) {
 	v := Attempt{RequestID: e.RequestID, Number: n, AccountID: account, Acceptance: attempt.Unknown, Outcome: "dispatching"}
-	err := s.db.QueryRowContext(ctx, `INSERT INTO gateway_execution_attempts(attempt_id,request_id,ordinal,account_id,dispatched_at,acceptance,outcome)
- SELECT $1,e.request_id,$3::int,$4::bigint,clock_timestamp(),'unknown','dispatching' FROM gateway_executions e
+	var conversionPlan any
+	if plan, ok := protocol.ConversionPlanFromContext(ctx); ok {
+		if data, err := json.Marshal(plan); err == nil {
+			conversionPlan = string(data)
+		}
+	}
+	err := s.db.QueryRowContext(ctx, `INSERT INTO gateway_execution_attempts(attempt_id,request_id,ordinal,account_id,dispatched_at,acceptance,outcome,conversion_plan)
+ SELECT $1,e.request_id,$3::int,$4::bigint,clock_timestamp(),'unknown','dispatching',$5::jsonb FROM gateway_executions e
  WHERE e.request_id=$2 AND e.finished_at IS NULL AND e.deadline>clock_timestamp() AND $3 BETWEEN 1 AND e.attempt_budget FOR UPDATE OF e
- ON CONFLICT(request_id,ordinal) DO UPDATE SET account_id=excluded.account_id,dispatched_at=excluded.dispatched_at,acceptance='unknown',outcome='dispatching'
- WHERE gateway_execution_attempts.dispatched_at IS NULL RETURNING attempt_id`, NewID(), e.RequestID, n, account).Scan(&v.ID)
+ ON CONFLICT(request_id,ordinal) DO UPDATE SET account_id=excluded.account_id,dispatched_at=excluded.dispatched_at,acceptance='unknown',outcome='dispatching',conversion_plan=COALESCE(excluded.conversion_plan,gateway_execution_attempts.conversion_plan)
+ WHERE gateway_execution_attempts.dispatched_at IS NULL RETURNING attempt_id`, NewID(), e.RequestID, n, account, conversionPlan).Scan(&v.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrDispatch
 	}

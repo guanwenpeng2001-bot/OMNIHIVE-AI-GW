@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCredentialInputPayload,
+  buildMinimalConnectionPatch,
   canProceedFromStep,
   createInitialWizardState,
   getUtf8ByteLength,
@@ -80,7 +81,7 @@ describe('connections/wizardState', () => {
     expect(canProceedFromStep(editState, 'credentials').valid).toBe(false)
   })
 
-  it('keeps unset draft credentials guarded after hydration and allows unknown probe evidence', () => {
+  it('keeps unset draft credentials guarded after hydration and gates EVIDENCE_UNAVAILABLE from advancing', () => {
     const unsetDraft: ConnectionResource = {
       id: 'conn_draft',
       workspace_id: 'ws_1',
@@ -123,7 +124,64 @@ describe('connections/wizardState', () => {
         { name: 'authorization', state: 'unknown', reason: 'EVIDENCE_UNAVAILABLE' }
       ]
     }
-    expect(canProceedFromStep(hydrated, 'verify', null, now, true).valid).toBe(true)
+    const verifyCheck = canProceedFromStep(hydrated, 'verify', null, now, true)
+    expect(verifyCheck.valid).toBe(false)
+    expect(verifyCheck.reason).toContain('EVIDENCE_UNAVAILABLE')
+  })
+
+  it('omits status and assignment fields from preview-time minimal patches on active connections', () => {
+    const activeResource: ConnectionResource = {
+      id: 'conn_active',
+      workspace_id: 'ws_1',
+      version: '5',
+      state: 'active',
+      provider: 'openai',
+      schema_version: '1',
+      auth_type: 'api_key',
+      name: 'OpenAI Production',
+      endpoint: 'https://api.openai.com/',
+      network_policy_id: '',
+      credential: {
+        version: '2',
+        type: 'api_key',
+        state: 'verified',
+        last_four: '4321',
+        updated_at: '2026-11-20T00:00:00Z'
+      },
+      last_verification: {
+        verification_id: 'ver_live',
+        models: ['gpt-4o', 'gpt-4.1'],
+        verified_at: '2026-11-20T09:00:00Z',
+        expires_at: '2026-11-21T09:00:00Z',
+        checks: [
+          { name: 'network', state: 'passed', reason: null },
+          { name: 'authorization', state: 'passed', reason: null },
+          { name: 'discover_models', state: 'passed', reason: null }
+        ]
+      },
+      model_ids: ['gpt-4o'],
+      pool_ids: ['pool_1'],
+      limits: { concurrency: 4 },
+      quota: { state: 'fresh', remaining: '100', last_success_at: '2026-11-20T09:00:00Z' },
+      allowed_actions: ['connections.edit', 'connections.verify', 'connections.activate'],
+      redactions: ['credential']
+    }
+
+    const hydrated = hydrateWizardFromResource(createInitialWizardState('edit'), activeResource)
+    hydrated.modelIds = ['gpt-4o', 'gpt-4.1']
+    hydrated.poolIds = ['pool_1', 'pool_2']
+    hydrated.concurrency = 16
+
+    expect(buildMinimalConnectionPatch(hydrated, { includeAssignments: false })).toBeNull()
+
+    const draftPatch = buildMinimalConnectionPatch(hydrated, { includeAssignments: true })
+    expect(draftPatch).toEqual({
+      model_ids: ['gpt-4o', 'gpt-4.1'],
+      pool_ids: ['pool_1', 'pool_2'],
+      limits: { concurrency: 16 }
+    })
+    expect(draftPatch && 'state' in draftPatch).toBe(false)
+    expect(draftPatch && 'status' in draftPatch).toBe(false)
   })
 
   it('blocks preview progression when verification is missing, stale, or failed', () => {
