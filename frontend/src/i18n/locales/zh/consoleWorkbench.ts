@@ -7,6 +7,22 @@ export default {
     refreshing: '刷新中',
     sync: '刷新',
   },
+  playgroundKeys: {
+    emptyTitle: '当前项目暂无可用密钥',
+    emptyDescription:
+      '作用域调试台仅允许使用当前项目下的可用密钥，不可回退使用个人账户密钥。',
+    scopeRequiredTitle: '需要先选择项目作用域',
+    scopeRequiredDescription:
+      '请先选择工作空间与项目，再使用该项目的可用密钥发起调试运行。',
+    loadErrorTitle: '无法加载项目密钥',
+    loadErrorDescription:
+      '当前项目密钥列表加载失败，请重试或检查当前项目的访问权限。',
+    createProjectKeyAction: '创建项目密钥',
+    selectScopeAction: '切换工作空间',
+    retryAction: '重试加载',
+    sideBUnavailable: 'B 侧暂无当前项目的可用密钥。',
+    runBlockedHint: '当前项目缺少可用密钥，无法预估确认付费执行；请先创建项目密钥。',
+  },
   playgroundDiagnostics: {
     title: '诊断检查器',
     expandDrawer: '展开诊断抽屉',

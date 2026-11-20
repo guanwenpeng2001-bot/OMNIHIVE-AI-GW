@@ -322,7 +322,12 @@ function handleClose(): void {
           variant="primary"
           size="sm"
           :loading="submitting"
-          :disabled="hasOversizedPayload || submitting"
+          :disabled="
+            hasOversizedPayload ||
+            submitting ||
+            estimates.length === 0 ||
+            estimates.some((item) => !item.apiKeyId || item.quoteState === 'requires_scope')
+          "
           @click="emit('confirm')"
         >
           {{ isZh ? '确认预估并付费执行' : 'Acknowledge Cost & Run' }}

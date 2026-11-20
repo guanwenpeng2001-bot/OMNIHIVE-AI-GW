@@ -8,7 +8,6 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import Tabs from '@/components/ui/Tabs.vue'
-import { keysAPI } from '@/api'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
@@ -73,6 +72,10 @@ const bootstrapLoading = ref(true)
 const bootstrapRefreshing = ref(false)
 const bootstrapNotice = ref<ConsoleAsyncNotice | null>(null)
 const confirmedNotice = ref<ConsoleAsyncNotice | null>(null)
+const keysLoadError = ref(false)
+let bootstrapGeneration = 0
+let loadedScopeKey = ''
+let hasBootstrapped = false
 
 const availableKeys = ref<KeyOption[]>([])
 const catalogModels = ref<CatalogModelItem[]>([])
@@ -183,8 +186,37 @@ const anyStreaming = computed(
     controllerB.state.status === 'streaming'
 )
 
+const hasActiveProjectScope = computed(() =>
+  Boolean(scope.activeWorkspaceId.value && scope.activeProjectId.value)
+)
+
+const validProjectKeyIds = computed(() => new Set(availableKeys.value.map((k) => k.id)))
+
+const hasValidKeyA = computed(
+  () =>
+    hasActiveProjectScope.value &&
+    Boolean(sideA.apiKeyId) &&
+    validProjectKeyIds.value.has(sideA.apiKeyId)
+)
+
+const hasValidKeyB = computed(
+  () =>
+    hasActiveProjectScope.value &&
+    Boolean(sideB.apiKeyId) &&
+    validProjectKeyIds.value.has(sideB.apiKeyId)
+)
+
+const canTriggerPrimaryRun = computed(() => {
+  if (!hasPromptInput.value || !hasValidKeyA.value) return false
+  if (compareMode.value) {
+    return Boolean(sideA.modelId) && hasValidKeyB.value && Boolean(sideB.modelId)
+  }
+  return Boolean(sideA.modelId || replayRequestId.value.trim())
+})
+
 function navigateTo(path: string): void {
-  const router = instance?.appContext.config.globalProperties.$router
+  const proxyRouter = (instance?.proxy as { $router?: { push?: (target: string) => unknown } } | null | undefined)?.$router
+  const router = instance?.appContext.config.globalProperties.$router ?? proxyRouter
   if (router && typeof router.push === 'function') {
     void router.push(path)
   } else if (typeof window !== 'undefined') {
@@ -192,40 +224,73 @@ function navigateTo(path: string): void {
   }
 }
 
+function resetTransientScopeState(): void {
+  controllerA.reset()
+  controllerB.reset()
+  consentModalOpen.value = false
+  pendingTargets.value = []
+  pendingPayloads.value = {}
+  pendingReplayPayload.value = null
+  pendingEstimates.value = []
+  inlinePreviewEstimates.value = []
+  availableKeys.value = []
+  sideA.apiKeyId = ''
+  sideB.apiKeyId = ''
+  keysLoadError.value = false
+}
+
 async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
+  const gen = ++bootstrapGeneration
   if (isRefresh) {
     bootstrapRefreshing.value = true
   } else {
     bootstrapLoading.value = true
   }
   bootstrapNotice.value = null
+  keysLoadError.value = false
   const hadCached = availableKeys.value.length > 0 || catalogModels.value.length > 0
 
   try {
     await scope.refreshScopes(isRefresh)
+    if (gen !== bootstrapGeneration) return
     const wsId = scope.activeWorkspaceId.value
     const projId = scope.activeProjectId.value
+    const hasScope = Boolean(wsId && projId)
+    loadedScopeKey = `${wsId}:${projId}`
 
     const [keysResult, modelsResult] = await Promise.allSettled([
-      wsId && projId
+      hasScope
         ? identityApi.listProjectKeys(wsId, projId, { limit: 100 }).then((page) =>
             (page.items || [])
               .filter((k) => !k.state || k.state === 'active')
               .map((k) => ({ id: String(k.id), name: k.name, prefix: k.prefix }))
           )
-        : Promise.reject(new Error('no_v2_scope')),
+        : Promise.resolve<KeyOption[]>([]),
       catalogApi.listScopedModels(wsId, projId, { limit: 100 })
     ])
+    if (gen !== bootstrapGeneration) return
 
-    if (keysResult.status === 'fulfilled' && keysResult.value.length > 0) {
+    if (keysResult.status === 'fulfilled') {
       availableKeys.value = keysResult.value
     } else {
-      const v1Keys = await keysAPI.list(1, 100, { status: 'active' })
-      availableKeys.value = (v1Keys.items || []).map((k) => ({
-        id: String(k.id),
-        name: k.name,
-        prefix: k.key ? k.key.slice(0, 10) : `key_${k.id}`
-      }))
+      availableKeys.value = []
+      keysLoadError.value = true
+      bootstrapNotice.value = classifyConsoleError(keysResult.reason, {
+        hasCachedData: false,
+        lastSyncedAt: scope.lastSyncedAt.value,
+        requiredGrantFallback: 'keys.read',
+        isZh: isZh.value
+      })
+    }
+
+    if (!hasScope && scope.scopeError.value && !bootstrapNotice.value) {
+      keysLoadError.value = true
+      bootstrapNotice.value = classifyConsoleError(scope.scopeError.value, {
+        hasCachedData: false,
+        lastSyncedAt: scope.lastSyncedAt.value,
+        requiredGrantFallback: 'playground.run',
+        isZh: isZh.value
+      })
     }
 
     if (modelsResult.status === 'fulfilled') {
@@ -234,14 +299,16 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
       const pubModels = await catalogApi.listPublicModels({ limit: 100 }).catch((err) => {
         throw err
       })
+      if (gen !== bootstrapGeneration) return
       catalogModels.value = pubModels
     }
 
-    if (!sideA.apiKeyId && availableKeys.value.length > 0) {
-      sideA.apiKeyId = availableKeys.value[0].id
+    const validIds = new Set(availableKeys.value.map((k) => k.id))
+    if (!validIds.has(sideA.apiKeyId)) {
+      sideA.apiKeyId = availableKeys.value[0]?.id ?? ''
     }
-    if (!sideB.apiKeyId && availableKeys.value.length > 0) {
-      sideB.apiKeyId = availableKeys.value[0].id
+    if (!validIds.has(sideB.apiKeyId)) {
+      sideB.apiKeyId = availableKeys.value[0]?.id ?? ''
     }
     if (!sideA.modelId && catalogModels.value.length > 0) {
       sideA.modelId = catalogModels.value[0].slug || catalogModels.value[0].id
@@ -251,6 +318,7 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
       sideB.modelId = second.slug || second.id
     }
   } catch (err) {
+    if (gen !== bootstrapGeneration) return
     bootstrapNotice.value = classifyConsoleError(err, {
       hasCachedData: hadCached,
       lastSyncedAt: scope.lastSyncedAt.value,
@@ -258,15 +326,18 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
       isZh: isZh.value
     })
   } finally {
-    bootstrapLoading.value = false
-    bootstrapRefreshing.value = false
+    if (gen === bootstrapGeneration) {
+      hasBootstrapped = true
+      bootstrapLoading.value = false
+      bootstrapRefreshing.value = false
+    }
   }
 }
 
 function handleScopeSelect(payload: { workspaceId: string; projectId: string | null }): void {
-  controllerA.reset()
-  controllerB.reset()
+  resetTransientScopeState()
   scope.selectWorkspaceProject(payload.workspaceId, payload.projectId)
+  loadedScopeKey = `${scope.activeWorkspaceId.value}:${scope.activeProjectId.value}`
   void loadKeysAndCatalog(true)
 }
 
@@ -465,6 +536,15 @@ function previewAuthoritativeQuotes(): void {
 function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
   toolsJsonError.value = ''
   confirmedNotice.value = null
+  if (!hasActiveProjectScope.value || availableKeys.value.length === 0) {
+    return
+  }
+  for (const target of targets) {
+    const cfg = target === 'A' ? sideA : sideB
+    if (!cfg.apiKeyId || !validProjectKeyIds.value.has(cfg.apiKeyId)) {
+      return
+    }
+  }
 
   try {
     const estimates: PlaygroundCostEstimate[] = []
@@ -535,9 +615,24 @@ function handleCancelConsent(): void {
 
 async function handleConfirmAndExecute(): Promise<void> {
   consentModalOpen.value = false
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+  const wsId = scope.activeWorkspaceId.value
+  const projId = scope.activeProjectId.value
+  if (!wsId || !projId) {
+    return
+  }
   const targets = [...pendingTargets.value]
+  if (pendingReplayPayload.value && replayRequestId.value.trim()) {
+    if (!validProjectKeyIds.value.has(pendingReplayPayload.value.api_key_id)) {
+      return
+    }
+  } else {
+    for (const target of targets) {
+      const payload = pendingPayloads.value[target]
+      if (payload && !validProjectKeyIds.value.has(payload.api_key_id)) {
+        return
+      }
+    }
+  }
 
   confirmedNotice.value = {
     kind: 'confirmed',
@@ -568,7 +663,7 @@ async function handleConfirmAndExecute(): Promise<void> {
 
 function handleKeydown(event: KeyboardEvent): void {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-    if (!consentModalOpen.value && hasPromptInput.value && sideA.apiKeyId) {
+    if (!consentModalOpen.value && canTriggerPrimaryRun.value) {
       event.preventDefault()
       prepareConsentForTargets(compareMode.value ? ['A', 'B'] : ['A'])
     }
@@ -591,6 +686,16 @@ watch(compareMode, (enabled) => {
     inspectedSide.value = 'A'
   }
 })
+
+watch(
+  () => `${scope.activeWorkspaceId.value}:${scope.activeProjectId.value}`,
+  (nextKey) => {
+    if (!hasBootstrapped || nextKey === loadedScopeKey) return
+    loadedScopeKey = nextKey
+    resetTransientScopeState()
+    void loadKeysAndCatalog(true)
+  }
+)
 
 onMounted(() => {
   const routeQuery = instance?.appContext.config.globalProperties.$route?.query as
@@ -793,22 +898,13 @@ function formatSettlementState(state: string | null | undefined): string {
               <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
                 {{ compareMode ? (isZh ? 'A 侧配置' : 'Side A Config') : (isZh ? '运行配置' : 'Run Config') }}
               </span>
-              <button
-                v-if="availableKeys.length === 0"
-                type="button"
-                class="oh-focus-ring rounded font-mono text-[11px] text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
-                @click="navigateTo('/keys')"
-              >
-                {{ isZh ? '去创建密钥' : '+ Create Key' }}
-              </button>
             </div>
 
-            <label class="block space-y-1 text-xs">
+            <label v-if="availableKeys.length > 0" class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 {{ isZh ? '下游 API 密钥 (Key A)' : 'Downstream API Key (A)' }}
               </span>
               <select
-                v-if="availableKeys.length > 0"
                 v-model="sideA.apiKeyId"
                 data-testid="select-key-a"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
@@ -817,15 +913,61 @@ function formatSettlementState(state: string | null | undefined): string {
                   {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                 </option>
               </select>
-              <input
-                v-else
-                v-model="sideA.apiKeyId"
-                data-testid="input-key-a"
-                type="text"
-                :placeholder="isZh ? '输入数字密钥 ID (如 12)' : 'Numeric Key ID (e.g. 12)'"
-                class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
-              />
             </label>
+            <div
+              v-else
+              data-testid="playground-keys-empty-state"
+              role="status"
+              class="space-y-2 rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border-strong,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5 text-xs"
+            >
+              <p class="font-semibold text-[var(--oh-ink,var(--foreground))]">
+                {{
+                  keysLoadError
+                    ? t('playgroundKeys.loadErrorTitle')
+                    : !hasActiveProjectScope
+                      ? t('playgroundKeys.scopeRequiredTitle')
+                      : t('playgroundKeys.emptyTitle')
+                }}
+              </p>
+              <p class="text-[11px] leading-relaxed text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{
+                  keysLoadError
+                    ? t('playgroundKeys.loadErrorDescription')
+                    : !hasActiveProjectScope
+                      ? t('playgroundKeys.scopeRequiredDescription')
+                      : t('playgroundKeys.emptyDescription')
+                }}
+              </p>
+              <div class="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <Button
+                  v-if="hasActiveProjectScope && !keysLoadError"
+                  data-testid="playground-create-project-key-btn"
+                  variant="outline-accent"
+                  size="xs"
+                  @click="navigateTo('/keys')"
+                >
+                  {{ t('playgroundKeys.createProjectKeyAction') }}
+                </Button>
+                <Button
+                  v-else-if="!hasActiveProjectScope && !keysLoadError"
+                  data-testid="playground-select-scope-btn"
+                  variant="secondary"
+                  size="xs"
+                  @click="navigateTo('/workspaces')"
+                >
+                  {{ t('playgroundKeys.selectScopeAction') }}
+                </Button>
+                <Button
+                  v-if="keysLoadError"
+                  data-testid="playground-retry-keys-btn"
+                  variant="secondary"
+                  size="xs"
+                  @click="loadKeysAndCatalog(true)"
+                >
+                  {{ t('playgroundKeys.retryAction') }}
+                </Button>
+              </div>
+            </div>
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -957,12 +1099,11 @@ function formatSettlementState(state: string | null | undefined): string {
               {{ isZh ? 'B 侧配置（独立计费）' : 'Side B Config (Independent)' }}
             </span>
 
-            <label class="block space-y-1 text-xs">
+            <label v-if="availableKeys.length > 0" class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 {{ isZh ? '下游 API 密钥 (Key B)' : 'Downstream API Key (B)' }}
               </span>
               <select
-                v-if="availableKeys.length > 0"
                 v-model="sideB.apiKeyId"
                 data-testid="select-key-b"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
@@ -971,15 +1112,14 @@ function formatSettlementState(state: string | null | undefined): string {
                   {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }})
                 </option>
               </select>
-              <input
-                v-else
-                v-model="sideB.apiKeyId"
-                data-testid="input-key-b"
-                type="text"
-                :placeholder="isZh ? '输入数字密钥 ID' : 'Numeric Key ID'"
-                class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
-              />
             </label>
+            <p
+              v-else
+              data-testid="playground-keys-empty-state-b"
+              class="rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
+            >
+              {{ t('playgroundKeys.sideBUnavailable') }}
+            </p>
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
@@ -1231,12 +1371,7 @@ function formatSettlementState(state: string | null | undefined): string {
                   data-testid="playground-run-trigger"
                   variant="primary"
                   size="sm"
-                  :disabled="
-                    !hasPromptInput ||
-                    !sideA.apiKeyId ||
-                    (!sideA.modelId && !replayRequestId) ||
-                    (compareMode && (!sideB.apiKeyId || !sideB.modelId))
-                  "
+                  :disabled="!canTriggerPrimaryRun"
                   @click="prepareConsentForTargets(compareMode ? ['A', 'B'] : ['A'])"
                 >
                   {{
@@ -1254,6 +1389,22 @@ function formatSettlementState(state: string | null | undefined): string {
                   }}
                 </Button>
               </div>
+            </div>
+            <div
+              v-if="!hasValidKeyA"
+              data-testid="playground-run-key-required-hint"
+              role="status"
+              class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-3 py-2 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]"
+            >
+              <span>{{ t('playgroundKeys.runBlockedHint') }}</span>
+              <Button
+                v-if="hasActiveProjectScope && !keysLoadError"
+                variant="ghost"
+                size="xs"
+                @click="navigateTo('/keys')"
+              >
+                {{ t('playgroundKeys.createProjectKeyAction') }}
+              </Button>
             </div>
           </section>
 

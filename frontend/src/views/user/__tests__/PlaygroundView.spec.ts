@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { identityApi } from '@/features/console/scope'
+import { identityApi, persistConsoleScope } from '@/features/console/scope'
+import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
 import PlaygroundView from '../PlaygroundView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -109,6 +110,10 @@ describe('PlaygroundView 3-pane workbench', () => {
         outputRate: { currency: 'USD', amount: '15.00', unit: 'output_token', per: '1000000' }
       }
     ])
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('gates run execution behind cost estimate confirmation before calling POST /playground/runs', async () => {
@@ -234,6 +239,203 @@ describe('PlaygroundView 3-pane workbench', () => {
 
     resolveB({ kind: 'stream_completed' })
     await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('shows project key empty state without falling back to personal keys and blocks paid confirmation when project keys are empty', async () => {
+    vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
+      items: [],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+    mocks.listV1Keys.mockResolvedValue({
+      items: [{ id: 9, name: 'Personal Leak Key', key: 'sk-personal-9', status: 'active' }]
+    })
+    const routerPush = vi.fn()
+
+    const wrapper = mount(PlaygroundView, {
+      props: { teleportDisabled: true },
+      global: { mocks: { $router: { push: routerPush } } }
+    })
+    await flushPromises()
+
+    expect(mocks.listV1Keys).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="select-key-a"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="input-key-a"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Personal Leak Key')
+
+    const emptyState = wrapper.get('[data-testid="playground-keys-empty-state"]')
+    expect(emptyState.text()).toContain('playgroundKeys.emptyTitle')
+
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Attempt unauthorized key run')
+    const runBtn = wrapper.get('[data-testid="playground-run-trigger"]')
+    expect(runBtn.attributes('disabled')).toBeDefined()
+
+    await runBtn.trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }))
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="playground-cost-confirm-modal"]').exists()).toBe(false)
+    expect(mocks.submitRun).not.toHaveBeenCalled()
+
+    // Compare mode must also block arbitrary key input and running
+    const compareBtn = wrapper.findAll('button').find((b) => b.text().includes('Compare A/B'))!
+    await compareBtn.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="input-key-b"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="playground-keys-empty-state-b"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="playground-create-project-key-btn"]').trigger('click')
+    expect(routerPush).toHaveBeenCalledWith('/keys')
+    wrapper.unmount()
+  })
+
+  it('treats revoked-only project keys as empty and clears stale key selection on scope switch', async () => {
+    const listProjectKeysSpy = vi
+      .spyOn(identityApi, 'listProjectKeys')
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: '15',
+            project_id: '9',
+            name: 'Service Key',
+            prefix: 'oh_live_15',
+            state: 'active',
+            created_at: '2026-11-19T09:00:00Z',
+            version: '1'
+          }
+        ],
+        next_cursor: null,
+        as_of: '2026-11-19T10:00:00Z'
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: '19',
+            project_id: '10',
+            name: 'Revoked Key',
+            prefix: 'oh_live_19',
+            state: 'revoked',
+            created_at: '2026-11-19T09:00:00Z',
+            version: '1'
+          }
+        ],
+        next_cursor: null,
+        as_of: '2026-11-19T10:00:00Z'
+      })
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
+      items: [
+        {
+          workspace_id: '2',
+          workspace_name: 'Core Eng',
+          workspace_state: 'active',
+          projects: [
+            { id: '9', name: 'Prod Gateway', state: 'active' },
+            { id: '10', name: 'Empty Sandbox', state: 'active' }
+          ]
+        }
+      ],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+    mocks.listV1Keys.mockResolvedValue({
+      items: [{ id: 9, name: 'Personal Leak Key', key: 'sk-personal-9', status: 'active' }]
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+    expect((wrapper.get('[data-testid="select-key-a"]').element as HTMLSelectElement).value).toBe('15')
+
+    // Switch to project 10 via external scope change event
+    persistConsoleScope({ mode: 'workspace', workspaceId: '2', projectId: '10' })
+    await flushPromises()
+
+    expect(listProjectKeysSpy).toHaveBeenCalledWith('2', '10', { limit: 100 })
+    expect(mocks.listV1Keys).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="playground-keys-empty-state"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Run on sandbox')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="playground-cost-confirm-modal"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('surfaces project key permission error without falling back to personal keys', async () => {
+    vi.spyOn(identityApi, 'listProjectKeys').mockRejectedValue({
+      status: 403,
+      reason: 'ACTION_DENIED',
+      message: 'missing keys.read'
+    })
+    mocks.listV1Keys.mockResolvedValue({
+      items: [{ id: 9, name: 'Personal Leak Key', key: 'sk-personal-9', status: 'active' }]
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    expect(mocks.listV1Keys).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="console-state-permission"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="playground-keys-empty-state"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Try run')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('blocks execution and shows scope-required empty state when no project scope is available', async () => {
+    const listProjectKeysSpy = vi.spyOn(identityApi, 'listProjectKeys')
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
+      items: [],
+      next_cursor: null,
+      as_of: '2026-11-19T10:00:00Z'
+    })
+    mocks.listV1Keys.mockResolvedValue({
+      items: [{ id: 9, name: 'Personal Leak Key', key: 'sk-personal-9', status: 'active' }]
+    })
+
+    const wrapper = mount(PlaygroundView, { props: { teleportDisabled: true } })
+    await flushPromises()
+
+    expect(listProjectKeysSpy).not.toHaveBeenCalled()
+    expect(mocks.listV1Keys).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="playground-keys-empty-state"]').text()).toContain('playgroundKeys.scopeRequiredTitle')
+    await wrapper.get('[data-testid="message-input-0"]').setValue('Try personal run')
+    expect(wrapper.get('[data-testid="playground-run-trigger"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('disables funding confirmation inside PlaygroundCostConfirmModal when apiKeyId is empty or scope is required', async () => {
+    const wrapper = mount(PlaygroundCostConfirmModal, {
+      props: {
+        open: true,
+        teleportDisabled: true,
+        estimates: [
+          {
+            sideLabel: 'Side A',
+            modelId: 'gpt-5.4-mini',
+            apiKeyId: '',
+            protocol: 'openai_chat',
+            estimatedInputTokens: 12,
+            maxOutputTokens: 256,
+            inputRate: null,
+            outputRate: null,
+            currency: 'USD',
+            estimatedInputCost: null,
+            maxOutputCost: null,
+            maxTotalCost: null,
+            rateKnown: false,
+            quoteState: 'requires_scope',
+            unpricedReason: 'requires_scope',
+            payloadBytes: 120,
+            exceedsBodyLimit: false
+          }
+        ]
+      }
+    })
+
+    const confirmBtn = wrapper.get('[data-testid="confirm-playground-funding"]')
+    expect(confirmBtn.attributes('disabled')).toBeDefined()
+    await confirmBtn.trigger('click')
+    expect(wrapper.emitted('confirm')).toBeUndefined()
     wrapper.unmount()
   })
 })
