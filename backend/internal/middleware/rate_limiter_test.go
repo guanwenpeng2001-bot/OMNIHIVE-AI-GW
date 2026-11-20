@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	ippkg "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
-
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -140,7 +138,7 @@ func TestRateLimiterAllow(t *testing.T) {
 	require.Equal(t, time.Minute, res.RetryAfter)
 }
 
-func TestRateLimiterHonorsForwardedIPSnapshot(t *testing.T) {
+func TestRateLimiterUsesPeerBucket(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	callCounts := make(map[string]int64)
@@ -156,11 +154,7 @@ func TestRateLimiterHonorsForwardedIPSnapshot(t *testing.T) {
 	limiter := NewRateLimiter(redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}))
 
 	router := gin.New()
-	// 模拟 SessionBindingContext：开启转发 IP 兼容模式快照
-	router.Use(func(c *gin.Context) {
-		ippkg.SetForwardedIPSettings(c, true, nil)
-		c.Next()
-	})
+	require.NoError(t, router.SetTrustedProxies(nil))
 	router.Use(limiter.Limit("fwd", 1, time.Second))
 	router.GET("/test", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -176,14 +170,9 @@ func TestRateLimiterHonorsForwardedIPSnapshot(t *testing.T) {
 		return rec.Code
 	}
 
-	// 反代后两个不同的真实客户端应各自独立计数，不因共享代理地址被合并限流
 	require.Equal(t, http.StatusOK, send("198.51.100.1"))
-	require.Equal(t, http.StatusOK, send("198.51.100.2"))
-	// 同一真实客户端第二次请求应被限流
-	require.Equal(t, http.StatusTooManyRequests, send("198.51.100.1"))
-
-	require.Contains(t, callCounts, "rate_limit:fwd:198.51.100.1")
-	require.Contains(t, callCounts, "rate_limit:fwd:198.51.100.2")
+	require.Equal(t, http.StatusTooManyRequests, send("198.51.100.2"))
+	require.Equal(t, int64(2), callCounts["rate_limit:fwd:127.0.0.1"])
 }
 
 func TestRateLimiterSuccessAndLimit(t *testing.T) {

@@ -27,6 +27,7 @@ api.example.com {
 	# =========================================================================
 	# 反向代理配置
 	# =========================================================================
+	# Configure OmniHive server.trusted_proxies with 127.0.0.1/32 and ::1/128 for this listener.
 	reverse_proxy localhost:8080 {
 		# 就绪检查：依赖不可用或排空时停止接收新流量；容器存活检查仍使用 /health。
 		health_uri /ready

@@ -159,7 +159,7 @@ Container `/health` probes check liveness. Route traffic using `/ready`, which c
 dependencies and draining state. Caddy uses readiness; a dependency outage should remove
 the instance from traffic without triggering a liveness restart loop.
 
-Security defaults remain `trust_forwarded_ip_for_api_key_acl=true`,
+Configure `server.trusted_proxies` for the connecting reverse proxy. Outbound defaults are
 `url_allowlist.enabled=false`, `allow_private_hosts=true`, `allow_insecure_http=true`.
 See `deploy/EDGE_SECURITY.md` for their effects, optional restrictions, prompt-audit
 private endpoints, and the explicitly configured CORS wildcard behavior.
