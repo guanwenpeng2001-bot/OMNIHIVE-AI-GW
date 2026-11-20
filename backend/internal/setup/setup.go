@@ -406,6 +406,31 @@ func (cfg *SetupConfig) migrationTimeout() time.Duration {
 	return defaultMigrationTimeout
 }
 
+func generateAdminPasswordFile(dir string) (string, string, error) {
+	password, err := generateSecret(16)
+	if err != nil {
+		return "", "", err
+	}
+	file, err := os.CreateTemp(dir, "admin-password-*")
+	if err != nil {
+		return "", "", err
+	}
+	if _, err = file.WriteString(password + "\n"); err == nil {
+		err = file.Sync()
+	}
+	if chmodErr := file.Chmod(0600); err == nil {
+		err = chmodErr
+	} else {
+		err = errors.Join(err, chmodErr)
+	}
+	closeErr := file.Close()
+	if err = errors.Join(err, closeErr); err != nil {
+		_ = os.Remove(file.Name())
+		return "", "", err
+	}
+	return password, file.Name(), nil
+}
+
 func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	dsn := buildPostgresDSN(&cfg.Database, cfg.Database.DBName)
 
@@ -438,13 +463,12 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	}
 
 	if strings.TrimSpace(cfg.Admin.Password) == "" {
-		password, genErr := generateSecret(16)
+		password, path, genErr := generateAdminPasswordFile(GetDataDir())
 		if genErr != nil {
 			return false, "", fmt.Errorf("failed to generate admin password: %w", genErr)
 		}
 		cfg.Admin.Password = password
-		fmt.Printf("Generated admin password (one-time): %s\n", cfg.Admin.Password)
-		fmt.Println("IMPORTANT: Save this password! It will not be shown again.")
+		fmt.Printf("Generated admin password file: %s\n", path)
 	}
 
 	admin := &service.User{

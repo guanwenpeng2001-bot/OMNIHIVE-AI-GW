@@ -120,26 +120,23 @@ main() {
     print_info "Generating secure secrets..."
     echo ""
 
-    # Generate secrets
-    JWT_SECRET=$(generate_secret)
-    TOTP_ENCRYPTION_KEY=$(generate_secret)
-    POSTGRES_PASSWORD=$(generate_secret)
-
-    # Create .env from .env.example
-    cp .env.example .env
-
-    # Update .env with generated secrets (cross-platform compatible)
-    if sed --version >/dev/null 2>&1; then
-        # GNU sed (Linux)
-        sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
-        sed -i "s/^TOTP_ENCRYPTION_KEY=.*/TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}/" .env
-        sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=${POSTGRES_PASSWORD}/" .env
-    else
-        # BSD sed (macOS)
-        sed -i '' "s/^JWT_SECRET=.*/JWT_SECRET=${JWT_SECRET}/" .env
-        sed -i '' "s/^TOTP_ENCRYPTION_KEY=.*/TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY}/" .env
-        sed -i '' "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=${POSTGRES_PASSWORD}/" .env
-    fi
+    (
+        set +x
+        umask 077
+        tmp_env=$(mktemp .env.XXXXXXXX)
+        trap 'rm -f "$tmp_env"' EXIT
+        while IFS= read -r line || [[ -n $line ]]; do
+            case "$line" in
+                JWT_SECRET=*|TOTP_ENCRYPTION_KEY=*|POSTGRES_PASSWORD=*) continue ;;
+            esac
+            printf '%s\n' "$line"
+        done < .env.example > "$tmp_env"
+        for name in JWT_SECRET TOTP_ENCRYPTION_KEY POSTGRES_PASSWORD; do
+            value=$(generate_secret)
+            printf '%s=%s\n' "$name" "$value" >> "$tmp_env"
+        done
+        mv -f "$tmp_env" .env
+    )
 
     # Create data directories
     print_info "Creating data directories..."
@@ -155,13 +152,7 @@ main() {
     echo "  Preparation Complete!"
     echo "=========================================="
     echo ""
-    echo "Generated secure credentials:"
-    echo "  POSTGRES_PASSWORD:     ${POSTGRES_PASSWORD}"
-    echo "  JWT_SECRET:            ${JWT_SECRET}"
-    echo "  TOTP_ENCRYPTION_KEY:   ${TOTP_ENCRYPTION_KEY}"
-    echo ""
-    print_warning "These credentials have been saved to .env file."
-    print_warning "Please keep them secure and do not share publicly!"
+    print_info "Credentials file: $(pwd)/.env"
     echo ""
     echo "Directory structure:"
     echo "  docker-compose.yml        - Docker Compose configuration"
@@ -184,7 +175,7 @@ main() {
     echo "     For remote access, configure Caddy TLS; do not expose this HTTP port publicly."
     echo ""
     print_info "If admin password is not set in .env, it will be auto-generated."
-    print_info "Check logs for the generated admin password on first startup."
+    print_info "First-start logs identify the private admin password file."
     echo ""
 }
 

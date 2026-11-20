@@ -123,7 +123,7 @@ mkdir -p data postgres_data redis_data
 # Start all services using local directory version
 docker compose -f docker-compose.local.yml up -d
 
-# View logs (check for auto-generated admin password)
+# View logs (find the private admin password file path)
 docker compose -f docker-compose.local.yml logs -f omnihive
 
 # Access Web UI
