@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { adminAPI } from '@/api/admin'
@@ -19,6 +19,10 @@ import { connectionsApi, pollConnectionOperation } from '@/features/connections/
 import AsyncStateBanner from '@/features/connections/components/AsyncStateBanner.vue'
 import {
   buildHeaderOverridesMap,
+  extractOperationVerification,
+  FEATURED_PROVIDER_IDS,
+  filterSupportedAuthTypes,
+  formatVerificationCheckReason,
   getAuthModeLabel,
   getProviderDisplayMeta,
   isConnectionResource,
@@ -27,6 +31,7 @@ import {
   isVerificationFresh,
   mapApiErrorToAsyncContext,
   normalizeConnectionEndpointInput,
+  type ProviderCategory,
   validateConnectionEndpoint
 } from '@/features/connections/rules'
 import type {
@@ -41,10 +46,13 @@ import {
   buildCredentialInputPayload,
   canProceedFromStep,
   createInitialWizardState,
+  getUtf8ByteLength,
   getWizardStepStatuses,
+  hasPendingCredentialMutation,
   hydrateWizardFromResource,
   invalidatePreview,
   invalidateVerification,
+  validateConnectionName,
   WIZARD_STEP_ORDER,
   type WizardStepId
 } from '@/features/connections/wizardState'
@@ -77,10 +85,45 @@ const creatingPool = ref(false)
 const endpointNormalizationHint = ref('')
 const stepAttempted = ref(false)
 const activatedInSession = ref(false)
+type ProviderFilterTab = 'all' | ProviderCategory
+const providerCategoryTab = ref<ProviderFilterTab>('all')
+const showAllProviders = ref(false)
+const headerOverridesExpanded = ref(false)
+const bannerAnchorRef = ref<HTMLElement | null>(null)
+const COMPACT_PROVIDER_LIMIT = 9
 
 const pageAsyncState = ref<AsyncPageState | null>('initial_load')
 const busy = ref(false)
 const verifyOperation = ref<ConnectionOperation | null>(null)
+
+const ERROR_BANNER_STATES = new Set<AsyncPageState>([
+  'partial_failure',
+  'permission_denied',
+  'version_conflict',
+  'stale',
+  'unknown_outcome'
+])
+
+async function revealBannerIfNeeded() {
+  if (!pageAsyncState.value || !ERROR_BANNER_STATES.has(pageAsyncState.value)) return
+  await nextTick()
+  const el = bannerAnchorRef.value
+  if (!el) return
+  if (typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+  if (typeof el.focus === 'function') {
+    el.focus({ preventScroll: true })
+  }
+}
+
+watch(
+  [pageAsyncState, () => state.asyncError],
+  () => {
+    void revealBannerIfNeeded()
+  },
+  { deep: false }
+)
 
 const wizardPageTitle = computed(() => {
   if (state.mode === 'edit') {
@@ -130,38 +173,125 @@ const stepLabels = computed<Record<WizardStepId, { title: string; description: s
 
 const stepperItems = computed(() => getWizardStepStatuses(state, stepLabels.value))
 
-const filteredSchemas = computed(() => {
+const providerCategoryTabs = computed<
+  Array<{ id: ProviderFilterTab; label: string; count: number }>
+>(() => {
+  let internationalCount = 0
+  let domesticCount = 0
+  let compatibleCount = 0
+  for (const schema of schemas.value) {
+    const category = getProviderDisplayMeta(schema.provider, isZh.value).category
+    if (category === 'international') internationalCount += 1
+    else if (category === 'domestic') domesticCount += 1
+    else compatibleCount += 1
+  }
+  return [
+    {
+      id: 'all',
+      label: isZh.value ? '全部 / 热门主流' : 'All / Popular',
+      count: schemas.value.length
+    },
+    {
+      id: 'international',
+      label: isZh.value
+        ? '国际原生 (OpenAI / Anthropic / Gemini / xAI)'
+        : 'International Native (OpenAI / Anthropic / Gemini / xAI)',
+      count: internationalCount
+    },
+    {
+      id: 'domestic',
+      label: isZh.value
+        ? '国内大模型 (DeepSeek / Kimi / 通义 / 豆包 / 智谱 / 硅基流动)'
+        : 'Domestic LLMs (DeepSeek / Kimi / Qwen / Doubao / Zhipu / SiliconFlow)',
+      count: domesticCount
+    },
+    {
+      id: 'compatible',
+      label: isZh.value ? '聚合与兼容协议' : 'Aggregators & Compatible',
+      count: compatibleCount
+    }
+  ]
+})
+
+const matchingSchemas = computed(() => {
   const query = schemaSearch.value.trim().toLowerCase()
-  if (!query) return schemas.value
-  return schemas.value.filter((schema) => {
-    const meta = getProviderDisplayMeta(schema.provider)
+  const activeTab = providerCategoryTab.value
+  const matched = schemas.value.filter((schema) => {
+    const metaZh = getProviderDisplayMeta(schema.provider, true)
+    const metaEn = getProviderDisplayMeta(schema.provider, false)
+    if (activeTab !== 'all' && metaEn.category !== activeTab) {
+      return false
+    }
+    if (!query) return true
     return (
       schema.provider.toLowerCase().includes(query) ||
-      meta.label.toLowerCase().includes(query) ||
-      schema.auth_types.some((t) => t.toLowerCase().includes(query))
+      metaEn.label.toLowerCase().includes(query) ||
+      metaZh.label.toLowerCase().includes(query) ||
+      metaEn.protocolSummary.toLowerCase().includes(query) ||
+      metaZh.protocolSummary.toLowerCase().includes(query) ||
+      schema.auth_types.some((authItem) => authItem.toLowerCase().includes(query))
     )
+  })
+
+  const featuredRank = new Map<string, number>()
+  FEATURED_PROVIDER_IDS.forEach((providerId, idx) => {
+    featuredRank.set(providerId, idx)
+  })
+
+  return [...matched].sort((left, right) => {
+    const leftRank = featuredRank.get(left.provider.toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+    const rightRank = featuredRank.get(right.provider.toLowerCase()) ?? Number.MAX_SAFE_INTEGER
+    if (leftRank !== rightRank) return leftRank - rightRank
+    return 0
   })
 })
 
+const isProviderGridExpanded = computed(
+  () => Boolean(schemaSearch.value.trim()) || showAllProviders.value || providerCategoryTab.value !== 'all'
+)
+
+const displayedSchemas = computed(() => {
+  const list = matchingSchemas.value
+  if (list.length === 0) return []
+  const selectedIdx = list.findIndex((item) => item.provider === state.provider)
+  if (!isProviderGridExpanded.value) {
+    const topSlice = list.slice(0, COMPACT_PROVIDER_LIMIT)
+    if (selectedIdx >= COMPACT_PROVIDER_LIMIT) {
+      return [list[selectedIdx], ...topSlice.slice(0, COMPACT_PROVIDER_LIMIT - 1)]
+    }
+    return topSlice
+  }
+  if (selectedIdx >= COMPACT_PROVIDER_LIMIT) {
+    const selectedItem = list[selectedIdx]
+    return [selectedItem, ...list.filter((item) => item.provider !== selectedItem.provider)]
+  }
+  return list
+})
+
+const hiddenProviderCount = computed(() =>
+  Math.max(0, matchingSchemas.value.length - displayedSchemas.value.length)
+)
+
 const selectedSchema = computed(() =>
   schemas.value.find(
-    (s) => s.provider === state.provider && s.auth_types.includes(state.authType)
-  ) ?? schemas.value.find((s) => s.provider === state.provider) ?? null
+    (schemaItem) => schemaItem.provider === state.provider && schemaItem.auth_types.includes(state.authType)
+  ) ?? schemas.value.find((schemaItem) => schemaItem.provider === state.provider) ?? null
 )
 
 const authModeOptions = computed(() => {
-  const schema = schemas.value.find((s) => s.provider === state.provider)
+  const schema = schemas.value.find((schemaItem) => schemaItem.provider === state.provider)
   if (!schema || schema.auth_types.length === 0) {
     return [{ value: 'api_key', label: 'API Key' }]
   }
-  return schema.auth_types.map((authType) => ({
+  const supported = filterSupportedAuthTypes(schema.auth_types)
+  return supported.map((authType) => ({
     value: authType,
     label: getAuthModeLabel(authType, isZh.value)
   }))
 })
 
 const credentialModeOptions = computed(() => {
-  if (state.mode === 'edit') {
+  if (state.mode === 'edit' && state.credentialState !== 'unset') {
     return [
       { value: 'keep', label: isZh.value ? '保留现有凭据' : 'Keep Existing' },
       { value: 'set', label: isZh.value ? '替换密钥' : 'Replace Secret' },
@@ -207,6 +337,14 @@ const stepValidation = computed(() =>
   canProceedFromStep(state, state.currentStep, selectedSchema.value, Date.now(), isZh.value)
 )
 
+const nameByteLength = computed(() => getUtf8ByteLength(state.name.trim()))
+
+const nameInlineError = computed(() => {
+  if (!state.name.trim() && !stepAttempted.value) return ''
+  if (nameByteLength.value <= 100 && !stepAttempted.value) return ''
+  return validateConnectionName(state.name, isZh.value) || ''
+})
+
 const endpointInlineError = computed(() => {
   const endpointRequired = Boolean(
     selectedSchema.value?.fields?.some((field) => field.path === 'endpoint' && field.required)
@@ -216,6 +354,21 @@ const endpointInlineError = computed(() => {
 })
 
 const discoveredModels = computed(() => state.verification?.models ?? [])
+
+const hasFailedVerificationCheck = computed(() =>
+  Boolean(state.verification?.checks.some((checkItem) => checkItem.state === 'failed'))
+)
+
+const hasUnknownEvidenceOnly = computed(
+  () =>
+    Boolean(state.verification) &&
+    !hasFailedVerificationCheck.value &&
+    Boolean(
+      state.verification?.checks.some(
+        (checkItem) => checkItem.state === 'unknown' || checkItem.reason === 'EVIDENCE_UNAVAILABLE'
+      )
+    )
+)
 
 async function loadConnectionEvents(connectionId?: string | null) {
   const targetId = connectionId ?? state.connectionId
@@ -250,6 +403,9 @@ async function loadInitialData() {
     if (connectionIdParam.value) {
       const resource = await connectionsApi.getConnection(connectionIdParam.value)
       Object.assign(state, hydrateWizardFromResource(state, resource))
+      if (state.headerOverrides.length > 0) {
+        headerOverridesExpanded.value = true
+      }
       if (state.networkPolicyId === 'default') {
         state.networkPolicyId = ''
       }
@@ -279,29 +435,47 @@ watch(connectionIdParam, () => {
 })
 
 function selectProviderSchema(schema: ConnectionSchema) {
-  const prevMeta = state.provider ? getProviderDisplayMeta(state.provider) : null
-  const prevAutoNameEn = prevMeta
-    ? `${prevMeta.label} (${getAuthModeLabel(state.authType, false)})`
-    : ''
-  const prevAutoNameZh = prevMeta
-    ? `${prevMeta.label} (${getAuthModeLabel(state.authType, true)})`
-    : ''
+  const prevMetaEn = state.provider ? getProviderDisplayMeta(state.provider, false) : null
+  const prevMetaZh = state.provider ? getProviderDisplayMeta(state.provider, true) : null
+  const prevAutoNames = new Set(
+    [
+      prevMetaEn ? `${prevMetaEn.label} (${getAuthModeLabel(state.authType, false)})` : '',
+      prevMetaEn ? `${prevMetaEn.label} (${getAuthModeLabel(state.authType, true)})` : '',
+      prevMetaZh ? `${prevMetaZh.label} (${getAuthModeLabel(state.authType, false)})` : '',
+      prevMetaZh ? `${prevMetaZh.label} (${getAuthModeLabel(state.authType, true)})` : ''
+    ].filter(Boolean)
+  )
+  const supportedAuths = filterSupportedAuthTypes(schema.auth_types)
   state.provider = schema.provider
-  state.authType = schema.auth_types[0] ?? 'api_key'
-  state.schemaVersion = schema.schema_version
-  const meta = getProviderDisplayMeta(schema.provider)
-  if (!state.endpoint || (prevMeta && state.endpoint === prevMeta.defaultEndpoint)) {
-    state.endpoint = meta.defaultEndpoint
+  state.authType = supportedAuths[0] ?? 'api_key'
+  state.schemaVersion = schema.schema_version || '1'
+  const nextMeta = getProviderDisplayMeta(schema.provider, isZh.value)
+  const prevDefaultEndpoint = prevMetaEn?.defaultEndpoint ?? ''
+  if (!state.endpoint || (prevMetaEn && state.endpoint === prevDefaultEndpoint)) {
+    state.endpoint = nextMeta.defaultEndpoint
   }
-  if (
-    !state.name ||
-    state.name === prevAutoNameEn ||
-    state.name === prevAutoNameZh
-  ) {
-    state.name = `${meta.label} (${getAuthModeLabel(state.authType, isZh.value)})`
+  if (!state.name || prevAutoNames.has(state.name)) {
+    const candidateName = `${nextMeta.label} (${getAuthModeLabel(state.authType, isZh.value)})`
+    state.name =
+      getUtf8ByteLength(candidateName) <= 100
+        ? candidateName
+        : getProviderDisplayMeta(schema.provider, false).label.slice(0, 80)
   }
   endpointNormalizationHint.value = ''
   Object.assign(state, invalidateVerification(state))
+}
+
+function selectProviderTab(tabId: ProviderFilterTab) {
+  providerCategoryTab.value = tabId
+  if (tabId !== 'all') {
+    showAllProviders.value = true
+  }
+}
+
+function clearProviderFilters() {
+  schemaSearch.value = ''
+  providerCategoryTab.value = 'all'
+  showAllProviders.value = false
 }
 
 function handleEndpointChange(value: string | number) {
@@ -339,13 +513,14 @@ function handleCredentialModeChange(mode: string | number) {
 
 function addHeaderOverrideRow(presetKey = '', presetValue = '') {
   const existingIdx = presetKey
-    ? state.headerOverrides.findIndex((r) => r.key.trim().toLowerCase() === presetKey.toLowerCase())
+    ? state.headerOverrides.findIndex((row) => row.key.trim().toLowerCase() === presetKey.toLowerCase())
     : -1
   if (existingIdx >= 0) {
     state.headerOverrides[existingIdx].value = presetValue
   } else {
     state.headerOverrides.push({ key: presetKey, value: presetValue })
   }
+  headerOverridesExpanded.value = true
   Object.assign(state, invalidateVerification(state))
 }
 
@@ -372,6 +547,16 @@ function addDiscoveredModel(modelId: string) {
 async function ensureConnectionPersisted(): Promise<boolean> {
   state.asyncError = null
   normalizeStepOneInputs()
+  if (
+    modelIdsText.value.trim() ||
+    state.currentStep === 'preview' ||
+    state.currentStep === 'activate'
+  ) {
+    state.modelIds = modelIdsText.value
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+  }
   const step1Check = canProceedFromStep(state, 'provider', selectedSchema.value, Date.now(), isZh.value)
   if (!step1Check.valid) {
     stepAttempted.value = true
@@ -386,12 +571,16 @@ async function ensureConnectionPersisted(): Promise<boolean> {
 
   const headerMap = buildHeaderOverridesMap(state.headerOverrides)
   const hasHeaderOverrides = Object.keys(headerMap).length > 0
-  const pendingCredentialMode = state.credentialMode
+  const shouldMutateCredential = hasPendingCredentialMutation(state)
   const pendingCredentialPayload = buildCredentialInputPayload(state)
+  const draftSecret = state.credentialSecret
+  const draftRefreshToken = state.credentialRefreshToken
+  const draftCredentialMode = state.credentialMode
+
   if (!state.connectionId) {
     const created = await connectionsApi.createConnection({
       provider: state.provider,
-      schema_version: '1',
+      schema_version: state.schemaVersion === '1' ? state.schemaVersion : '1',
       auth_type: state.authType,
       name: state.name.trim(),
       endpoint: state.endpoint.trim(),
@@ -403,19 +592,28 @@ async function ensureConnectionPersisted(): Promise<boolean> {
     } else {
       state.version = created.version
     }
-    if (state.connectionId && pendingCredentialMode !== 'keep') {
+    if (shouldMutateCredential) {
+      state.credentialSecret = draftSecret
+      state.credentialRefreshToken = draftRefreshToken
+      state.credentialMode = draftCredentialMode
+    }
+    if (state.connectionId && shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
       const credResult = await connectionsApi.changeCredential(
         state.connectionId,
         state.version,
         pendingCredentialPayload
       )
+      const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
       state.version = credResult.version
-      state.credentialVersion = credResult.credential?.version ?? state.credentialVersion
-      state.credentialState = credResult.credential?.state ?? state.credentialState
+      state.credentialVersion = credResult.credential?.version ?? fallbackCredVersion
+      state.credentialState =
+        credResult.credential?.state ??
+        (pendingCredentialPayload.operation === 'clear' ? 'unset' : 'unverified')
       state.credentialLastFour = credResult.credential?.last_four ?? null
       state.credentialSecret = ''
       state.credentialRefreshToken = ''
       state.credentialMode = 'keep'
+      state.mode = 'edit'
     }
     if (state.connectionId) {
       void loadConnectionEvents(state.connectionId)
@@ -434,19 +632,23 @@ async function ensureConnectionPersisted(): Promise<boolean> {
   })
   state.version = patched.version
 
-  if (pendingCredentialMode !== 'keep') {
+  if (shouldMutateCredential && pendingCredentialPayload.operation !== 'keep') {
     const credResult = await connectionsApi.changeCredential(
       state.connectionId,
       state.version,
       pendingCredentialPayload
     )
+    const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
     state.version = credResult.version
-    state.credentialVersion = credResult.credential?.version ?? state.credentialVersion
-    state.credentialState = credResult.credential?.state ?? state.credentialState
+    state.credentialVersion = credResult.credential?.version ?? fallbackCredVersion
+    state.credentialState =
+      credResult.credential?.state ??
+      (pendingCredentialPayload.operation === 'clear' ? 'unset' : 'unverified')
     state.credentialLastFour = credResult.credential?.last_four ?? null
     state.credentialSecret = ''
     state.credentialRefreshToken = ''
     state.credentialMode = 'keep'
+    state.mode = 'edit'
   }
   void loadConnectionEvents(state.connectionId)
   return true
@@ -485,11 +687,15 @@ async function handleEnrollOAuth() {
       credential_draft: oauthCode.value.trim(),
       revision: state.version
     })
+    const fallbackCredVersion = String(Number(state.credentialVersion || '1') + 1)
     state.version = result.version
-    state.credentialVersion = result.credential?.version ?? state.credentialVersion
-    state.credentialState = result.credential?.state ?? state.credentialState
+    state.credentialVersion = result.credential?.version ?? fallbackCredVersion
+    state.credentialState = result.credential?.state ?? 'unverified'
     state.credentialLastFour = result.credential?.last_four ?? null
+    state.credentialMode = 'keep'
+    state.mode = 'edit'
     oauthCode.value = ''
+    stepAttempted.value = false
     pageAsyncState.value = 'confirmed'
     void loadConnectionEvents(state.connectionId)
   } catch (err) {
@@ -507,6 +713,30 @@ async function handleEnrollOAuth() {
 
 async function handleRunVerification() {
   if (busy.value) return
+  const credentialCheck = canProceedFromStep(
+    state,
+    'credentials',
+    selectedSchema.value,
+    Date.now(),
+    isZh.value
+  )
+  if (!credentialCheck.valid) {
+    state.currentStep = 'credentials'
+    stepAttempted.value = true
+    state.asyncError = {
+      state: 'partial_failure',
+      status: 0,
+      reason: 'CREDENTIAL_UNAVAILABLE',
+      message:
+        credentialCheck.reason ||
+        (isZh.value
+          ? '尚未配置有效凭据，请先填写 API Key 密钥或完成 OAuth 授权。'
+          : 'Configure a valid API key or OAuth credential before running verification.')
+    }
+    pageAsyncState.value = 'partial_failure'
+    return
+  }
+
   busy.value = true
   pageAsyncState.value = 'background_refresh'
   state.asyncError = null
@@ -525,22 +755,32 @@ async function handleRunVerification() {
     })
     const refreshed = await connectionsApi.getConnection(state.connectionId)
     Object.assign(state, hydrateWizardFromResource(state, refreshed))
-    state.verificationStale = !isVerificationFresh(state.verification)
-    if (!modelIdsText.value.trim() && refreshed.last_verification?.models?.length) {
-      modelIdsText.value = refreshed.last_verification.models.join(', ')
+    const opVerification = extractOperationVerification(finalOp)
+    if (!state.verification && opVerification) {
+      state.verification = opVerification
+    }
+    state.verificationStale = state.verification ? !isVerificationFresh(state.verification) : false
+    const discoveredList = state.verification?.models ?? []
+    if (!modelIdsText.value.trim() && discoveredList.length > 0) {
+      modelIdsText.value = discoveredList.join(', ')
     }
     void loadConnectionEvents(state.connectionId)
 
     if (finalOp.state === 'failed') {
+      if (hasUnknownEvidenceOnly.value) {
+        state.asyncError = null
+        pageAsyncState.value = null
+        return
+      }
+      const rawOpMessage = typeof finalOp.error?.message === 'string' ? finalOp.error.message.trim() : ''
+      const localizedFailureMessage =
+        isZh.value && (!rawOpMessage || !/[\u4e00-\u9fff]/.test(rawOpMessage))
+          ? '上游连通性或凭据鉴权探测未通过，请查看下方检查项详情并核对配置。'
+          : rawOpMessage || 'Verification probe did not pass. Review the check details below.'
       state.asyncError = {
         state: 'partial_failure',
-        status: 422,
-        message:
-          typeof finalOp.error?.message === 'string'
-            ? finalOp.error.message
-            : isZh.value
-              ? '上游连通性或鉴权探测未通过，请查看下方检查项详情。'
-              : 'Verification probe failed. Review check details below.',
+        status: 0,
+        message: localizedFailureMessage,
         requestId: finalOp.operation_id
       }
       pageAsyncState.value = 'partial_failure'
@@ -697,7 +937,8 @@ function handleSelectStep(targetStep: WizardStepId) {
       stepAttempted.value = true
       state.asyncError = {
         state: 'partial_failure',
-        status: 422,
+        status: 0,
+        reason: stepId === 'credentials' ? 'CREDENTIAL_UNAVAILABLE' : undefined,
         message: check.reason || (isZh.value ? '请先完成当前步骤必填项。' : 'Complete the current step before advancing.')
       }
       pageAsyncState.value = 'partial_failure'
@@ -708,6 +949,37 @@ function handleSelectStep(targetStep: WizardStepId) {
   stepAttempted.value = false
   pageAsyncState.value = null
   state.asyncError = null
+}
+
+function handleBannerConfigureCredential() {
+  state.currentStep = 'credentials'
+  stepAttempted.value = true
+  pageAsyncState.value = null
+  state.asyncError = null
+}
+
+function handleBannerRetry() {
+  if (schemas.value.length === 0 && !state.connectionId) {
+    void loadInitialData()
+    return
+  }
+  if (state.asyncError?.reason === 'CREDENTIAL_UNAVAILABLE') {
+    handleBannerConfigureCredential()
+    return
+  }
+  if (state.currentStep === 'verify') {
+    void handleRunVerification()
+    return
+  }
+  if (state.currentStep === 'preview') {
+    void handleRunPreview()
+    return
+  }
+  if (state.currentStep === 'activate') {
+    void handleActivate()
+    return
+  }
+  void handleSaveDraft()
 }
 
 function togglePool(poolId: string) {
@@ -739,20 +1011,22 @@ function formatCheckState(checkState: string): string {
   if (checkState === 'passed') return '通过'
   if (checkState === 'failed') return '未通过'
   if (checkState === 'unsupported') return '不支持'
-  return '待确认'
+  return '无内置探针'
 }
 
 function formatBlockedReason(reason: string): string {
   const mapZh: Record<string, string> = {
     MODELS_REQUIRED: '请至少填写一个已通过探测的模型 ID',
     INCOMPATIBLE_PROVIDER: '所填模型不在本次探测发现的可用模型列表中，请核对模型名称',
-    VERIFICATION_REQUIRED: '请先在上一歩完成连通性验证',
+    VERIFICATION_REQUIRED:
+      '该协议尚未获得主动探测通过凭证；若使用无内置探针的兼容协议，可点击底部“保存草稿”保存模型与资源池配置',
     CONNECTION_INACTIVE: '当前连接尚未处于启用状态'
   }
   const mapEn: Record<string, string> = {
     MODELS_REQUIRED: 'Specify at least one verified model ID',
     INCOMPATIBLE_PROVIDER: 'One or more model IDs were not returned by upstream discovery',
-    VERIFICATION_REQUIRED: 'Complete connection verification first',
+    VERIFICATION_REQUIRED:
+      'Active probe verification is required to preview activation; for custom schemas without built-in probes, use Save Draft',
     CONNECTION_INACTIVE: 'Connection is currently inactive'
   }
   return (isZh.value ? mapZh[reason] : mapEn[reason]) || reason
@@ -813,19 +1087,31 @@ function formatEventType(type: string): string {
         </template>
       </PageHeader>
 
-      <AsyncStateBanner
-        v-if="pageAsyncState"
-        :state="pageAsyncState"
-        :error="state.asyncError"
-        :confirmed-version="state.confirmedVersion ?? state.version"
-        :confirmed-label="isZh ? '连接状态已同步' : 'Connection state synchronized'"
-        :empty-title="isZh ? '暂无可用的提供商协议模板' : 'No provider schemas available'"
-        :empty-description="
-          isZh ? '当前工作空间尚未返回可用的上游协议定义。' : 'No upstream provider schemas are currently available.'
-        "
-        @retry="loadInitialData"
-        @reload-latest="loadInitialData"
-      />
+      <div ref="bannerAnchorRef" tabindex="-1" class="outline-none scroll-mt-20">
+        <AsyncStateBanner
+          v-if="pageAsyncState"
+          :state="pageAsyncState"
+          :error="state.asyncError"
+          :confirmed-version="state.confirmedVersion ?? state.version"
+          :confirmed-label="isZh ? '连接状态已同步' : 'Connection state synchronized'"
+          :credential-action-label="
+            state.currentStep !== 'credentials'
+              ? isZh
+                ? '返回第 2 步配置凭据'
+                : 'Go to Step 2'
+              : undefined
+          "
+          :empty-title="isZh ? '暂无可用的提供商协议模板' : 'No provider schemas available'"
+          :empty-description="
+            isZh
+              ? '当前工作空间尚未返回可用的上游协议定义。'
+              : 'No upstream provider schemas are currently available.'
+          "
+          @retry="handleBannerRetry"
+          @reload-latest="loadInitialData"
+          @configure-credential="handleBannerConfigureCredential"
+        />
+      </div>
 
       <div class="lg:hidden">
         <Stepper
@@ -837,7 +1123,7 @@ function formatEventType(type: string): string {
       </div>
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
-        <aside class="hidden lg:block space-y-4">
+        <aside class="hidden lg:block lg:sticky lg:top-20 lg:self-start space-y-4">
           <Card padding="md">
             <Stepper
               :steps="stepperItems"
@@ -848,9 +1134,9 @@ function formatEventType(type: string): string {
           </Card>
         </aside>
 
-        <main class="space-y-4">
+        <div class="min-w-0 space-y-4">
           <Card v-if="state.currentStep === 'provider'" padding="lg">
-            <div class="space-y-5">
+            <div class="space-y-4">
               <div class="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 class="text-base font-semibold text-oh-fg">
@@ -864,49 +1150,152 @@ function formatEventType(type: string): string {
                     }}
                   </p>
                 </div>
-                <div class="w-full sm:w-64">
+                <div class="w-full sm:w-72">
                   <Input
                     v-model="schemaSearch"
-                    :placeholder="isZh ? '搜索提供商或认证方式…' : 'Search provider or auth…'"
+                    :placeholder="
+                      isZh ? '搜索品牌名、平台 ID 或协议…' : 'Search provider name, ID, or protocol…'
+                    "
                     size="sm"
                   />
                 </div>
               </div>
 
-              <div class="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                <button
-                  v-for="schema in filteredSchemas"
-                  :key="schema.provider"
-                  type="button"
-                  class="rounded-oh-md border p-3 text-left transition-colors"
-                  :class="
-                    state.provider === schema.provider
-                      ? 'border-oh-accent bg-oh-accent/10'
-                      : 'border-oh-default bg-oh-surface hover:border-oh-strong'
-                  "
-                  @click="selectProviderSchema(schema)"
-                >
-                  <div class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-semibold text-oh-fg">
-                      {{ getProviderDisplayMeta(schema.provider).label }}
+              <div class="space-y-2.5 rounded-oh-lg border border-oh-default bg-oh-subtle/20 p-3">
+                <div class="flex flex-wrap items-center gap-1.5" role="tablist">
+                  <button
+                    v-for="tab in providerCategoryTabs"
+                    :key="tab.id"
+                    type="button"
+                    role="tab"
+                    :aria-selected="providerCategoryTab === tab.id"
+                    class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                    :class="
+                      providerCategoryTab === tab.id
+                        ? 'border-oh-accent bg-oh-accent/10 text-oh-fg'
+                        : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-fg'
+                    "
+                    @click="selectProviderTab(tab.id)"
+                  >
+                    <span>{{ tab.label }}</span>
+                    <span class="font-mono text-[10px] tabular-nums text-oh-muted">
+                      {{ tab.count }}
                     </span>
-                    <Badge tone="neutral" variant="outline">
-                      {{ getAuthModeLabel(schema.auth_types[0] ?? 'api_key', isZh) }}
-                    </Badge>
-                  </div>
-                  <p class="mt-1 text-xs text-oh-muted">
-                    {{ getProviderDisplayMeta(schema.provider).protocolSummary }}
-                  </p>
-                </button>
+                  </button>
+                </div>
+
+                <div
+                  v-if="displayedSchemas.length === 0"
+                  class="flex flex-wrap items-center justify-between gap-2 rounded-oh-md border border-dashed border-oh-default bg-oh-surface px-3.5 py-3 text-xs text-oh-muted"
+                >
+                  <span>
+                    {{
+                      isZh
+                        ? '未找到匹配当前筛选条件的提供商协议。'
+                        : 'No provider schemas match the current search or category.'
+                    }}
+                  </span>
+                  <Button size="xs" variant="ghost" type="button" @click="clearProviderFilters">
+                    {{ isZh ? '重置筛选' : 'Clear Filters' }}
+                  </Button>
+                </div>
+
+                <div
+                  v-else
+                  class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
+                  :class="isProviderGridExpanded ? 'max-h-[264px] overflow-y-auto pr-1' : ''"
+                >
+                  <button
+                    v-for="schema in displayedSchemas"
+                    :key="schema.provider"
+                    type="button"
+                    class="group relative rounded-oh-md border px-3 py-2 text-left transition-colors"
+                    :class="
+                      state.provider === schema.provider
+                        ? 'border-oh-accent bg-oh-accent/10 ring-1 ring-oh-accent/40'
+                        : 'border-oh-default bg-oh-surface hover:border-oh-strong'
+                    "
+                    @click="selectProviderSchema(schema)"
+                  >
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="truncate text-xs font-semibold text-oh-fg">
+                        {{ getProviderDisplayMeta(schema.provider, isZh).label }}
+                      </span>
+                      <Badge
+                        :tone="state.provider === schema.provider ? 'accent' : 'neutral'"
+                        :variant="state.provider === schema.provider ? 'subtle' : 'outline'"
+                      >
+                        {{
+                          getAuthModeLabel(
+                            filterSupportedAuthTypes(schema.auth_types)[0] ?? 'api_key',
+                            isZh
+                          )
+                        }}
+                      </Badge>
+                    </div>
+                    <div class="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-oh-muted">
+                      <span class="truncate">
+                        {{ getProviderDisplayMeta(schema.provider, isZh).protocolSummary }}
+                      </span>
+                      <span class="shrink-0 font-mono text-[10px] opacity-75">
+                        {{ schema.provider }}
+                      </span>
+                    </div>
+                  </button>
+                </div>
+
+                <div
+                  v-if="matchingSchemas.length > COMPACT_PROVIDER_LIMIT && !schemaSearch.trim()"
+                  class="flex flex-wrap items-center justify-between gap-2 border-t border-oh-default pt-2 text-xs"
+                >
+                  <span class="text-oh-muted">
+                    {{
+                      isProviderGridExpanded
+                        ? isZh
+                          ? `已展开 ${matchingSchemas.length} 个提供商（列表内可滚动浏览）`
+                          : `Showing all ${matchingSchemas.length} providers (scrollable)`
+                        : isZh
+                          ? `默认展示精选主流（已选：${getProviderDisplayMeta(state.provider, true).label || '-'}），另有 ${hiddenProviderCount} 个平台可展开`
+                          : `Showing featured providers (selected: ${getProviderDisplayMeta(state.provider, false).label || '-'}), ${hiddenProviderCount} more available`
+                    }}
+                  </span>
+                  <button
+                    type="button"
+                    class="font-medium text-oh-accent hover:underline"
+                    @click="
+                      providerCategoryTab !== 'all'
+                        ? clearProviderFilters()
+                        : (showAllProviders = !showAllProviders)
+                    "
+                  >
+                    {{
+                      isProviderGridExpanded
+                        ? isZh
+                          ? '收起至精选主流'
+                          : 'Collapse to Featured'
+                        : isZh
+                          ? `展开全部 ${matchingSchemas.length} 个提供商`
+                          : `Show all ${matchingSchemas.length} providers`
+                    }}
+                  </button>
+                </div>
               </div>
 
-              <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Input
-                  v-model="state.name"
-                  :label="isZh ? '连接名称' : 'Connection Name'"
-                  :placeholder="isZh ? '例如：OpenAI 主力连接' : 'e.g. OpenAI Primary Connection'"
-                  @blur="state.name = state.name.trim()"
-                />
+              <div class="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+                <div class="space-y-1">
+                  <Input
+                    v-model="state.name"
+                    :label="isZh ? '连接名称' : 'Connection Name'"
+                    :placeholder="isZh ? '例如：OpenAI 主力连接' : 'e.g. OpenAI Primary Connection'"
+                    @blur="state.name = state.name.trim()"
+                  />
+                  <p v-if="nameInlineError" class="text-xs text-oh-danger">
+                    {{ nameInlineError }}
+                  </p>
+                  <p v-else-if="nameByteLength > 75" class="text-[11px] font-mono text-oh-muted">
+                    {{ isZh ? `名称长度：${nameByteLength} / 100 字节` : `Length: ${nameByteLength} / 100 UTF-8 bytes` }}
+                  </p>
+                </div>
                 <Select
                   v-model="state.authType"
                   :label="isZh ? '认证方式' : 'Authentication Mode'"
@@ -946,24 +1335,24 @@ function formatEventType(type: string): string {
                 />
               </div>
 
-              <div class="rounded-oh-md border border-oh-default bg-oh-subtle/30 p-4 space-y-3">
-                <div class="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h3 class="text-sm font-semibold text-oh-fg">
-                      {{ isZh ? '自定义出站请求头 (header_overrides，可选)' : 'Outbound Custom Headers (header_overrides, optional)' }}
-                    </h3>
-                    <p class="text-xs text-oh-muted">
+              <div class="rounded-oh-md border border-oh-default bg-oh-subtle/30 px-3.5 py-2.5 space-y-2.5">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    class="flex items-center gap-2 text-left"
+                    @click="headerOverridesExpanded = !headerOverridesExpanded"
+                  >
+                    <h3 class="text-xs font-semibold text-oh-fg">
                       {{
-                        supportsHeaderOverrides
-                          ? isZh
-                            ? '转发请求至上游前按名称覆盖对应 HTTP Header；适合自建网关、WAF 准入校验或兼容特定客户端标识。'
-                            : 'Override outbound HTTP headers sent to this upstream; useful for WAF gates or custom client identifiers.'
-                          : isZh
-                            ? '当前所选提供商或认证方式暂不支持自定义请求头覆写（切换至 OpenAI / Anthropic / Kimi / DeepSeek / Zhipu 等 API Key 模式后可用）。'
-                            : 'Custom header overrides are available on API Key modes for OpenAI, Anthropic, Kimi, DeepSeek, Zhipu, Grok, etc.'
+                        isZh
+                          ? '自定义出站请求头 (header_overrides，可选)'
+                          : 'Outbound Custom Headers (header_overrides, optional)'
                       }}
-                    </p>
-                  </div>
+                    </h3>
+                    <Badge v-if="state.headerOverrides.length > 0" tone="accent" variant="subtle" mono>
+                      {{ state.headerOverrides.length }}
+                    </Badge>
+                  </button>
                   <div v-if="supportsHeaderOverrides" class="flex flex-wrap items-center gap-2">
                     <Button
                       size="xs"
@@ -982,9 +1371,23 @@ function formatEventType(type: string): string {
                       {{ isZh ? '+ 添加请求头' : '+ Add Header' }}
                     </Button>
                   </div>
+                  <span v-else class="text-[11px] text-oh-muted">
+                    {{ isZh ? '当前协议不支持覆写请求头' : 'Not available for this protocol' }}
+                  </span>
                 </div>
 
-                <div v-if="state.headerOverrides.length > 0" class="space-y-2">
+                <div v-if="headerOverridesExpanded || state.headerOverrides.length > 0" class="space-y-2">
+                  <p class="text-xs text-oh-muted">
+                    {{
+                      supportsHeaderOverrides
+                        ? isZh
+                          ? '转发请求至上游前按名称覆盖对应 HTTP Header；适合自建网关、WAF 准入校验或兼容特定客户端标识。'
+                          : 'Override outbound HTTP headers sent to this upstream; useful for WAF gates or custom client identifiers.'
+                        : isZh
+                          ? '当前所选提供商或认证方式暂不支持自定义请求头覆写（切换至 OpenAI / Anthropic / Kimi / DeepSeek / Zhipu 等 API Key 模式后可用）。'
+                          : 'Custom header overrides are available on API Key modes for OpenAI, Anthropic, Kimi, DeepSeek, Zhipu, Grok, etc.'
+                    }}
+                  </p>
                   <div
                     v-for="(row, idx) in state.headerOverrides"
                     :key="idx"
@@ -1052,6 +1455,19 @@ function formatEventType(type: string): string {
                 full-width
                 @update:model-value="handleCredentialModeChange"
               />
+
+              <div
+                v-if="!stepValidation.valid"
+                role="alert"
+                class="rounded-oh-md border px-3.5 py-2.5 text-xs"
+                :class="
+                  stepAttempted
+                    ? 'border-oh-status-danger-border bg-oh-status-danger-bg/60 text-oh-danger'
+                    : 'border-oh-warning bg-oh-subtle/40 text-oh-fg'
+                "
+              >
+                {{ stepValidation.reason }}
+              </div>
 
               <div v-if="state.credentialMode === 'set'" class="space-y-3">
                 <Input
@@ -1159,19 +1575,58 @@ function formatEventType(type: string): string {
                 <Badge tone="accent" variant="subtle">{{ verifyOperation.state }}</Badge>
               </div>
 
+              <div
+                v-if="hasUnknownEvidenceOnly"
+                role="status"
+                class="rounded-oh-md border border-oh-warning bg-oh-surface p-3.5 space-y-1.5 text-xs"
+              >
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <span class="font-semibold text-oh-fg">
+                    {{
+                      isZh
+                        ? '当前兼容协议暂无内置主动探针（已允许继续手工配置）'
+                        : 'No built-in active probe for this compatible schema (manual setup unlocked)'
+                    }}
+                  </span>
+                  <Badge tone="warning" variant="subtle">EVIDENCE_UNAVAILABLE</Badge>
+                </div>
+                <p class="text-oh-secondary">
+                  {{
+                    isZh
+                      ? '服务端已记录当前连接与凭据，但该兼容协议未提供内置网络/模型主动探测器。您可直接点击下方“下一步”手工录入模型 ID 并保存配置，或调整服务地址后重新探测。'
+                      : 'Connection and credentials are saved, but this compatible schema does not expose a built-in active probe. Click Continue below to configure model IDs manually and save, or update the Endpoint URL and retry.'
+                  }}
+                </p>
+              </div>
+
               <div v-if="state.verification" class="divide-y divide-oh-default rounded-oh-md border border-oh-default">
                 <div
                   v-for="check in state.verification.checks"
                   :key="check.name"
                   class="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 text-sm"
                 >
-                  <div>
+                  <div class="space-y-0.5">
                     <div class="font-medium text-oh-fg">{{ formatCheckName(check.name) }}</div>
-                    <div v-if="check.reason" class="text-xs text-oh-danger">{{ check.reason }}</div>
+                    <div
+                      v-if="check.reason"
+                      class="text-xs"
+                      :class="check.state === 'failed' ? 'text-oh-danger' : 'text-oh-muted'"
+                    >
+                      {{ formatVerificationCheckReason(check.name, check.reason, isZh) }}
+                      <span class="ml-1 font-mono text-[11px] opacity-75">({{ check.reason }})</span>
+                    </div>
                   </div>
                   <div class="flex items-center gap-3">
                     <Badge
-                      :tone="check.state === 'passed' ? 'success' : check.state === 'failed' ? 'danger' : 'neutral'"
+                      :tone="
+                        check.state === 'passed'
+                          ? 'success'
+                          : check.state === 'failed'
+                            ? 'danger'
+                            : check.state === 'unknown'
+                              ? 'warning'
+                              : 'neutral'
+                      "
                       variant="subtle"
                     >
                       {{ formatCheckState(check.state) }}
@@ -1229,6 +1684,17 @@ function formatEventType(type: string): string {
                 >
                   {{ isZh ? '生成变更预览' : 'Generate Preview' }}
                 </Button>
+              </div>
+
+              <div
+                v-if="hasUnknownEvidenceOnly"
+                class="rounded-oh-md border border-oh-default bg-oh-subtle/40 px-3.5 py-2.5 text-xs text-oh-secondary"
+              >
+                {{
+                  isZh
+                    ? '当前兼容协议处于手工模型配置模式（EVIDENCE_UNAVAILABLE）。请在下方填写允许调度的模型 ID 与资源池，点击底部“保存草稿”即可持久化全部模型绑定。'
+                    : 'Manual model setup mode (EVIDENCE_UNAVAILABLE): enter exposed model IDs and pools below, then click Save Draft to persist your configuration.'
+                }}
               </div>
 
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1366,7 +1832,7 @@ function formatEventType(type: string): string {
                 <div>
                   <span class="text-oh-muted">{{ isZh ? '提供商与认证方式' : 'Provider & Auth' }}</span>
                   <div class="mt-0.5 font-medium text-oh-fg">
-                    {{ getProviderDisplayMeta(state.provider).label }} · {{ getAuthModeLabel(state.authType, isZh) }}
+                    {{ getProviderDisplayMeta(state.provider, isZh).label }} · {{ getAuthModeLabel(state.authType, isZh) }}
                   </div>
                 </div>
                 <div>
@@ -1495,28 +1961,73 @@ function formatEventType(type: string): string {
             </div>
           </Card>
 
-          <div class="flex items-center justify-between pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              :disabled="state.currentStep === 'provider'"
-              @click="goBack"
-            >
-              {{ isZh ? '上一步' : 'Previous' }}
-            </Button>
-            <div class="flex items-center gap-3">
-              <span v-if="!stepValidation.valid" class="text-xs text-oh-warning">
-                {{ stepValidation.reason }}
-              </span>
-              <Button
-                v-if="state.currentStep !== 'activate'"
-                variant="primary"
-                size="sm"
-                :disabled="!stepValidation.valid"
-                @click="goNext"
-              >
-                {{ isZh ? '下一步' : 'Continue' }}
-              </Button>
+          <div
+            class="sticky bottom-0 z-10 -mx-4 sm:-mx-6 px-4 sm:px-6 bg-[var(--oh-bg-canvas)]/90 backdrop-blur border-t border-[var(--oh-border-subtle)] py-3"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="state.currentStep === 'provider'"
+                  @click="goBack"
+                >
+                  {{ isZh ? '上一步' : 'Previous' }}
+                </Button>
+                <span
+                  v-if="state.provider"
+                  class="hidden sm:inline-flex items-center gap-1.5 truncate text-xs text-oh-muted"
+                >
+                  <span class="font-medium text-oh-fg">
+                    {{ getProviderDisplayMeta(state.provider, isZh).label }}
+                  </span>
+                  <span>·</span>
+                  <span>{{ getAuthModeLabel(state.authType, isZh) }}</span>
+                </span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2.5">
+                <span
+                  v-if="!stepValidation.valid && state.currentStep !== 'activate'"
+                  class="text-xs text-oh-warning"
+                >
+                  {{ stepValidation.reason }}
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  :loading="busy"
+                  @click="handleSaveDraft"
+                >
+                  {{ isZh ? '保存草稿' : 'Save Draft' }}
+                </Button>
+                <Button
+                  v-if="state.currentStep !== 'activate'"
+                  variant="primary"
+                  size="sm"
+                  :disabled="!stepValidation.valid"
+                  @click="goNext"
+                >
+                  {{ isZh ? '下一步' : 'Continue' }}
+                </Button>
+                <Button
+                  v-else
+                  variant="primary"
+                  size="sm"
+                  :loading="busy"
+                  :disabled="Boolean(state.confirmedVersion)"
+                  @click="handleActivate"
+                >
+                  {{
+                    state.confirmedVersion
+                      ? isZh
+                        ? `已启用 (#${state.confirmedVersion})`
+                        : `Activated (#${state.confirmedVersion})`
+                      : isZh
+                        ? '正式启用连接'
+                        : 'Activate Connection'
+                  }}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1583,7 +2094,7 @@ function formatEventType(type: string): string {
               </div>
             </div>
           </Card>
-        </main>
+        </div>
       </div>
     </div>
   </AppLayout>

@@ -1,5 +1,7 @@
 import type { UiStepItem, UiStepStatus } from '@/components/ui'
 import {
+  isAllowedCredentialType,
+  isOAuthWorkflowSupported,
   isVerificationFresh,
   validateConnectionEndpoint,
   validateHeaderOverrideRows,
@@ -93,6 +95,10 @@ export function hydrateWizardFromResource(
   state: ConnectionWizardState,
   resource: ConnectionResource
 ): ConnectionWizardState {
+  const credentialRedacted = Array.isArray(resource.redactions) && resource.redactions.includes('credential')
+  const nextCredentialState = resource.credential?.state ?? (credentialRedacted ? 'unverified' : 'unset')
+  const preserveCreateDraftMode =
+    state.mode === 'create' && resource.state === 'draft' && nextCredentialState === 'unset'
   const headerOverrides: HeaderOverrideDraftRow[] = resource.header_overrides
     ? Object.entries(resource.header_overrides).map(([key, value]) => ({
         key,
@@ -101,11 +107,11 @@ export function hydrateWizardFromResource(
     : state.headerOverrides
   return {
     ...state,
-    mode: 'edit',
+    mode: preserveCreateDraftMode ? 'create' : 'edit',
     connectionId: resource.id,
     version: resource.version,
     credentialVersion: resource.credential?.version ?? '1',
-    credentialState: resource.credential?.state ?? 'unset',
+    credentialState: nextCredentialState,
     credentialLastFour: resource.credential?.last_four ?? null,
     connectionState: resource.state,
     provider: resource.provider,
@@ -115,7 +121,7 @@ export function hydrateWizardFromResource(
     endpoint: resource.endpoint,
     networkPolicyId: resource.network_policy_id,
     headerOverrides,
-    credentialMode: 'keep',
+    credentialMode: nextCredentialState === 'unset' ? 'set' : 'keep',
     credentialSecret: '',
     credentialRefreshToken: '',
     verification: resource.last_verification,
@@ -146,18 +152,61 @@ export function invalidatePreview(state: ConnectionWizardState): ConnectionWizar
   }
 }
 
-export function buildCredentialInputPayload(state: ConnectionWizardState): ConnectionCredentialInput {
-  if (state.credentialMode === 'keep') {
-    return { operation: 'keep' }
+export function getUtf8ByteLength(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let idx = 0; idx < value.length; idx += 1) {
+    const code = value.charCodeAt(idx)
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return true
+    }
   }
+  return false
+}
+
+export function validateConnectionName(name: string, isZh = false): string | null {
+  const trimmedName = name.trim()
+  if (!trimmedName) {
+    return isZh ? '请填写连接名称。' : 'Connection name is required.'
+  }
+  if (containsControlCharacter(trimmedName)) {
+    return isZh ? '连接名称不能包含控制字符。' : 'Connection name must not contain control characters.'
+  }
+  if (getUtf8ByteLength(trimmedName) > 100) {
+    return isZh
+      ? '连接名称长度不能超过 100 字节（约 33 个汉字或 100 个英文字符）。'
+      : 'Connection name must be 100 UTF-8 bytes or fewer.'
+  }
+  return null
+}
+
+export function hasPendingCredentialMutation(state: ConnectionWizardState): boolean {
+  if (state.credentialMode === 'clear') {
+    return true
+  }
+  if (state.credentialMode === 'set') {
+    return state.credentialSecret.trim().length > 0
+  }
+  return false
+}
+
+export function buildCredentialInputPayload(state: ConnectionWizardState): ConnectionCredentialInput {
   if (state.credentialMode === 'clear') {
     return { operation: 'clear' }
   }
+  const trimmedSecret = state.credentialSecret.trim()
+  if (state.credentialMode === 'keep' || trimmedSecret === '') {
+    return { operation: 'keep' }
+  }
+  const trimmedRefresh = state.credentialRefreshToken.trim()
+  const normalizedAuth = state.authType.trim().toLowerCase()
   return {
     operation: 'set',
     type: state.authType,
-    secret: state.credentialSecret.trim(),
-    ...(state.credentialRefreshToken.trim() ? { refresh_token: state.credentialRefreshToken.trim() } : {})
+    secret: trimmedSecret,
+    ...(trimmedRefresh && normalizedAuth === 'oauth' ? { refresh_token: trimmedRefresh } : {})
   }
 }
 
@@ -175,16 +224,16 @@ export function canProceedFromStep(
     if (!state.authType.trim()) {
       return { valid: false, reason: isZh ? '请选择认证模式。' : 'Select an authentication mode.' }
     }
-    const trimmedName = state.name.trim()
-    if (!trimmedName) {
-      return { valid: false, reason: isZh ? '请填写连接名称。' : 'Connection name is required.' }
-    }
-    if (trimmedName.length > 100) {
+    if (!isAllowedCredentialType(state.authType)) {
       return {
         valid: false,
-        reason: isZh ? '连接名称不能超过 100 个字符。' : 'Connection name must be 100 characters or fewer.'
+        reason: isZh
+          ? '所选认证模式不受服务端凭据契约支持，请重新选择认证方式。'
+          : 'Selected authentication mode is not supported by credential schema.'
       }
     }
+    const nameErr = validateConnectionName(state.name, isZh)
+    if (nameErr) return { valid: false, reason: nameErr }
     const endpointRequired = Boolean(schema?.fields?.some((field) => field.path === 'endpoint' && field.required))
     const endpointErr = validateConnectionEndpoint(state.endpoint, endpointRequired, isZh)
     if (endpointErr) return { valid: false, reason: endpointErr }
@@ -201,14 +250,6 @@ export function canProceedFromStep(
   }
 
   if (step === 'credentials') {
-    if (state.credentialMode === 'set' && !state.credentialSecret.trim()) {
-      return {
-        valid: false,
-        reason: isZh
-          ? '请填写密钥凭据，或将凭据模式切换为“保留现有凭据”。'
-          : 'Enter a secret or switch credential mode to Keep.'
-      }
-    }
     if (state.credentialMode === 'clear') {
       return {
         valid: false,
@@ -217,10 +258,36 @@ export function canProceedFromStep(
           : 'Cleared credentials cannot be verified until a replacement secret is set.'
       }
     }
-    if (state.mode === 'create' && state.credentialMode === 'keep' && state.credentialState === 'unset') {
+    if (state.credentialMode === 'keep' && state.credentialState === 'revoked') {
       return {
         valid: false,
-        reason: isZh ? '新建连接需先配置认证凭据后才能继续。' : 'Set a credential before continuing.'
+        reason: isZh
+          ? '当前凭据已失效或吊销，请填写新的替换密钥或重新完成授权。'
+          : 'Current credential has been revoked. Set a replacement secret or re-authorize.'
+      }
+    }
+    const missingUnsetCredential =
+      (state.credentialMode === 'keep' && state.credentialState === 'unset') ||
+      (state.credentialMode === 'set' && !state.credentialSecret.trim() && state.credentialState === 'unset')
+    if (missingUnsetCredential) {
+      const oauthSupported = isOAuthWorkflowSupported(schema, state.authType)
+      return {
+        valid: false,
+        reason: oauthSupported
+          ? isZh
+            ? '尚未配置有效凭据，请填写访问令牌密钥或在下方完成 OAuth 授权绑定后再继续。'
+            : 'No credential is configured yet. Enter an access token secret or attach OAuth authorization before continuing.'
+          : isZh
+            ? '尚未配置有效凭据，请先填写 API Key 密钥后再进入连通性验证。'
+            : 'No credential is configured yet. Enter a valid API key / secret before continuing.'
+      }
+    }
+    if (state.credentialMode === 'set' && !state.credentialSecret.trim()) {
+      return {
+        valid: false,
+        reason: isZh
+          ? '请填写新的替换密钥，或将凭据模式切换回“保留现有凭据”。'
+          : 'Enter a replacement secret or switch credential mode to Keep.'
       }
     }
     return { valid: true }

@@ -12,6 +12,8 @@ export interface AsyncStateBannerProps {
   emptyActionLabel?: string
   confirmedLabel?: string
   confirmedVersion?: string | null
+  credentialActionLabel?: string
+  retryable?: boolean
 }
 
 const props = withDefaults(defineProps<AsyncStateBannerProps>(), {
@@ -20,7 +22,9 @@ const props = withDefaults(defineProps<AsyncStateBannerProps>(), {
   emptyDescription: undefined,
   emptyActionLabel: undefined,
   confirmedLabel: undefined,
-  confirmedVersion: null
+  confirmedVersion: null,
+  credentialActionLabel: undefined,
+  retryable: true
 })
 
 const emit = defineEmits<{
@@ -29,10 +33,13 @@ const emit = defineEmits<{
   clearFilters: []
   refreshStatus: []
   reloadLatest: []
+  configureCredential: []
 }>()
 
 const { locale } = useI18n()
 const isZh = computed(() => String(locale?.value || '').toLowerCase().startsWith('zh'))
+const normalizedReason = computed(() => String(props.error?.reason || '').trim().toUpperCase())
+const isCredentialUnavailable = computed(() => normalizedReason.value === 'CREDENTIAL_UNAVAILABLE')
 
 const resolvedEmptyTitle = computed(
   () => props.emptyTitle || (isZh.value ? '暂无可用记录' : 'No items available')
@@ -40,6 +47,15 @@ const resolvedEmptyTitle = computed(
 const resolvedConfirmedLabel = computed(
   () => props.confirmedLabel || (isZh.value ? '配置已保存' : 'Changes saved')
 )
+const partialFailureTitle = computed(() => {
+  if (props.error?.fields?.length) {
+    return isZh.value ? '配置字段校验未通过' : 'Field validation failed'
+  }
+  if (isCredentialUnavailable.value) {
+    return isZh.value ? '尚未配置有效凭据' : 'Credential not configured'
+  }
+  return isZh.value ? '操作未通过或被拒绝' : 'Operation failed or rejected'
+})
 </script>
 
 <template>
@@ -163,22 +179,32 @@ const resolvedConfirmedLabel = computed(
 
   <div v-else-if="state === 'partial_failure'" class="space-y-2">
     <ErrorState
+      v-if="isCredentialUnavailable"
       variant="error"
-      :title="
-        error?.fields?.length
-          ? isZh
-            ? '配置字段校验未通过'
-            : 'Field validation failed'
-          : isZh
-            ? '操作未通过或被拒绝'
-            : 'Operation failed or rejected'
+      :title="partialFailureTitle"
+      :message="
+        error?.message ||
+        (isZh
+          ? '尚未配置有效凭据，请返回第 2 步填写密钥或完成 OAuth 授权。'
+          : 'No valid credential is configured yet. Return to Step 2 to set a secret or complete OAuth authorization.')
       "
+      :code="error?.status || undefined"
+      :request-id="error?.requestId"
+      :retryable="Boolean(credentialActionLabel)"
+      :retry-label="credentialActionLabel || (isZh ? '返回第 2 步配置凭据' : 'Configure Credential')"
+      @retry="emit('configureCredential')"
+    />
+    <ErrorState
+      v-else
+      variant="error"
+      :title="partialFailureTitle"
       :message="
         error?.message ||
         (isZh ? '一项或多项检查未通过，请查看详情后重试。' : 'One or more checks failed. Review details and retry.')
       "
       :code="error?.status || undefined"
       :request-id="error?.requestId"
+      :retryable="retryable"
       :retry-label="isZh ? '重试' : 'Retry'"
       @retry="emit('retry')"
     />

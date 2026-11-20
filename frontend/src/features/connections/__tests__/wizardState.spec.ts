@@ -3,7 +3,9 @@ import {
   buildCredentialInputPayload,
   canProceedFromStep,
   createInitialWizardState,
+  getUtf8ByteLength,
   getWizardStepStatuses,
+  hasPendingCredentialMutation,
   hydrateWizardFromResource,
   invalidatePreview,
   invalidateVerification
@@ -36,28 +38,92 @@ describe('connections/wizardState', () => {
     expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(false)
     state.networkPolicyId = ''
     expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(true)
+
+    state.name = '连接'.repeat(16)
+    expect(getUtf8ByteLength(state.name)).toBe(96)
+    expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(true)
+
+    state.name = '汉字名称'.repeat(9)
+    expect(getUtf8ByteLength(state.name)).toBe(108)
+    expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(false)
+
+    state.name = 'OpenAI Main'
+    state.authType = 'session_token'
+    expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(false)
   })
 
   it('enforces explicit keep / set / clear credential semantics', () => {
     const createState = createInitialWizardState('create')
-    expect(buildCredentialInputPayload(createState)).toEqual({
-      operation: 'set',
-      type: 'api_key',
-      secret: ''
-    })
+    expect(hasPendingCredentialMutation(createState)).toBe(false)
+    expect(buildCredentialInputPayload(createState)).toEqual({ operation: 'keep' })
     expect(canProceedFromStep(createState, 'credentials').valid).toBe(false)
 
     createState.credentialSecret = 'sk-test-1234'
+    expect(hasPendingCredentialMutation(createState)).toBe(true)
+    expect(buildCredentialInputPayload(createState)).toEqual({
+      operation: 'set',
+      type: 'api_key',
+      secret: 'sk-test-1234'
+    })
     expect(canProceedFromStep(createState, 'credentials').valid).toBe(true)
 
     const editState = createInitialWizardState('edit')
     editState.credentialMode = 'keep'
+    expect(canProceedFromStep(editState, 'credentials').valid).toBe(false)
+    editState.credentialState = 'verified'
     expect(buildCredentialInputPayload(editState)).toEqual({ operation: 'keep' })
     expect(canProceedFromStep(editState, 'credentials').valid).toBe(true)
 
     editState.credentialMode = 'clear'
+    expect(hasPendingCredentialMutation(editState)).toBe(true)
     expect(buildCredentialInputPayload(editState)).toEqual({ operation: 'clear' })
     expect(canProceedFromStep(editState, 'credentials').valid).toBe(false)
+  })
+
+  it('keeps unset draft credentials guarded after hydration and allows unknown probe evidence', () => {
+    const unsetDraft: ConnectionResource = {
+      id: 'conn_draft',
+      workspace_id: 'ws_1',
+      version: '1',
+      state: 'draft',
+      provider: 'siliconflow_cn',
+      schema_version: '1',
+      auth_type: 'api_key',
+      name: 'SiliconFlow Draft',
+      endpoint: 'https://api.siliconflow.cn/v1',
+      network_policy_id: '',
+      credential: {
+        version: '1',
+        type: 'api_key',
+        state: 'unset',
+        last_four: null,
+        updated_at: '2026-11-20T00:00:00Z'
+      },
+      last_verification: null,
+      model_ids: [],
+      pool_ids: [],
+      limits: { concurrency: 4 },
+      quota: { state: 'unknown', remaining: null, last_success_at: null },
+      allowed_actions: ['connections.edit', 'connections.verify'],
+      redactions: []
+    }
+    const hydrated = hydrateWizardFromResource(createInitialWizardState('create'), unsetDraft)
+    expect(hydrated.credentialState).toBe('unset')
+    expect(hydrated.credentialMode).toBe('set')
+    expect(canProceedFromStep(hydrated, 'credentials', null, Date.now(), true).valid).toBe(false)
+
+    const now = Date.parse('2026-11-20T10:00:00Z')
+    hydrated.verification = {
+      verification_id: 'ver_unknown',
+      models: [],
+      verified_at: '2026-11-20T09:59:00Z',
+      expires_at: '2026-11-20T12:00:00Z',
+      checks: [
+        { name: 'network', state: 'unknown', reason: 'EVIDENCE_UNAVAILABLE' },
+        { name: 'authorization', state: 'unknown', reason: 'EVIDENCE_UNAVAILABLE' }
+      ]
+    }
+    expect(canProceedFromStep(hydrated, 'verify', null, now, true).valid).toBe(true)
   })
 
   it('blocks preview progression when verification is missing, stale, or failed', () => {

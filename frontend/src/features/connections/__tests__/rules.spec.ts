@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ALLOWED_CREDENTIAL_TYPES,
   buildMixedChannelDetails,
   buildTempUnschedRules,
   canPerformConnectionAction,
+  extractOperationVerification,
   formatPoolModeRetryStatusCodes,
+  formatProviderIdLabel,
   getAuthModeLabel,
   getProviderDisplayMeta,
+  isAllowedCredentialType,
   isConnectionRedacted,
+  isHeaderOverrideSupported,
   isOAuthWorkflowSupported,
   isVerificationFresh,
   mapApiErrorToAsyncContext,
   normalizeConnectionEndpointInput,
   parsePoolModeRetryStatusCodes,
+  parseValidationFieldIssues,
   splitTempUnschedKeywords,
   toggleErrorCodeInList,
   validateConnectionEndpoint,
@@ -77,8 +83,25 @@ describe('connections/rules (UIR01)', () => {
       otherPlatform: 'Unknown'
     })
     expect(getProviderDisplayMeta('openai').label).toBe('OpenAI')
-    expect(getProviderDisplayMeta('custom_gw').label).toBe('CUSTOM_GW')
+    expect(getProviderDisplayMeta('custom_gw').label).toBe('Custom GW')
+    expect(getProviderDisplayMeta('custom_gw', true).protocolSummary).toBe('自定义兼容协议')
+    expect(getProviderDisplayMeta('custom_gw', false).protocolSummary).toBe('Custom Compatible Schema')
+    expect(getProviderDisplayMeta('siliconflow_cn', true).label).toContain('硅基流动')
+    expect(formatProviderIdLabel('SILICONFLOW_CN')).toBe('SiliconFlow (CN)')
     expect(getAuthModeLabel('oauth')).toBe('OAuth 2.0')
+    expect(getAuthModeLabel('setup-token', true)).toContain('Setup Token')
+    expect(ALLOWED_CREDENTIAL_TYPES).toEqual([
+      'api_key',
+      'oauth',
+      'setup-token',
+      'service_account',
+      'bedrock'
+    ])
+    expect(isAllowedCredentialType('setup-token')).toBe(true)
+    expect(isAllowedCredentialType('session_token')).toBe(false)
+    expect(isHeaderOverrideSupported('cursor', 'upstream')).toBe(false)
+    expect(isHeaderOverrideSupported('opencode_go', 'api_key')).toBe(true)
+    expect(isHeaderOverrideSupported('opencodego', 'api_key')).toBe(false)
   })
 
   it('checks OAuth workflow support, verification freshness, redaction, and role actions', () => {
@@ -169,6 +192,66 @@ describe('connections/rules (UIR01)', () => {
     expect(mappedZh.message).toContain('/endpoint')
     expect(mappedZh.message).toContain('上游服务地址')
     expect(mappedZh.fields?.[0]?.path).toBe('/endpoint')
+
+    const err409Credential = {
+      response: {
+        status: 409,
+        data: {
+          code: 409,
+          reason: 'CREDENTIAL_UNAVAILABLE',
+          message: 'Reload the connection and review its current state.'
+        }
+      }
+    }
+    const mappedCredZh = mapApiErrorToAsyncContext(err409Credential, '请求失败', true)
+    expect(mappedCredZh.state).toBe('partial_failure')
+    expect(mappedCredZh.message).toContain('尚未配置有效凭据')
+    expect(mappedCredZh.message).not.toContain('Reload the connection')
+
+    const mappedConflictZh = mapApiErrorToAsyncContext(
+      {
+        response: {
+          status: 409,
+          data: {
+            code: 409,
+            reason: 'VERSION_CONFLICT',
+            message: 'Reload the connection and review its current state.'
+          }
+        }
+      },
+      '请求失败',
+      true
+    )
+    expect(mappedConflictZh.state).toBe('version_conflict')
+    expect(mappedConflictZh.message).toContain('重新加载最新修订')
+
+    const fieldIssues = parseValidationFieldIssues([
+      { path: '/secret', reason: 'INVALID_INPUT' },
+      { path: '/type', reason: 'INVALID_INPUT' },
+      { path: '/operation', reason: 'INVALID_INPUT' },
+      { path: '/refresh_token', reason: 'INVALID_INPUT' },
+      { path: '/checks', reason: 'INVALID_INPUT' },
+      { path: '/network_policy_id', reason: 'INVALID_INPUT' },
+      { path: '/schema_version', reason: 'INVALID_INPUT' },
+      { path: '/auth_type', reason: 'INVALID_INPUT' }
+    ])
+    expect(fieldIssues).toHaveLength(8)
+    expect(fieldIssues.every((issue) => !issue.labelZh.startsWith('字段 ('))).toBe(true)
+
+    const extracted = extractOperationVerification({
+      operation_id: 'op_1',
+      state: 'failed',
+      status_url: '/api/v2/operations/op_1',
+      result: {
+        verification_id: 'ver_custom',
+        checks: [{ name: 'network', state: 'unknown', reason: 'EVIDENCE_UNAVAILABLE' }],
+        models: [],
+        verified_at: '2026-11-20T00:00:00Z',
+        expires_at: '2026-11-21T00:00:00Z'
+      }
+    })
+    expect(extracted?.verification_id).toBe('ver_custom')
+    expect(extracted?.checks[0]?.reason).toBe('EVIDENCE_UNAVAILABLE')
   })
 
   it('normalizes pasted endpoint suffixes and validates header overrides', () => {

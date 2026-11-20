@@ -69,7 +69,7 @@ const canRotate = computed(
     canPerformConnectionAction(connection.value, 'rotate_credential')
 )
 const providerMeta = computed(() =>
-  connection.value ? getProviderDisplayMeta(connection.value.provider) : null
+  connection.value ? getProviderDisplayMeta(connection.value.provider, isZh.value) : null
 )
 const poolOptions = computed(() => [
   { value: '', label: isZh.value ? '暂不绑定资源池' : 'Unassigned' },
