@@ -23,6 +23,8 @@ type Backend interface {
 	Workspaces(context.Context, int64, domain.Page) ([]domain.Workspace, error)
 	Projects(context.Context, int64, int64, domain.Page) ([]domain.Project, error)
 	Project(context.Context, int64, int64, int64) (domain.Project, error)
+	KeyGroups(context.Context, int64, int64, int64, domain.Page) ([]domain.KeyGroup, error)
+	SetGroupProject(context.Context, int64, int64, int64, int64, bool, string) (int64, error)
 	Keys(context.Context, int64, int64, int64, domain.Page) ([]domain.Key, error)
 	Members(context.Context, int64, int64, domain.Page) ([]domain.Member, error)
 	MemberGrants(context.Context, int64, int64, int64) (domain.MemberGrants, error)
@@ -155,6 +157,9 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	p.PATCH("", route(200, h.changeProject))
 	p.DELETE("", route(200, h.changeProject))
 	p.GET("/access", route(200, func(r request) (any, error) { return h.store.Evaluate(r.Request.Context(), r.actor, r.w, r.p, "") }))
+	p.GET("/key-groups", route(200, h.keyGroups))
+	p.PUT("/groups/:id", route(200, h.setGroupProject))
+	p.DELETE("/groups/:id", route(200, h.setGroupProject))
 	p.GET("/keys", route(200, h.keys))
 	p.POST("/keys", route(201, h.createKey))
 	w.GET("/members", route(200, h.members))
@@ -273,4 +278,16 @@ func (h *Handler) operation(r request) (any, error) {
 	}
 	op.StatusURL = "/api/v2/workspaces/" + strconv.FormatInt(r.w, 10) + "/operations/" + url.PathEscape(id)
 	return op, nil
+}
+
+func (h *Handler) setGroupProject(r request) (any, error) {
+	group, err := identifier(r.Param("id"))
+	if err != nil {
+		return nil, err
+	}
+	project, err := h.store.SetGroupProject(r.Request.Context(), r.actor, r.w, r.p, group, r.Request.Method == http.MethodPut, r.Writer.Header().Get("X-Request-ID"))
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{"group_id": strconv.FormatInt(group, 10), "project_id": strconv.FormatInt(project, 10)}, nil
 }

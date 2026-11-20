@@ -2742,6 +2742,103 @@ paths:
           $ref: '#/components/responses/ByokServicePrincipal'
         default:
           $ref: '#/components/responses/ByokError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/groups/{id}:
+    delete:
+      operationId: identityUnbindGroup
+      summary: Return an unused project group to the workspace default project
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityGroupBinding'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/IdentityID'
+    put:
+      operationId: identityBindGroup
+      summary: Assign an unused default-project group to this project
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityGroupBinding'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/key-groups:
+    get:
+      operationId: identityKeyGroups
+      summary: List groups eligible for key issuance by the current actor
+      parameters:
+        - $ref: '#/components/parameters/IdentityLimit'
+        - $ref: '#/components/parameters/IdentityCursor'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - code
+                  - message
+                  - data
+                properties:
+                  code:
+                    const: 0
+                  message:
+                    const: success
+                  data:
+                    $ref: '#/components/schemas/IdentityKeyGroupPage'
+        default:
+          description: Management error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    parameters:
+      - $ref: '#/components/parameters/IdentityWorkspaceID'
+      - $ref: '#/components/parameters/IdentityProjectID'
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/keys:
     get:
       operationId: identityKeys
@@ -7146,6 +7243,14 @@ components:
         effective_at:
           type: string
           format: date-time
+    IdentityGroupBinding:
+      type: object
+      required: [group_id, project_id]
+      properties:
+        group_id:
+          $ref: '#/components/schemas/IdentityID'
+        project_id:
+          $ref: '#/components/schemas/IdentityID'
     IdentityID:
       type: string
       pattern: ^[1-9][0-9]*$
@@ -7173,6 +7278,34 @@ components:
           type:
             - string
             - 'null'
+    IdentityKeyGroup:
+      type: object
+      required: [id, name, platform]
+      properties:
+        id:
+          $ref: '#/components/schemas/IdentityID'
+        name:
+          type: string
+        platform:
+          type: string
+    IdentityKeyGroupPage:
+      type: object
+      required:
+        - items
+        - next_cursor
+        - as_of
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IdentityKeyGroup'
+        next_cursor:
+          type:
+            - string
+            - 'null'
+        as_of:
+          type: string
+          format: date-time
     IdentityKeyInput:
       type: object
       required:

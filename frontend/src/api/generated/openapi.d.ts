@@ -1628,6 +1628,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Assign an unused default-project group to this project */
+        put: operations["identityBindGroup"];
+        post?: never;
+        /** Return an unused project group to the workspace default project */
+        delete: operations["identityUnbindGroup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/workspaces/{workspace_id}/projects/{project_id}/key-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        /** List groups eligible for key issuance by the current actor */
+        get: operations["identityKeyGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/workspaces/{workspace_id}/projects/{project_id}/keys": {
         parameters: {
             query?: never;
@@ -3220,6 +3262,10 @@ export interface components {
             /** Format: date-time */
             effective_at: string;
         };
+        IdentityGroupBinding: {
+            group_id: components["schemas"]["IdentityID"];
+            project_id: components["schemas"]["IdentityID"];
+        };
         IdentityID: string;
         IdentityKey: {
             id: components["schemas"]["IdentityID"];
@@ -3228,6 +3274,17 @@ export interface components {
             owner_id: components["schemas"]["IdentityID"];
             version: components["schemas"]["IdentityID"];
             credential: string | null;
+        };
+        IdentityKeyGroup: {
+            id: components["schemas"]["IdentityID"];
+            name: string;
+            platform: string;
+        };
+        IdentityKeyGroupPage: {
+            items: components["schemas"]["IdentityKeyGroup"][];
+            next_cursor: string | null;
+            /** Format: date-time */
+            as_of: string;
         };
         IdentityKeyInput: {
             group_id?: components["schemas"]["IdentityID"];
@@ -7712,6 +7769,125 @@ export interface operations {
         responses: {
             200: components["responses"]["ByokServicePrincipal"];
             default: components["responses"]["ByokError"];
+        };
+    };
+    identityBindGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityGroupBinding"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityUnbindGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+                id: components["schemas"]["IdentityID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityGroupBinding"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
+        };
+    };
+    identityKeyGroups: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["IdentityLimit"];
+                cursor?: components["parameters"]["IdentityCursor"];
+            };
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+                project_id: components["parameters"]["IdentityProjectID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Success */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @constant */
+                        code: 0;
+                        /** @constant */
+                        message: "success";
+                        data: components["schemas"]["IdentityKeyGroupPage"];
+                    };
+                };
+            };
+            /** @description Management error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdentityError"];
+                };
+            };
         };
     };
     identityKeys: {

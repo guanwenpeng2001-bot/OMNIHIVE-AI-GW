@@ -43,6 +43,12 @@ type Key struct {
 	Version    int64   `json:"version,string"`
 }
 
+type KeyGroup struct {
+	ID       int64  `json:"id,string"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+}
+
 type ModelAccess struct {
 	Mode string   `json:"mode"`
 	IDs  []string `json:"ids"`
