@@ -116,7 +116,7 @@ describe('PublicHeader responsive navigation', () => {
     openCommandPaletteSpy.mockClear()
   })
 
-  it('exposes an accessible compact menu button and renders all 5 navigation links when expanded', async () => {
+  it('exposes an accessible compact menu button and renders all 6 navigation links when expanded', async () => {
     const wrapper = mountHeader()
     const toggle = wrapper.get('[data-testid="public-nav-toggle"]')
 
@@ -135,7 +135,8 @@ describe('PublicHeader responsive navigation', () => {
       { href: '/key-usage', text: '额度查询' },
       { href: '/pricing', text: '定价' },
       { href: '/status', text: '服务状态' },
-      { href: '/help', text: '文档' }
+      { href: '/docs', text: '文档' },
+      { href: '/compatibility', text: '更新与兼容' }
     ])
   })
 
@@ -160,7 +161,8 @@ describe('PublicHeader responsive navigation', () => {
       { href: '/key-usage', text: 'QUOTA' },
       { href: '/pricing', text: 'PRICING' },
       { href: '/status', text: 'STATUS' },
-      { href: 'https://docs.example.com/guide', text: 'DOCS ↗' }
+      { href: 'https://docs.example.com/guide', text: 'DOCS ↗' },
+      { href: '/compatibility', text: 'COMPATIBILITY' }
     ])
     expect(mobileLinks[4].attributes('target')).toBe('_blank')
     expect(mobileLinks[4].attributes('rel')).toBe('noopener noreferrer')
@@ -172,7 +174,7 @@ describe('PublicHeader responsive navigation', () => {
     const sanitizedDocsLink = wrapper
       .get('[data-testid="public-mobile-nav-list"]')
       .findAll('a')[4]
-    expect(sanitizedDocsLink.attributes('href')).toBe('/help')
+    expect(sanitizedDocsLink.attributes('href')).toBe('/docs')
   })
 
   it('closes the compact menu on Escape and restores focus to the toggle button', async () => {

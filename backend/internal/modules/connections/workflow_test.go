@@ -54,8 +54,10 @@ func TestPatchPreservesConnectionState(t *testing.T) {
 			mock.ExpectQuery("SELECT c.account_id").WithArgs(2, 3).WillReturnRows(connectionWorkflowRows(state, name, 5, nil))
 			value, err := session.Patch(Patch{Name: &name})
 			require.NoError(t, err)
-			require.Equal(t, name, value.(Connection).Name)
-			require.Equal(t, state, value.(Connection).State)
+			conn, ok := value.(Connection)
+			require.True(t, ok)
+			require.Equal(t, name, conn.Name)
+			require.Equal(t, state, conn.State)
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
@@ -78,11 +80,15 @@ func TestPreviewPreservesActiveConnectionAndEvaluatesCandidate(t *testing.T) {
 
 	result, err := session.Preview(nil, Patch{Models: []string{"candidate"}})
 	require.NoError(t, err)
-	require.Equal(t, "applicable", result.(Preview).Items[0].State)
+	preview, ok := result.(Preview)
+	require.True(t, ok)
+	require.Equal(t, "applicable", preview.Items[0].State)
 	live, err := session.Get()
 	require.NoError(t, err)
-	require.Equal(t, "active", live.(Connection).State)
-	require.Equal(t, []string{"first-model"}, live.(Connection).Models)
+	liveConn, ok := live.(Connection)
+	require.True(t, ok)
+	require.Equal(t, "active", liveConn.State)
+	require.Equal(t, []string{"first-model"}, liveConn.Models)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -105,7 +111,8 @@ func TestPreviewDistinguishesUnavailableEvidenceFromMissingProbe(t *testing.T) {
 
 			result, err := session.Preview(nil, Patch{Models: []string{"candidate"}})
 			require.NoError(t, err)
-			preview := result.(Preview)
+			preview, ok := result.(Preview)
+			require.True(t, ok)
 			require.Equal(t, []string{tc.want}, preview.Blocked)
 			require.Equal(t, "blocked", preview.Items[0].State)
 			require.NotEmpty(t, preview.Items[0].Message)

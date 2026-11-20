@@ -60,8 +60,15 @@ BASE_SKIP_ALLOWLIST = {
     "TestSubscriptionBulkLiveBrowserBridge": (
         "interactive browser bridge mode: requires a real browser extension host"
     ),
+    "TestCrashProcess": (
+        "subprocess helper: only meaningful when spawned with BE06_STAGE"
+    ),
     "TestURLAvailability_GetAvailableURLs_标记一个不可用": (
         "fixture-data: the built-in BaseURLs list contains fewer than two entries"
+    ),
+    "TestDialerBasicConnection": (
+        "external service: needs TLSFINGERPRINT_NETWORK_TESTS=1 and external HTTPS "
+        "connectivity; this is not a database/Redis gate"
     ),
     "TestJA3Fingerprint": (
         "external service: needs TLSFINGERPRINT_NETWORK_TESTS=1 and a live JA3 "

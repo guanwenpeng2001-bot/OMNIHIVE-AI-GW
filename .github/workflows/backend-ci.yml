@@ -93,6 +93,21 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
+      # Dedicated disposable PostgreSQL 16 container for TestPostgresInventoryAndCheckpoints
+      # (which asserts server_version 16 while the main unit service runs PG 17).
+      postgres_migration:
+        image: postgres:16
+        env:
+          POSTGRES_USER: omni_fixture
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: job_test
+        ports:
+          - 55486:5432
+        options: >-
+          --health-cmd "pg_isready -U omni_fixture -d job_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
@@ -114,7 +129,7 @@ jobs:
           set -eu
           # job_test already exists (POSTGRES_DB); add the per-suite databases
           # so no DSN-gated suite falls back to a skip.
-          for db in stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test; do
+          for db in stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test fix3_batch_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test; do
             docker exec "${{ job.services.postgres.id }}" \
               createdb -U omni_fixture "$db"
           done
@@ -196,10 +211,16 @@ jobs:
           QUOTES_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           BE09_TEST_ISOLATED_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_rehearsal_test?sslmode=disable
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
-          MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
+          MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
+          RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           USAGE_STATS_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/stats_test?sslmode=disable
           UPSTREAM_BILLING_AUDIT_DSN: postgres://omni_fixture@127.0.0.1:55480/billing_audit_test?sslmode=disable
           BACKUP_DATA_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/backup_data_test?sslmode=disable
+          BATCH_SUBMIT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/fix3_batch_test?sslmode=disable
+          MODEL_ACCESS_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/model_access_test?sslmode=disable
+          OPS_BILLING_BACKLOG_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/ops_billing_backlog_test?sslmode=disable
+          SCHEDULER_RECOVERY_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/scheduler_recovery_test?sslmode=disable
+          SCHEDULER_RESOURCES_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/scheduler_resources_test?sslmode=disable
           AFFINITY_REDIS_TEST_ADDR: 127.0.0.1:56380
           ACCOUNTING_TEST_REDIS_ADDR: 127.0.0.1:56380
           QUOTA_TEST_REDIS_ADDR: 127.0.0.1:56380
@@ -240,9 +261,16 @@ jobs:
           QUOTES_POSTGRES_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           BE09_TEST_ISOLATED_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_rehearsal_test?sslmode=disable
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
-          MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
+          MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
+          RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
+          USAGE_STATS_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/stats_test?sslmode=disable
           UPSTREAM_BILLING_AUDIT_DSN: postgres://omni_fixture@127.0.0.1:55480/billing_audit_test?sslmode=disable
           BACKUP_DATA_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/backup_data_test?sslmode=disable
+          BATCH_SUBMIT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/fix3_batch_test?sslmode=disable
+          MODEL_ACCESS_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/model_access_test?sslmode=disable
+          OPS_BILLING_BACKLOG_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/ops_billing_backlog_test?sslmode=disable
+          SCHEDULER_RECOVERY_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/scheduler_recovery_test?sslmode=disable
+          SCHEDULER_RESOURCES_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/scheduler_resources_test?sslmode=disable
           AFFINITY_REDIS_TEST_ADDR: 127.0.0.1:56380
           ACCOUNTING_TEST_REDIS_ADDR: 127.0.0.1:56380
           QUOTA_TEST_REDIS_ADDR: 127.0.0.1:56380
@@ -258,11 +286,15 @@ jobs:
         run: |
           set -e
           reset_db() {
-            docker exec "${{ job.services.postgres.id }}" dropdb -U omni_fixture --if-exists job_test
-            docker exec "${{ job.services.postgres.id }}" createdb -U omni_fixture job_test
-            docker exec "${{ job.services.postgres.id }}" dropdb -U omni_fixture --if-exists stats_test
-            docker exec "${{ job.services.postgres.id }}" createdb -U omni_fixture stats_test
+            for db in job_test stats_test billing_audit_test backup_data_test be09_rehearsal_test be09_journal_test model_access_test ops_billing_backlog_test scheduler_recovery_test scheduler_resources_test; do
+              docker exec "${{ job.services.postgres.id }}" psql -U omni_fixture -d template1 -v ON_ERROR_STOP=1 \
+                -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='${db}' AND pid<>pg_backend_pid()" >/dev/null
+              docker exec "${{ job.services.postgres.id }}" dropdb -U omni_fixture --if-exists "$db"
+              docker exec "${{ job.services.postgres.id }}" createdb -U omni_fixture "$db"
+            done
+            docker exec "${{ job.services.redis.id }}" redis-cli FLUSHALL >/dev/null
           }
+          reset_db
           packages=$(go list -tags=integration ./... | grep -vE '/(internal/control/status|internal/repository)$')
           ../scripts/go-test-strict.sh -p 1 -mod=readonly -tags=integration -count=1 $packages
           reset_db

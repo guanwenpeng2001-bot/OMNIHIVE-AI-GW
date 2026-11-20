@@ -49,7 +49,7 @@ func (s *UsageService) PublicModelRankings(ctx context.Context, start, end time.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []PublicModelRanking{}
 	for rows.Next() {
 		var item PublicModelRanking
