@@ -181,16 +181,26 @@ func NeedsSetup() bool {
 }
 
 func buildPostgresDSN(cfg *DatabaseConfig, dbName string) string {
-	if cfg.Password == "" {
-		return fmt.Sprintf(
-			"host=%s port=%d user=%s dbname=%s sslmode=%s",
-			cfg.Host, cfg.Port, cfg.User, dbName, cfg.SSLMode,
-		)
+	parts := []string{
+		"host=" + postgresDSNValue(cfg.Host),
+		fmt.Sprintf("port=%d", cfg.Port),
+		"user=" + postgresDSNValue(cfg.User),
 	}
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, dbName, cfg.SSLMode,
-	)
+	if cfg.Password != "" {
+		parts = append(parts, "password="+postgresDSNValue(cfg.Password))
+	}
+	parts = append(parts, "dbname="+postgresDSNValue(dbName), "sslmode="+postgresDSNValue(cfg.SSLMode))
+	return strings.Join(parts, " ")
+}
+
+// postgresDSNValue quotes a libpq keyword/value entry when it is empty or
+// contains whitespace, quotes or backslashes, so passwords cannot shift the
+// following keywords.
+func postgresDSNValue(value string) string {
+	if value != "" && !strings.ContainsAny(value, " \t\r\n'\\") {
+		return value
+	}
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(value) + "'"
 }
 
 func isDatabaseNotFoundError(err error) bool {
@@ -371,11 +381,7 @@ func createInstallLock() error {
 }
 
 func initializeDatabase(cfg *SetupConfig) error {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := buildPostgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -401,11 +407,7 @@ func (cfg *SetupConfig) migrationTimeout() time.Duration {
 }
 
 func createAdminUser(cfg *SetupConfig) (bool, string, error) {
-	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Database.Host, cfg.Database.Port, cfg.Database.User,
-		cfg.Database.Password, cfg.Database.DBName, cfg.Database.SSLMode,
-	)
+	dsn := buildPostgresDSN(&cfg.Database, cfg.Database.DBName)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

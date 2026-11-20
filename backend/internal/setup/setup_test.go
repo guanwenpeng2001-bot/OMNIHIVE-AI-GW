@@ -305,6 +305,19 @@ func TestDatabaseConnectionDSNsUseConfiguredTargetAndLegacyBootstrapDatabase(t *
 	if strings.Contains(passwordlessDSN, "password=") || !strings.Contains(passwordlessDSN, "dbname=job_test") {
 		t.Fatalf("passwordless DSN = %q, want password omitted so lib/pq preserves dbname=job_test", passwordlessDSN)
 	}
+
+	quoted := &DatabaseConfig{
+		Host:     "127.0.0.1",
+		Port:     5432,
+		User:     "omni",
+		Password: `p a'ss\word`,
+		DBName:   "job_test",
+		SSLMode:  "disable",
+	}
+	quotedDSN := buildPostgresDSN(quoted, quoted.DBName)
+	if !strings.Contains(quotedDSN, `password='p a\'ss\\word'`) || !strings.HasSuffix(quotedDSN, "dbname=job_test sslmode=disable") {
+		t.Fatalf("quoted DSN = %q, want libpq-quoted password that cannot shift dbname", quotedDSN)
+	}
 }
 
 func TestIsDatabaseNotFoundError(t *testing.T) {

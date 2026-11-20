@@ -376,6 +376,7 @@ run_stage() {
   printf '%-16s %-4s %6ss  %s\n' "$name" "$status" "$duration" "${LOG_DIR}/${name}.log" | tee -a "$SUMMARY"
   if [[ "$status" == FAIL ]]; then
     echo "----- ${name} failure tail -----" >&2
+    grep -E '^smoke failed: ' "${LOG_DIR}/${name}.log" >&2 || true
     tail -n 40 "${LOG_DIR}/${name}.log" >&2 || true
     echo "-------------------------------" >&2
   fi

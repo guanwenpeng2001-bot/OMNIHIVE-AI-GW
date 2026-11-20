@@ -28,7 +28,7 @@ def require(condition, message):
         raise SystemExit(message)
 
 
-def request(method, path, expected, *, bearer=None, google_key=None, payload=None, idempotency_key=None):
+def request(method, path, expected, *, bearer=None, google_key=None, payload=None, idempotency_key=None, with_status=False):
     headers = {"Accept": "application/json"}
     if bearer:
         headers["Authorization"] = "Bearer " + bearer
@@ -49,7 +49,8 @@ def request(method, path, expected, *, bearer=None, google_key=None, payload=Non
         content = json.load(response)
         status = response.status
         headers = response.headers
-    if status != expected:
+    allowed = expected if isinstance(expected, tuple) else (expected,)
+    if status not in allowed:
         code = content.get("reason", content.get("error", {}).get("code"))
         message = content.get("error", {}).get("message", content.get("message"))
         raise SystemExit(f"{method} {path}: expected {expected}, got {status} ({code}, {message})")
@@ -57,7 +58,7 @@ def request(method, path, expected, *, bearer=None, google_key=None, payload=Non
         require(headers.get("Cache-Control") == "private, no-store", f"{path}: cache policy missing")
         require(headers.get("X-Request-ID"), f"{path}: request ID missing")
     print(f"{method} {path} -> {status}")
-    return content
+    return (status, content) if with_status else content
 
 
 request("GET", "/api/v2/me/scopes", 401)
@@ -97,8 +98,14 @@ if compliance["required"]:
             payload={"phrase": compliance["ack_phrase_en"], "language": "en"})
 request("POST", f"/api/v1/admin/users/{user_id}/balance", 200, bearer=session,
         payload={"balance": 1, "operation": "set", "notes": "Isolated BE-01 smoke"})
-billing = request("GET", "/v1/sub2api/billing", 200, bearer=credential)
-require(billing.get("object") == "sub2api.key_billing", "Ordinary gateway did not admit the allowed usage.read project action.")
+# The billing alias is registered before group admission. Whether the restricted
+# key already has an eligible group depends on fixture state, so both admitted
+# outcomes are valid; an action denial is not.
+billing_status, billing = request("GET", "/v1/sub2api/billing", (200, 403), bearer=credential, with_status=True)
+if billing_status == 200:
+    require(billing.get("object") == "sub2api.key_billing", "Ordinary gateway did not admit the allowed usage.read project action.")
+else:
+    require(billing["error"]["message"] == "API key is not assigned to a group", "Ordinary gateway did not admit the allowed usage.read project action.")
 ordinary = request("POST", "/v1/embeddings", 403, bearer=credential,
                    payload={"model": "text-embedding-3-small", "input": "Smoke"})
 require(ordinary["error"]["message"] == "Access denied", "Ordinary gateway failed outside project action enforcement.")
