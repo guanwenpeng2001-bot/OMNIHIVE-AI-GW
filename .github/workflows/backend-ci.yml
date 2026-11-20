@@ -263,7 +263,6 @@ jobs:
           BE09_TEST_JOURNAL_DSN: postgres://omni_fixture@127.0.0.1:55480/be09_journal_test?sslmode=disable
           MIGRATION_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55486/job_test?sslmode=disable
           RETIREMENT_INTEGRATION_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
-          USAGE_STATS_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/stats_test?sslmode=disable
           UPSTREAM_BILLING_AUDIT_DSN: postgres://omni_fixture@127.0.0.1:55480/billing_audit_test?sslmode=disable
           BACKUP_DATA_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/backup_data_test?sslmode=disable
           BATCH_SUBMIT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/fix3_batch_test?sslmode=disable
