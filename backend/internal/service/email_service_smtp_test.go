@@ -381,3 +381,29 @@ func TestSendEmailWithConfigImplicitTLS(t *testing.T) {
 		t.Fatal("expected send path to reach DATA")
 	}
 }
+
+func TestSMTPRelayWithoutUsername(t *testing.T) {
+	for _, mode := range []string{"send", "probe"} {
+		t.Run(mode, func(t *testing.T) {
+			srv, port := startFakeSMTPServer(t, true, false)
+			cfg := smtpTestConfig(port, true)
+			cfg.Username = ""
+			svc := EmailService{}
+			var err error
+			if mode == "probe" {
+				err = svc.TestSMTPConnectionWithConfig(cfg)
+			} else {
+				err = svc.SendEmailWithConfig(cfg, "rcpt@example.com", "subject", "body")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if srv.sawCommand("AUTH") {
+				t.Fatal("anonymous relay received AUTH")
+			}
+			if mode == "send" && !srv.sawCommand("DATA") {
+				t.Fatal("message was not delivered")
+			}
+		})
+	}
+}
