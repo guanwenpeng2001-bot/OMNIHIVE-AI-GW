@@ -22,6 +22,7 @@ import (
 	control "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
+	workspace "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	domain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/repository"
@@ -175,6 +176,12 @@ func TestProjectIdentity(t *testing.T) {
 	rc := testresources.RedisClient(t, &redis.Options{Addr: addr})
 	cfg.APIKeyAuth.L2TTLSeconds = 600
 	repo := repository.NewAPIKeyRepository(ent, db)
+	userKey := &service.APIKey{UserID: member, Name: "legacy user key", Key: uuid.NewString(), Status: service.StatusActive}
+	require.NoError(t, repo.Create(workspace.WithWorkspaceScope(ctx, w), userKey))
+	require.Equal(t, def, id("SELECT project_id FROM project_resources WHERE workspace_id=$1 AND kind='api_keys' AND resource_id=$2", w, userKey.ID))
+	userScope, err := store.LegacyScope(ctx, w, userKey.ID, member, service.APIKeyCredentialDigest(userKey.Key))
+	require.NoError(t, err)
+	require.Equal(t, def, userScope.ProjectID)
 	serviceA := service.NewAPIKeyService(repo, nil, nil, nil, nil, repository.NewAPIKeyCache(rc), cfg)
 	serviceB := service.NewAPIKeyService(repo, nil, nil, nil, nil, repository.NewAPIKeyCache(rc), cfg)
 	gateway := func(s *service.APIKeyService, scoped bool) *gin.Engine {
@@ -216,9 +223,20 @@ func TestProjectIdentity(t *testing.T) {
 	require.Equal(t, 429, code)
 	exec("UPDATE users SET balance=1 WHERE id=$1", member)
 	actor = admin
-	code, _ = call(engine, "PUT", fmt.Sprintf("%s/members/%d/grants", wp, member), fmt.Sprintf(`{"project_ids":["%d"],"actions":["keys.read","requests.export"]}`, p.ID), "If-Match", `"2"`)
+	grantsPath := fmt.Sprintf("%s/members/%d/grants", wp, member)
+	code, b = call(engine, "GET", wp+"/members", "", "", "")
+	require.Equal(t, 200, code)
+	require.Len(t, b["data"].(map[string]any)["items"], 2)
+	code, b = call(engine, "GET", grantsPath, "", "", "")
+	require.Equal(t, 200, code)
+	current := b["data"].(map[string]any)
+	require.Equal(t, []any{strconv.FormatInt(p.ID, 10)}, current["project_ids"])
+	require.Contains(t, current["actions"], "keys.read")
+	code, _ = call(engine, "PUT", grantsPath, fmt.Sprintf(`{"project_ids":["%d"],"actions":["keys.read","requests.export"]}`, p.ID), "If-Match", strconv.Quote(current["version"].(string)))
 	require.Equal(t, 200, code)
 	actor = member
+	code, _ = call(engine, "GET", grantsPath, "", "", "")
+	require.Equal(t, 403, code)
 	code, _ = call(engine, "GET", wp+"/operations/export1", "", "", "")
 	require.Equal(t, 200, code)
 	code, _ = call(newGateway, "POST", "/v1/chat/completions", `{"model":"m1"}`, "x-api-key", *key.Credential)
@@ -298,4 +316,50 @@ func TestConcurrentDefaultProject(t *testing.T) {
 		}
 		require.Equal(t, expected, p)
 	}
+}
+
+func TestProjectKeyGroupBinding(t *testing.T) {
+	db, ent, _ := testutil.NewCapabilityPostgres(t)
+	ctx := t.Context()
+	id := func(query string, args ...any) int64 {
+		t.Helper()
+		var v int64
+		require.NoError(t, db.QueryRowContext(ctx, query, args...).Scan(&v))
+		return v
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		_, err := db.ExecContext(ctx, q, args...)
+		require.NoError(t, err)
+	}
+	user := id("INSERT INTO users(email,password_hash) VALUES($1,'fixture') RETURNING id", uuid.NewString()+"@example.test")
+	w := id("INSERT INTO workspaces(name) VALUES('binding test') RETURNING id")
+	p := id("INSERT INTO projects(name,workspace_id) VALUES('custom',$1) RETURNING id", w)
+	exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", w, user)
+	group := id("INSERT INTO groups(workspace_id,name,platform,is_exclusive) VALUES($1,$2,'openai',true) RETURNING id", w, uuid.NewString())
+	store := postgres.New(db)
+	in := domain.CreateKey{Name: "scoped", Actions: []string{"text.chat"}, GroupID: &group, ModelAccess: domain.ModelAccess{Mode: "inherit"}}
+	_, err := store.CreateKey(ctx, user, w, p, in, "wrong-project")
+	require.ErrorIs(t, err, fault.NotFound)
+	exec("INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$2,$3)", group, w, p)
+	_, err = store.CreateKey(ctx, user, w, p, in, "exclusive")
+	require.ErrorIs(t, err, fault.NotFound)
+	exec("INSERT INTO user_allowed_groups(user_id,group_id) VALUES($1,$2)", user, group)
+	key, err := store.CreateKey(ctx, user, w, p, in, "permitted")
+	require.NoError(t, err)
+	require.Equal(t, group, id("SELECT group_id FROM api_keys WHERE id=$1", key.ID))
+
+	repo := repository.NewAPIKeyRepository(ent, db).(interface {
+		CreateInProject(context.Context, *service.APIKey, int64) error
+	})
+	userKey := &service.APIKey{UserID: user, Name: "user key", GroupID: &group, Key: uuid.NewString(), Status: service.StatusActive}
+	require.NoError(t, repo.CreateInProject(workspace.WithWorkspaceScope(ctx, w), userKey, p))
+	require.Equal(t, p, id("SELECT project_id FROM project_resources WHERE kind='api_keys' AND resource_id=$1", userKey.ID))
+	digest := service.APIKeyCredentialDigest(userKey.Key)
+	resolved, err := store.LegacyScope(ctx, w, userKey.ID, user, digest)
+	require.NoError(t, err)
+	require.Equal(t, p, resolved.ProjectID)
+	exec("DELETE FROM workspace_members WHERE workspace_id=$1 AND user_id=$2", w, user)
+	_, err = store.LegacyScope(ctx, w, userKey.ID, user, digest)
+	require.ErrorIs(t, err, fault.NotFound)
 }

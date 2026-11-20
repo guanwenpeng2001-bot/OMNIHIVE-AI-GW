@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
-	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-04"
+	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/lib/pq"
@@ -90,6 +90,9 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 		fields["base_url"] = c.Endpoint
 	}
 	native := service.Account{ID: c.ID, WorkspaceID: c.Workspace, Platform: c.Provider, Type: legacy.AccountType(c.AuthType), Credentials: fields}
+	if len(c.HeaderOverrides) != 0 {
+		native.Extra = map[string]any{"header_overrides": c.HeaderOverrides}
+	}
 	phases := []map[string]any{}
 	record := func(phase string, version int64) error {
 		now := time.Now().UTC()
@@ -240,6 +243,9 @@ func (r *Session) applicable(c Connection, p Patch) error {
 	if ids == nil {
 		ids = c.Models
 	}
+	if len(ids) == 0 {
+		return conflict("MODELS_REQUIRED")
+	}
 	for _, model := range ids {
 		if !slices.Contains(c.Verification.Models, model) {
 			return conflict("INCOMPATIBLE_PROVIDER")
@@ -260,7 +266,7 @@ func (r *Session) Preview(ids []string, p Patch) (any, error) {
 	if e := validatePatch(p); e != nil {
 		return nil, e
 	}
-	if p.Name != nil || p.Endpoint != nil || p.NetworkPolicyID != nil {
+	if p.Name != nil || p.Endpoint != nil || p.NetworkPolicyID != nil || p.HeaderOverrides != nil {
 		return nil, fault.Invalid("/patch")
 	}
 	one := r.ID != 0

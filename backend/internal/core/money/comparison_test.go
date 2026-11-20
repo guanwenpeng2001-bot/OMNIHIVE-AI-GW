@@ -12,7 +12,7 @@ import (
 )
 
 func TestV1Replay(t *testing.T) {
-	data, err := os.ReadFile("../../../../contracts/migrations/BE-02/v1-replay.json")
+	data, err := os.ReadFile("../../../../contracts/migrations/money/v1-replay.json")
 	require.NoError(t, err)
 	var fixtures []struct {
 		Name   string                      `json:"name"`

@@ -237,7 +237,7 @@ func TestStrictWire(t *testing.T) {
 }
 
 func TestWireAndCacheRoundTrip(t *testing.T) {
-	b, err := os.ReadFile("../../../../contracts/api/BE-02/values.json")
+	b, err := os.ReadFile("../../../../contracts/api/money/values.json")
 	require.NoError(t, err)
 	type record struct {
 		SchemaVersion string   `json:"schema_version"`

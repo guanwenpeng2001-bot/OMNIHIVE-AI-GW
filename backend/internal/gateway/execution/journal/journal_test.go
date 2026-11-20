@@ -79,7 +79,7 @@ func TestExecutionAPIContracts(t *testing.T) {
 	}
 	for name, value := range map[string]any{"admitted-execution": execution, "attempt": dispatched} {
 		t.Run(name, func(t *testing.T) {
-			fixture, err := os.ReadFile("../../../../../contracts/api/BE-06/" + name + ".json")
+			fixture, err := os.ReadFile("../../../../../contracts/api/execution/" + name + ".json")
 			require.NoError(t, err)
 			encoded, err := json.Marshal(value)
 			require.NoError(t, err)

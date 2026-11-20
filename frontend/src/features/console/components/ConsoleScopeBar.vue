@@ -31,14 +31,14 @@ const emit = defineEmits<{
 }>()
 
 const { locale } = useI18n()
-const isZh = computed(() => String(locale.value || '').startsWith('zh'))
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 
 const navLinks = computed(() => [
   { id: 'dashboard', path: '/dashboard', label: isZh.value ? '概览' : 'Overview' },
-  { id: 'keys', path: '/keys', label: 'API Keys' },
-  { id: 'playground', path: '/playground', label: 'Playground' },
+  { id: 'keys', path: '/keys', label: isZh.value ? 'API 密钥' : 'API Keys' },
+  { id: 'playground', path: '/playground', label: isZh.value ? '模型调试台' : 'Playground' },
   { id: 'tasks', path: '/tasks', label: isZh.value ? '任务中心' : 'Task Center' },
-  { id: 'workspaces', path: '/workspaces', label: 'Workspaces' }
+  { id: 'workspaces', path: '/workspaces', label: isZh.value ? '工作空间' : 'Workspaces' }
 ])
 
 function onWorkspaceChange(event: Event): void {
@@ -61,11 +61,11 @@ function onProjectChange(event: Event): void {
   >
     <div class="flex min-w-0 max-w-full flex-wrap items-center gap-2">
       <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-        SCOPE
+        {{ isZh ? '作用域' : 'SCOPE' }}
       </span>
 
       <template v-if="workspaces.length > 0">
-        <label class="sr-only" for="oh-console-ws-select">Workspace</label>
+        <label class="sr-only" for="oh-console-ws-select">{{ isZh ? '工作空间' : 'Workspace' }}</label>
         <select
           id="oh-console-ws-select"
           data-testid="scope-workspace-select"
@@ -81,7 +81,7 @@ function onProjectChange(event: Event): void {
 
         <span class="font-mono text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]" aria-hidden="true">/</span>
 
-        <label class="sr-only" for="oh-console-proj-select">Project</label>
+        <label class="sr-only" for="oh-console-proj-select">{{ isZh ? '项目' : 'Project' }}</label>
         <select
           id="oh-console-proj-select"
           data-testid="scope-project-select"

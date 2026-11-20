@@ -26,6 +26,85 @@ export function resolveHonestTaskProgress(
   }
 }
 
+export function formatTaskStateLabel(state: string | null | undefined, isZh = false): string {
+  if (!state) return EM_DASH
+  if (!isZh) return state
+  const map: Record<string, string> = {
+    queued: '排队中',
+    running: '执行中',
+    succeeded: '已完成',
+    failed: '执行失败',
+    canceled: '已取消',
+    unknown: '状态未知'
+  }
+  return map[state] || state
+}
+
+export function formatTaskStageLabel(stage: string | null | undefined, isZh = false): string {
+  if (!stage) return EM_DASH
+  if (!isZh) return stage
+  const map: Record<string, string> = {
+    queued: '等待调度',
+    admitted: '已准入',
+    dispatching: '派发中',
+    generating: '生成中',
+    running: '执行中',
+    archiving: '产物归档中',
+    partially_succeeded: '部分完成',
+    completed: '已完成',
+    succeeded: '已完成',
+    failed: '已失败',
+    canceled: '已取消',
+    unknown: '未知阶段'
+  }
+  return map[stage] || stage
+}
+
+export function formatTaskSettlementLabel(state: string | null | undefined, isZh = false): string {
+  if (!state) return EM_DASH
+  if (!isZh) return state
+  const map: Record<string, string> = {
+    estimated: '预估',
+    reserved: '已冻结',
+    pending: '待结算',
+    settled: '已结算',
+    needs_review: '待核查',
+    adjusted: '已调账',
+    refunded: '已退回',
+    canceled: '已取消',
+    unknown: '未知'
+  }
+  return map[state] || state
+}
+
+export function formatTaskSourceLabel(source: string | null | undefined, isZh = false): string {
+  if (!source) return EM_DASH
+  const normalized = source.toLowerCase()
+  if (normalized.includes('native')) {
+    return isZh ? '控制台提交' : 'Console Submit'
+  }
+  if (normalized.includes('gateway') || normalized.includes('openai')) {
+    return isZh ? '网关接口' : 'Gateway API'
+  }
+  if (normalized.includes('retry')) {
+    return isZh ? '付费重试' : 'Paid Retry'
+  }
+  return source.replace(/_v2\b/gi, '')
+}
+
+export function formatProgressSourceLabel(source: string | null | undefined, isZh = false): string {
+  const key = (source || 'unreported').toLowerCase()
+  if (isZh) {
+    const map: Record<string, string> = {
+      provider_reported: '上游回报',
+      item_rollup: '子项汇总',
+      unreported: '未上报'
+    }
+    return map[key] || source || '未上报'
+  }
+  return source || 'unreported'
+}
+
 export function buildTaskLifecycleSteps(detail: ImageTaskDetail, isZh = false): UiStepItem[] {
   const { state, provider_state: providerState, artifact_state: artifactState } = detail
 
@@ -48,13 +127,21 @@ export function buildTaskLifecycleSteps(detail: ImageTaskDetail, isZh = false): 
     {
       id: 'admitted',
       title: isZh ? '任务准入' : 'Admitted',
-      description: detail.source,
+      description: formatTaskSourceLabel(detail.source, isZh),
       status: submittedDone ? 'complete' : 'current'
     },
     {
       id: 'provider',
       title: isZh ? '上游处理' : 'Upstream Execution',
-      description: providerState || EM_DASH,
+      description: isZh
+        ? providerState === 'accepted'
+          ? '上游已受理'
+          : providerState === 'completed'
+            ? '上游已完成'
+            : providerState === 'rejected'
+              ? '上游已拒绝'
+              : providerState || EM_DASH
+        : providerState || EM_DASH,
       status: isFailed
         ? 'error'
         : isUnknown
@@ -68,7 +155,15 @@ export function buildTaskLifecycleSteps(detail: ImageTaskDetail, isZh = false): 
     {
       id: 'artifact',
       title: isZh ? '产物归档' : 'Artifact Capture',
-      description: artifactState || EM_DASH,
+      description: isZh
+        ? artifactState === 'available'
+          ? '可下载'
+          : artifactState === 'expired'
+            ? '已过期'
+            : artifactState === 'revoked'
+              ? '已撤销'
+              : artifactState || EM_DASH
+        : artifactState || EM_DASH,
       status: artifactDone
         ? 'complete'
         : state === 'running' && providerDone
@@ -80,7 +175,7 @@ export function buildTaskLifecycleSteps(detail: ImageTaskDetail, isZh = false): 
     {
       id: 'settlement',
       title: isZh ? '终态与结算' : 'Terminal & Receipt',
-      description: detail.settlement_state || EM_DASH,
+      description: formatTaskSettlementLabel(detail.settlement_state, isZh),
       status:
         state === 'succeeded'
           ? 'complete'

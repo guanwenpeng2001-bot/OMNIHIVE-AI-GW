@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  applyAuthoritativeQuoteToEstimate,
   buildNativePlaygroundInput,
   buildPlaygroundSubmitPayload,
-  estimatePlaygroundRunCost
+  estimatePlaygroundRunCost,
+  resolveCatalogQuoteModelId
 } from '../costEstimate'
 import { createPlaygroundRunController, type PlaygroundApiAdapter } from '../runMachine'
 import { PlaygroundSseParser } from '../sseParser'
@@ -326,5 +328,65 @@ describe('Playground SSE state machine, stop, reconnect, and cost confirmation',
     expect(hugeEstimate.rateKnown).toBe(false)
     expect(hugeEstimate.maxTotalCost).toBeNull()
     expect(hugeEstimate.exceedsBodyLimit).toBe(true)
+  })
+
+  it('merges authoritative server quotes including frozen rates, funding source, and unpriced state', () => {
+    const side = makeSideConfig({ maxOutputTokens: 1000 })
+    const payload = buildPlaygroundSubmitPayload(side, {
+      messages: [{ role: 'user', content: 'Quote test' }],
+      max_completion_tokens: 1000
+    })
+    const base = estimatePlaygroundRunCost(side, payload, null)
+    expect(resolveCatalogQuoteModelId('gpt-5', {
+      id: side.modelId,
+      slug: 'gpt-5',
+      displayName: 'GPT-5',
+      provider: 'openai',
+      protocols: ['openai_chat'],
+      modalities: ['text'],
+      maxOutputTokens: 4096,
+      contextTokens: 128000,
+      toolsSupported: true,
+      reasoningSupported: true,
+      inputRate: null,
+      outputRate: null
+    })).toBe(side.modelId)
+
+    const priced = applyAuthoritativeQuoteToEstimate(
+      base,
+      {
+        state: 'estimated',
+        price_version: 'pv_2026_11',
+        source: 'published',
+        estimated_charge: { currency: 'USD', amount: '0.01500000' },
+        components: [
+          { kind: 'input', quantity: '20', raw_amount: '0.00005000', numerator: '2.50', denominator: '1000000' },
+          { kind: 'output', quantity: '1000', raw_amount: '0.01495000', numerator: '14.95', denominator: '1000000' }
+        ],
+        rounding_adjustment: null,
+        effective_scope: { workspace_id: '1', project_id: '2', scope_version: '4' }
+      },
+      { keyScoped: true, fundingSource: 'wallet', budgetBlocked: false }
+    )
+    expect(priced.quoteState).toBe('authoritative')
+    expect(priced.rateKnown).toBe(true)
+    expect(priced.maxTotalCost).toBe('0.01500000')
+    expect(priced.priceVersion).toBe('pv_2026_11')
+    expect(priced.fundingSource).toBe('wallet')
+    expect(priced.inputRate?.amount).toBe('2.50')
+    expect(priced.outputRate?.amount).toBe('14.95')
+
+    const unpriced = applyAuthoritativeQuoteToEstimate(base, {
+      state: 'unpriced',
+      price_version: null,
+      source: null,
+      estimated_charge: null,
+      components: [],
+      rounding_adjustment: null,
+      effective_scope: { workspace_id: '1', project_id: '2', scope_version: '4' }
+    })
+    expect(unpriced.quoteState).toBe('unpriced')
+    expect(unpriced.rateKnown).toBe(false)
+    expect(unpriced.maxTotalCost).toBeNull()
   })
 })

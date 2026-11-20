@@ -2,7 +2,7 @@ import { baseCompile } from '@intlify/message-compiler'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { describe, expect, it } from 'vitest'
-import en from '@/i18n/locales/en/wp6'
+import en from '@/i18n/locales/en/costLedger'
 import type { Schema } from '../api'
 import RequestWaterfall from '../components/RequestWaterfall.vue'
 import { waterfall } from '../waterfall'
@@ -55,7 +55,7 @@ describe('request waterfall', () => {
       props: { detail: detail as Schema['RequestsDetail'], timezone: 'UTC', connectionAccess: false },
       global: { plugins: [createI18n({ legacy: false, locale: 'en',
         messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(),
-        messages: { en: { wp6: en } }, })] },
+        messages: { en: { costLedger: en } }, })] },
     })
     expect(wrapper.text()).toContain('Settled replacement')
     expect(wrapper.text()).toContain('Abandoned attempts')

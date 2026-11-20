@@ -4,6 +4,7 @@ import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Modal from '@/components/ui/Modal.vue'
 import { formatChargeObject } from '@/features/console/format'
+import { formatTaskStateLabel } from '../progressRules'
 import type { ImageTaskDetail, ImageTaskItem } from '../types'
 
 const props = withDefaults(
@@ -70,8 +71,8 @@ function handleClose(): void {
     :title="isZh ? '确认付费重试任务' : 'Confirm Paid Task Retry'"
     :description="
       isZh
-        ? '付费重试将创建一条关联 parent_task_id 的全新计费任务，并冻结相应预算（funding_acknowledged: true）。'
-        : 'Paid retry creates a new billable execution linked via parent_task_id and reserves fresh budget (funding_acknowledged: true).'
+        ? '付费重试将关联原任务创建一条全新的独立计费任务，并冻结相应预算。'
+        : 'Paid retry creates a new billable execution linked to the parent task and reserves fresh budget.'
     "
     @update:open="(val) => !val && handleClose()"
     @close="handleClose"
@@ -79,11 +80,15 @@ function handleClose(): void {
     <div v-if="task" data-testid="task-paid-retry-modal" class="space-y-4 text-xs">
       <div class="rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-3">
         <div class="flex items-center justify-between gap-2">
-          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Parent Task</span>
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '原任务 ID' : 'Parent Task' }}
+          </span>
           <code class="font-mono font-semibold tabular-nums text-[var(--oh-ink,var(--foreground))]">{{ task.id }}</code>
         </div>
         <div class="mt-1.5 flex items-center justify-between gap-2">
-          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Model</span>
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '模型' : 'Model' }}
+          </span>
           <code class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">{{ task.model_id }}</code>
         </div>
         <div class="mt-1.5 flex items-center justify-between gap-2">
@@ -115,11 +120,11 @@ function handleClose(): void {
                 class="h-3.5 w-3.5"
                 @change="toggleItem(item.id)"
               />
-              <span>#{{ item.id }} · {{ item.state }}</span>
+              <span>#{{ item.id }} · {{ formatTaskStateLabel(item.state, isZh) }}</span>
               <span v-if="item.reason" class="text-[var(--oh-danger,#dc2626)]">({{ item.reason }})</span>
             </label>
             <Badge :tone="item.retryable ? 'accent' : 'neutral'" variant="outline" mono>
-              {{ item.retryable ? 'retryable' : 'locked' }}
+              {{ item.retryable ? (isZh ? '可重试' : 'Retryable') : (isZh ? '已锁定' : 'Locked') }}
             </Badge>
           </li>
         </ul>

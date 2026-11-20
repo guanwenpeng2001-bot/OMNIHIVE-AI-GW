@@ -64,3 +64,8 @@ export function validAdjustment(amount: string, note: string): boolean {
   return /^-?(0|[1-9]\d{0,19})(?:\.\d{1,8})?$/.test(value) && !/^-?0(?:\.0+)?$/.test(value) &&
     note.trim().length > 0 && new TextEncoder().encode(note.trim()).byteLength <= 1024
 }
+
+export function validBudgetCeiling(amount: string): boolean {
+  const value = amount.trim()
+  return /^(0|[1-9]\d{0,19})(?:\.\d{1,8})?$/.test(value)
+}

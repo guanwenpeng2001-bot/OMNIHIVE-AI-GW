@@ -7,6 +7,7 @@ const {
   showError,
   showSuccess,
   listPlugins,
+  listExtensions,
   uploadPlugin,
   enablePlugin,
   savePluginConfig,
@@ -16,6 +17,7 @@ const {
   showError: vi.fn(),
   showSuccess: vi.fn(),
   listPlugins: vi.fn(),
+  listExtensions: vi.fn(),
   uploadPlugin: vi.fn(),
   enablePlugin: vi.fn(),
   savePluginConfig: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     plugins: {
       list: listPlugins,
+      listExtensions,
       upload: uploadPlugin,
       enable: enablePlugin,
       disable: vi.fn(),
@@ -120,6 +123,7 @@ function mountView() {
         AppLayout: { template: '<div><slot /></div>' },
         BaseDialog: { template: '<div><slot /></div>' },
         Icon: true,
+        CopyButton: true,
         TotpStepUpDialog: true,
       },
     },
@@ -131,6 +135,7 @@ describe('管理员插件页二次验证', () => {
     vi.clearAllMocks()
     stepUpRun.mockImplementation((action: () => Promise<unknown>) => action())
     listPlugins.mockResolvedValue([plugin])
+    listExtensions.mockResolvedValue([])
     uploadPlugin.mockResolvedValue(plugin)
     enablePlugin.mockResolvedValue(plugin)
     savePluginConfig.mockResolvedValue({ enabled: true })
@@ -190,5 +195,54 @@ describe('管理员插件页二次验证', () => {
 
     expect(stepUpRun).toHaveBeenCalledTimes(1)
     expect(uploadPlugin).toHaveBeenCalledTimes(1)
+  })
+
+  it('扩展能力清单为空时展示真实空状态，不回退硬编码假模块或本地已启用', async () => {
+    listExtensions.mockResolvedValue([])
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(listExtensions).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('[data-testid="extensions-empty-state"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('prompt-guard')
+    expect(wrapper.text()).not.toContain('本地已启用')
+  })
+
+  it('扩展能力清单返回真实签名能力包时准确渲染 ID、SDK 版本与授权动作', async () => {
+    listExtensions.mockResolvedValue([
+      {
+        id: 'omnihive.responses.adapter',
+        sdk_version: 2,
+        publisher_id: 'omnihive-core',
+        state: 'enabled',
+        digest: 'f'.repeat(64),
+        authorized_actions: ['provider.responses.v1'],
+        capabilities: [
+          {
+            id: 'provider.responses.v1',
+            platform: 'openai',
+            account_type: 'oauth',
+          },
+        ],
+      },
+    ])
+    const wrapper = mountView()
+    await flushPromises()
+
+    const card = wrapper.get('[data-testid="extension-inventory-card"]')
+    expect(card.text()).toContain('omnihive.responses.adapter')
+    expect(card.text()).toContain('SDK v2')
+    expect(card.text()).toContain('provider.responses.v1')
+    expect(card.text()).toContain('omnihive-core')
+  })
+
+  it('扩展能力清单接口报错时展示真实错误提示，不静默伪造模块', async () => {
+    listExtensions.mockRejectedValue(new Error('extension inventory unreachable'))
+    const wrapper = mountView()
+    await flushPromises()
+
+    const alert = wrapper.get('[data-testid="extensions-error-state"]')
+    expect(alert.text()).toContain('extension inventory unreachable')
+    expect(wrapper.findAll('[data-testid="extension-inventory-card"]')).toHaveLength(0)
   })
 })

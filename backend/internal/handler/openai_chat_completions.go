@@ -81,7 +81,11 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "chat_completions", body, h.maxAccountSwitches, h.errorResponse)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if native != "" && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformQianwen {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "DashScope requires a Qianwen group or an explicit Qianwen model route")

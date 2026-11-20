@@ -44,7 +44,7 @@
                 pulseDegraded ? 'bg-[var(--oh-warn-fg)]' : 'bg-[var(--oh-ok-fg)]'
               ]"
             />
-            <span class="oh-eyebrow text-oh-primary">GATEWAY TELEMETRY</span>
+            <span class="oh-eyebrow text-oh-primary">{{ isZh ? '网关遥测' : 'GATEWAY TELEMETRY' }}</span>
 
             <div
               v-if="pulseMetrics"

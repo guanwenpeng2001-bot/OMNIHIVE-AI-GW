@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import type { SystemSettings } from '@/api/admin/settings'
 import {
@@ -35,6 +36,9 @@ const props = withDefaults(
   { initialSection: 'general' }
 )
 
+const { locale } = useI18n()
+const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
+
 const activeSection = ref<SettingsSectionId>(props.initialSection)
 const sectionFilter = ref('')
 
@@ -65,7 +69,9 @@ const visibleSections = computed(() => {
   return SETTINGS_SECTIONS.filter(
     (sec) =>
       sec.label.toLowerCase().includes(query) ||
+      sec.labelZh.toLowerCase().includes(query) ||
       sec.description.toLowerCase().includes(query) ||
+      sec.descriptionZh.toLowerCase().includes(query) ||
       sec.fields.some((f) => String(f).toLowerCase().includes(query))
   )
 })
@@ -73,8 +79,8 @@ const visibleSections = computed(() => {
 const tabItems = computed<UiTabItem[]>(() =>
   visibleSections.value.map((sec) => ({
     value: sec.id,
-    label: sec.label,
-    badge: dirtySections.value.includes(sec.id) ? 'Unsaved' : undefined
+    label: isZh.value ? sec.labelZh : sec.label,
+    badge: dirtySections.value.includes(sec.id) ? (isZh.value ? '未保存' : 'Unsaved') : undefined
   }))
 )
 
@@ -104,7 +110,7 @@ async function loadSettings(isRefresh = false): Promise<void> {
     hydrateSettings(data)
     lastSyncedAt.value = new Date().toLocaleTimeString()
   } catch (error) {
-    const err = classifyAsyncError(error, 'Failed to load system settings')
+    const err = classifyAsyncError(error, isZh.value ? '加载系统设置失败' : 'Failed to load system settings')
     loadError.value = {
       state: err.state === 'forbidden' ? 'forbidden' : err.state === 'unknown' ? 'unknown' : 'error',
       message: err.message,
@@ -126,13 +132,17 @@ function handleResetSection(): void {
 async function handleSaveSection(): Promise<void> {
   fieldErrors.value = validateSettingsSection(activeSection.value, draft.value)
   if (Object.keys(fieldErrors.value).length > 0) {
-    pushUiToast({ tone: 'warning', title: 'Validation failed', description: 'Fix highlighted fields before saving.' })
+    pushUiToast({
+      tone: 'warning',
+      title: isZh.value ? '校验未通过' : 'Validation failed',
+      description: isZh.value ? '请先修正标红字段后再保存。' : 'Fix highlighted fields before saving.'
+    })
     return
   }
 
   const patch = buildSectionPatch(activeSection.value, baseline.value, draft.value)
   if (Object.keys(patch).length === 0) {
-    confirmedMessage.value = 'No changes to save in this section.'
+    confirmedMessage.value = isZh.value ? '当前分组没有待保存的更改。' : 'No changes to save in this section.'
     return
   }
 
@@ -152,16 +162,21 @@ async function handleSaveSection(): Promise<void> {
     baseline.value = structuredClone(nextBaseline)
     draft.value = resetSectionDraft(activeSection.value, nextBaseline, draft.value)
     lastSyncedAt.value = new Date().toLocaleTimeString()
-    confirmedMessage.value = `${activeMeta.value.label} saved.`
-    pushUiToast({ tone: 'success', title: 'Settings saved', description: activeMeta.value.label })
+    const activeLabel = isZh.value ? activeMeta.value.labelZh : activeMeta.value.label
+    confirmedMessage.value = isZh.value ? `已保存「${activeLabel}」配置。` : `${activeLabel} saved.`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '设置已保存' : 'Settings saved',
+      description: activeLabel
+    })
   } catch (error) {
-    const err = classifyAsyncError(error, 'Failed to save settings')
+    const err = classifyAsyncError(error, isZh.value ? '保存设置失败' : 'Failed to save settings')
     if (err.state === 'conflict') {
       mutationConflict.value = { message: err.message, requestId: err.requestId }
     } else if (err.state === 'unknown') {
       mutationUnknown.value = { message: err.message, requestId: err.requestId }
     } else {
-      pushUiToast({ tone: 'danger', title: 'Save failed', description: err.message })
+      pushUiToast({ tone: 'danger', title: isZh.value ? '保存失败' : 'Save failed', description: err.message })
     }
   } finally {
     saving.value = false
@@ -178,10 +193,10 @@ async function handleTestSmtp(): Promise<void> {
       smtp_password: String(draft.value.smtp_password ?? ''),
       smtp_use_tls: Boolean(draft.value.smtp_use_tls)
     })
-    pushUiToast({ tone: 'success', title: 'SMTP connection OK', description: res.message })
+    pushUiToast({ tone: 'success', title: isZh.value ? 'SMTP 连接测试成功' : 'SMTP connection OK', description: res.message })
   } catch (error) {
-    const err = classifyAsyncError(error, 'SMTP test failed')
-    pushUiToast({ tone: 'danger', title: 'SMTP test failed', description: err.message })
+    const err = classifyAsyncError(error, isZh.value ? 'SMTP 测试失败' : 'SMTP test failed')
+    pushUiToast({ tone: 'danger', title: isZh.value ? 'SMTP 测试失败' : 'SMTP test failed', description: err.message })
   } finally {
     testingSmtp.value = false
   }
@@ -195,23 +210,23 @@ onMounted(() => {
 <template>
   <div class="space-y-5">
     <PageHeader
-      eyebrow="SYSTEM CONFIGURATION"
-      title="System Settings"
-      description="Sectioned platform configuration with per-section dirty tracking, validation, and scoped saves."
+      :eyebrow="isZh ? '系统配置' : 'SYSTEM CONFIGURATION'"
+      :title="isZh ? '系统设置' : 'System Settings'"
+      :description="isZh ? '按功能分区管理平台配置，支持分区域未保存提醒、字段校验与独立保存。' : 'Sectioned platform configuration with per-section dirty tracking, validation, and scoped saves.'"
     >
       <template #badges>
         <Badge v-if="dirtySections.length > 0" tone="warning" variant="subtle" mono>
-          {{ dirtySections.length }} dirty
+          {{ isZh ? `${dirtySections.length} 项未保存` : `${dirtySections.length} dirty` }}
         </Badge>
-        <Badge v-else tone="success" variant="subtle">Synced</Badge>
+        <Badge v-else tone="success" variant="subtle">{{ isZh ? '已同步' : 'Synced' }}</Badge>
       </template>
 
       <template #actions>
-        <div class="w-56">
-          <Input v-model="sectionFilter" type="search" placeholder="Filter sections or keys…" size="sm" clearable />
+        <div class="w-full sm:w-56">
+          <Input v-model="sectionFilter" type="search" :placeholder="isZh ? '搜索配置分组或字段…' : 'Filter sections or keys…'" size="sm" clearable />
         </div>
         <Button size="sm" variant="secondary" :loading="refreshing" @click="loadSettings(true)">
-          Refresh
+          {{ isZh ? '刷新' : 'Refresh' }}
         </Button>
       </template>
 
@@ -228,7 +243,7 @@ onMounted(() => {
     <ErrorState
       v-else-if="loadError"
       :variant="loadError.state === 'forbidden' ? 'permission' : 'error'"
-      :title="loadError.state === 'forbidden' ? 'Admin Permission Required (403)' : 'Failed to load settings'"
+      :title="loadError.state === 'forbidden' ? (isZh ? '需要管理员权限 (403)' : 'Admin Permission Required (403)') : (isZh ? '加载系统设置失败' : 'Failed to load settings')"
       :message="loadError.message"
       :request-id="loadError.requestId"
       @retry="loadSettings(false)"
@@ -238,20 +253,20 @@ onMounted(() => {
       <ErrorState
         v-if="mutationConflict"
         variant="stale"
-        title="409 Settings Conflict"
+        :title="isZh ? '配置版本冲突 (409)' : '409 Settings Conflict'"
         :message="mutationConflict.message"
         :request-id="mutationConflict.requestId"
-        retry-label="Reload Latest Settings"
+        :retry-label="isZh ? '重新加载最新配置' : 'Reload Latest Settings'"
         @retry="loadSettings(true)"
       />
 
       <ErrorState
         v-if="mutationUnknown"
         variant="stale"
-        title="Unknown Save Outcome"
+        :title="isZh ? '保存状态待确认' : 'Unknown Save Outcome'"
         :message="mutationUnknown.message"
         :request-id="mutationUnknown.requestId"
-        retry-label="Verify Latest Settings"
+        :retry-label="isZh ? '刷新确认最新配置' : 'Verify Latest Settings'"
         @retry="loadSettings(true)"
       />
 
@@ -267,37 +282,37 @@ onMounted(() => {
       <Card padding="md">
         <div class="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-oh-subtle pb-4">
           <div>
-            <h2 class="text-base font-semibold text-oh-primary">{{ activeMeta.label }}</h2>
-            <p class="mt-0.5 text-xs text-oh-secondary">{{ activeMeta.description }}</p>
+            <h2 class="text-base font-semibold text-oh-primary">{{ isZh ? activeMeta.labelZh : activeMeta.label }}</h2>
+            <p class="mt-0.5 text-xs text-oh-secondary">{{ isZh ? activeMeta.descriptionZh : activeMeta.description }}</p>
           </div>
           <div class="flex items-center gap-2">
             <Button size="sm" variant="ghost" :disabled="!activeSectionDirty || saving" @click="handleResetSection">
-              Reset Section
+              {{ isZh ? '重置本组' : 'Reset Section' }}
             </Button>
             <Button size="sm" variant="primary" :loading="saving" :disabled="!activeSectionDirty" @click="handleSaveSection">
-              Save Section
+              {{ isZh ? '保存本组' : 'Save Section' }}
             </Button>
           </div>
         </div>
 
         <div v-if="activeSection === 'general'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <Input v-model="(draft.site_name as string)" label="Site Name" />
-          <Input v-model="(draft.site_subtitle as string)" label="Site Subtitle" />
+          <Input v-model="(draft.site_name as string)" :label="isZh ? '站点名称' : 'Site Name'" />
+          <Input v-model="(draft.site_subtitle as string)" :label="isZh ? '站点副标题' : 'Site Subtitle'" />
           <Input
             v-model="(draft.frontend_url as string)"
-            label="Frontend URL"
+            :label="isZh ? '前端访问地址' : 'Frontend URL'"
             :error="fieldErrors.frontend_url"
             mono
           />
           <div class="space-y-3 pt-1">
             <Switch
               :model-value="Boolean(draft.registration_enabled)"
-              label="Public Registration Enabled"
+              :label="isZh ? '开放公开注册' : 'Public Registration Enabled'"
               @update:model-value="(v) => (draft.registration_enabled = v)"
             />
             <Switch
               :model-value="Boolean(draft.invitation_code_enabled)"
-              label="Require Invitation Code"
+              :label="isZh ? '注册需填写邀请码' : 'Require Invitation Code'"
               @update:model-value="(v) => (draft.invitation_code_enabled = v)"
             />
           </div>
@@ -306,43 +321,43 @@ onMounted(() => {
         <div v-else-if="activeSection === 'security'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.totp_enabled)"
-            label="TOTP 2FA Enabled"
+            :label="isZh ? '启用 TOTP 两步验证' : 'TOTP 2FA Enabled'"
             @update:model-value="(v) => (draft.totp_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.passkey_enabled)"
-            label="Passkey Authentication Enabled"
+            :label="isZh ? '启用 Passkey 通行密钥' : 'Passkey Authentication Enabled'"
             @update:model-value="(v) => (draft.passkey_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.session_binding_enabled)"
-            label="Session IP/UA Binding"
+            :label="isZh ? '会话 IP/UA 绑定' : 'Session IP/UA Binding'"
             @update:model-value="(v) => (draft.session_binding_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.step_up_enabled)"
-            label="Step-Up 2FA for Sensitive Actions"
+            :label="isZh ? '敏感操作二次验证' : 'Step-Up 2FA for Sensitive Actions'"
             @update:model-value="(v) => (draft.step_up_enabled = v)"
           />
-          <Input v-model="(draft.passkey_rp_id as string)" label="Passkey RP ID" mono />
+          <Input v-model="(draft.passkey_rp_id as string)" :label="isZh ? 'Passkey RP ID' : 'Passkey RP ID'" mono />
           <Input
             v-model="(draft.audit_log_retention_days as number)"
             type="number"
-            label="Audit Log Retention (days)"
+            :label="isZh ? '审计日志保留天数' : 'Audit Log Retention (days)'"
             :error="fieldErrors.audit_log_retention_days"
             mono
           />
           <Switch
             :model-value="Boolean(draft.turnstile_enabled)"
-            label="Cloudflare Turnstile Enabled"
+            :label="isZh ? '启用 Cloudflare Turnstile' : 'Cloudflare Turnstile Enabled'"
             @update:model-value="(v) => (draft.turnstile_enabled = v)"
           />
-          <Input v-model="(draft.turnstile_site_key as string)" label="Turnstile Site Key" mono />
+          <Input v-model="(draft.turnstile_site_key as string)" :label="isZh ? 'Turnstile Site Key' : 'Turnstile Site Key'" mono />
           <Input
             v-model="(draft.turnstile_secret_key as string)"
             type="password"
-            label="Turnstile Secret Key"
-            placeholder="Configured (leave blank to keep existing)"
+            :label="isZh ? 'Turnstile Secret Key' : 'Turnstile Secret Key'"
+            :placeholder="isZh ? '已配置（留空则保持不变）' : 'Configured (leave blank to keep existing)'"
             mono
           />
         </div>
@@ -351,40 +366,40 @@ onMounted(() => {
           <Input
             v-model="(draft.default_balance as number)"
             type="number"
-            label="Default Balance (USD)"
+            :label="isZh ? '默认初始余额 (USD)' : 'Default Balance (USD)'"
             :error="fieldErrors.default_balance"
             mono
           />
           <Input
             v-model="(draft.default_concurrency as number)"
             type="number"
-            label="Default Concurrency"
+            :label="isZh ? '默认并发上限' : 'Default Concurrency'"
             :error="fieldErrors.default_concurrency"
             mono
           />
           <Input
             v-model="(draft.default_user_rpm_limit as number)"
             type="number"
-            label="Default User RPM Limit"
+            :label="isZh ? '默认用户 RPM 上限' : 'Default User RPM Limit'"
             mono
           />
           <Input
             v-model="(draft.affiliate_rebate_rate as number)"
             type="number"
-            label="Affiliate Rebate Rate (0–1)"
+            :label="isZh ? '联盟返利比例 (0–1)' : 'Affiliate Rebate Rate (0–1)'"
             :error="fieldErrors.affiliate_rebate_rate"
             mono
           />
           <Input
             v-model="(draft.affiliate_rebate_freeze_hours as number)"
             type="number"
-            label="Rebate Freeze Hours"
+            :label="isZh ? '返利冻结小时数' : 'Rebate Freeze Hours'"
             mono
           />
           <Input
             v-model="(draft.affiliate_rebate_duration_days as number)"
             type="number"
-            label="Rebate Duration (days)"
+            :label="isZh ? '返利有效天数' : 'Rebate Duration (days)'"
             mono
           />
         </div>
@@ -392,16 +407,16 @@ onMounted(() => {
         <div v-else-if="activeSection === 'gateway'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Input
             v-model="(draft.api_base_url as string)"
-            label="Gateway API Base URL"
+            :label="isZh ? '网关 API 基础地址' : 'Gateway API Base URL'"
             :error="fieldErrors.api_base_url"
             mono
           />
-          <Input v-model="(draft.doc_url as string)" label="Documentation URL" mono />
-          <Input v-model="(draft.contact_info as string)" label="Operator Contact Info" />
+          <Input v-model="(draft.doc_url as string)" :label="isZh ? '文档链接' : 'Documentation URL'" mono />
+          <Input v-model="(draft.contact_info as string)" :label="isZh ? '运营联系方式' : 'Operator Contact Info'" />
           <div class="pt-5">
             <Switch
               :model-value="Boolean(draft.hide_ccs_import_button)"
-              label="Hide CCS Import Button"
+              :label="isZh ? '隐藏 CCS 导入按钮' : 'Hide CCS Import Button'"
               @update:model-value="(v) => (draft.hide_ccs_import_button = v)"
             />
           </div>
@@ -410,12 +425,12 @@ onMounted(() => {
         <div v-else-if="activeSection === 'payment'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.payment_enabled)"
-            label="Enable Online Payments"
+            :label="isZh ? '启用在线支付' : 'Enable Online Payments'"
             @update:model-value="(v) => (draft.payment_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.promo_code_enabled)"
-            label="Enable Promo Codes"
+            :label="isZh ? '启用优惠码' : 'Enable Promo Codes'"
             @update:model-value="(v) => (draft.promo_code_enabled = v)"
           />
         </div>
@@ -424,41 +439,41 @@ onMounted(() => {
           <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Switch
               :model-value="Boolean(draft.email_verify_enabled)"
-              label="Require Email Verification"
+              :label="isZh ? '要求邮箱验证' : 'Require Email Verification'"
               @update:model-value="(v) => (draft.email_verify_enabled = v)"
             />
             <Switch
               :model-value="Boolean(draft.password_reset_enabled)"
-              label="Allow Password Reset"
+              :label="isZh ? '允许邮箱找回密码' : 'Allow Password Reset'"
               @update:model-value="(v) => (draft.password_reset_enabled = v)"
             />
-            <Input v-model="(draft.smtp_host as string)" label="SMTP Host" mono />
+            <Input v-model="(draft.smtp_host as string)" :label="isZh ? 'SMTP 主机' : 'SMTP Host'" mono />
             <Input
               v-model="(draft.smtp_port as number)"
               type="number"
-              label="SMTP Port"
+              :label="isZh ? 'SMTP 端口' : 'SMTP Port'"
               :error="fieldErrors.smtp_port"
               mono
             />
-            <Input v-model="(draft.smtp_username as string)" label="SMTP Username" mono />
+            <Input v-model="(draft.smtp_username as string)" :label="isZh ? 'SMTP 用户名' : 'SMTP Username'" mono />
             <Input
               v-model="(draft.smtp_password as string)"
               type="password"
-              label="SMTP Password"
-              placeholder="Configured (leave blank to keep existing)"
+              :label="isZh ? 'SMTP 密码' : 'SMTP Password'"
+              :placeholder="isZh ? '已配置（留空则保持不变）' : 'Configured (leave blank to keep existing)'"
               mono
             />
-            <Input v-model="(draft.smtp_from_email as string)" label="From Email" mono />
-            <Input v-model="(draft.smtp_from_name as string)" label="From Name" />
+            <Input v-model="(draft.smtp_from_email as string)" :label="isZh ? '发件人邮箱' : 'From Email'" mono />
+            <Input v-model="(draft.smtp_from_name as string)" :label="isZh ? '发件人名称' : 'From Name'" />
             <Switch
               :model-value="Boolean(draft.smtp_use_tls)"
-              label="Use TLS"
+              :label="isZh ? '启用 TLS 加密' : 'Use TLS'"
               @update:model-value="(v) => (draft.smtp_use_tls = v)"
             />
           </div>
           <div>
             <Button size="sm" variant="secondary" :loading="testingSmtp" @click="handleTestSmtp">
-              Test SMTP Connection
+              {{ isZh ? '测试 SMTP 连接' : 'Test SMTP Connection' }}
             </Button>
           </div>
         </div>
@@ -466,12 +481,12 @@ onMounted(() => {
         <div v-else-if="activeSection === 'features'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.registration_email_domain_quota_enabled)"
-            label="Email Domain Quota Enforcement"
+            :label="isZh ? '启用注册邮箱域名配额限制' : 'Email Domain Quota Enforcement'"
             @update:model-value="(v) => (draft.registration_email_domain_quota_enabled = v)"
           />
           <Switch
             :model-value="Boolean(draft.user_custom_key_enabled)"
-            label="Allow User Custom API Keys"
+            :label="isZh ? '允许用户自定义 API 密钥' : 'Allow User Custom API Keys'"
             @update:model-value="(v) => (draft.user_custom_key_enabled = v)"
           />
         </div>
@@ -479,15 +494,15 @@ onMounted(() => {
         <div v-else-if="activeSection === 'agreement'" class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Switch
             :model-value="Boolean(draft.login_agreement_enabled)"
-            label="Require Login Agreement"
+            :label="isZh ? '登录需同意服务协议' : 'Require Login Agreement'"
             @update:model-value="(v) => (draft.login_agreement_enabled = v)"
           />
           <Select
             v-model="(draft.login_agreement_mode as string)"
-            label="Agreement Presentation Mode"
+            :label="isZh ? '协议展示方式' : 'Agreement Presentation Mode'"
             :options="[
-              { value: 'checkbox', label: 'Checkbox' },
-              { value: 'modal', label: 'Modal' }
+              { value: 'checkbox', label: isZh ? '勾选框确认' : 'Checkbox' },
+              { value: 'modal', label: isZh ? '弹窗确认' : 'Modal' }
             ]"
           />
         </div>

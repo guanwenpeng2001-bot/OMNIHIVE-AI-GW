@@ -1,5 +1,6 @@
 import type { CatalogModelItem, CatalogModelRate } from '@/features/console/catalogApi'
 import type {
+  ExactQuote,
   PlaygroundCostEstimate,
   PlaygroundMessageDraft,
   PlaygroundProtocol,
@@ -211,6 +212,7 @@ export function estimatePlaygroundRunCost(
   const rateKnown = inCostNum !== null || outCostNum !== null
   const totalNum =
     rateKnown ? (inCostNum ?? 0) + (outCostNum ?? 0) : null
+  const isFreeCatalog = catalogModel?.priceState === 'free'
 
   return {
     sideLabel: side.label,
@@ -224,9 +226,142 @@ export function estimatePlaygroundRunCost(
     outputRate,
     estimatedInputCost: inCostNum !== null ? inCostNum.toFixed(8) : null,
     maxOutputCost: outCostNum !== null ? outCostNum.toFixed(8) : null,
-    maxTotalCost: totalNum !== null ? totalNum.toFixed(8) : null,
-    rateKnown,
+    maxTotalCost: isFreeCatalog ? '0.00000000' : totalNum !== null ? totalNum.toFixed(8) : null,
+    rateKnown: isFreeCatalog || rateKnown,
     payloadBytes,
-    exceedsBodyLimit: payloadBytes > MAX_PLAYGROUND_BODY_BYTES
+    exceedsBodyLimit: payloadBytes > MAX_PLAYGROUND_BODY_BYTES,
+    quoteState: isFreeCatalog ? 'free' : rateKnown ? 'fallback_catalog' : 'unpriced',
+    quoteSource: rateKnown ? 'catalog' : null,
+    priceVersion: null,
+    fundingSource: null,
+    budgetBlocked: false,
+    unpricedReason: isFreeCatalog || rateKnown ? null : 'catalog_unpriced'
+  }
+}
+
+export function resolveCatalogQuoteModelId(
+  modelId: string,
+  catalogModel: CatalogModelItem | null
+): string | null {
+  const fromCatalog = catalogModel?.id?.trim() || ''
+  if (/^m_[0-9a-f]{32}$/.test(fromCatalog)) {
+    return fromCatalog
+  }
+  const raw = modelId.trim()
+  if (/^m_[0-9a-f]{32}$/.test(raw)) {
+    return raw
+  }
+  return null
+}
+
+function rateFromQuoteLine(
+  numerator: string | undefined,
+  denominator: string | undefined,
+  currency: string,
+  unit: string
+): CatalogModelRate | null {
+  if (!numerator || !denominator) return null
+  const num = Number(numerator)
+  const den = Number(denominator)
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den <= 0) return null
+  return {
+    currency,
+    amount: numerator,
+    unit,
+    per: denominator
+  }
+}
+
+export function formatModelRatePerMillion(
+  rate: CatalogModelRate | null,
+  fallbackCurrency = 'USD'
+): string | null {
+  if (!rate) return null
+  const amount = Number(rate.amount)
+  const per = Number(rate.per || '1')
+  if (!Number.isFinite(amount) || !Number.isFinite(per) || per <= 0) return null
+  const perMillion = (amount * 1_000_000) / per
+  const cur = (rate.currency || fallbackCurrency).toUpperCase()
+  const symbol = cur === 'USD' ? '$' : `${cur} `
+  const formatted = perMillion === 0
+    ? '0.00'
+    : perMillion >= 0.01
+      ? perMillion.toFixed(4).replace(/\.?0+$/, (m) => (m.startsWith('.') ? '.00' : ''))
+      : perMillion.toFixed(6).replace(/0+$/, '').replace(/\.$/, '.00')
+  return `${symbol}${formatted} / 1M`
+}
+
+export function applyAuthoritativeQuoteToEstimate(
+  base: PlaygroundCostEstimate,
+  quote: ExactQuote,
+  options?: {
+    keyScoped?: boolean
+    fundingSource?: string | null
+    budgetBlocked?: boolean
+  }
+): PlaygroundCostEstimate {
+  const currency = quote.estimated_charge?.currency || base.currency || 'USD'
+  const inputLine = quote.components?.find((c) => c.kind === 'input')
+  const outputLine = quote.components?.find((c) => c.kind === 'output')
+  const derivedInputRate =
+    rateFromQuoteLine(inputLine?.numerator, inputLine?.denominator, currency, 'input_token') ??
+    base.inputRate
+  const derivedOutputRate =
+    rateFromQuoteLine(outputLine?.numerator, outputLine?.denominator, currency, 'output_token') ??
+    base.outputRate
+
+  if (quote.state === 'free') {
+    return {
+      ...base,
+      currency,
+      inputRate: derivedInputRate,
+      outputRate: derivedOutputRate,
+      estimatedInputCost: '0.00000000',
+      maxOutputCost: '0.00000000',
+      maxTotalCost: quote.estimated_charge?.amount ?? '0.00000000',
+      rateKnown: true,
+      quoteState: 'free',
+      quoteSource: quote.source || (options?.keyScoped ? 'frozen' : 'reference'),
+      priceVersion: quote.price_version ?? null,
+      fundingSource: options?.fundingSource ?? base.fundingSource ?? null,
+      budgetBlocked: Boolean(options?.budgetBlocked),
+      unpricedReason: null,
+      authoritativeComponents: quote.components ?? []
+    }
+  }
+
+  if (quote.state === 'estimated' && quote.estimated_charge) {
+    return {
+      ...base,
+      currency: quote.estimated_charge.currency || currency,
+      inputRate: derivedInputRate,
+      outputRate: derivedOutputRate,
+      estimatedInputCost: inputLine?.raw_amount ?? base.estimatedInputCost,
+      maxOutputCost: outputLine?.raw_amount ?? base.maxOutputCost,
+      maxTotalCost: quote.estimated_charge.amount,
+      rateKnown: true,
+      quoteState: 'authoritative',
+      quoteSource: quote.source || (options?.keyScoped ? 'frozen' : 'reference'),
+      priceVersion: quote.price_version ?? null,
+      fundingSource: options?.fundingSource ?? base.fundingSource ?? null,
+      budgetBlocked: Boolean(options?.budgetBlocked),
+      unpricedReason: null,
+      authoritativeComponents: quote.components ?? []
+    }
+  }
+
+  return {
+    ...base,
+    inputRate: derivedInputRate,
+    outputRate: derivedOutputRate,
+    maxTotalCost: null,
+    rateKnown: false,
+    quoteState: 'unpriced',
+    quoteSource: quote.source ?? null,
+    priceVersion: quote.price_version ?? null,
+    fundingSource: options?.fundingSource ?? base.fundingSource ?? null,
+    budgetBlocked: Boolean(options?.budgetBlocked),
+    unpricedReason: 'server_unpriced',
+    authoritativeComponents: quote.components ?? []
   }
 }

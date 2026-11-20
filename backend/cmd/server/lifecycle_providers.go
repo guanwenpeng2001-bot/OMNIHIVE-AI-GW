@@ -175,10 +175,10 @@ func provideChannelMonitorRunner(s *process.Supervisor, svc *service.ChannelMoni
 	return nil
 }
 
-func provideChannelMonitorV2Aggregator(s *process.Supervisor, repo service.ChannelMonitorV2Repository, db *sql.DB, settingService *service.SettingService) *service.ChannelMonitorV2Aggregator {
+func provideChannelTelemetryAggregator(s *process.Supervisor, repo service.ChannelTelemetryRepository, db *sql.DB, settingService *service.SettingService) *service.ChannelTelemetryAggregator {
 	if s.Mode.Workers() {
 		s.Add(func(ctx context.Context) {
-			worker := service.ProvideChannelMonitorV2Aggregator(repo, db, settingService)
+			worker := service.ProvideChannelTelemetryAggregator(repo, db, settingService)
 			<-ctx.Done()
 			worker.Stop()
 		})

@@ -31,7 +31,7 @@ Stages:
   backend          builds, vet, untagged and unit tests, integration tests
   frontend         i18n, typecheck, lint, Vitest and production build
   contracts        JSON protocol fixtures and their consuming tests
-  generated-drift  Wire, OpenAPI and v2.d.ts regeneration must be clean
+  generated-drift  Wire, OpenAPI and openapi.d.ts regeneration must be clean
   independence     new sub2api identifiers require an allowlist entry
   smoke            production binary plus contracts/migrations/*/smoke.sh
   all              every stage (default)
@@ -483,13 +483,13 @@ stage_generated_drift() {
   cd "${ROOT}/backend"
   local paths=(
     "backend/cmd/server/wire_gen.go"
-    "backend/api/v2/openapi.yaml"
-    "frontend/src/api/generated/v2.d.ts"
+    "backend/api/openapi/openapi.yaml"
+    "frontend/src/api/generated/openapi.d.ts"
   )
   echo "+ go generate ./cmd/server"
   go generate ./cmd/server
-  echo "+ go run ./api/v2/compose"
-  go run ./api/v2/compose
+  echo "+ go run ./api/openapi/compose"
+  go run ./api/openapi/compose
   cd "${ROOT}"
   if [[ ! -d frontend/node_modules ]]; then
     echo "frontend/node_modules is missing; run the frontend stage first" >&2
@@ -497,7 +497,7 @@ stage_generated_drift() {
   fi
   echo "+ npm exec openapi-typescript"
   npm exec --yes --package=openapi-typescript@7.10.1 -- \
-    openapi-typescript backend/api/v2/openapi.yaml -o frontend/src/api/generated/v2.d.ts
+    openapi-typescript backend/api/openapi/openapi.yaml -o frontend/src/api/generated/openapi.d.ts
   echo "+ git diff --exit-code -- ${paths[*]}"
   git diff --exit-code -- "${paths[@]}"
 }
@@ -690,9 +690,9 @@ EOF
   export SMOKE_EXPECT_STATUS="${SMOKE_EXPECT_STATUS:-503}"
   export UPSTREAM_JOB_TEST_DSN="$PG_DSN"
   export AFFINITY_REDIS_TEST_ADDR="$REDIS_ADDR"
-  export BE07_POSTGRES_DSN="$PG_DSN"
-  export BE07_REDIS_ADDR="$REDIS_ADDR"
-  export BE23_INTEGRATION_TEST_DSN="${PG_DSN/&TimeZone=UTC/}"
+  export QUOTES_POSTGRES_DSN="$PG_DSN"
+  export QUOTES_REDIS_ADDR="$REDIS_ADDR"
+  export MIGRATION_INTEGRATION_TEST_DSN="${PG_DSN/&TimeZone=UTC/}"
   if [[ $PG_EXTERNAL -eq 0 ]]; then
     reset_test_databases
   fi
@@ -704,11 +704,11 @@ EOF
 
   local failed=0 script
   while IFS= read -r -d '' script; do
-    if [[ "$script" == *"/BE-05/smoke.sh" && $catalog_ready -eq 0 ]]; then
+    if [[ "$script" == *"/catalog/smoke.sh" && $catalog_ready -eq 0 ]]; then
       echo "SKIP ${script}: requires a catalog fixture (visible account/channel/group model)"
       continue
     fi
-    if [[ "$script" == *"/BE-09/smoke.sh" && -z "${SMOKE_BACKUP_ID:-}" ]]; then
+    if [[ "$script" == *"/restore/smoke.sh" && -z "${SMOKE_BACKUP_ID:-}" ]]; then
       echo "SKIP ${script}: requires a completed fixture backup ID"
       continue
     fi

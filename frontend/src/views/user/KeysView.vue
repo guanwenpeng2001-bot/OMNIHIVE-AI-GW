@@ -1,6 +1,107 @@
 <template>
   <AppLayout>
     <div class="oh-keys-workbench min-w-0 space-y-4">
+      <section
+        data-testid="keys-scope-attribution-banner"
+        class="card flex flex-col gap-2.5 p-3 sm:px-4"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2.5">
+          <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+              {{ isZh ? '归属作用域' : 'ACTIVE SCOPE' }}
+            </span>
+            <span
+              v-if="activeConsoleScope.workspaceId"
+              class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-2 py-0.5 font-mono text-xs font-semibold tabular-nums text-[var(--foreground)]"
+            >
+              {{ isZh ? `工作空间 #${activeConsoleScope.workspaceId}` : `Workspace #${activeConsoleScope.workspaceId}` }}
+              <template v-if="activeConsoleScope.projectId">
+                · {{ isZh ? `项目 #${activeConsoleScope.projectId}` : `Project #${activeConsoleScope.projectId}` }}
+              </template>
+            </span>
+            <span v-else class="pill pill-ghost font-mono text-xs">
+              {{ isZh ? '默认个人账户作用域' : 'Default Personal Scope' }}
+            </span>
+            <span
+              v-if="projectScopedKeys.length > 0"
+              class="pill pill-ghost font-mono text-[11px] tabular-nums"
+            >
+              {{
+                isZh
+                  ? `已登记项目受限凭证 ${projectScopedKeys.length}`
+                  : `${projectScopedKeys.length} Project Credentials`
+              }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <a
+              href="/byok"
+              data-testid="keys-link-byok"
+              class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
+              @click.prevent="navigateConsole('/byok')"
+            >
+              {{ isZh ? '自带密钥 (BYOK)' : 'Bring Your Own Key (BYOK)' }}
+            </a>
+            <a
+              :href="scopedBillingHref"
+              data-testid="keys-link-billing"
+              class="btn btn-secondary btn-sm px-2.5 py-1 text-xs"
+              @click.prevent="navigateConsole(scopedBillingHref)"
+            >
+              {{ isZh ? '费用与账单' : 'Billing & Costs' }}
+            </a>
+            <a
+              :href="scopedRequestsHref"
+              data-testid="keys-link-requests"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs"
+              @click.prevent="navigateConsole(scopedRequestsHref)"
+            >
+              {{ isZh ? '请求记录' : 'Request Logs' }}
+            </a>
+            <a
+              href="/workspaces"
+              class="btn btn-ghost btn-sm px-2 py-1 text-xs"
+              @click.prevent="navigateConsole('/workspaces')"
+            >
+              {{ isZh ? '切换作用域' : 'Switch Scope' }}
+            </a>
+          </div>
+        </div>
+
+        <p class="text-xs leading-relaxed text-[var(--muted-foreground)]">
+          {{
+            activeConsoleScope.workspaceId && activeConsoleScope.projectId
+              ? isZh
+                ? `当前密钥请求与计量回执将自动归集至「工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}」，可在「费用与账单」查看项目预算消耗，在「请求记录」追踪每次调用；如需托管上游厂商凭证请前往「自带密钥 (BYOK)」。`
+                : `Calls made with scoped credentials attribute usage and receipts to Workspace #${activeConsoleScope.workspaceId} / Project #${activeConsoleScope.projectId} across Billing & Costs and Request Logs. Enroll upstream provider keys in BYOK.`
+              : isZh
+                ? '每个下游 API 密钥均绑定至对应工作空间与项目以归集「请求记录」与「费用与账单」明细；如需托管自有上游厂商密钥请前往「自带密钥 (BYOK)」。'
+                : 'Downstream API keys attribute usage to your active Workspace & Project in Request Logs and Billing & Costs. Manage upstream provider credentials in BYOK.'
+          }}
+        </p>
+
+        <details v-if="projectScopedKeys.length > 0" class="border-t border-[var(--border)] pt-2 text-xs">
+          <summary class="cursor-pointer font-mono text-[11px] font-semibold text-[var(--foreground)]">
+            {{
+              isZh
+                ? `查看当前项目专属凭证列表 (${projectScopedKeys.length})`
+                : `View Active Project Scoped Credentials (${projectScopedKeys.length})`
+            }}
+          </summary>
+          <ul class="mt-2 grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            <li
+              v-for="pk in projectScopedKeys"
+              :key="pk.id"
+              class="flex items-center justify-between gap-2 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 font-mono text-xs tabular-nums"
+            >
+              <span class="truncate font-medium text-[var(--foreground)]">{{ pk.name }}</span>
+              <span class="shrink-0 text-[var(--muted-foreground)]">#{{ pk.id }} · {{ pk.prefix }}</span>
+            </li>
+          </ul>
+        </details>
+      </section>
+
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2.5">
@@ -13,7 +114,11 @@
             </span>
           </div>
           <span class="pill pill-ghost font-mono text-xs tabular-nums">
-            {{ gatewayEndpoints.length }} PROTOCOLS · {{ generationEndpoints.length }} GEN
+            {{
+              isZh
+                ? `${gatewayEndpoints.length} 类协议 · ${generationEndpoints.length} 个生成入口`
+                : `${gatewayEndpoints.length} PROTOCOLS · ${generationEndpoints.length} GEN`
+            }}
           </span>
           <div v-if="selectedIds.length" class="flex flex-wrap items-center gap-3 text-sm">
             <span class="text-[var(--muted-foreground)]">
@@ -141,11 +246,20 @@
                   @change="toggleAllVisibleKeys(($event.target as HTMLInputElement).checked)"
                 />
                 <span>
-                  已选择 <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> 个密钥（筛选后仍保留）
+                  <template v-if="isZh">
+                    已选择 <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> 个密钥（筛选后仍保留）
+                  </template>
+                  <template v-else>
+                    Selected <b id="kbKeySel" class="font-mono tabular-nums">{{ selectedKeyCount }}</b> key(s) (preserved across filters)
+                  </template>
                 </span>
               </label>
               <span class="pill pill-ghost font-mono text-[11px] tabular-nums">
-                启用 {{ activeKeyCount }} · 共 {{ pagination.total || apiKeys.length }}
+                {{
+                  isZh
+                    ? `启用 ${activeKeyCount} · 共 ${pagination.total || apiKeys.length}`
+                    : `Active ${activeKeyCount} · Total ${pagination.total || apiKeys.length}`
+                }}
               </span>
               <div class="flex-1" />
               <button
@@ -154,7 +268,7 @@
                 :disabled="selectedKeyCount === 0 || bulkUpdating"
                 @click="bulkToggleSelectedKeys('active')"
               >
-                批量启用
+                {{ isZh ? '批量启用' : 'Enable Selected' }}
               </button>
               <button
                 type="button"
@@ -162,7 +276,7 @@
                 :disabled="selectedKeyCount === 0 || bulkUpdating"
                 @click="bulkToggleSelectedKeys('inactive')"
               >
-                批量停用
+                {{ isZh ? '批量停用' : 'Disable Selected' }}
               </button>
               <button
                 type="button"
@@ -170,7 +284,7 @@
                 :disabled="selectedKeyCount === 0"
                 @click="clearSelectedKeys"
               >
-                清除选择
+                {{ isZh ? '清除选择' : 'Clear Selection' }}
               </button>
             </div>
           </div>
@@ -676,6 +790,42 @@
     >
       <ModelAccessRuleEditor v-if="showEditModal && selectedKey" :key="selectedKey.id" :path="`/keys/${selectedKey.id}`" />
       <form id="key-form" @submit.prevent="handleSubmit" class="space-y-5">
+        <div
+          v-if="!showEditModal"
+          class="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-xs"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="font-medium text-[var(--foreground)]">
+              {{
+                activeConsoleScope.workspaceId && activeConsoleScope.projectId
+                  ? isZh
+                    ? `归属作用域：工作空间 #${activeConsoleScope.workspaceId} / 项目 #${activeConsoleScope.projectId}`
+                    : `Attribution Scope: Workspace #${activeConsoleScope.workspaceId} / Project #${activeConsoleScope.projectId}`
+                  : isZh
+                    ? '归属作用域：当前账户默认工作空间项目'
+                    : 'Attribution Scope: Default Account Workspace & Project'
+              }}
+            </span>
+          </div>
+          <label
+            v-if="activeConsoleScope.workspaceId && activeConsoleScope.projectId"
+            class="mt-2 flex cursor-pointer items-start gap-2 text-[var(--muted-foreground)]"
+          >
+            <input
+              v-model="issueProjectPolicyCredential"
+              type="checkbox"
+              class="mt-0.5 h-3.5 w-3.5 rounded border-[var(--border)]"
+            />
+            <span>
+              {{
+                isZh
+                  ? `签发受限项目专属凭证（直接绑定至项目 #${activeConsoleScope.projectId} 的目录模型与计费审计策略）`
+                  : `Issue restricted project-scoped credential (bound directly to Project #${activeConsoleScope.projectId} catalog & billing policy)`
+              }}
+            </span>
+          </label>
+        </div>
+
         <div>
           <label class="input-label">{{ t('keys.nameLabel') }}</label>
           <input
@@ -1516,14 +1666,72 @@ import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
-	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, getCurrentInstance, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
 	import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import {
+  identityApi,
+  readPersistedConsoleScope,
+  SCOPE_CHANGED_EVENT as CONSOLE_SCOPE_CHANGED_EVENT,
+  type ConsoleScopeSelection,
+  type IdentityKey
+} from '@/features/console/scope'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
+const instance = getCurrentInstance()
+
+const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
+const projectScopedKeys = ref<IdentityKey[]>([])
+const issueProjectPolicyCredential = ref(false)
+
+const scopedBillingHref = computed(() => {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  return ws && proj ? `/billing?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/billing'
+})
+
+const scopedRequestsHref = computed(() => {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  return ws && proj ? `/requests?workspace=${encodeURIComponent(ws)}&project=${encodeURIComponent(proj)}` : '/requests'
+})
+
+function navigateConsole(path: string): void {
+  const router = instance?.appContext.config.globalProperties.$router
+  if (router && typeof router.push === 'function') {
+    void router.push(path)
+  } else if (typeof window !== 'undefined') {
+    window.location.assign(path)
+  }
+}
+
+async function loadProjectScopedKeys(): Promise<void> {
+  const ws = activeConsoleScope.value.workspaceId
+  const proj = activeConsoleScope.value.projectId
+  if (!ws || !proj || typeof identityApi.listProjectKeys !== 'function') {
+    projectScopedKeys.value = []
+    return
+  }
+  try {
+    const page = await identityApi.listProjectKeys(ws, proj, { limit: 50 })
+    if (!disposed) {
+      projectScopedKeys.value = page?.items ?? []
+    }
+  } catch {
+    if (!disposed) {
+      projectScopedKeys.value = []
+    }
+  }
+}
+
+function handleConsoleScopeSync(): void {
+  activeConsoleScope.value = readPersistedConsoleScope()
+  void loadProjectScopedKeys()
+}
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import { buildGatewayUrl } from '@/api/url'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -2461,6 +2669,28 @@ const handleSubmit = async () => {
       }
       await keysAPI.update(selectedKey.value.id, updates)
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
+    } else if (
+      issueProjectPolicyCredential.value &&
+      activeConsoleScope.value.workspaceId &&
+      activeConsoleScope.value.projectId
+    ) {
+      const created = await identityApi.createProjectKey(
+        activeConsoleScope.value.workspaceId,
+        activeConsoleScope.value.projectId,
+        {
+          name: formData.value.name.trim(),
+          model_access: { mode: 'inherit', ids: [] },
+          actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+          expires_at: expiresAt || null
+        }
+      )
+      appStore.showSuccess(t('keys.keyCreatedSuccess'))
+      if (created?.credential) {
+        issuedSecret.value = created.credential
+        issuedGraceUntil.value = null
+        showSecretDialog.value = true
+      }
+      void loadProjectScopedKeys()
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       const issue = await keysAPI.create(
@@ -2521,6 +2751,7 @@ const closeModals = () => {
   showCreateModal.value = false
   showEditModal.value = false
   selectedKey.value = null
+  issueProjectPolicyCredential.value = false
   formData.value = {
     name: '',
     group_id: null,
@@ -2672,6 +2903,10 @@ onMounted(() => {
   loadGroups()
   loadUserGroupRates()
   loadPublicSettings()
+  void loadProjectScopedKeys()
+  if (typeof window !== 'undefined') {
+    window.addEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
+  }
   document.addEventListener('click', closeGroupSelector)
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
@@ -2686,6 +2921,9 @@ onUnmounted(() => {
   auxiliaryControllers.forEach(controller => controller.abort())
   auxiliaryControllers.clear()
   abortController?.abort()
+  if (typeof window !== 'undefined') {
+    window.removeEventListener(CONSOLE_SCOPE_CHANGED_EVENT, handleConsoleScopeSync)
+  }
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })

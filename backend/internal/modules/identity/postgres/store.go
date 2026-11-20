@@ -91,8 +91,49 @@ func (s *Store) LegacyScope(ctx context.Context, w, key, owner int64, digest str
  LEFT JOIN project_resources r ON r.workspace_id=w.id AND r.kind='api_keys' AND r.resource_id=k.id
  JOIN projects p ON p.workspace_id=w.id AND p.id=coalesce(r.project_id,d.id) AND p.archived_at IS NULL
  WHERE k.id=$1 AND k.workspace_id=$2 AND k.user_id=$3 AND k.deleted_at IS NULL
+ AND (p.is_default OR EXISTS (SELECT 1 FROM users u
+     LEFT JOIN workspace_members m ON m.workspace_id=w.id AND m.user_id=u.id
+     WHERE u.id=k.user_id AND u.deleted_at IS NULL AND u.status='active' AND `+legacyProjectPermission+`))
  AND EXISTS (SELECT 1 FROM api_key_credentials c WHERE c.api_key_id=k.id AND c.workspace_id=k.workspace_id AND c.credential_digest=$4 AND c.revoked_at IS NULL AND (c.status='current' OR (c.status='grace' AND (c.valid_until IS NULL OR c.valid_until>now())))) AND NOT EXISTS(SELECT 1 FROM project_key_policies x WHERE x.api_key_id=k.id)`, key, w, owner, digest).Scan(&a.ProjectID, &a.Version)
 	return a, found(err)
+}
+
+// Legacy credentials carry all gateway actions. Only users who can issue
+// such a key in this project may bind one there. Recheck this predicate at
+// authentication so revoking membership or grants also revokes access.
+const legacyProjectPermission = `(u.role='admin' OR m.role='admin' OR (m.id IS NOT NULL AND
+ EXISTS (SELECT 1 FROM project_grants g WHERE g.workspace_id=p.workspace_id AND g.project_id=p.id
+     AND g.user_id=u.id AND g.action='keys.create')
+ AND (p.is_default OR NOT EXISTS (SELECT 1 FROM identity_actions a WHERE a.category='key'
+     AND NOT EXISTS (SELECT 1 FROM project_grants g WHERE g.workspace_id=p.workspace_id
+         AND g.project_id=p.id AND g.user_id=u.id AND g.action=a.action)))))`
+
+// LegacyKeyWorkspace resolves an explicitly selected project for a group-bound
+// user key, sharing the same project ownership checks as the model catalog.
+func LegacyKeyWorkspace(ctx context.Context, db interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, actor, project, group int64) (int64, error) {
+	rows, err := db.QueryContext(ctx, `SELECT p.workspace_id FROM projects p
+ JOIN users u ON u.id=$1 AND u.deleted_at IS NULL AND u.status='active'
+ LEFT JOIN workspace_members m ON m.workspace_id=p.workspace_id AND m.user_id=u.id
+ JOIN groups b ON b.id=$3 AND b.workspace_id=p.workspace_id AND b.deleted_at IS NULL AND b.status='active'
+ LEFT JOIN project_resources r ON r.kind='groups' AND r.resource_id=b.id AND r.workspace_id=p.workspace_id
+ WHERE p.id=$2 AND p.archived_at IS NULL AND (r.project_id=p.id OR (r.project_id IS NULL AND p.is_default))
+ AND NOT EXISTS (SELECT 1 FROM identity_scope_quarantine q WHERE q.kind='groups' AND q.resource_id=b.id)
+ AND `+legacyProjectPermission, actor, project, group)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err = rows.Err(); err != nil {
+			return 0, err
+		}
+		return 0, fault.NotFound
+	}
+	var workspace int64
+	err = rows.Scan(&workspace)
+	return workspace, err
 }
 
 func (s *Store) ProjectCredential(ctx context.Context, digest string) (*identity.KeyPolicy, error) {

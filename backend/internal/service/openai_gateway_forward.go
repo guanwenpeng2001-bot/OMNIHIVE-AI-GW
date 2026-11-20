@@ -1523,7 +1523,14 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 			return false
 		}
 	}
-	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
+	switch openai_compat.ResolveResponsesSupport(account.Extra) {
+	case openai_compat.ResponsesSupportYes:
+		return false
+	case openai_compat.ResponsesSupportNo:
+		return true
+	default:
+		return openAIAPIKeyCatalogIsChatOnly(account)
+	}
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {
@@ -1681,8 +1688,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
 	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
 	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
+	applyOpenAIAPIKeyDefaultUserAgent(account, req.Header)
 
-	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
+	// Apply configured overrides after provider defaults.
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body, openCodeSessionHintBody(promptCacheKey))
 	// x-codex-beta-features：按真实 Codex 的会话级行为补注（在账号级覆写之后，
@@ -1695,6 +1703,20 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		return nil, err
 	}
 	return req, nil
+}
+
+const openAIAPIKeyDefaultUserAgent = "OmniHive-Gateway/1.0"
+
+func applyOpenAIAPIKeyDefaultUserAgent(account *Account, header http.Header) {
+	if account == nil || !account.IsOpenAIApiKey() || strings.TrimSpace(account.GetOpenAIUserAgent()) != "" {
+		return
+	}
+	client := strings.ToLower(strings.TrimSpace(header.Get("User-Agent")))
+	product, _, _ := strings.Cut(client, "/")
+	switch product {
+	case "", "python-urllib", "python-requests", "go-http-client":
+		header.Set("User-Agent", openAIAPIKeyDefaultUserAgent)
+	}
 }
 
 // codexIdentityOverrideUA 返回账号级显式配置的出站 User-Agent，供强制统一身份时作为覆写来源。

@@ -6,7 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Toast, ToastType, PublicSettings } from '@/types'
-import type { components } from '@/api/generated/v2'
+import type { components } from '@/api/generated/openapi'
 import { i18n } from '@/i18n'
 import { apiClient, isSilentRequestError } from '@/api/client'
 import {
@@ -132,7 +132,7 @@ export const useAppStore = defineStore('app', () => {
   const cachedPublicSettings = ref<PublicSettings | null>(null)
   let publicSettingsRequest: Promise<PublicSettings | null> | null = null
 
-  // Scope switcher state (BE-01 GET /api/v2/me/scopes)
+  // Scope switcher state (Identity Scopes)
   const scopes = ref<IdentityWorkspace[]>([])
   const scopesLoaded = ref<boolean>(false)
   const scopesLoading = ref<boolean>(false)
@@ -384,7 +384,7 @@ export const useAppStore = defineStore('app', () => {
     toasts.value = []
   }
 
-  // ==================== Identity Scopes (BE-01) ====================
+  // ==================== Identity Scopes ====================
 
   function notifyScopeChanged(selection: ScopeSelection): void {
     scopeRevision.value += 1

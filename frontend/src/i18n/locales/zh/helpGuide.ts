@@ -245,7 +245,7 @@ export default {
             "notes": "CLI 自动添加 /v1/messages；桌面版为不同配置入口。需要分组与模型支持 Messages。"
           },
           "opencode": {
-            "client": "OpenCode (v1 config)",
+            "client": "OpenCode (经典配置)",
             "base": "provider.<id>.options.baseURL = root + /v1",
             "key": "options.apiKey: {'{'}env:OMNIHIVE_API_KEY{'}'}",
             "model": "<provider>/MODEL_ID_FROM_LIST",
@@ -1406,7 +1406,7 @@ export default {
           "public": {
             "setting": "公开 URL + 本站 API Key",
             "owner": "你的客户端或工作流",
-            "meaning": "OmniHive 公开 Base URL：https://omnihive2.com/v1。Chat 与 Responses 客户端自行追加操作路径；Claude Code 使用根地址 https://omnihive2.com；Gemini 使用 /v1beta/models/…:generateContent 或 :streamGenerateContent。"
+            "meaning": "OmniHive 公开 Base URL：https://api.omnihive.io/v1。Chat 与 Responses 客户端自行追加操作路径；Claude Code 使用根地址 https://api.omnihive.io；Gemini 使用 /v1beta/models/…:generateContent 或 :streamGenerateContent。"
           },
           "supplier": {
             "setting": "供应商账号 + 区域 / 套餐密钥",

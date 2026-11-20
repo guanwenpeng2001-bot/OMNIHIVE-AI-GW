@@ -16,15 +16,15 @@ const { t, locale } = useI18n()
   <li class="grid min-w-0 gap-2 border-b border-oh-subtle py-3 last:border-0 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] sm:items-center">
     <div class="grid gap-1">
       <div class="flex flex-wrap items-center gap-1.5">
-        <span class="font-mono text-xs font-semibold text-oh-primary">{{ t('wp6.requests.attemptOrdinal', { number: row.attempt.number }) }}</span>
-        <Badge :tone="statusTone(row.attempt.outcome)" size="xs" dot>{{ t(`wp6.states.${row.attempt.outcome}`) }}</Badge>
+        <span class="font-mono text-xs font-semibold text-oh-primary">{{ t('costLedger.requests.attemptOrdinal', { number: row.attempt.number }) }}</span>
+        <Badge :tone="statusTone(row.attempt.outcome)" size="xs" dot>{{ t(`costLedger.states.${row.attempt.outcome}`) }}</Badge>
         <Badge v-if="row.attempt.status !== null" size="xs" mono>{{ row.attempt.status }}</Badge>
-        <Badge v-if="row.replacement" tone="success" size="xs">{{ t('wp6.requests.replacement') }}</Badge>
+        <Badge v-if="row.replacement" tone="success" size="xs">{{ t('costLedger.requests.replacement') }}</Badge>
       </div>
       <div class="flex flex-wrap gap-x-2 gap-y-1 text-xs text-oh-muted">
         <span v-if="connectionAccess && (row.attempt.connection_name || row.attempt.connection_id)" class="break-all">{{ row.attempt.connection_name ?? row.attempt.connection_id }}</span>
-        <span v-else-if="!connectionAccess">{{ t('wp6.requests.connectionHidden') }}</span>
-        <span>{{ t('wp6.requests.acceptance', { state: t(`wp6.states.${row.attempt.acceptance}`) }) }}</span>
+        <span v-else-if="!connectionAccess">{{ t('costLedger.requests.connectionHidden') }}</span>
+        <span>{{ t('costLedger.requests.acceptance', { state: t(`costLedger.states.${row.attempt.acceptance}`) }) }}</span>
       </div>
       <p v-if="row.attempt.reason" class="break-all font-mono text-[11px] text-oh-muted">{{ row.attempt.reason }}</p>
     </div>

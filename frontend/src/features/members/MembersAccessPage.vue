@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { apiClient } from '@/api/client'
 import {
   Badge,
   Button,
@@ -20,14 +22,26 @@ import {
 import type { UiSelectOption, UiTabItem, UiTableColumn } from '@/components/ui'
 import { workspacesAPI, type Workspace, type WorkspaceMember } from '@/api/workspaces'
 import { classifyAsyncError, formatNullableMono } from '@/features/shared/asyncState'
+import { getControlAPIBaseURL } from '@/features/shared/controlClient'
 import { membersV2API } from './api'
 import { projectMemberPermissions, resolveCasMutationError } from './cas'
 import type {
   CasConflictState,
   IdentityAccess,
+  IdentityMemberGrants,
+  IdentityMemberItem,
   IdentityProject,
   IdentityWorkspace
 } from './types'
+
+interface MemberDisplayRow {
+  user_id: number | string
+  role: 'admin' | 'member' | string
+  username?: string
+  email?: string
+  status?: string
+  grant_version?: string
+}
 
 const props = withDefaults(
   defineProps<{
@@ -35,6 +49,9 @@ const props = withDefaults(
   }>(),
   { initialWorkspaceId: '' }
 )
+
+const i18n = useI18n()
+const isZh = computed(() => String(i18n.locale?.value || '').toLowerCase().startsWith('zh'))
 
 const activeTab = ref('members')
 const loading = ref(true)
@@ -52,13 +69,13 @@ const v2Scopes = ref<IdentityWorkspace[]>([])
 const selectedWorkspaceId = ref<string>(props.initialWorkspaceId || '')
 const projects = ref<IdentityProject[]>([])
 const projectsNextCursor = ref<string | null>(null)
-const members = ref<WorkspaceMember[]>([])
+const members = ref<MemberDisplayRow[]>([])
 const projectAccess = ref<IdentityAccess | null>(null)
 
 const searchQuery = ref('')
 const roleFilter = ref('all')
 
-// Project create / edit CAS state
+// Project create / edit state
 const showCreateProjectModal = ref(false)
 const newProjectName = ref('')
 const projectActionBusy = ref(false)
@@ -66,29 +83,46 @@ const projectActionBusy = ref(false)
 const editingProject = ref<IdentityProject | null>(null)
 const editProjectName = ref('')
 
-// Member grants CAS modal
-const grantModalMember = ref<WorkspaceMember | null>(null)
+// Member grants modal
+const grantModalMember = ref<MemberDisplayRow | null>(null)
 const grantVersionInput = ref('1')
 const grantSelectedActions = ref<string[]>(['text.chat', 'usage.read'])
 const grantSelectedProjects = ref<string[]>([])
+const grantLoading = ref(false)
 const grantBusy = ref(false)
+const grantModalConflict = ref<CasConflictState | null>(null)
 
-// Add / update v1 workspace member
+// Add / update workspace member
 const newMemberUserId = ref('')
 const newMemberRole = ref<'admin' | 'member'>('member')
 const memberMutationBusy = ref(false)
 
-const AVAILABLE_ACTIONS = [
-  'text.chat',
-  'text.embeddings',
-  'image.generate',
-  'usage.read',
-  'tasks.read',
-  'projects.read',
-  'projects.write',
-  'members.read',
-  'members.grants'
+const ACTION_CATALOG: ReadonlyArray<{ action: string; labelZh: string; labelEn: string }> = [
+  { action: 'text.chat', labelZh: '对话生成', labelEn: 'Chat Generation' },
+  { action: 'text.embeddings', labelZh: '向量嵌入', labelEn: 'Embeddings' },
+  { action: 'image.generate', labelZh: '图像生成', labelEn: 'Image Generation' },
+  { action: 'usage.read', labelZh: '用量读取', labelEn: 'Read Usage' },
+  { action: 'tasks.read', labelZh: '异步任务读取', labelEn: 'Read Tasks' },
+  { action: 'projects.read', labelZh: '项目读取', labelEn: 'Read Projects' },
+  { action: 'projects.edit', labelZh: '项目编辑', labelEn: 'Edit Projects' },
+  { action: 'models.read', labelZh: '模型目录读取', labelEn: 'Read Models' },
+  { action: 'keys.read', labelZh: 'API Key 查看', labelEn: 'Read API Keys' },
+  { action: 'keys.create', labelZh: 'API Key 创建', labelEn: 'Create API Keys' },
+  { action: 'connections.read', labelZh: '上游连接查看', labelEn: 'Read Connections' },
+  { action: 'connections.edit', labelZh: '上游连接编辑', labelEn: 'Edit Connections' },
+  { action: 'routing.read', labelZh: '路由策略查看', labelEn: 'Read Routing' },
+  { action: 'requests.read', labelZh: '请求日志查看', labelEn: 'Read Requests' },
+  { action: 'billing.read', labelZh: '账单与预算查看', labelEn: 'Read Billing' },
+  { action: 'playground.run', labelZh: '调试台执行', labelEn: 'Run Playground' }
 ]
+
+const grantActionOptions = computed(() => {
+  const known = new Set(ACTION_CATALOG.map((item) => item.action))
+  const extras = grantSelectedActions.value
+    .filter((act) => !known.has(act))
+    .map((act) => ({ action: act, labelZh: act, labelEn: act }))
+  return [...ACTION_CATALOG, ...extras]
+})
 
 const selectedWorkspace = computed(() =>
   workspaces.value.find((ws) => String(ws.id) === selectedWorkspaceId.value) ?? null
@@ -107,27 +141,44 @@ const workspaceOptions = computed<UiSelectOption[]>(() => {
   }
   return v2Scopes.value.map((ws) => ({
     value: ws.workspace_id,
-    label: `${ws.name} (${ws.workspace_id})`
+    label: `${ws.name} (#${ws.workspace_id})`
   }))
 })
 
-const roleFilterOptions: UiSelectOption[] = [
-  { value: 'all', label: 'All Roles' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'member', label: 'Member' }
-]
+const roleFilterOptions = computed<UiSelectOption[]>(() => [
+  { value: 'all', label: isZh.value ? '全部角色' : 'All Roles' },
+  { value: 'admin', label: isZh.value ? '管理员' : 'Admin' },
+  { value: 'member', label: isZh.value ? '普通成员' : 'Member' }
+])
 
 const tabItems = computed<UiTabItem[]>(() => [
-  { value: 'members', label: 'Workspace Members', count: members.value.length },
-  { value: 'projects', label: 'Projects & CAS Versions', count: projects.value.length },
-  { value: 'roles', label: 'Role Projections & Invitations' }
+  {
+    value: 'members',
+    label: isZh.value ? '工作空间成员' : 'Workspace Members',
+    count: members.value.length
+  },
+  {
+    value: 'projects',
+    label: isZh.value ? '项目边界' : 'Projects',
+    count: projects.value.length
+  },
+  {
+    value: 'roles',
+    label: isZh.value ? '权限视图与邀请说明' : 'Effective Access & Invitations'
+  }
 ])
 
 const filteredMembers = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
   return members.value.filter((member) => {
     if (roleFilter.value !== 'all' && member.role !== roleFilter.value) return false
-    if (query && !String(member.user_id).toLowerCase().includes(query) && !member.role.toLowerCase().includes(query)) {
+    if (
+      query &&
+      !String(member.user_id).toLowerCase().includes(query) &&
+      !member.role.toLowerCase().includes(query) &&
+      !(member.username || '').toLowerCase().includes(query) &&
+      !(member.email || '').toLowerCase().includes(query)
+    ) {
       return false
     }
     return true
@@ -144,32 +195,79 @@ const filteredProjects = computed(() => {
 
 const hasActiveFilters = computed(() => Boolean(searchQuery.value.trim()) || roleFilter.value !== 'all')
 
-const memberColumns: UiTableColumn[] = [
-  { key: 'user_id', label: 'Member ID', mono: true, sortable: true },
-  { key: 'role', label: 'Workspace Role' },
-  { key: 'actions', label: 'Actions' }
-]
+const memberColumns = computed<UiTableColumn[]>(() => [
+  { key: 'user_id', label: isZh.value ? '成员身份' : 'Member', sortable: true },
+  { key: 'role', label: isZh.value ? '工作空间角色' : 'Workspace Role' },
+  { key: 'grant_version', label: isZh.value ? '权限修订' : 'Grant Revision', mono: true },
+  { key: 'actions', label: isZh.value ? '操作' : 'Actions', align: 'right' }
+])
 
-const projectColumns: UiTableColumn[] = [
-  { key: 'name', label: 'Project Name', sortable: true },
-  { key: 'id', label: 'Project ID', mono: true },
-  { key: 'version', label: 'CAS Version', mono: true },
-  { key: 'actions', label: 'Actions', align: 'right' }
-]
+const projectColumns = computed<UiTableColumn[]>(() => [
+  { key: 'name', label: isZh.value ? '项目名称' : 'Project Name', sortable: true },
+  { key: 'id', label: isZh.value ? '项目 ID' : 'Project ID', mono: true },
+  { key: 'version', label: isZh.value ? '项目修订' : 'Revision', mono: true },
+  { key: 'actions', label: isZh.value ? '操作' : 'Actions', align: 'right' }
+])
+
+function formatRoleLabel(role: unknown): string {
+  const r = String(role || '').toLowerCase()
+  if (r === 'admin') return isZh.value ? '管理员' : 'ADMIN'
+  if (r === 'member') return isZh.value ? '成员' : 'MEMBER'
+  return String(role || '').toUpperCase()
+}
 
 function clearFilters(): void {
   searchQuery.value = ''
   roleFilter.value = 'all'
 }
 
+async function fetchWorkspaceMembersWithFallback(workspaceId: string): Promise<MemberDisplayRow[]> {
+  try {
+    const { data } = await apiClient.get<{ items?: IdentityMemberItem[] } | IdentityMemberItem[]>(
+      `/workspaces/${workspaceId}/members`,
+      {
+        baseURL: getControlAPIBaseURL(),
+        params: { limit: 100 }
+      }
+    )
+    const rawItems = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : null
+    if (rawItems) {
+      return rawItems.map((item) => ({
+        user_id: item.user_id || item.id,
+        role: item.role,
+        username: item.username,
+        email: item.email,
+        status: item.status,
+        grant_version: item.version
+      }))
+    }
+  } catch {
+    // Fall back to /api/v1/workspaces/:id/members when actor lacks members.grants.write or v2 unavailable
+  }
+  const numericId = Number(workspaceId)
+  if (!Number.isFinite(numericId) || numericId <= 0) return []
+  const legacyMembers: WorkspaceMember[] = await workspacesAPI.members(numericId)
+  return legacyMembers.map((m) => ({
+    user_id: m.user_id,
+    role: m.role
+  }))
+}
+
+async function fetchMemberGrants(workspaceId: string, memberId: string): Promise<IdentityMemberGrants | null> {
+  const { data } = await apiClient.get<IdentityMemberGrants>(
+    `/workspaces/${workspaceId}/members/${memberId}/grants`,
+    { baseURL: getControlAPIBaseURL() }
+  )
+  return data ?? null
+}
+
 async function loadWorkspaceDetails(workspaceId: string): Promise<void> {
   if (!workspaceId) return
   partialErrors.value = []
-  const numericId = Number(workspaceId)
 
   const [projectsRes, membersRes] = await Promise.allSettled([
     membersV2API.listProjects(workspaceId, { limit: 50 }),
-    Number.isFinite(numericId) && numericId > 0 ? workspacesAPI.members(numericId) : Promise.resolve([])
+    fetchWorkspaceMembersWithFallback(workspaceId)
   ])
 
   if (projectsRes.status === 'fulfilled') {
@@ -185,22 +283,28 @@ async function loadWorkspaceDetails(workspaceId: string): Promise<void> {
       projectAccess.value = null
     }
   } else {
-    const err = classifyAsyncError(projectsRes.reason, 'Failed to load v2 projects')
+    const err = classifyAsyncError(
+      projectsRes.reason,
+      isZh.value ? '加载项目列表失败' : 'Failed to load projects'
+    )
     if (err.state === 'forbidden') {
       loadError.value = { state: 'forbidden', message: err.message, requestId: err.requestId }
       return
     }
-    partialErrors.value.push(`Projects: ${err.message}`)
+    partialErrors.value.push(`${isZh.value ? '项目列表' : 'Projects'}: ${err.message}`)
   }
 
   if (membersRes.status === 'fulfilled') {
     members.value = membersRes.value
   } else {
-    const err = classifyAsyncError(membersRes.reason, 'Failed to load workspace members')
+    const err = classifyAsyncError(
+      membersRes.reason,
+      isZh.value ? '加载工作空间成员失败' : 'Failed to load workspace members'
+    )
     if (err.state === 'forbidden') {
-      partialErrors.value.push(`Members (403): ${err.message}`)
+      partialErrors.value.push(`${isZh.value ? '成员列表 (403)' : 'Members (403)'}: ${err.message}`)
     } else {
-      partialErrors.value.push(`Members: ${err.message}`)
+      partialErrors.value.push(`${isZh.value ? '成员列表' : 'Members'}: ${err.message}`)
     }
   }
 }
@@ -224,19 +328,25 @@ async function loadAll(isRefresh = false): Promise<void> {
     if (wsRes.status === 'fulfilled') {
       workspaces.value = wsRes.value
     } else {
-      const err = classifyAsyncError(wsRes.reason, 'Failed to load workspaces')
+      const err = classifyAsyncError(
+        wsRes.reason,
+        isZh.value ? '加载工作空间失败' : 'Failed to load workspaces'
+      )
       if (err.state === 'forbidden' || err.state === 'unknown') {
         loadError.value = { state: err.state, message: err.message, requestId: err.requestId }
         return
       }
-      partialErrors.value.push(`Workspaces: ${err.message}`)
+      partialErrors.value.push(`${isZh.value ? '工作空间' : 'Workspaces'}: ${err.message}`)
     }
 
     if (scopesRes.status === 'fulfilled') {
       v2Scopes.value = scopesRes.value.items
     } else {
-      const err = classifyAsyncError(scopesRes.reason, 'Failed to load v2 scopes')
-      partialErrors.value.push(`Scopes v2: ${err.message}`)
+      const err = classifyAsyncError(
+        scopesRes.reason,
+        isZh.value ? '加载权限作用域失败' : 'Failed to load workspace scopes'
+      )
+      partialErrors.value.push(`${isZh.value ? '作用域' : 'Scopes'}: ${err.message}`)
     }
 
     if (!selectedWorkspaceId.value) {
@@ -264,11 +374,21 @@ async function handleCreateProject(): Promise<void> {
     projects.value = [created, ...projects.value]
     newProjectName.value = ''
     showCreateProjectModal.value = false
-    confirmedMessage.value = `Project "${created.name}" created (v${created.version}).`
-    pushUiToast({ tone: 'success', title: 'Project created', description: created.name })
+    confirmedMessage.value = isZh.value
+      ? `已创建项目「${created.name}」（项目修订 #${created.version}）。`
+      : `Project "${created.name}" created (Revision #${created.version}).`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '项目已创建' : 'Project created',
+      description: created.name
+    })
   } catch (error) {
-    const err = classifyAsyncError(error, 'Failed to create project')
-    pushUiToast({ tone: err.state === 'unknown' ? 'warning' : 'danger', title: 'Create failed', description: err.message })
+    const err = classifyAsyncError(error, isZh.value ? '创建项目失败' : 'Failed to create project')
+    pushUiToast({
+      tone: err.state === 'unknown' ? 'warning' : 'danger',
+      title: isZh.value ? '创建项目失败' : 'Create failed',
+      description: err.message
+    })
   } finally {
     projectActionBusy.value = false
   }
@@ -295,8 +415,14 @@ async function handleSaveProject(): Promise<void> {
     )
     projects.value = projects.value.map((p) => (p.id === updated.id ? updated : p))
     editingProject.value = null
-    confirmedMessage.value = `Project "${updated.name}" saved at CAS version ${updated.version}.`
-    pushUiToast({ tone: 'success', title: 'Project updated', description: `Version ${updated.version}` })
+    confirmedMessage.value = isZh.value
+      ? `项目「${updated.name}」已保存（项目修订 #${updated.version}）。`
+      : `Project "${updated.name}" saved (Revision #${updated.version}).`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '项目已更新' : 'Project updated',
+      description: isZh.value ? `项目修订 #${updated.version}` : `Revision #${updated.version}`
+    })
   } catch (error) {
     const resolved = resolveCasMutationError(
       error,
@@ -308,7 +434,11 @@ async function handleSaveProject(): Promise<void> {
       conflictState.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Update failed', description: resolved.message })
+      pushUiToast({
+        tone: 'danger',
+        title: isZh.value ? '更新项目失败' : 'Update failed',
+        description: resolved.message
+      })
     }
   } finally {
     projectActionBusy.value = false
@@ -322,25 +452,70 @@ async function handleDeleteProject(project: IdentityProject): Promise<void> {
   try {
     await membersV2API.deleteProject(selectedWorkspaceId.value, project.id, project.version)
     projects.value = projects.value.filter((p) => p.id !== project.id)
-    confirmedMessage.value = `Project "${project.name}" deleted.`
-    pushUiToast({ tone: 'success', title: 'Project deleted', description: project.name })
+    confirmedMessage.value = isZh.value
+      ? `项目「${project.name}」已归档移除。`
+      : `Project "${project.name}" deleted.`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '项目已删除' : 'Project deleted',
+      description: project.name
+    })
   } catch (error) {
     const resolved = resolveCasMutationError(error, 'project', project.id, project.version)
     if (resolved.kind === 'conflict') {
       conflictState.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Delete failed', description: resolved.message })
+      pushUiToast({
+        tone: 'danger',
+        title: isZh.value ? '删除项目失败' : 'Delete failed',
+        description: resolved.message
+      })
     }
   } finally {
     projectActionBusy.value = false
   }
 }
 
-function openGrantModal(member: WorkspaceMember): void {
+async function loadMemberGrantsIntoModal(memberId: string): Promise<boolean> {
+  if (!selectedWorkspaceId.value) return false
+  grantLoading.value = true
+  try {
+    const grants = await fetchMemberGrants(selectedWorkspaceId.value, memberId)
+    if (grants) {
+      grantVersionInput.value = String(grants.version || '1')
+      grantSelectedProjects.value = Array.isArray(grants.project_ids) ? [...grants.project_ids] : []
+      grantSelectedActions.value = Array.isArray(grants.actions) ? [...grants.actions] : []
+      members.value = members.value.map((m) =>
+        String(m.user_id) === memberId ? { ...m, grant_version: String(grants.version) } : m
+      )
+      grantModalConflict.value = null
+      return true
+    }
+  } catch (error) {
+    const err = classifyAsyncError(
+      error,
+      isZh.value ? '读取成员当前授权失败' : 'Failed to load current member grants'
+    )
+    pushUiToast({
+      tone: 'warning',
+      title: isZh.value ? '未能读取最新授权' : 'Could not fetch current grants',
+      description: err.message
+    })
+  } finally {
+    grantLoading.value = false
+  }
+  return false
+}
+
+function openGrantModal(member: MemberDisplayRow): void {
   grantModalMember.value = member
+  grantVersionInput.value = member.grant_version || '1'
   grantSelectedProjects.value = projects.value.map((p) => p.id)
+  grantSelectedActions.value = ['text.chat', 'usage.read']
   conflictState.value = null
+  grantModalConflict.value = null
+  void loadMemberGrantsIntoModal(String(member.user_id))
 }
 
 function toggleGrantAction(action: string, checked: boolean): void {
@@ -367,6 +542,7 @@ async function handleSaveGrants(): Promise<void> {
   if (!grantModalMember.value || !selectedWorkspaceId.value) return
   grantBusy.value = true
   conflictState.value = null
+  grantModalConflict.value = null
   confirmedMessage.value = null
   const memberId = String(grantModalMember.value.user_id)
   try {
@@ -380,20 +556,75 @@ async function handleSaveGrants(): Promise<void> {
       }
     )
     grantVersionInput.value = res.version
+    members.value = members.value.map((m) =>
+      String(m.user_id) === memberId ? { ...m, grant_version: res.version } : m
+    )
     grantModalMember.value = null
-    confirmedMessage.value = `Grants updated for member #${memberId} (version ${res.version}).`
-    pushUiToast({ tone: 'success', title: 'Grants updated', description: `Version ${res.version}` })
+    confirmedMessage.value = isZh.value
+      ? `成员 #${memberId} 的项目授权已更新（权限修订 #${res.version}）。`
+      : `Grants updated for member #${memberId} (Revision #${res.version}).`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '成员授权已更新' : 'Grants updated',
+      description: isZh.value ? `权限修订 #${res.version}` : `Revision #${res.version}`
+    })
   } catch (error) {
     const resolved = resolveCasMutationError(error, 'grants', memberId, grantVersionInput.value)
     if (resolved.kind === 'conflict') {
       conflictState.value = resolved.conflict
+      grantModalConflict.value = resolved.conflict
       stale.value = true
     } else {
-      pushUiToast({ tone: 'danger', title: 'Grant update failed', description: resolved.message })
+      pushUiToast({
+        tone: 'danger',
+        title: isZh.value ? '保存授权失败' : 'Grant update failed',
+        description: resolved.message
+      })
     }
   } finally {
     grantBusy.value = false
   }
+}
+
+async function handleReloadLatestAndRetryGrants(): Promise<void> {
+  if (!grantModalMember.value || !selectedWorkspaceId.value || grantBusy.value) return
+  const memberId = String(grantModalMember.value.user_id)
+  grantLoading.value = true
+  try {
+    const latest = await fetchMemberGrants(selectedWorkspaceId.value, memberId)
+    if (latest?.version) {
+      grantVersionInput.value = String(latest.version)
+      grantModalConflict.value = null
+      conflictState.value = null
+      grantLoading.value = false
+      await handleSaveGrants()
+      return
+    }
+  } catch (error) {
+    const err = classifyAsyncError(
+      error,
+      isZh.value ? '获取最新权限修订失败' : 'Failed to reload latest grant revision'
+    )
+    pushUiToast({
+      tone: 'danger',
+      title: isZh.value ? '刷新修订失败' : 'Reload failed',
+      description: err.message
+    })
+  } finally {
+    grantLoading.value = false
+  }
+}
+
+async function handleConflictReload(): Promise<void> {
+  if (conflictState.value?.resourceType === 'grants' && selectedWorkspaceId.value) {
+    const targetMemberId = conflictState.value.resourceId
+    await loadMemberGrantsIntoModal(targetMemberId)
+    conflictState.value = null
+    stale.value = false
+    return
+  }
+  conflictState.value = null
+  await loadAll(true)
 }
 
 async function handleAddMember(): Promise<void> {
@@ -405,11 +636,21 @@ async function handleAddMember(): Promise<void> {
     await workspacesAPI.setMember(wsId, userId, newMemberRole.value)
     newMemberUserId.value = ''
     await loadWorkspaceDetails(selectedWorkspaceId.value)
-    confirmedMessage.value = `Member #${userId} added as ${newMemberRole.value}.`
-    pushUiToast({ tone: 'success', title: 'Member updated', description: `User #${userId}` })
+    confirmedMessage.value = isZh.value
+      ? `成员 #${userId} 已更新为${formatRoleLabel(newMemberRole.value)}。`
+      : `Member #${userId} updated as ${newMemberRole.value}.`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '成员角色已更新' : 'Member updated',
+      description: `#${userId}`
+    })
   } catch (error) {
-    const err = classifyAsyncError(error, 'Failed to update member')
-    pushUiToast({ tone: 'danger', title: 'Member update failed', description: err.message })
+    const err = classifyAsyncError(error, isZh.value ? '更新成员失败' : 'Failed to update member')
+    pushUiToast({
+      tone: 'danger',
+      title: isZh.value ? '更新成员失败' : 'Member update failed',
+      description: err.message
+    })
   } finally {
     memberMutationBusy.value = false
   }
@@ -422,11 +663,21 @@ async function handleRemoveMember(userId: number): Promise<void> {
   try {
     await workspacesAPI.removeMember(wsId, userId)
     members.value = members.value.filter((m) => m.user_id !== userId)
-    confirmedMessage.value = `Member #${userId} removed from workspace.`
-    pushUiToast({ tone: 'success', title: 'Member removed', description: `User #${userId}` })
+    confirmedMessage.value = isZh.value
+      ? `已将成员 #${userId} 移出当前工作空间。`
+      : `Member #${userId} removed from workspace.`
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '成员已移除' : 'Member removed',
+      description: `#${userId}`
+    })
   } catch (error) {
-    const err = classifyAsyncError(error, 'Failed to remove member')
-    pushUiToast({ tone: 'danger', title: 'Remove failed', description: err.message })
+    const err = classifyAsyncError(error, isZh.value ? '移除成员失败' : 'Failed to remove member')
+    pushUiToast({
+      tone: 'danger',
+      title: isZh.value ? '移除成员失败' : 'Remove failed',
+      description: err.message
+    })
   } finally {
     memberMutationBusy.value = false
   }
@@ -448,16 +699,20 @@ onMounted(() => {
 <template>
   <div class="space-y-5">
     <PageHeader
-      eyebrow="IDENTITY & ACCESS · BE-01 V2"
-      title="Members & Access"
-      description="Manage workspace members, project boundaries, and CAS-fenced capability grants."
+      :eyebrow="isZh ? '身份与访问控制' : 'IDENTITY & ACCESS'"
+      :title="isZh ? '成员与访问权限' : 'Members & Access'"
+      :description="
+        isZh
+          ? '管理工作空间成员角色、项目隔离边界与细粒度能力授权。'
+          : 'Manage workspace member roles, project isolation boundaries, and fine-grained capability grants.'
+      "
     >
       <template #badges>
         <Badge v-if="selectedWorkspace" tone="accent" variant="subtle">
-          {{ selectedWorkspace.role.toUpperCase() }}
+          {{ formatRoleLabel(selectedWorkspace.role) }}
         </Badge>
         <Badge v-if="roleProjection.scopeVersion" tone="neutral" variant="outline" mono>
-          scope v{{ roleProjection.scopeVersion }}
+          {{ isZh ? `作用域修订 #${roleProjection.scopeVersion}` : `Scope #${roleProjection.scopeVersion}` }}
         </Badge>
       </template>
 
@@ -466,12 +721,12 @@ onMounted(() => {
           <Select
             v-model="selectedWorkspaceId"
             :options="workspaceOptions"
-            placeholder="Select workspace"
+            :placeholder="isZh ? '选择工作空间' : 'Select workspace'"
             size="sm"
           />
         </div>
         <Button size="sm" variant="secondary" :loading="refreshing" @click="loadAll(true)">
-          Refresh
+          {{ isZh ? '刷新' : 'Refresh' }}
         </Button>
         <Button
           v-if="roleProjection.canManageProjects"
@@ -479,7 +734,7 @@ onMounted(() => {
           variant="primary"
           @click="showCreateProjectModal = true"
         >
-          New Project
+          {{ isZh ? '新建项目' : 'New Project' }}
         </Button>
       </template>
 
@@ -496,9 +751,18 @@ onMounted(() => {
     <ErrorState
       v-else-if="loadError"
       :variant="loadError.state === 'forbidden' ? 'permission' : 'error'"
-      :title="loadError.state === 'forbidden' ? 'Access Denied (403)' : 'Failed to load access scope'"
+      :title="
+        loadError.state === 'forbidden'
+          ? isZh
+            ? '权限不足 (403)'
+            : 'Access Denied (403)'
+          : isZh
+            ? '加载访问权限失败'
+            : 'Failed to load access scope'
+      "
       :message="loadError.message"
       :request-id="loadError.requestId"
+      :retry-label="isZh ? '重试' : 'Retry'"
       @retry="loadAll(false)"
     />
 
@@ -506,19 +770,28 @@ onMounted(() => {
       <ErrorState
         v-if="conflictState"
         variant="stale"
-        title="409 Version Conflict (CAS)"
-        :message="`${conflictState.message} (expected If-Match: ${conflictState.expectedVersion})`"
+        :title="isZh ? '权限修订冲突 (409)' : 'Revision Conflict (409)'"
+        :message="
+          isZh
+            ? `${conflictState.message}（提交修订 #${conflictState.expectedVersion}${conflictState.serverVersion ? `，服务端最新修订 #${conflictState.serverVersion}` : ''}）`
+            : `${conflictState.message} (expected revision #${conflictState.expectedVersion}${conflictState.serverVersion ? `, latest #${conflictState.serverVersion}` : ''})`
+        "
         :request-id="conflictState.requestId"
-        retry-label="Reload Latest State"
-        @retry="loadAll(true)"
+        :retry-label="isZh ? '重新加载最新修订' : 'Reload Latest Revision'"
+        @retry="handleConflictReload"
       />
 
       <ErrorState
         v-else-if="stale"
         variant="stale"
-        title="Data may be stale"
-        message="A concurrent update was detected. Refresh to synchronize versions."
+        :title="isZh ? '当前数据可能已过期' : 'Data may be stale'"
+        :message="
+          isZh
+            ? '检测到并发修改，请刷新以同步最新权限与项目修订。'
+            : 'A concurrent update was detected. Refresh to synchronize revisions.'
+        "
         :last-synced-at="lastSyncedAt"
+        :retry-label="isZh ? '立即同步' : 'Sync Now'"
         @retry="loadAll(true)"
       />
 
@@ -527,7 +800,7 @@ onMounted(() => {
         role="status"
         class="rounded-oh-md border border-oh-status-warn-border bg-oh-status-warn-bg/60 px-4 py-3 text-xs text-oh-primary"
       >
-        <p class="font-semibold">Partial load warning</p>
+        <p class="font-semibold">{{ isZh ? '部分数据加载提示' : 'Partial load notice' }}</p>
         <ul class="mt-1 list-disc pl-4 space-y-0.5">
           <li v-for="err in partialErrors" :key="err">{{ err }}</li>
         </ul>
@@ -545,8 +818,14 @@ onMounted(() => {
       <Card v-if="activeTab === 'members'" padding="md">
         <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2">
-            <div class="w-56">
-              <Input v-model="searchQuery" type="search" placeholder="Filter by member ID or role…" size="sm" clearable />
+            <div class="w-64">
+              <Input
+                v-model="searchQuery"
+                type="search"
+                :placeholder="isZh ? '按成员 ID、用户名、邮箱或角色筛选…' : 'Filter by ID, username, email, or role…'"
+                size="sm"
+                clearable
+              />
             </div>
             <div class="w-40">
               <Select v-model="roleFilter" :options="roleFilterOptions" size="sm" />
@@ -558,20 +837,26 @@ onMounted(() => {
             @submit.prevent="handleAddMember"
           >
             <div class="w-36">
-              <Input v-model="newMemberUserId" type="number" placeholder="User ID" size="sm" mono />
+              <Input
+                v-model="newMemberUserId"
+                type="number"
+                :placeholder="isZh ? '用户 ID' : 'User ID'"
+                size="sm"
+                mono
+              />
             </div>
             <div class="w-32">
               <Select
                 v-model="newMemberRole"
                 :options="[
-                  { value: 'member', label: 'Member' },
-                  { value: 'admin', label: 'Admin' }
+                  { value: 'member', label: isZh ? '普通成员' : 'Member' },
+                  { value: 'admin', label: isZh ? '管理员' : 'Admin' }
                 ]"
                 size="sm"
               />
             </div>
             <Button type="submit" size="sm" variant="primary" :loading="memberMutationBusy" :disabled="!newMemberUserId">
-              Add / Update
+              {{ isZh ? '添加 / 更新角色' : 'Add / Update' }}
             </Button>
           </form>
         </div>
@@ -582,26 +867,42 @@ onMounted(() => {
           row-key="user_id"
           :refreshing="refreshing"
           :filtered="hasActiveFilters"
-          empty-title="No workspace members"
-          empty-description="Add an existing user ID or invite a collaborator to this workspace."
-          filtered-empty-title="No members match the current filter"
+          :empty-title="isZh ? '暂无工作空间成员' : 'No workspace members'"
+          :empty-description="
+            isZh ? '输入已有用户 ID 即可将其加入当前工作空间并分配角色。' : 'Add an existing user ID to grant workspace membership.'
+          "
+          :filtered-empty-title="isZh ? '没有符合筛选条件的成员' : 'No members match the current filter'"
           @clear-filters="clearFilters"
         >
           <template #cell-user_id="{ row }">
-            <span class="font-mono text-xs tabular-nums">#{{ row.user_id }}</span>
+            <div class="space-y-0.5">
+              <div class="flex items-center gap-1.5">
+                <span class="font-mono text-xs font-medium tabular-nums text-oh-primary">#{{ row.user_id }}</span>
+                <span v-if="row.username" class="text-xs font-medium text-oh-primary">{{ row.username }}</span>
+              </div>
+              <div v-if="row.email" class="text-[11px] text-oh-muted">{{ row.email }}</div>
+            </div>
           </template>
           <template #cell-role="{ row }">
-            <Tag :tone="row.role === 'admin' ? 'accent' : 'neutral'">{{ String(row.role).toUpperCase() }}</Tag>
+            <Tag :tone="row.role === 'admin' ? 'accent' : 'neutral'">
+              {{ formatRoleLabel(row.role) }}
+            </Tag>
+          </template>
+          <template #cell-grant_version="{ row }">
+            <Badge v-if="row.grant_version" tone="neutral" variant="outline" mono>
+              #{{ row.grant_version }}
+            </Badge>
+            <span v-else class="text-xs text-oh-muted">—</span>
           </template>
           <template #cell-actions="{ row }">
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center justify-end gap-2">
               <Button
                 size="xs"
                 variant="secondary"
                 :disabled="!roleProjection.canManageGrants"
-                @click="openGrantModal(row as unknown as WorkspaceMember)"
+                @click="openGrantModal(row as unknown as MemberDisplayRow)"
               >
-                Grants (CAS)
+                {{ isZh ? '项目授权' : 'Edit Grants' }}
               </Button>
               <Button
                 v-if="roleProjection.canInviteMembers"
@@ -610,7 +911,7 @@ onMounted(() => {
                 :disabled="memberMutationBusy"
                 @click="handleRemoveMember(Number(row.user_id))"
               >
-                Remove
+                {{ isZh ? '移除' : 'Remove' }}
               </Button>
             </div>
           </template>
@@ -620,11 +921,14 @@ onMounted(() => {
       <Card v-else-if="activeTab === 'projects'" padding="md">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div class="w-64">
-            <Input v-model="searchQuery" type="search" placeholder="Filter projects…" size="sm" clearable />
+            <Input
+              v-model="searchQuery"
+              type="search"
+              :placeholder="isZh ? '筛选项目名称或 ID…' : 'Filter projects…'"
+              size="sm"
+              clearable
+            />
           </div>
-          <p v-if="projectsNextCursor" class="font-mono text-xs text-oh-muted tabular-nums">
-            cursor: {{ projectsNextCursor }}
-          </p>
         </div>
 
         <Table
@@ -633,12 +937,14 @@ onMounted(() => {
           row-key="id"
           :refreshing="refreshing"
           :filtered="Boolean(searchQuery.trim())"
-          empty-title="No projects in workspace"
-          empty-description="Create a project to isolate API keys and member grants."
+          :empty-title="isZh ? '当前工作空间暂无项目' : 'No projects in workspace'"
+          :empty-description="
+            isZh ? '新建项目以隔离 API Key、成员权限与预算统计。' : 'Create a project to isolate API keys and member grants.'
+          "
           @clear-filters="clearFilters"
         >
           <template #cell-version="{ row }">
-            <Badge tone="neutral" variant="outline" mono>v{{ formatNullableMono(row.version as string) }}</Badge>
+            <Badge tone="neutral" variant="outline" mono>#{{ formatNullableMono(row.version as string) }}</Badge>
           </template>
           <template #cell-actions="{ row }">
             <div class="flex items-center justify-end gap-2">
@@ -648,7 +954,7 @@ onMounted(() => {
                 :disabled="!roleProjection.canManageProjects"
                 @click="openEditProject(row as unknown as IdentityProject)"
               >
-                Rename (If-Match)
+                {{ isZh ? '重命名' : 'Rename' }}
               </Button>
               <Button
                 size="xs"
@@ -656,7 +962,7 @@ onMounted(() => {
                 :disabled="!roleProjection.canManageProjects || projectActionBusy"
                 @click="handleDeleteProject(row as unknown as IdentityProject)"
               >
-                Delete
+                {{ isZh ? '删除' : 'Delete' }}
               </Button>
             </div>
           </template>
@@ -665,26 +971,40 @@ onMounted(() => {
 
       <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card padding="md">
-          <h2 class="text-sm font-semibold text-oh-primary">Effective Role Projection</h2>
+          <h2 class="text-sm font-semibold text-oh-primary">
+            {{ isZh ? '当前生效权限视图' : 'Effective Access Summary' }}
+          </h2>
           <p class="mt-1 text-xs text-oh-secondary">
-            Evaluated from BE-01 <code class="font-mono">/projects/{id}/access</code> and workspace role.
+            {{
+              isZh
+                ? '综合当前工作空间角色与项目授权计算的实际可执行能力。'
+                : 'Evaluated from your workspace role and project-level capability grants.'
+            }}
           </p>
           <dl class="mt-4 space-y-2 text-xs">
             <div class="flex items-center justify-between border-b border-oh-subtle py-1.5">
-              <dt class="text-oh-muted">Actor ID</dt>
+              <dt class="text-oh-muted">{{ isZh ? '当前操作者 ID' : 'Actor ID' }}</dt>
               <dd class="font-mono tabular-nums">{{ formatNullableMono(projectAccess?.actor_id) }}</dd>
             </div>
             <div class="flex items-center justify-between border-b border-oh-subtle py-1.5">
-              <dt class="text-oh-muted">Scope Version</dt>
-              <dd class="font-mono tabular-nums">{{ formatNullableMono(projectAccess?.scope_version) }}</dd>
+              <dt class="text-oh-muted">{{ isZh ? '作用域修订' : 'Scope Revision' }}</dt>
+              <dd class="font-mono tabular-nums">#{{ formatNullableMono(projectAccess?.scope_version) }}</dd>
             </div>
             <div class="flex items-center justify-between border-b border-oh-subtle py-1.5">
-              <dt class="text-oh-muted">Manage Grants</dt>
-              <dd><Tag :tone="roleProjection.canManageGrants ? 'success' : 'neutral'">{{ roleProjection.canManageGrants ? 'Allowed' : 'Read-only' }}</Tag></dd>
+              <dt class="text-oh-muted">{{ isZh ? '成员授权管理' : 'Manage Grants' }}</dt>
+              <dd>
+                <Tag :tone="roleProjection.canManageGrants ? 'success' : 'neutral'">
+                  {{ roleProjection.canManageGrants ? (isZh ? '允许' : 'Allowed') : (isZh ? '只读' : 'Read-only') }}
+                </Tag>
+              </dd>
             </div>
             <div class="flex items-center justify-between py-1.5">
-              <dt class="text-oh-muted">Manage Projects</dt>
-              <dd><Tag :tone="roleProjection.canManageProjects ? 'success' : 'neutral'">{{ roleProjection.canManageProjects ? 'Allowed' : 'Read-only' }}</Tag></dd>
+              <dt class="text-oh-muted">{{ isZh ? '项目边界管理' : 'Manage Projects' }}</dt>
+              <dd>
+                <Tag :tone="roleProjection.canManageProjects ? 'success' : 'neutral'">
+                  {{ roleProjection.canManageProjects ? (isZh ? '允许' : 'Allowed') : (isZh ? '只读' : 'Read-only') }}
+                </Tag>
+              </dd>
             </div>
           </dl>
           <div v-if="roleProjection.actions.length > 0" class="mt-3 flex flex-wrap gap-1.5">
@@ -695,63 +1015,164 @@ onMounted(() => {
         </Card>
 
         <Card padding="md">
-          <h2 class="text-sm font-semibold text-oh-primary">Invitations</h2>
+          <h2 class="text-sm font-semibold text-oh-primary">
+            {{ isZh ? '成员加入与协作说明' : 'Member Onboarding' }}
+          </h2>
           <p class="mt-1 text-xs text-oh-secondary">
-            BE-01 v2 currently exposes workspace scopes, projects, access projections, and member grants. Email invitation tokens remain on the legacy user-onboarding path until v2 invitations land.
+            {{
+              isZh
+                ? '工作空间成员通过平台已有用户账号绑定接入，项目级权限授权与成员身份自动联动。'
+                : 'Workspace membership binds existing platform users; project capability grants attach to workspace members.'
+            }}
           </p>
           <EmptyState
             class="mt-4"
             compact
-            title="No pending v2 invitations"
-            description="Use Workspace Members to bind existing user IDs, or create users from Admin Users."
+            :title="isZh ? '暂无待处理的邀请' : 'No pending invitations'"
+            :description="
+              isZh
+                ? '可在“工作空间成员”标签页输入用户 ID 绑定现有账号，或先前往系统用户管理创建新用户。'
+                : 'Bind existing user IDs in Workspace Members, or create accounts from Admin Users first.'
+            "
           />
         </Card>
       </div>
     </template>
 
-    <Modal :open="showCreateProjectModal" title="Create Project" @close="showCreateProjectModal = false">
+    <Modal
+      :open="showCreateProjectModal"
+      :title="isZh ? '新建项目' : 'Create Project'"
+      @close="showCreateProjectModal = false"
+    >
       <form class="space-y-4" @submit.prevent="handleCreateProject">
-        <Input v-model="newProjectName" label="Project Name" placeholder="e.g. production-gateway" required />
-        <div class="flex justify-end gap-2">
-          <Button variant="secondary" @click="showCreateProjectModal = false">Cancel</Button>
-          <Button type="submit" variant="primary" :loading="projectActionBusy">Create Project</Button>
-        </div>
-      </form>
-    </Modal>
-
-    <Modal :open="Boolean(editingProject)" title="Rename Project (If-Match CAS)" @close="editingProject = null">
-      <form v-if="editingProject" class="space-y-4" @submit.prevent="handleSaveProject">
-        <p class="font-mono text-xs text-oh-muted">If-Match: {{ editingProject.version }}</p>
-        <Input v-model="editProjectName" label="Project Name" required />
-        <div class="flex justify-end gap-2">
-          <Button variant="secondary" @click="editingProject = null">Cancel</Button>
-          <Button type="submit" variant="primary" :loading="projectActionBusy">Save Changes</Button>
-        </div>
-      </form>
-    </Modal>
-
-    <Modal :open="Boolean(grantModalMember)" title="Edit Member Grants (If-Match CAS)" @close="grantModalMember = null">
-      <form v-if="grantModalMember" class="space-y-4" @submit.prevent="handleSaveGrants">
         <Input
-          v-model="grantVersionInput"
-          label="Expected Grant Version (If-Match)"
-          mono
+          v-model="newProjectName"
+          :label="isZh ? '项目名称' : 'Project Name'"
+          :placeholder="isZh ? '例如：生产环境网关' : 'e.g. production-gateway'"
           required
         />
+        <div class="flex justify-end gap-2">
+          <Button variant="secondary" @click="showCreateProjectModal = false">
+            {{ isZh ? '取消' : 'Cancel' }}
+          </Button>
+          <Button type="submit" variant="primary" :loading="projectActionBusy">
+            {{ isZh ? '创建项目' : 'Create Project' }}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal
+      :open="Boolean(editingProject)"
+      :title="isZh ? '重命名项目' : 'Rename Project'"
+      @close="editingProject = null"
+    >
+      <form v-if="editingProject" class="space-y-4" @submit.prevent="handleSaveProject">
+        <p class="font-mono text-xs text-oh-muted">
+          {{ isZh ? `当前项目修订：#${editingProject.version}` : `Current Revision: #${editingProject.version}` }}
+        </p>
+        <Input v-model="editProjectName" :label="isZh ? '项目名称' : 'Project Name'" required />
+        <div class="flex justify-end gap-2">
+          <Button variant="secondary" @click="editingProject = null">
+            {{ isZh ? '取消' : 'Cancel' }}
+          </Button>
+          <Button type="submit" variant="primary" :loading="projectActionBusy">
+            {{ isZh ? '保存修改' : 'Save Changes' }}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+
+    <Modal
+      :open="Boolean(grantModalMember)"
+      :title="
+        grantModalMember
+          ? isZh
+            ? `配置成员项目授权（#${grantModalMember.user_id}）`
+            : `Edit Member Grants (#${grantModalMember.user_id})`
+          : isZh
+            ? '配置成员项目授权'
+            : 'Edit Member Grants'
+      "
+      @close="grantModalMember = null"
+    >
+      <form v-if="grantModalMember" class="space-y-4" @submit.prevent="handleSaveGrants">
+        <div class="flex items-center justify-between rounded-oh-md border border-oh-default bg-oh-subtle/40 px-3 py-2 text-xs">
+          <span class="text-oh-secondary">
+            {{ isZh ? '当前权限修订' : 'Current Grant Revision' }}:
+            <strong class="font-mono tabular-nums text-oh-primary">#{{ grantVersionInput }}</strong>
+          </span>
+          <Button
+            size="xs"
+            variant="ghost"
+            type="button"
+            :loading="grantLoading"
+            @click="loadMemberGrantsIntoModal(String(grantModalMember.user_id))"
+          >
+            {{ isZh ? '重新读取当前授权' : 'Reload Current Grants' }}
+          </Button>
+        </div>
+
+        <div
+          v-if="grantModalConflict"
+          class="rounded-oh-md border border-oh-status-warn-border bg-oh-status-warn-bg/60 p-3 text-xs space-y-2"
+          role="alert"
+        >
+          <div class="font-semibold text-oh-primary">
+            {{ isZh ? '检测到权限修订冲突 (409)' : 'Grant Revision Conflict (409)' }}
+          </div>
+          <p class="text-oh-secondary">
+            {{
+              isZh
+                ? `其他管理员已更新该成员权限${grantModalConflict.serverVersion ? `（最新修订 #${grantModalConflict.serverVersion}）` : ''}。可重新加载服务端配置，或同步最新修订号立即重试提交当前勾选。`
+                : `Another operator updated this member's grants${grantModalConflict.serverVersion ? ` (latest revision #${grantModalConflict.serverVersion})` : ''}. Reload server grants or sync the latest revision and retry.`
+            }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              size="xs"
+              variant="secondary"
+              type="button"
+              :loading="grantLoading"
+              @click="loadMemberGrantsIntoModal(String(grantModalMember.user_id))"
+            >
+              {{ isZh ? '加载服务端最新权限' : 'Load Server Grants' }}
+            </Button>
+            <Button
+              size="xs"
+              variant="primary"
+              type="button"
+              :loading="grantBusy || grantLoading"
+              @click="handleReloadLatestAndRetryGrants"
+            >
+              {{ isZh ? '同步最新修订并重试保存' : 'Sync Revision & Retry Save' }}
+            </Button>
+          </div>
+        </div>
+
+        <div v-if="grantLoading" class="space-y-2">
+          <Skeleton height="2.5rem" />
+          <Skeleton height="5rem" />
+        </div>
+
         <div class="space-y-2">
-          <p class="text-xs font-semibold text-oh-secondary">Capability Actions</p>
-          <div class="grid grid-cols-2 gap-2">
+          <p class="text-xs font-semibold text-oh-secondary">
+            {{ isZh ? '允许执行的能力项 (Actions)' : 'Capability Actions' }}
+          </p>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 max-h-52 overflow-y-auto pr-1">
             <Checkbox
-              v-for="action in AVAILABLE_ACTIONS"
-              :key="action"
-              :model-value="grantSelectedActions.includes(action)"
-              :label="action"
-              @update:model-value="(v) => toggleGrantAction(action, Boolean(v))"
+              v-for="item in grantActionOptions"
+              :key="item.action"
+              :model-value="grantSelectedActions.includes(item.action)"
+              :label="`${isZh ? item.labelZh : item.labelEn} (${item.action})`"
+              @update:model-value="(v) => toggleGrantAction(item.action, Boolean(v))"
             />
           </div>
         </div>
         <div v-if="projects.length > 0" class="space-y-2">
-          <p class="text-xs font-semibold text-oh-secondary">Scoped Projects</p>
+          <p class="text-xs font-semibold text-oh-secondary">
+            {{ isZh ? '生效项目范围 (Projects)' : 'Scoped Projects' }}
+          </p>
           <div class="grid grid-cols-2 gap-2">
             <Checkbox
               v-for="proj in projects"
@@ -763,8 +1184,12 @@ onMounted(() => {
           </div>
         </div>
         <div class="flex justify-end gap-2">
-          <Button variant="secondary" @click="grantModalMember = null">Cancel</Button>
-          <Button type="submit" variant="primary" :loading="grantBusy">Save Grants</Button>
+          <Button variant="secondary" type="button" @click="grantModalMember = null">
+            {{ isZh ? '取消' : 'Cancel' }}
+          </Button>
+          <Button type="submit" variant="primary" :loading="grantBusy" :disabled="grantLoading">
+            {{ isZh ? '保存授权' : 'Save Grants' }}
+          </Button>
         </div>
       </form>
     </Modal>

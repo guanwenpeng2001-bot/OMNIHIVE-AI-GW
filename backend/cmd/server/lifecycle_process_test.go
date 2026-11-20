@@ -34,11 +34,11 @@ import (
 // Execute the production entry in a child process, including flag parsing,
 // config, Wire, socket binding, signals, migrations and infrastructure cleanup.
 func TestRuntimeProcessEntry(t *testing.T) {
-	if os.Getenv("BE22_CHILD") != "1" {
+	if os.Getenv("RUNTIME_MODE_CHILD") != "1" {
 		return
 	}
 	os.Args = []string{"omnihive"}
-	if m := os.Getenv("BE22_FLAG"); m != "" {
+	if m := os.Getenv("RUNTIME_MODE_FLAG"); m != "" {
 		os.Args = append(os.Args, "-mode", m)
 	}
 	flag.CommandLine = flag.NewFlagSet("omnihive", flag.ExitOnError)
@@ -87,7 +87,7 @@ func startChild(t *testing.T, mode, source string, dsn *url.URL, redisPort, pric
 	cmd := exec.Command(exe, "-test.run=^TestRuntimeProcessEntry$")
 	cmd.Dir = dir
 	password, _ := dsn.User.Password()
-	cmd.Env = append(os.Environ(), "BE22_CHILD=1", "BE22_FLAG="+roleFlag, "OMNIHIVE_RUNTIME_MODE="+roleEnv,
+	cmd.Env = append(os.Environ(), "RUNTIME_MODE_CHILD=1", "RUNTIME_MODE_FLAG="+roleFlag, "OMNIHIVE_RUNTIME_MODE="+roleEnv,
 		"CONFIG_FILE="+cfg, "OMNIHIVE_DATA_DIR="+dir, "SKIP_SETUP=true", "SERVER_HOST=127.0.0.1", "SERVER_PORT="+strconv.Itoa(port), "DATABASE_HOST="+dsn.Hostname(), "DATABASE_PORT="+dsn.Port(), "DATABASE_USER="+dsn.User.Username(), "DATABASE_PASSWORD="+password, "DATABASE_DBNAME=job_test", "DATABASE_SSLMODE=disable", "REDIS_HOST=127.0.0.1", "REDIS_PORT="+redisPort, "LOG_OUTPUT_TO_FILE=false", "PRICING_DATA_DIR="+pricing, "PRICING_HASH_URL=", "PRICING_REMOTE_URL=https://127.0.0.1:1/prices", "PLUGINS_ROOT_DIR="+dir)
 	cmd.Env = append(cmd.Env, "OMNIHIVE_RESTORE_JOURNAL_DSN=", "OMNIHIVE_RESTORE_ISOLATED_DSN=")
 	cmd.Env = append(cmd.Env, overrides...)
@@ -207,7 +207,7 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 		return startChild(t, mode, source, dsn, redisPort, pricing, "")
 	}
 	all := start("all", "default")
-	groupName := "be22-" + uuid.NewString()
+	groupName := "runtime-mode-" + uuid.NewString()
 	email := groupName + "@example.test"
 	password := uuid.NewString()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
@@ -216,7 +216,7 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	require.NoError(t, db.QueryRow("INSERT INTO users(email,password_hash,role,balance) VALUES ($1,$2,'admin',100) RETURNING id", email, string(hash)).Scan(&user))
 	require.NoError(t, db.QueryRow("INSERT INTO groups(name,platform) VALUES ($1,'openai') RETURNING id", groupName).Scan(&group))
 	secret := uuid.NewString()
-	require.NoError(t, db.QueryRow("INSERT INTO api_keys(user_id,group_id,name) VALUES($1,$2,'BE-22') RETURNING id", user, group).Scan(&key))
+	require.NoError(t, db.QueryRow("INSERT INTO api_keys(user_id,group_id,name) VALUES($1,$2,'runtime-mode-key') RETURNING id", user, group).Scan(&key))
 	_, err = db.Exec("INSERT INTO api_key_credentials(workspace_id,api_key_id,credential_digest,display_suffix,status) VALUES(1,$1,$2,'test','current')", key, service.APIKeyCredentialDigest(secret))
 	require.NoError(t, err)
 	require.NoError(t, db.QueryRow("INSERT INTO accounts(name,platform,type) VALUES($1,'openai','apikey') RETURNING id", groupName).Scan(&account))
@@ -280,7 +280,7 @@ func TestRuntimeSplitProcesses(t *testing.T) {
 	control.request(t, 200, "DELETE", fmt.Sprintf("/api/v1/keys/%d", issued.Data.APIKey.ID), token, "")
 	gateway.request(t, 401, "GET", "/v1/images/batches", issued.Data.Secret, "")
 
-	taskID := "be22-" + uuid.NewString()
+	taskID := "runtime-mode-" + uuid.NewString()
 	_, err = db.Exec(`INSERT INTO image_tasks(id,workspace_id,project_id,actor_id,owner_id,funding_user_id,api_key_id,source,source_id,model,state,acceptance,generation,lease_owner,lease_until,replay_input,input_until)
 		SELECT $1,workspace_id,id,$2,$2,$2,$3,'gateway',$1,'model','running','unknown',1,'lost',now()-interval '1 second','expired',now()-interval '1 second'
 		FROM projects WHERE workspace_id=1 AND is_default`, taskID, user, key)

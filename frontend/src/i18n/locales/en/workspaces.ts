@@ -16,7 +16,7 @@ export default {
   default: 'Default workspace',
   saved: 'Membership updated',
   projectsTitle: 'Projects & Scope Switching',
-  projectsDesc: 'Switch your active console scope or manage isolated BE-01 projects inside this workspace.',
+  projectsDesc: 'Switch your active console scope or manage isolated projects inside this workspace.',
   activateScope: 'Set Active Scope',
   activeScopeBadge: 'Active Console Scope',
   newProjectPlaceholder: 'New project name…',
@@ -24,5 +24,5 @@ export default {
   renameProject: 'Rename',
   archiveProject: 'Archive',
   noProjects: 'No visible projects in this workspace yet.',
-  memberGrants: 'Fine-Grained Grants (BE-01)',
+  memberGrants: 'Fine-Grained Grants',
 }

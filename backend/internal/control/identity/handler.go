@@ -24,6 +24,8 @@ type Backend interface {
 	Projects(context.Context, int64, int64, domain.Page) ([]domain.Project, error)
 	Project(context.Context, int64, int64, int64) (domain.Project, error)
 	Keys(context.Context, int64, int64, int64, domain.Page) ([]domain.Key, error)
+	Members(context.Context, int64, int64, domain.Page) ([]domain.Member, error)
+	MemberGrants(context.Context, int64, int64, int64) (domain.MemberGrants, error)
 	CreateProject(context.Context, int64, int64, string, string) (domain.Project, error)
 	ChangeProject(context.Context, int64, int64, int64, int64, string, bool) (domain.Project, error)
 	CreateKey(context.Context, int64, int64, int64, domain.CreateKey, string) (domain.Key, error)
@@ -155,6 +157,8 @@ func Register(parent *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	p.GET("/access", route(200, func(r request) (any, error) { return h.store.Evaluate(r.Request.Context(), r.actor, r.w, r.p, "") }))
 	p.GET("/keys", route(200, h.keys))
 	p.POST("/keys", route(201, h.createKey))
+	w.GET("/members", route(200, h.members))
+	w.GET("/members/:id/grants", route(200, h.memberGrants))
 	w.PUT("/members/:id/grants", route(200, h.setGrants))
 	w.GET("/operations/:id", route(200, h.operation))
 }
@@ -194,6 +198,19 @@ func (h *Handler) createKey(r request) (any, error) {
 	return h.store.CreateKey(r.Request.Context(), r.actor, r.w, r.p, b, r.GetHeader("Idempotency-Key"))
 }
 
+func (h *Handler) memberGrants(r request) (any, error) {
+	member, err := identifier(r.Param("id"))
+	if err != nil {
+		return nil, err
+	}
+	grants, err := h.store.MemberGrants(r.Request.Context(), r.actor, r.w, member)
+	if err != nil {
+		return nil, err
+	}
+	r.Header("ETag", strconv.Quote(strconv.FormatInt(grants.Version, 10)))
+	return grants, nil
+}
+
 func (h *Handler) setGrants(r request) (any, error) {
 	member, err := identifier(r.Param("id"))
 	if err != nil {
@@ -223,7 +240,12 @@ func (h *Handler) setGrants(r request) (any, error) {
 			return nil, fault.Invalid("/project_ids")
 		}
 	}
-	return h.store.SetGrants(r.Request.Context(), r.actor, r.w, member, v, ids, b.Actions)
+	grants, err := h.store.SetGrants(r.Request.Context(), r.actor, r.w, member, v, ids, b.Actions)
+	if err != nil {
+		return nil, err
+	}
+	r.Header("ETag", strconv.Quote(strconv.FormatInt(grants.Version, 10)))
+	return grants, nil
 }
 
 func (h *Handler) operation(r request) (any, error) {

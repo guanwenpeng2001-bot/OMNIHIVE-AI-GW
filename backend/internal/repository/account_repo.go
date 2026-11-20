@@ -627,6 +627,24 @@ func (r *accountRepository) updateLockedAccount(
 	if err != nil {
 		return nil, err
 	}
+	// Adoption takes FOR UPDATE on the same account row. Check ownership after
+	// locking it and before changing credentials or triggering the legacy fence.
+	if configurationOnly {
+		rows, err := client.QueryContext(ctx, `SELECT account_id FROM provider_connections WHERE account_id=$1 AND NOT legacy_dirty`, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		managed := rows.Next()
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if managed {
+			return nil, service.ErrAccountConnectionManaged
+		}
+	}
 	current, err := client.Account.Get(ctx, account.ID)
 	if err != nil {
 		return nil, err

@@ -19,6 +19,7 @@ import (
 	billinghttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byokhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	modelshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	verificationhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connectionshttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	observabilityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
@@ -31,10 +32,11 @@ import (
 	taskhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
-	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	legacyrestore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/restore"
 	auditstore "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	byokdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
+	verificationdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/verification"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	identitymod "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
@@ -83,6 +85,8 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		identityhttp.ProviderSet,
 		connectionshttp.ProviderSet,
 		modelshttp.ProviderSet,
+		catalogVerificationStoreProvider,
+		catalogVerificationHandlerProvider,
 		restorehttp.ProviderSet,
 		requestsHandlerProvider,
 		handler.ProvideImageTaskCenter,
@@ -192,6 +196,19 @@ func byokHandlerProvider(store *byokdomain.Store) *byokhttp.Handler {
 	return byokhttp.New(store)
 }
 
+func catalogVerificationStoreProvider(supervisor *process.Supervisor, db *sql.DB, access identitymod.AccessEvaluator, enc service.SecretEncryptor, prober *service.AccountTestService) *verificationdomain.Store {
+	store := verificationdomain.NewStore(db, access)
+	if supervisor != nil && supervisor.Mode.Workers() {
+		worker := verificationdomain.NewWorker(store, verificationdomain.NewConnectionProber(db, enc, prober))
+		supervisor.Add(func(ctx context.Context) { worker.Run(ctx) })
+	}
+	return store
+}
+
+func catalogVerificationHandlerProvider(store *verificationdomain.Store) *verificationhttp.Handler {
+	return verificationhttp.New(store)
+}
+
 func statusHandlerProvider(db *sql.DB, store *identitypostgres.Store, cfg *config.Config, ops *service.OpsService) *statushttp.Handler {
 	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
@@ -217,8 +234,8 @@ func paymentEvidenceHandlerProvider(store *payments.Store, access identity.Acces
 	return paymentshttp.Handler{Store: *store, Access: access, Step: totp}
 }
 
-func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store, paymentEvidence paymentshttp.Handler) identity.Operations {
-	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit, paymentEvidence}}
+func provideIdentityOperations(store *connections.Store, restores *legacyrestore.Runtime, requests *requestshttp.Handler, billing *billinghttp.Handler, byok *byokdomain.Store, audit *auditstore.Store, paymentEvidence paymentshttp.Handler, catalogVerifications *verificationdomain.Store) identity.Operations {
+	return identity.Operations{Readers: []identity.OperationReader{store, restores, requests, billing, byok, audit, paymentEvidence, catalogVerifications}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -282,7 +299,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
-	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
+	channelTelemetryAggregator *service.ChannelTelemetryAggregator,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
@@ -511,9 +528,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"ChannelMonitorV2Aggregator", func() error {
-				if channelMonitorV2Aggregator != nil {
-					channelMonitorV2Aggregator.Stop()
+			{"ChannelTelemetryAggregator", func() error {
+				if channelTelemetryAggregator != nil {
+					channelTelemetryAggregator.Stop()
 				}
 				return nil
 			}},
@@ -766,8 +783,8 @@ var runtimeServiceProviders = wire.NewSet(
 	service.ProvideChannelMonitorService,
 	provideChannelMonitorRunner,
 	service.NewChannelMonitorQuotaFetcher,
-	service.ProvideChannelMonitorV2Service,
-	provideChannelMonitorV2Aggregator,
+	service.ProvideChannelTelemetryService,
+	provideChannelTelemetryAggregator,
 	service.NewChannelMonitorRequestTemplateService,
 	provideUserPlatformQuotaUsageFlusher,
 )

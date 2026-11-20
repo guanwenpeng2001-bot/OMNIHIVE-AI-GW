@@ -17,19 +17,19 @@ const { t } = useI18n()
     :role="state === 'failed' || state === 'conflict' ? 'alert' : 'status'"
   >
     <div class="min-w-0">
-      <p class="font-medium text-oh-primary">{{ t(`wp6.export.${state}`) }}</p>
-      <p v-if="state === 'unknown'" class="mt-0.5 text-xs text-oh-secondary">{{ t('wp6.export.verifyOutcome') }}</p>
-      <p v-if="error?.status === 403" class="mt-0.5 text-xs text-oh-secondary">{{ t('wp6.state.requiredGrant', { grant: 'billing.export' }) }}</p>
+      <p class="font-medium text-oh-primary">{{ t(`costLedger.export.${state}`) }}</p>
+      <p v-if="state === 'unknown'" class="mt-0.5 text-xs text-oh-secondary">{{ t('costLedger.export.verifyOutcome') }}</p>
+      <p v-if="error?.status === 403" class="mt-0.5 text-xs text-oh-secondary">{{ t('costLedger.state.requiredGrant', { grant: 'billing.export' }) }}</p>
       <div v-if="operationId" class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-oh-muted">
         <code class="break-all">{{ operationId }}</code>
-        <CopyButton :value="operationId" :label="t('wp6.copy.label')" :copied-label="t('wp6.copy.copied')" :failed-label="t('wp6.copy.failed')" size="xs" variant="inline" />
+        <CopyButton :value="operationId" :label="t('costLedger.copy.label')" :copied-label="t('costLedger.copy.copied')" :failed-label="t('costLedger.copy.failed')" size="xs" variant="inline" />
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <Button v-if="state === 'ready' || state === 'downloaded'" size="sm" variant="primary" @click="emit('download')">{{ t('wp6.export.download') }}</Button>
-      <Button v-if="(state === 'unknown' || state === 'pending') && operationId" size="sm" variant="secondary" @click="emit('check')">{{ t('wp6.export.check') }}</Button>
-      <Button v-if="state === 'expired' || state === 'conflict'" size="sm" variant="secondary" @click="emit('renew')">{{ t('wp6.export.renew') }}</Button>
-      <Button v-if="(state === 'unknown' || state === 'failed') && !operationId" size="sm" variant="secondary" @click="emit('retry')">{{ t('wp6.export.retry') }}</Button>
+      <Button v-if="state === 'ready' || state === 'downloaded'" size="sm" variant="primary" @click="emit('download')">{{ t('costLedger.export.download') }}</Button>
+      <Button v-if="(state === 'unknown' || state === 'pending') && operationId" size="sm" variant="secondary" @click="emit('check')">{{ t('costLedger.export.check') }}</Button>
+      <Button v-if="state === 'expired' || state === 'conflict'" size="sm" variant="secondary" @click="emit('renew')">{{ t('costLedger.export.renew') }}</Button>
+      <Button v-if="(state === 'unknown' || state === 'failed') && !operationId" size="sm" variant="secondary" @click="emit('retry')">{{ t('costLedger.export.retry') }}</Button>
     </div>
   </div>
 </template>

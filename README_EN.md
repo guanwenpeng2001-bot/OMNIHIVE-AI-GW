@@ -6,6 +6,7 @@
 
 For existing installations, see the [deployment identity migration guide](docs/refactor/IDENTITY_MIGRATION.md).
 
+<p align="center"><strong>OmniHive — Unified AI Inference Gateway</strong></p>
 <p align="center"><strong>An intelligent compute hive · Enterprise multimodal AI gateway and governance platform</strong></p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go" alt="Go 1.27" />
@@ -20,14 +21,18 @@ For existing installations, see the [deployment identity migration guide](docs/r
 
 ## Purpose and core capabilities
 
-OmniHive provides protocol ingress, routing governance, usage settlement and an operations console for teams managing multiple AI providers, accounts and modalities. Its repository identifier is `OMNIHIVE-AI-GW`: [GitHub repository](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW).
+OmniHive (`OMNIHIVE-AI-GW`) is an enterprise-grade unified AI inference gateway providing multi-protocol ingress, deterministic routing governance, exact decimal ledger settlement, workspace/project RBAC with BYOK, and full-lifecycle observability: [GitHub repository](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW).
 
 - **Native protocol access**: OpenAI Chat / Responses / Realtime, Anthropic Messages, Google Gemini v1beta, Codex CLI, and multimodal channels including DashScope, Volcengine and Kaggle. Endpoint availability depends on platform, account type, model allowlists and upstream authorization; consult the [protocol matrix](docs/gateway-platform-protocol-matrix.md).
+- **Five-step connection wizard & egress pools**: Guided onboarding (Provider & Schema → Credentials → Live Probe → Diff Preview → Activate), custom outbound header overrides, and dedicated egress proxy pools.
+- **Routing workbench & Route Explain**: Scoped routing policies (ZDR, automatic fallback, prompt caching, regional residency), shadow simulation, and deterministic candidate scoring traces.
+- **Exact decimal ledger & authoritative quotes**: Arbitrary-precision decimal accounting, server-side `POST /quotes` preflight estimation, project budgets, and reconciliation workflows.
+- **Workspace / Project RBAC & BYOK**: Optimistic-concurrency (`ETag` / `If-Match`) member grants and self-managed customer provider credentials (BYOK) at workspace and project scopes.
+- **Public Model Plaza, Request Waterfall & Task Center**: Live public catalog and pricing projection, end-to-end attempt waterfall diagnostics, and asynchronous multimodal task orchestration.
 - **Group scheduling and sticky sessions**: Allocate requests using group rules, model access and account health, with session affinity and proxy-group egress across account pools.
 - **Quota probes and live usage windows**: Combine upstream quota availability, local usage records and runtime status to support capacity planning, incident investigation and cost management.
-- **Workspace routing policies**: Configure ZDR, automatic fallback, prompt caching and region preferences where supported by the selected upstream protocol and credentials.
 - **Batch image workbench**: Asynchronous queues, task tracking, failed-item retries and ZIP downloads for traceable multimodal production.
-- **Transport plugins and built-in extensions**: Signed, isolated `.ohplugin` v2 transport packages complement the four gateway extensions: `prompt-guard`, `rate-limiter`, `cache-layer` and `cost-tracker`. Legacy `.s2plugin` archives are accepted only through the verified migration path.
+- **Signed `.ohplugin` extensions**: Isolated WASI `.ohplugin` extension packages complement the built-in governance engines (`prompt-guard`, `rate-limiter`, `cache-layer`, `cost-tracker`). Legacy `.s2plugin` archives are accepted only through the verified migration path.
 - **Console updates and rollback**: Administrators use the upper-left version badge to check GitHub Releases, update the application or select an allowed rollback version.
 
 ## Architecture

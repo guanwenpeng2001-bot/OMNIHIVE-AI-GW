@@ -1,4 +1,4 @@
-import type { components } from '@/api/generated/v2'
+import type { components } from '@/api/generated/openapi'
 
 export type ConnectionField = components['schemas']['ConnectionField']
 export type ConnectionSchema = components['schemas']['ConnectionSchema']
@@ -7,10 +7,16 @@ export type ConnectionMetadata = components['schemas']['ConnectionMetadata']
 export type ConnectionCheck = components['schemas']['ConnectionCheck']
 export type ConnectionVerification = components['schemas']['ConnectionVerification']
 export type ConnectionQuota = components['schemas']['ConnectionQuota']
-export type ConnectionCreate = components['schemas']['ConnectionCreate']
-export type ConnectionPatch = components['schemas']['ConnectionPatch']
+export type ConnectionCreate = components['schemas']['ConnectionCreate'] & {
+  header_overrides?: Record<string, string>
+}
+export type ConnectionPatch = components['schemas']['ConnectionPatch'] & {
+  header_overrides?: Record<string, string>
+}
 export type ConnectionAssignments = components['schemas']['ConnectionAssignments']
-export type ConnectionResource = components['schemas']['ConnectionResource']
+export type ConnectionResource = components['schemas']['ConnectionResource'] & {
+  header_overrides?: Record<string, string>
+}
 export type ConnectionRedacted = components['schemas']['ConnectionRedacted']
 export type ConnectionCredentialInput = components['schemas']['ConnectionCredentialInput']
 export type ConnectionCredentialResult = components['schemas']['ConnectionCredentialResult']
@@ -34,6 +40,20 @@ export type ConnectionAuthorization = components['schemas']['ConnectionAuthoriza
 
 export type CredentialOperationMode = 'keep' | 'set' | 'clear'
 
+export interface HeaderOverrideDraftRow {
+  key: string
+  value: string
+}
+
+export interface ValidationFieldIssue {
+  path: string
+  reason: string
+  labelZh: string
+  labelEn: string
+  hintZh: string
+  hintEn: string
+}
+
 export type AsyncPageState =
   | 'initial_load'
   | 'background_refresh'
@@ -55,6 +75,7 @@ export interface AsyncErrorContext {
   requiredRole?: string
   serverVersion?: string
   statusUrl?: string
+  fields?: ValidationFieldIssue[]
 }
 
 export interface TempUnschedRuleInput {

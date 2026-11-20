@@ -243,7 +243,7 @@ func testBackfill(t *testing.T, ctx context.Context, db *sql.DB, w, p, actor int
  VALUES($1,'eu-','prefix','openai','legacy','any',5,true,'[{"position":0,"target_platform":"openai","region":"de","enabled":true,"scheduling_weight":4,"affinity_ttl_seconds":120}]') RETURNING id`, group).Scan(&route))
 	_, err = db.ExecContext(ctx, `INSERT INTO project_resources(kind,resource_id,workspace_id,project_id) VALUES('groups',$1,$3,$4),('composite_model_routes',$2,$3,$4)`, group, route, w, p)
 	require.NoError(t, err)
-	script, err := os.ReadFile("../../../../contracts/migrations/BE-10/backfill.sql")
+	script, err := os.ReadFile("../../../../contracts/migrations/policies/backfill.sql")
 	require.NoError(t, err)
 	for range 2 {
 		_, err = db.ExecContext(ctx, string(script))

@@ -207,7 +207,7 @@ func (s *Store) CreateKey(ctx context.Context, actor, w, p int64, in identity.Cr
 			}
 			secret := k.Prefix + base64.RawURLEncoding.EncodeToString(random[:])
 			digest := sha256.Sum256([]byte(secret))
-			group, err := s.defaultKeyGroup(ctx, a, in.ModelAccess)
+			group, err := s.keyGroup(ctx, tx, a, in)
 			if err != nil {
 				return k, err
 			}

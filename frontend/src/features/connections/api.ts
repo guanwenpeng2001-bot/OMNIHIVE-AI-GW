@@ -50,7 +50,7 @@ function ifMatchHeader(version: string): Record<string, string> {
   return { 'If-Match': `"${version}"` }
 }
 
-export const connectionsV2Api = {
+export const connectionsApi = {
   async listProviderSchemas(
     params?: { provider?: string; auth_type?: string; cursor?: string; limit?: number },
     workspaceId?: string
@@ -288,7 +288,7 @@ export async function pollConnectionOperation(
     if (opts.signal?.aborted) {
       break
     }
-    current = await connectionsV2Api.getOperation(current.status_url)
+    current = await connectionsApi.getOperation(current.status_url)
     opts.onUpdate?.(current)
     attempt += 1
   }

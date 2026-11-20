@@ -10,22 +10,27 @@ import Skeleton from '@/components/ui/Skeleton.vue'
 import Tabs from '@/components/ui/Tabs.vue'
 import { keysAPI } from '@/api'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
-import { catalogV2Api, type CatalogModelItem } from '@/features/console/catalogApi'
+import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import {
   EM_DASH,
+  formatExactMoney,
   formatNullableInteger,
   formatNullableLatencyMs
 } from '@/features/console/format'
-import { identityV2Api, useConsoleScope } from '@/features/console/scope'
+import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { playgroundApi } from '@/features/playground/api'
 import PlaygroundCostConfirmModal from '@/features/playground/components/PlaygroundCostConfirmModal.vue'
 import PlaygroundRunPane from '@/features/playground/components/PlaygroundRunPane.vue'
 import {
+  applyAuthoritativeQuoteToEstimate,
   buildNativePlaygroundInput,
   buildPlaygroundSubmitPayload,
   DEFAULT_MAX_OUTPUT_TOKENS,
-  estimatePlaygroundRunCost
+  estimatePlaygroundRunCost,
+  formatModelRatePerMillion,
+  resolveCatalogQuoteModelId
 } from '@/features/playground/costEstimate'
 import { createPlaygroundRunController } from '@/features/playground/runMachine'
 import type {
@@ -53,7 +58,7 @@ const props = withDefaults(
 )
 
 const { locale } = useI18n()
-const isZh = computed(() => String(locale.value || '').startsWith('zh'))
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 
 const scope = useConsoleScope()
@@ -115,13 +120,35 @@ const pendingTargets = ref<Array<'A' | 'B'>>([])
 const pendingPayloads = ref<{ A?: PlaygroundSubmit; B?: PlaygroundSubmit }>({})
 const pendingReplayPayload = ref<PlaygroundReplay | null>(null)
 const pendingEstimates = ref<PlaygroundCostEstimate[]>([])
+const quoteLoading = ref(false)
+const inlinePreviewEstimates = ref<PlaygroundCostEstimate[]>([])
+const inlinePreviewLoading = ref(false)
+let quoteGeneration = 0
 
-const protocolOptions: Array<{ value: PlaygroundProtocol; label: string }> = [
-  { value: 'openai_chat', label: 'OpenAI Chat (/v1/chat/completions)' },
-  { value: 'openai_responses', label: 'OpenAI Responses (/v1/responses)' },
-  { value: 'anthropic_messages', label: 'Anthropic Messages (/v1/messages)' },
-  { value: 'gemini_generate', label: 'Gemini GenerateContent' }
-]
+const protocolOptions = computed<Array<{ value: PlaygroundProtocol; label: string }>>(() =>
+  isZh.value
+    ? [
+        { value: 'openai_chat', label: 'OpenAI 对话补全 (Chat)' },
+        { value: 'openai_responses', label: 'OpenAI 原生响应 (Responses)' },
+        { value: 'anthropic_messages', label: 'Anthropic 消息协议 (Messages)' },
+        { value: 'gemini_generate', label: 'Gemini 内容生成 (GenerateContent)' }
+      ]
+    : [
+        { value: 'openai_chat', label: 'OpenAI Chat Completions' },
+        { value: 'openai_responses', label: 'OpenAI Responses' },
+        { value: 'anthropic_messages', label: 'Anthropic Messages' },
+        { value: 'gemini_generate', label: 'Gemini GenerateContent' }
+      ]
+)
+
+watch(
+  isZh,
+  (zh) => {
+    sideA.label = zh ? 'A 侧' : 'Side A'
+    sideB.label = zh ? 'B 侧' : 'Side B'
+  },
+  { immediate: true }
+)
 
 const filteredModels = computed(() => {
   const q = modelFilterQuery.value.trim().toLowerCase()
@@ -180,13 +207,13 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
 
     const [keysResult, modelsResult] = await Promise.allSettled([
       wsId && projId
-        ? identityV2Api.listProjectKeys(wsId, projId, { limit: 100 }).then((page) =>
+        ? identityApi.listProjectKeys(wsId, projId, { limit: 100 }).then((page) =>
             (page.items || [])
               .filter((k) => !k.state || k.state === 'active')
               .map((k) => ({ id: String(k.id), name: k.name, prefix: k.prefix }))
           )
         : Promise.reject(new Error('no_v2_scope')),
-      catalogV2Api.listScopedModels(wsId, projId, { limit: 100 })
+      catalogApi.listScopedModels(wsId, projId, { limit: 100 })
     ])
 
     if (keysResult.status === 'fulfilled' && keysResult.value.length > 0) {
@@ -203,7 +230,7 @@ async function loadKeysAndCatalog(isRefresh = false): Promise<void> {
     if (modelsResult.status === 'fulfilled') {
       catalogModels.value = modelsResult.value
     } else {
-      const pubModels = await catalogV2Api.listPublicModels({ limit: 100 }).catch((err) => {
+      const pubModels = await catalogApi.listPublicModels({ limit: 100 }).catch((err) => {
         throw err
       })
       catalogModels.value = pubModels
@@ -274,6 +301,166 @@ function findCatalogModel(modelId: string): CatalogModelItem | null {
   )
 }
 
+function inferFundingSourceFromQuota(
+  rules: Array<{ source: string }> | undefined
+): string | null {
+  if (!rules || rules.length === 0) return null
+  if (rules.some((r) => r.source === 'subscription')) return 'subscription'
+  if (rules.some((r) => r.source === 'wallet')) return 'wallet'
+  if (rules.some((r) => r.source === 'gift')) return 'gift'
+  if (rules.some((r) => r.source === 'budget')) return 'budget'
+  return null
+}
+
+async function resolveServerQuoteForEstimate(
+  base: PlaygroundCostEstimate,
+  catalogModel: CatalogModelItem | null
+): Promise<PlaygroundCostEstimate> {
+  const wsId = scope.activeWorkspaceId.value
+  const projId = scope.activeProjectId.value
+  if (!wsId || !projId) {
+    return {
+      ...base,
+      rateKnown: false,
+      maxTotalCost: null,
+      quoteState: 'requires_scope',
+      unpricedReason: 'requires_scope'
+    }
+  }
+
+  if (typeof playgroundApi.quoteProjectModel !== 'function') {
+    return base
+  }
+
+  const canonicalModelId = resolveCatalogQuoteModelId(base.modelId, catalogModel)
+  if (!canonicalModelId) {
+    return base.rateKnown
+      ? base
+      : {
+          ...base,
+          quoteState: 'unpriced',
+          unpricedReason: 'unlisted_model'
+        }
+  }
+
+  const validKeyId = /^[1-9]\d*$/.test(base.apiKeyId.trim()) ? base.apiKeyId.trim() : undefined
+  const scenario = {
+    input_tokens: String(base.estimatedInputTokens),
+    output_tokens: String(base.maxOutputTokens),
+    requests: '1'
+  }
+
+  const quotaPromise =
+    typeof playgroundApi.getEffectiveQuota === 'function'
+      ? playgroundApi
+          .getEffectiveQuota(wsId, projId, {
+            api_key_id: validKeyId,
+            model_id: canonicalModelId
+          })
+          .catch(() => null)
+      : Promise.resolve(null)
+
+  try {
+    let keyScoped = Boolean(validKeyId)
+    let quoteResult
+    try {
+      quoteResult = await playgroundApi.quoteProjectModel(wsId, projId, {
+        model_id: canonicalModelId,
+        ...(validKeyId ? { api_key_id: validKeyId } : {}),
+        protocol: base.protocol,
+        action: 'text.chat',
+        scenario
+      })
+    } catch (err) {
+      const status = (err as { status?: number; response?: { status?: number } })?.status ??
+        (err as { response?: { status?: number } })?.response?.status
+      if (validKeyId && status === 404) {
+        keyScoped = false
+        quoteResult = await playgroundApi.quoteProjectModel(wsId, projId, {
+          model_id: canonicalModelId,
+          protocol: base.protocol,
+          action: 'text.chat',
+          scenario
+        })
+      } else {
+        throw err
+      }
+    }
+    const quota = await quotaPromise
+    return applyAuthoritativeQuoteToEstimate(base, quoteResult, {
+      keyScoped,
+      fundingSource: inferFundingSourceFromQuota(quota?.rules),
+      budgetBlocked: Boolean(quota?.blocked)
+    })
+  } catch {
+    return base.rateKnown
+      ? base
+      : {
+          ...base,
+          quoteState: 'unpriced',
+          unpricedReason: 'server_unpriced'
+        }
+  }
+}
+
+async function refreshAuthoritativeQuotes(
+  initialEstimates: PlaygroundCostEstimate[],
+  target: 'modal' | 'inline'
+): Promise<void> {
+  if (typeof playgroundApi.quoteProjectModel !== 'function' && scope.activeWorkspaceId.value && scope.activeProjectId.value) {
+    return
+  }
+  const gen = ++quoteGeneration
+  if (target === 'modal') {
+    quoteLoading.value = true
+  } else {
+    inlinePreviewLoading.value = true
+  }
+  try {
+    const enriched = await Promise.all(
+      initialEstimates.map((item) =>
+        resolveServerQuoteForEstimate(item, findCatalogModel(item.modelId))
+      )
+    )
+    if (gen !== quoteGeneration) return
+    if (target === 'modal') {
+      pendingEstimates.value = enriched
+    } else {
+      inlinePreviewEstimates.value = enriched
+    }
+  } finally {
+    if (gen === quoteGeneration) {
+      quoteLoading.value = false
+      inlinePreviewLoading.value = false
+    }
+  }
+}
+
+function previewAuthoritativeQuotes(): void {
+  toolsJsonError.value = ''
+  try {
+    const targets: Array<'A' | 'B'> = compareMode.value ? ['A', 'B'] : ['A']
+    const estimates: PlaygroundCostEstimate[] = []
+    for (const target of targets) {
+      const cfg = target === 'A' ? sideA : sideB
+      const nativeInput = buildNativePlaygroundInput(cfg.protocol, {
+        systemPrompt: systemPrompt.value,
+        messages: messages.value,
+        temperature: cfg.temperature,
+        maxOutputTokens: cfg.maxOutputTokens,
+        reasoningEffort: cfg.reasoningEffort,
+        toolsJson: toolsJson.value
+      })
+      const submitPayload = buildPlaygroundSubmitPayload(cfg, nativeInput)
+      estimates.push(estimatePlaygroundRunCost(cfg, submitPayload, findCatalogModel(cfg.modelId)))
+    }
+    inlinePreviewEstimates.value = estimates
+    void refreshAuthoritativeQuotes(estimates, 'inline')
+  } catch (err) {
+    toolsJsonError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
 function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
   toolsJsonError.value = ''
   confirmedNotice.value = null
@@ -333,6 +520,7 @@ function prepareConsentForTargets(targets: Array<'A' | 'B'>): void {
     pendingPayloads.value = payloads
     pendingEstimates.value = estimates
     consentModalOpen.value = true
+    void refreshAuthoritativeQuotes(estimates, 'modal')
   } catch (err) {
     toolsJsonError.value = err instanceof Error ? err.message : String(err)
   }
@@ -427,19 +615,41 @@ onBeforeUnmount(() => {
   }
 })
 
-const curlSnippet = computed(() => {
-  const wsId = scope.activeWorkspaceId.value || '1'
-  const projId = scope.activeProjectId.value || '1'
+const requestPayloadSnippet = computed(() => {
   const payload = inspectedSession.value.submittedPayload
-  const body = payload ? JSON.stringify(payload, null, 2) : '{}'
-  return [
-    `curl -N -X POST "${typeof window !== 'undefined' ? window.location.origin : ''}/api/v2/workspaces/${wsId}/projects/${projId}/playground/runs" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -H "Accept: text/event-stream" \\`,
-    `  -H "Idempotency-Key: ${inspectedSession.value.idempotencyKey || '<uuid>'}" \\`,
-    `  -d '${body}'`
-  ].join('\n')
+  if (!payload) {
+    return isZh.value ? '// 尚未提交请求，运行后可在此查看标准请求载荷' : '// Submit a run to inspect the dispatched request payload'
+  }
+  const sanitized: Record<string, unknown> = { ...payload }
+  delete sanitized.funding_acknowledged
+  return JSON.stringify(sanitized, null, 2)
 })
+
+const linkedRequestPath = computed(() => {
+  const reqId = inspectedSession.value.requestId
+  if (!reqId) return ''
+  const wsId = scope.activeWorkspaceId.value
+  const projId = scope.activeProjectId.value
+  const qs = wsId && projId ? `?workspace=${encodeURIComponent(wsId)}&project=${encodeURIComponent(projId)}` : ''
+  return `/requests/${encodeURIComponent(reqId)}${qs}`
+})
+
+function formatSettlementState(state: string | null | undefined): string {
+  if (!state) return EM_DASH
+  if (!isZh.value) return state
+  const map: Record<string, string> = {
+    estimated: '预估',
+    reserved: '已冻结',
+    pending: '待结算',
+    settled: '已结算',
+    needs_review: '待核查',
+    adjusted: '已调账',
+    refunded: '已退回',
+    canceled: '已取消',
+    unknown: '未知'
+  }
+  return map[state] || state
+}
 </script>
 
 <template>
@@ -464,16 +674,15 @@ const curlSnippet = computed(() => {
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
             <h1 class="text-lg font-semibold tracking-tight text-[var(--oh-ink,var(--foreground))]">
-              Playground
+              {{ isZh ? '模型调试台' : 'Playground' }}
             </h1>
-            <Badge tone="accent" variant="subtle" mono>BE-13 · v2</Badge>
-            <Badge tone="neutral" variant="outline" mono>text.chat</Badge>
+            <Badge tone="neutral" variant="outline" mono>{{ isZh ? '对话推理' : 'Chat Inference' }}</Badge>
           </div>
           <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{
               isZh
-                ? '原生协议流式调试台 · 每次调用独立预算冻结 · 支持双模型左右独立对比与断线幂等恢复'
-                : 'Native protocol workbench · Separate budget holds · Independent side-by-side compare & idempotent disconnect recovery'
+                ? '原生协议流式调试台 · 服务端权威报价与独立预算冻结 · 支持双模型左右对比与断线无损恢复'
+                : 'Native protocol workbench · Authoritative server quotes & separate budget holds · Side-by-side compare & disconnect recovery'
             }}
           </p>
         </div>
@@ -483,7 +692,7 @@ const curlSnippet = computed(() => {
             :model-value="compareMode ? 'compare' : 'single'"
             size="sm"
             mono
-            aria-label="Playground Mode"
+            :aria-label="isZh ? '调试台模式' : 'Playground Mode'"
             :options="[
               { value: 'single', label: isZh ? '单模型' : 'Single' },
               { value: 'compare', label: isZh ? '左右对比' : 'Compare A/B' }
@@ -515,7 +724,7 @@ const curlSnippet = computed(() => {
         <SegmentedControl
           v-model="mobilePane"
           size="sm"
-          aria-label="Mobile Playground Pane"
+          :aria-label="isZh ? '移动端面板切换' : 'Mobile Playground Pane'"
           :options="[
             { value: 'params', label: isZh ? '参数配置' : 'Params' },
             { value: 'session', label: isZh ? '会话与输出' : 'Session' },
@@ -551,7 +760,7 @@ const curlSnippet = computed(() => {
           <div class="space-y-2">
             <div class="flex items-center justify-between">
               <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                {{ compareMode ? 'Side A Config' : 'Run Config' }}
+                {{ compareMode ? (isZh ? 'A 侧配置' : 'Side A Config') : (isZh ? '运行配置' : 'Run Config') }}
               </span>
               <button
                 v-if="availableKeys.length === 0"
@@ -648,7 +857,9 @@ const curlSnippet = computed(() => {
 
             <div class="grid grid-cols-2 gap-2">
               <label class="block space-y-1 text-xs">
-                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Temp</span>
+                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                  {{ isZh ? '温度' : 'Temp' }}
+                </span>
                 <input
                   v-model.number="sideA.temperature"
                   type="number"
@@ -659,7 +870,9 @@ const curlSnippet = computed(() => {
                 />
               </label>
               <label class="block space-y-1 text-xs">
-                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Max Tokens</span>
+                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                  {{ isZh ? '最大输出' : 'Max Tokens' }}
+                </span>
                 <input
                   v-model.number="sideA.maxOutputTokens"
                   type="number"
@@ -673,31 +886,31 @@ const curlSnippet = computed(() => {
 
             <label class="block space-y-1 text-xs">
               <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                {{ isZh ? '推理强度 (Reasoning)' : 'Reasoning Effort' }}
+                {{ isZh ? '推理强度' : 'Reasoning Effort' }}
               </span>
               <select
                 v-model="sideA.reasoningEffort"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               >
-                <option value="">Default</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
+                <option value="">{{ isZh ? '默认' : 'Default' }}</option>
+                <option value="low">{{ isZh ? '低 (Low)' : 'Low' }}</option>
+                <option value="medium">{{ isZh ? '中 (Medium)' : 'Medium' }}</option>
+                <option value="high">{{ isZh ? '高 (High)' : 'High' }}</option>
               </select>
             </label>
 
             <div class="space-y-1.5 pt-1 text-xs">
               <label class="flex items-center gap-2 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 <input v-model="sideA.stream" type="checkbox" class="h-3.5 w-3.5" />
-                <span>SSE Stream</span>
+                <span>{{ isZh ? '流式输出 (SSE)' : 'SSE Streaming' }}</span>
               </label>
               <label class="flex items-center gap-2 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 <input v-model="sideA.includeRawEvents" :disabled="!sideA.stream" type="checkbox" class="h-3.5 w-3.5" />
-                <span>Raw frames (playground.raw)</span>
+                <span>{{ isZh ? '包含上游原始帧' : 'Include raw upstream frames' }}</span>
               </label>
               <label class="flex items-center gap-2 text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 <input v-model="sideA.retainTextPreview" type="checkbox" class="h-3.5 w-3.5" />
-                <span>30s Ephemeral Text Preview</span>
+                <span>{{ isZh ? '保留 30 秒临时文本预览' : '30s Ephemeral Text Preview' }}</span>
               </label>
             </div>
           </div>
@@ -709,7 +922,7 @@ const curlSnippet = computed(() => {
             class="space-y-2 border-t border-[var(--oh-border,var(--border))] pt-3.5"
           >
             <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
-              Side B Config (Independent)
+              {{ isZh ? 'B 侧配置（独立计费）' : 'Side B Config (Independent)' }}
             </span>
 
             <label class="block space-y-1 text-xs">
@@ -776,7 +989,9 @@ const curlSnippet = computed(() => {
 
             <div class="grid grid-cols-2 gap-2">
               <label class="block space-y-1 text-xs">
-                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Temp (B)</span>
+                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                  {{ isZh ? '温度 (B)' : 'Temp (B)' }}
+                </span>
                 <input
                   v-model.number="sideB.temperature"
                   type="number"
@@ -787,7 +1002,9 @@ const curlSnippet = computed(() => {
                 />
               </label>
               <label class="block space-y-1 text-xs">
-                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Max Tokens (B)</span>
+                <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                  {{ isZh ? '最大输出 (B)' : 'Max Tokens (B)' }}
+                </span>
                 <input
                   v-model.number="sideB.maxOutputTokens"
                   type="number"
@@ -804,7 +1021,7 @@ const curlSnippet = computed(() => {
           <div class="space-y-2 border-t border-[var(--oh-border,var(--border))] pt-3.5 text-xs">
             <label class="block space-y-1">
               <span class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                Tools JSON Array (Optional)
+                {{ isZh ? '工具定义 JSON 数组（可选）' : 'Tools JSON Array (Optional)' }}
               </span>
               <textarea
                 v-model="toolsJson"
@@ -819,12 +1036,12 @@ const curlSnippet = computed(() => {
 
             <label v-if="!compareMode" class="block space-y-1">
               <span class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                Replay Request ID (Optional)
+                {{ isZh ? '重放请求 ID（可选）' : 'Replay Request ID (Optional)' }}
               </span>
               <input
                 v-model="replayRequestId"
                 type="text"
-                :placeholder="isZh ? '输入已有 request UUID 重放' : 'Request UUID for requests.replay'"
+                :placeholder="isZh ? '输入已有请求 UUID 进行重放' : 'Enter existing request UUID to replay'"
                 class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
               />
             </label>
@@ -843,7 +1060,7 @@ const curlSnippet = computed(() => {
           <section class="space-y-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
             <label class="block space-y-1 text-xs">
               <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                System Instructions
+                {{ isZh ? '系统提示词' : 'System Instructions' }}
               </span>
               <textarea
                 v-model="systemPrompt"
@@ -856,11 +1073,15 @@ const curlSnippet = computed(() => {
             <div class="space-y-2.5">
               <div class="flex items-center justify-between">
                 <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                  Messages ({{ messages.length }})
+                  {{ isZh ? `对话消息 (${messages.length})` : `Messages (${messages.length})` }}
                 </span>
                 <div class="flex items-center gap-1.5">
-                  <Button variant="ghost" size="xs" @click="addMessage('user')">+ User</Button>
-                  <Button variant="ghost" size="xs" @click="addMessage('assistant')">+ Assistant</Button>
+                  <Button variant="ghost" size="xs" @click="addMessage('user')">
+                    {{ isZh ? '+ 用户消息' : '+ User' }}
+                  </Button>
+                  <Button variant="ghost" size="xs" @click="addMessage('assistant')">
+                    {{ isZh ? '+ 助手消息' : '+ Assistant' }}
+                  </Button>
                 </div>
               </div>
 
@@ -873,18 +1094,18 @@ const curlSnippet = computed(() => {
                   <div class="flex items-center gap-2">
                     <select
                       v-model="msg.role"
-                      :aria-label="`Message ${index + 1} role`"
+                      :aria-label="isZh ? `第 ${index + 1} 条消息角色` : `Message ${index + 1} role`"
                       class="h-6 rounded border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-1.5 font-mono text-[11px] uppercase text-[var(--oh-ink,var(--foreground))]"
                     >
-                      <option value="user">user</option>
-                      <option value="assistant">assistant</option>
-                      <option value="tool">tool</option>
+                      <option value="user">{{ isZh ? '用户 (user)' : 'user' }}</option>
+                      <option value="assistant">{{ isZh ? '助手 (assistant)' : 'assistant' }}</option>
+                      <option value="tool">{{ isZh ? '工具 (tool)' : 'tool' }}</option>
                     </select>
                     <input
                       v-if="msg.role === 'tool'"
                       v-model="msg.toolCallId"
                       type="text"
-                      placeholder="tool_call_id"
+                      :placeholder="isZh ? '工具调用 ID' : 'Tool Call ID'"
                       class="h-6 rounded border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-2 font-mono text-[11px] text-[var(--oh-ink,var(--foreground))]"
                     />
                   </div>
@@ -906,11 +1127,73 @@ const curlSnippet = computed(() => {
               </div>
             </div>
 
+            <div
+              v-if="inlinePreviewEstimates.length > 0"
+              data-testid="playground-quote-preview"
+              class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-3 py-2 text-xs"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="font-semibold text-[var(--oh-ink,var(--foreground))]">
+                  {{
+                    inlinePreviewLoading
+                      ? isZh
+                        ? '正在获取服务端权威报价…'
+                        : 'Fetching authoritative server quote…'
+                      : isZh
+                        ? '服务端权威报价预览'
+                        : 'Authoritative Quote Preview'
+                  }}
+                </span>
+                <button
+                  type="button"
+                  class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))] hover:text-[var(--oh-ink,var(--foreground))]"
+                  @click="inlinePreviewEstimates = []"
+                >
+                  {{ isZh ? '收起' : 'Hide' }}
+                </button>
+              </div>
+              <div class="mt-1.5 grid gap-2" :class="inlinePreviewEstimates.length > 1 ? 'sm:grid-cols-2' : 'grid-cols-1'">
+                <div
+                  v-for="(est, idx) in inlinePreviewEstimates"
+                  :key="`${est.sideLabel}-${idx}`"
+                  class="flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] tabular-nums"
+                >
+                  <span class="truncate text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                    {{ est.sideLabel }} · {{ est.modelId || EM_DASH }}
+                    ({{ formatModelRatePerMillion(est.inputRate, est.currency) || EM_DASH }} / {{ formatModelRatePerMillion(est.outputRate, est.currency) || EM_DASH }})
+                  </span>
+                  <span class="font-semibold text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
+                    {{
+                      est.quoteState === 'requires_scope'
+                        ? isZh
+                          ? '需作用域'
+                          : 'Scope Required'
+                        : est.rateKnown && est.maxTotalCost !== null
+                          ? formatExactMoney(est.maxTotalCost, est.currency)
+                          : isZh
+                            ? '未定价'
+                            : 'Unpriced'
+                    }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--oh-border,var(--border))] pt-3">
               <span class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                {{ isZh ? '运行前必须确认费用预估 (⌘+Enter)' : 'Cost estimate confirmation required before run (⌘+Enter)' }}
+                {{ isZh ? '运行前将核定服务端权威报价 (⌘+Enter)' : 'Authoritative quote confirmed before run (⌘+Enter)' }}
               </span>
               <div class="flex flex-wrap items-center gap-2">
+                <Button
+                  data-testid="playground-preview-quote-btn"
+                  variant="secondary"
+                  size="sm"
+                  :loading="inlinePreviewLoading"
+                  :disabled="!sideA.modelId && !replayRequestId"
+                  @click="previewAuthoritativeQuotes"
+                >
+                  {{ isZh ? '预览报价' : 'Preview Quote' }}
+                </Button>
                 <Button
                   data-testid="playground-run-trigger"
                   variant="primary"
@@ -986,14 +1269,14 @@ const curlSnippet = computed(() => {
         >
           <div class="flex items-center justify-between gap-2">
             <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-              Inspector {{ compareMode ? `(${inspectedConfig.label})` : '' }}
+              {{ isZh ? '运行遥测检查器' : 'Inspector' }} {{ compareMode ? `(${inspectedConfig.label})` : '' }}
             </span>
             <SegmentedControl
               v-if="compareMode"
               v-model="inspectedSide"
               size="sm"
               mono
-              aria-label="Inspected Compare Side"
+              :aria-label="isZh ? '选择检查侧' : 'Inspected Compare Side'"
               :options="[
                 { value: 'A', label: 'A' },
                 { value: 'B', label: 'B' }
@@ -1003,75 +1286,75 @@ const curlSnippet = computed(() => {
 
           <Tabs
             v-model="inspectorTab"
-            aria-label="Inspector Tabs"
+            :aria-label="isZh ? '检查器标签页' : 'Inspector Tabs'"
             :items="[
               { value: 'telemetry', label: isZh ? '遥测与结算' : 'Telemetry' },
               { value: 'payload', label: isZh ? '请求载荷' : 'Raw Payload' },
-              { value: 'events', label: 'SSE', count: inspectedSession.sseFrames.length }
+              { value: 'events', label: isZh ? '事件帧' : 'SSE Frames', count: inspectedSession.sseFrames.length }
             ]"
           />
 
           <div v-if="inspectorTab === 'telemetry'" class="space-y-2.5 pt-1 text-xs">
             <dl class="space-y-2">
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Run ID</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '运行 ID' : 'Run ID' }}</dt>
                 <dd class="flex items-center gap-1 font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   <span class="max-w-[165px] truncate">{{ inspectedSession.runId || EM_DASH }}</span>
                   <CopyButton v-if="inspectedSession.runId" :value="inspectedSession.runId" size="xs" />
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Request ID</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '请求 ID' : 'Request ID' }}</dt>
                 <dd class="flex items-center gap-1 font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   <span class="max-w-[165px] truncate">{{ inspectedSession.requestId || EM_DASH }}</span>
                   <CopyButton v-if="inspectedSession.requestId" :value="inspectedSession.requestId" size="xs" />
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Idempotency-Key</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '恢复标识' : 'Recovery ID' }}</dt>
                 <dd class="flex items-center gap-1 font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   <span class="max-w-[165px] truncate">{{ inspectedSession.idempotencyKey || EM_DASH }}</span>
                   <CopyButton v-if="inspectedSession.idempotencyKey" :value="inspectedSession.idempotencyKey" size="xs" />
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2 border-t border-[var(--oh-border,var(--border))] pt-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Settlement State</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '结算状态' : 'Settlement State' }}</dt>
                 <dd class="font-mono font-semibold tabular-nums text-[var(--oh-ink,var(--foreground))]">
-                  {{ inspectedSession.settlementState || EM_DASH }}
+                  {{ formatSettlementState(inspectedSession.settlementState) }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Price Version</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '价格版本' : 'Price Version' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ inspectedSession.priceVersion || EM_DASH }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">TTFT</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '首字延迟' : 'TTFT' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ formatNullableLatencyMs(inspectedSession.ttftMs) }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Total Elapsed</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '总耗时' : 'Total Elapsed' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ formatNullableLatencyMs(inspectedSession.elapsedMs) }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Input Tokens</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '输入 Token' : 'Input Tokens' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ inspectedSession.inputTokens !== null ? formatNullableInteger(inspectedSession.inputTokens) : EM_DASH }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Output Tokens</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '输出 Token' : 'Output Tokens' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ inspectedSession.outputTokens !== null ? formatNullableInteger(inspectedSession.outputTokens) : EM_DASH }}
                 </dd>
               </div>
               <div class="flex items-center justify-between gap-2">
-                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Last SSE Seq</dt>
+                <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">{{ isZh ? '最新事件序号' : 'Last Event Seq' }}</dt>
                 <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                   {{ inspectedSession.lastSeq > 0 ? inspectedSession.lastSeq : EM_DASH }}
                 </dd>
@@ -1079,12 +1362,13 @@ const curlSnippet = computed(() => {
             </dl>
 
             <div
-              v-if="inspectedSession.detailUrl"
+              v-if="linkedRequestPath"
               class="border-t border-[var(--oh-border,var(--border))] pt-2.5"
             >
               <a
-                :href="inspectedSession.detailUrl"
+                :href="linkedRequestPath"
                 class="oh-focus-ring rounded font-mono text-xs text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
+                @click.prevent="navigateTo(linkedRequestPath)"
               >
                 {{ isZh ? '查看关联请求与账单凭证 →' : 'Open Linked Request & Receipt →' }}
               </a>
@@ -1094,11 +1378,11 @@ const curlSnippet = computed(() => {
           <div v-else-if="inspectorTab === 'payload'" class="space-y-2.5 pt-1">
             <div class="flex items-center justify-between">
               <span class="font-mono text-[11px] text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                cURL / JSON
+                {{ isZh ? '标准请求载荷 (JSON)' : 'Request Payload (JSON)' }}
               </span>
-              <CopyButton :value="curlSnippet" size="xs" />
+              <CopyButton :value="requestPayloadSnippet" size="xs" />
             </div>
-            <pre class="max-h-96 overflow-auto rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]">{{ curlSnippet }}</pre>
+            <pre class="max-h-96 overflow-auto rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-[var(--oh-ink,var(--foreground))]">{{ requestPayloadSnippet }}</pre>
           </div>
 
           <div v-else class="space-y-2 pt-1">
@@ -1106,7 +1390,7 @@ const curlSnippet = computed(() => {
               v-if="inspectedSession.sseFrames.length === 0"
               class="py-6 text-center font-mono text-xs text-[var(--oh-ink-tertiary,var(--muted-foreground))]"
             >
-              {{ isZh ? '暂无 SSE 事件帧 (—)' : 'No SSE frames recorded yet (—)' }}
+              {{ isZh ? '暂无流式事件帧 (—)' : 'No SSE frames recorded yet (—)' }}
             </p>
             <ul v-else class="max-h-96 space-y-1.5 overflow-auto">
               <li
@@ -1136,6 +1420,7 @@ const curlSnippet = computed(() => {
       v-model:open="consentModalOpen"
       :estimates="pendingEstimates"
       :replay-request-id="replayRequestId || null"
+      :quote-loading="quoteLoading"
       :is-zh="isZh"
       :teleport-disabled="props.teleportDisabled"
       @confirm="handleConfirmAndExecute"

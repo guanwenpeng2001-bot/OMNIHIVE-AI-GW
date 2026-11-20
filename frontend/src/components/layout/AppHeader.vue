@@ -113,7 +113,7 @@ const pageDomainLabel = computed(() => {
       p.startsWith('/admin/channels/monitor') ||
       p.startsWith('/admin/audit-logs')
     ) {
-      return isZh.value ? 'ADMIN · 运行与观测' : 'ADMIN · OPS'
+      return isZh.value ? '管理 · 运行观测' : 'ADMIN · OPS'
     }
     if (
       p.startsWith('/admin/accounts') ||
@@ -122,7 +122,7 @@ const pageDomainLabel = computed(() => {
       p.startsWith('/admin/proxy-groups') ||
       p.startsWith('/admin/channels')
     ) {
-      return isZh.value ? 'ADMIN · 连接与路由' : 'ADMIN · CONNECTIONS'
+      return isZh.value ? '管理 · 连接与路由' : 'ADMIN · CONNECTIONS'
     }
     if (
       p.startsWith('/admin/orders') ||
@@ -132,11 +132,11 @@ const pageDomainLabel = computed(() => {
       p.startsWith('/admin/affiliates') ||
       p.startsWith('/admin/usage')
     ) {
-      return isZh.value ? 'ADMIN · 结算与账本' : 'ADMIN · SETTLEMENT'
+      return isZh.value ? '管理 · 结算与账本' : 'ADMIN · SETTLEMENT'
     }
-    return isZh.value ? 'ADMIN · 系统与治理' : 'ADMIN · GOVERNANCE'
+    return isZh.value ? '管理 · 系统与治理' : 'ADMIN · GOVERNANCE'
   }
-  return isZh.value ? 'CONSOLE · 开发者台' : 'CONSOLE'
+  return isZh.value ? '开发者台' : 'CONSOLE'
 })
 
 const pageTitle = computed(() => {
@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
           />
         </router-link>
 
-        <div v-if="appStore.siteVersion" class="hidden shrink-0 xl:block">
+        <div v-if="isAdmin" class="hidden shrink-0 sm:block">
           <VersionBadge :version="appStore.siteVersion" />
         </div>
 
@@ -327,7 +327,7 @@ onBeforeUnmount(() => {
               : 'border-oh-default bg-oh-surface text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
           ]"
         >
-          <span>{{ isAdminRoute ? (isZh ? 'USER · 开发者台' : 'USER CONSOLE') : (isZh ? 'ADMIN · 管理台' : 'ADMIN') }}</span>
+          <span>{{ isAdminRoute ? (isZh ? '开发者台' : 'USER CONSOLE') : (isZh ? '管理台' : 'ADMIN') }}</span>
         </router-link>
 
         <!-- Model Plaza Entry (remains visible below small-screen breakpoint per contract) -->
@@ -366,7 +366,7 @@ onBeforeUnmount(() => {
           class="oh-focus-ring hidden h-8 items-center gap-1.5 rounded-oh-md border border-oh-default bg-oh-surface px-2.5 font-mono text-xs tabular-nums text-oh-primary transition-colors hover:border-oh-strong md:inline-flex"
           :title="totalBalance !== null ? `Total ${formatMoneyValue(totalBalance)}` : undefined"
         >
-          <span class="text-[10px] uppercase text-oh-muted">{{ isZh ? 'BAL' : 'BAL' }}</span>
+          <span class="text-[10px] uppercase text-oh-muted">{{ isZh ? '余额' : 'BAL' }}</span>
           <span class="font-semibold">{{ formatMoneyValue(hasNumericBalance ? Number(rawBalance) : null) }}</span>
         </router-link>
 
@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
             :aria-label="isZh ? '外观与密度偏好' : 'Appearance and density preferences'"
             class="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-oh-lg border border-oh-default bg-oh-elevated p-3 text-xs text-oh-primary shadow-oh-md"
           >
-            <div class="oh-eyebrow mb-1.5">{{ isZh ? 'THEME MODE · 主题' : 'THEME MODE' }}</div>
+            <div class="oh-eyebrow mb-1.5">{{ isZh ? '外观主题' : 'THEME MODE' }}</div>
             <div class="grid grid-cols-3 gap-1 rounded-oh-md border border-oh-subtle bg-oh-subtle p-0.5">
               <button
                 v-for="opt in (['light', 'dark', 'system'] as const)"
@@ -418,7 +418,7 @@ onBeforeUnmount(() => {
               </button>
             </div>
 
-            <div class="oh-eyebrow mb-1.5 mt-3">{{ isZh ? 'DENSITY · 信息密度' : 'DENSITY' }}</div>
+            <div class="oh-eyebrow mb-1.5 mt-3">{{ isZh ? '信息密度' : 'DENSITY' }}</div>
             <div class="grid grid-cols-2 gap-1 rounded-oh-md border border-oh-subtle bg-oh-subtle p-0.5">
               <button
                 v-for="dens in (['comfort', 'compact'] as const)"

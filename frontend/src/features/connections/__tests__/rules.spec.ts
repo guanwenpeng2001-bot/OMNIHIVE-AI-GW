@@ -10,11 +10,13 @@ import {
   isOAuthWorkflowSupported,
   isVerificationFresh,
   mapApiErrorToAsyncContext,
+  normalizeConnectionEndpointInput,
   parsePoolModeRetryStatusCodes,
   splitTempUnschedKeywords,
   toggleErrorCodeInList,
   validateConnectionEndpoint,
-  validateCustomErrorCode
+  validateCustomErrorCode,
+  validateHeaderOverrideRows
 } from '../rules'
 
 describe('connections/rules (UIR01)', () => {
@@ -147,5 +149,54 @@ describe('connections/rules (UIR01)', () => {
       response: { status: 504, data: { error: { code: 'TIMEOUT', message: 'Timed out' } } }
     }
     expect(mapApiErrorToAsyncContext(err504).state).toBe('unknown_outcome')
+
+    const err422Endpoint = {
+      response: {
+        status: 422,
+        data: {
+          code: 422,
+          reason: 'INVALID_INPUT',
+          message: 'Invalid field value.',
+          metadata: {
+            request_id: 'req_422',
+            fields: [{ path: '/endpoint', reason: 'INVALID_INPUT' }]
+          }
+        }
+      }
+    }
+    const mappedZh = mapApiErrorToAsyncContext(err422Endpoint, '请求失败', true)
+    expect(mappedZh.state).toBe('partial_failure')
+    expect(mappedZh.message).toContain('/endpoint')
+    expect(mappedZh.message).toContain('上游服务地址')
+    expect(mappedZh.fields?.[0]?.path).toBe('/endpoint')
+  })
+
+  it('normalizes pasted endpoint suffixes and validates header overrides', () => {
+    expect(normalizeConnectionEndpointInput('  http://127.0.0.1:3425/  ')).toEqual({
+      normalized: 'http://127.0.0.1:3425',
+      strippedSuffix: undefined
+    })
+    expect(
+      normalizeConnectionEndpointInput('https://api.moonshot.cn/v1/chat/completions/')
+    ).toEqual({
+      normalized: 'https://api.moonshot.cn',
+      strippedSuffix: '/v1/chat/completions'
+    })
+    expect(
+      validateHeaderOverrideRows(
+        [{ key: 'User-Agent', value: 'curl/8.7.1' }],
+        'kimi',
+        'api_key',
+        true
+      )
+    ).toBeNull()
+    expect(
+      validateHeaderOverrideRows(
+        [{ key: 'Authorization', value: 'Bearer bad' }],
+        'openai',
+        'api_key',
+        true
+      )
+    ).toContain('Authorization')
   })
 })

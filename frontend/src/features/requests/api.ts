@@ -1,6 +1,6 @@
 import type { RouteLocationRaw } from 'vue-router'
 import { apiClient } from '@/api/client'
-import type { components } from '@/api/generated/v2'
+import type { components } from '@/api/generated/openapi'
 
 export type Schema = components['schemas']
 export type ProjectScope = { workspaceId: string; projectId: string }
@@ -47,7 +47,7 @@ export function queryParams(values: Record<string, string | number | null | unde
 
 // Several v2 endpoints reject unrecognized parameters. Preserve the exact
 // contract query while retaining the shared session and response interceptors.
-export async function v2Get<T>(path: string, params = new URLSearchParams(), signal?: AbortSignal): Promise<T> {
+export async function controlGet<T>(path: string, params = new URLSearchParams(), signal?: AbortSignal): Promise<T> {
   return (await apiClient.get<T>(path, {
     params,
     paramsSerializer: { serialize: () => params.toString() },
@@ -57,17 +57,36 @@ export async function v2Get<T>(path: string, params = new URLSearchParams(), sig
 
 export const requestsApi = {
   scopes: (cursor: string | null, signal: AbortSignal) =>
-    v2Get<Schema['IdentityWorkspacePage']>('/api/v2/me/scopes', queryParams({ limit: 50, cursor }), signal),
+    controlGet<Schema['IdentityWorkspacePage']>('/api/v2/me/scopes', queryParams({ limit: 50, cursor }), signal),
   projects: (workspaceId: string, cursor: string, signal: AbortSignal) =>
-    v2Get<Schema['IdentityProjectPage']>(`${workspaceBase(workspaceId)}/projects`, queryParams({ limit: 50, cursor }), signal),
+    controlGet<Schema['IdentityProjectPage']>(`${workspaceBase(workspaceId)}/projects`, queryParams({ limit: 50, cursor }), signal),
   access: (scope: ProjectScope, signal: AbortSignal) =>
-    v2Get<Schema['IdentityAccess']>(`${projectBase(scope)}/access`, undefined, signal),
+    controlGet<Schema['IdentityAccess']>(`${projectBase(scope)}/access`, undefined, signal),
   keys: (scope: ProjectScope, signal: AbortSignal) =>
-    v2Get<Schema['IdentityKeyPage']>(`${projectBase(scope)}/keys`, queryParams({ limit: 100 }), signal),
+    controlGet<Schema['IdentityKeyPage']>(`${projectBase(scope)}/keys`, queryParams({ limit: 100 }), signal),
   list: (scope: ProjectScope, params: URLSearchParams, signal: AbortSignal) =>
-    v2Get<Schema['RequestsPage']>(`${projectBase(scope)}/requests`, params, signal),
+    controlGet<Schema['RequestsPage']>(`${projectBase(scope)}/requests`, params, signal),
   detail: (scope: ProjectScope, id: string, signal: AbortSignal) =>
-    v2Get<Schema['RequestsDetail']>(`${projectBase(scope)}/requests/${encodeURIComponent(id)}`, undefined, signal),
+    controlGet<Schema['RequestsDetail']>(`${projectBase(scope)}/requests/${encodeURIComponent(id)}`, undefined, signal),
   explanation: (scope: ProjectScope, id: string, signal: AbortSignal) =>
-    v2Get<Schema['RequestsRouteExplanation']>(`${projectBase(scope)}/requests/${encodeURIComponent(id)}/route-explain`, undefined, signal),
+    controlGet<Schema['RequestsRouteExplanation']>(`${projectBase(scope)}/requests/${encodeURIComponent(id)}/route-explain`, undefined, signal),
+  createExport: async (
+    scope: ProjectScope,
+    id: string,
+    payload: Schema['RequestsExportInput'],
+    idempotencyKey: string
+  ): Promise<Schema['RequestsExportOperation']> => {
+    return (
+      await apiClient.post<Schema['RequestsExportOperation']>(
+        `${projectBase(scope)}/requests/${encodeURIComponent(id)}/exports`,
+        payload,
+        { headers: { 'Idempotency-Key': idempotencyKey } }
+      )
+    ).data
+  },
+  downloadExport: async (scope: ProjectScope, id: string, exportId: string): Promise<unknown> => {
+    return controlGet<unknown>(
+      `${projectBase(scope)}/requests/${encodeURIComponent(id)}/exports/${encodeURIComponent(exportId)}/download`
+    )
+  },
 }

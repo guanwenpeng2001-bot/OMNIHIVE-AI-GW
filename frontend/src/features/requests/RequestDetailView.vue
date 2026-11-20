@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import { Badge, Button, Card, CopyButton, EmptyState, PageHeader, StatNumber } from '@/components/ui'
+import { Badge, Button, Card, CopyButton, Drawer, EmptyState, PageHeader, StatNumber, pushUiToast } from '@/components/ui'
+import { classifyAsyncError } from '@/features/shared/asyncState'
+import { createIdempotencyKey } from '@/features/shared/controlClient'
 import { requestLocation, requestsApi, scopeQuery } from './api'
 import { dateInZone, queryText, shiftCalendar, validTimezone } from './filters'
 import { displayNumber, moneyText, statusTone, timestamp } from './presentation'
@@ -15,6 +17,7 @@ import RouteEvidence from './components/RouteEvidence.vue'
 import ScopePicker from './components/ScopePicker.vue'
 
 const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || 'zh').toLowerCase().startsWith('zh'))
 const route = useRoute()
 const router = useRouter()
 const { scope, scopeKey, admin, access, choose, can } = useProjectScope()
@@ -42,8 +45,8 @@ const finance = computed(() => can('billing.ledger.read') && !record.value?.reda
 const connectionAccess = computed(() => can('connections.read'))
 const unit = (kind: 'input_token' | 'output_token') => record.value?.usage.units.find(item => item.kind === kind)?.quantity ?? null
 const breadcrumbs = computed(() => [
-  { label: t('wp6.requests.title'), to: scope.value ? router.resolve(requestLocation(scope.value, null, admin.value)).href : undefined },
-  { label: t('wp6.requests.detail') },
+  { label: t('costLedger.requests.title'), to: scope.value ? router.resolve(requestLocation(scope.value, null, admin.value)).href : undefined },
+  { label: t('costLedger.requests.detail') },
 ])
 const ledgerLink = computed(() => {
   const settledAt = record.value?.timeline.find(event => event.kind === 'settled')?.at ?? record.value?.started_at
@@ -63,27 +66,96 @@ async function refresh() {
   if (!can('requests.read')) return
   await Promise.all([detail.refresh(), trace.refresh()])
 }
+
+type ExportSection = 'timeline' | 'route' | 'attempts' | 'usage' | 'billing'
+const allExportSections: Array<{ id: ExportSection; labelZh: string; labelEn: string }> = [
+  { id: 'timeline', labelZh: '请求时间线', labelEn: 'Timeline' },
+  { id: 'route', labelZh: '路由决策', labelEn: 'Routing' },
+  { id: 'attempts', labelZh: '上游尝试', labelEn: 'Attempts' },
+  { id: 'usage', labelZh: '用量统计', labelEn: 'Usage' },
+  { id: 'billing', labelZh: '计费与结算', labelEn: 'Billing' }
+]
+const exportDrawerOpen = ref(false)
+const selectedSections = ref<ExportSection[]>(['timeline', 'route', 'attempts', 'usage', 'billing'])
+const exporting = ref(false)
+const exportError = ref('')
+
+function toggleExportSection(section: ExportSection) {
+  if (selectedSections.value.includes(section)) {
+    selectedSections.value = selectedSections.value.filter((item) => item !== section)
+  } else {
+    selectedSections.value = [...selectedSections.value, section]
+  }
+}
+
+async function handleExportRequest() {
+  if (!scope.value || !record.value || exporting.value) return
+  if (selectedSections.value.length === 0) {
+    exportError.value = isZh.value ? '请至少选择一个导出区块。' : 'Select at least one section to export.'
+    return
+  }
+  exporting.value = true
+  exportError.value = ''
+  try {
+    const operation = await requestsApi.createExport(
+      scope.value,
+      record.value.id,
+      { format: 'json', sections: selectedSections.value },
+      createIdempotencyKey()
+    )
+    const exportId = operation.operation_id
+    if (!exportId) {
+      throw new Error(isZh.value ? '未返回导出任务编号' : 'Export operation ID missing')
+    }
+    const payload = await requestsApi.downloadExport(scope.value, record.value.id, exportId)
+    const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `request-${record.value.id}.json`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    exportDrawerOpen.value = false
+    pushUiToast({
+      tone: 'success',
+      title: isZh.value ? '导出成功' : 'Export ready',
+      description: isZh.value ? '请求记录 JSON 已开始下载。' : 'Request metadata JSON download started.'
+    })
+  } catch (cause) {
+    const issue = classifyAsyncError(cause, isZh.value ? '导出请求记录失败' : 'Failed to export request')
+    exportError.value = issue.message
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
   <AppLayout contained>
     <div class="min-w-0 space-y-5">
-      <PageHeader :title="t('wp6.requests.detail')" :breadcrumbs="breadcrumbs">
+      <PageHeader :title="t('costLedger.requests.detail')" :breadcrumbs="breadcrumbs">
         <template v-if="record" #badges>
-          <Badge :tone="statusTone(record.outcome)" dot>{{ t(`wp6.states.${record.outcome}`) }}</Badge>
-          <Badge :tone="statusTone(record.settlement_state)">{{ t(`wp6.states.${record.settlement_state}`) }}</Badge>
+          <Badge :tone="statusTone(record.outcome)" dot>{{ t(`costLedger.states.${record.outcome}`) }}</Badge>
+          <Badge :tone="statusTone(record.settlement_state)">{{ t(`costLedger.states.${record.settlement_state}`) }}</Badge>
         </template>
         <template #actions>
           <ScopePicker :scope="scope" @change="choose" />
-          <Button v-if="scope" size="sm" variant="secondary" :disabled="detail.loading.value || access.loading.value" @click="refresh">{{ t('wp6.state.refresh') }}</Button>
+          <Button
+            v-if="scope && record && can('requests.export')"
+            size="sm"
+            variant="secondary"
+            @click="exportDrawerOpen = true; exportError = ''"
+          >
+            {{ isZh ? '导出记录' : 'Export' }}
+          </Button>
+          <Button v-if="scope" size="sm" variant="secondary" :disabled="detail.loading.value || access.loading.value" @click="refresh">{{ t('costLedger.state.refresh') }}</Button>
         </template>
       </PageHeader>
 
-      <EmptyState v-if="!scope" :title="t('wp6.scope.select')" :description="t('wp6.scope.required')" />
+      <EmptyState v-if="!scope" :title="t('costLedger.scope.select')" :description="t('costLedger.scope.required')" />
       <template v-else>
         <ReadNotice :loading="access.loading.value" :error="access.error.value" :has-data="Boolean(access.data.value)" :offline="access.offline.value" :last-synced="access.lastSynced.value" @retry="access.refresh" />
         <p v-if="access.data.value && !can('requests.read') && !access.loading.value" class="rounded-oh-lg border border-oh-default bg-oh-surface p-4 text-sm text-oh-secondary" role="status">
-          {{ t('wp6.state.requiredGrant', { grant: 'requests.read' }) }}
+          {{ t('costLedger.state.requiredGrant', { grant: 'requests.read' }) }}
         </p>
         <ReadNotice :loading="detail.loading.value" :error="detail.error.value" :has-data="Boolean(record)" :offline="detail.offline.value" :last-synced="detail.lastSynced.value" grant="requests.read" @retry="refresh" />
 
@@ -92,7 +164,7 @@ async function refresh() {
             <div class="min-w-0 space-y-1.5">
               <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <code class="break-all rounded-oh-sm border border-oh-default bg-oh-surface px-2 py-1 font-mono text-xs text-oh-primary">{{ record.id }}</code>
-                <CopyButton :value="record.id" :label="t('wp6.copy.label')" :copied-label="t('wp6.copy.copied')" :failed-label="t('wp6.copy.failed')" :aria-label="t('wp6.copy.requestId')" variant="secondary" />
+                <CopyButton :value="record.id" :label="t('costLedger.copy.label')" :copied-label="t('costLedger.copy.copied')" :failed-label="t('costLedger.copy.failed')" :aria-label="t('costLedger.copy.requestId')" variant="secondary" />
               </div>
               <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-oh-muted">
                 <strong class="break-all font-mono text-sm font-medium text-oh-primary">{{ record.requested_model || '—' }}</strong>
@@ -100,29 +172,29 @@ async function refresh() {
                 <time class="font-mono text-xs tabular-nums" :datetime="record.started_at">{{ timestamp(record.started_at, locale, timezone) }}</time>
               </div>
             </div>
-            <Badge v-if="record.data_completeness.state === 'partial'" tone="warning" dot>{{ t('wp6.requests.partialEvidence') }}</Badge>
+            <Badge v-if="record.data_completeness.state === 'partial'" tone="warning" dot>{{ t('costLedger.requests.partialEvidence') }}</Badge>
           </div>
 
           <div class="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-4">
             <Card padding="sm">
-              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('wp6.requests.totalLatency')" :value="record.timings_ms.total" unit="ms" :unknown-label="t('wp6.requests.unobserved')" />
+              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('costLedger.requests.totalLatency')" :value="record.timings_ms.total" unit="ms" :unknown-label="t('costLedger.requests.unobserved')" />
             </Card>
             <Card padding="sm">
-              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('wp6.requests.ttft')" :value="record.timings_ms.upstream_ttft" unit="ms" :unknown-label="t('wp6.requests.unobserved')" />
+              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('costLedger.requests.ttft')" :value="record.timings_ms.upstream_ttft" unit="ms" :unknown-label="t('costLedger.requests.unobserved')" />
             </Card>
             <Card padding="sm">
-              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('wp6.requests.inputTokens')" :value="unit('input_token') === null ? null : displayNumber(unit('input_token'), locale)" :unknown-label="t('wp6.requests.unobserved')" />
-              <p class="mt-1 text-xs text-oh-muted">{{ t('wp6.requests.outputTokens') }} <span class="font-mono tabular-nums">{{ displayNumber(unit('output_token'), locale) }}</span></p>
+              <StatNumber class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm" :label="t('costLedger.requests.inputTokens')" :value="unit('input_token') === null ? null : displayNumber(unit('input_token'), locale)" :unknown-label="t('costLedger.requests.unobserved')" />
+              <p class="mt-1 text-xs text-oh-muted">{{ t('costLedger.requests.outputTokens') }} <span class="font-mono tabular-nums">{{ displayNumber(unit('output_token'), locale) }}</span></p>
             </Card>
             <Card padding="sm">
               <StatNumber
                 class="max-w-full [&_.oh-tabular]:min-w-0 [&_.oh-tabular]:break-all max-sm:[&_.oh-tabular]:text-sm"
-                v-if="finance" :label="t('wp6.requests.charge')" :value="record.billing.platform_charge ? moneyText(record.billing.platform_charge, locale) : null"
-                :unknown-label="t('wp6.requests.unobserved')" accent
+                v-if="finance" :label="t('costLedger.requests.charge')" :value="record.billing.platform_charge ? moneyText(record.billing.platform_charge, locale) : null"
+                :unknown-label="t('costLedger.requests.unobserved')" accent
               />
               <template v-else>
-                <p class="text-xs font-medium text-oh-secondary">{{ t('wp6.requests.receipt') }}</p>
-                <Badge class="mt-2" :tone="statusTone(record.billing.receipt_state)" dot>{{ t(`wp6.states.${record.billing.receipt_state}`) }}</Badge>
+                <p class="text-xs font-medium text-oh-secondary">{{ t('costLedger.requests.receipt') }}</p>
+                <Badge class="mt-2" :tone="statusTone(record.billing.receipt_state)" dot>{{ t(`costLedger.states.${record.billing.receipt_state}`) }}</Badge>
               </template>
             </Card>
           </div>
@@ -130,8 +202,8 @@ async function refresh() {
           <div class="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
             <RequestWaterfall :detail="record" :connection-access="connectionAccess" :timezone="timezone" />
             <Card padding="md" class="min-w-0">
-              <section class="space-y-3" aria-labelledby="wp6-route-evidence">
-                <h2 id="wp6-route-evidence" class="text-base font-semibold text-oh-primary">{{ t('wp6.requests.routing') }}</h2>
+              <section class="space-y-3" aria-labelledby="oh-route-evidence">
+                <h2 id="oh-route-evidence" class="text-base font-semibold text-oh-primary">{{ t('costLedger.requests.routing') }}</h2>
                 <ReadNotice :loading="trace.loading.value" :error="trace.error.value" :has-data="Boolean(trace.data.value)" :offline="trace.offline.value" :last-synced="trace.lastSynced.value" grant="requests.read" :rows="2" @retry="trace.refresh" />
                 <RouteEvidence v-if="trace.data.value" :explanation="trace.data.value" :financial-access="finance" />
               </section>
@@ -140,29 +212,29 @@ async function refresh() {
 
           <div class="grid min-w-0 gap-4 lg:grid-cols-2">
             <Card padding="md" class="min-w-0">
-              <section class="space-y-3" aria-labelledby="wp6-receipt-evidence">
+              <section class="space-y-3" aria-labelledby="oh-receipt-evidence">
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                  <h2 id="wp6-receipt-evidence" class="text-base font-semibold text-oh-primary">{{ t('wp6.requests.receiptProof') }}</h2>
-                  <Badge :tone="statusTone(record.billing.receipt_state)" dot>{{ t(`wp6.states.${record.billing.receipt_state}`) }}</Badge>
+                  <h2 id="oh-receipt-evidence" class="text-base font-semibold text-oh-primary">{{ t('costLedger.requests.receiptProof') }}</h2>
+                  <Badge :tone="statusTone(record.billing.receipt_state)" dot>{{ t(`costLedger.states.${record.billing.receipt_state}`) }}</Badge>
                 </div>
-                <p v-if="!finance" class="text-sm text-oh-secondary">{{ t('wp6.state.requiredGrant', { grant: 'billing.ledger.read' }) }}</p>
+                <p v-if="!finance" class="text-sm text-oh-secondary">{{ t('costLedger.state.requiredGrant', { grant: 'billing.ledger.read' }) }}</p>
                 <dl v-else class="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-                  <dt class="text-oh-secondary">{{ t('wp6.billing.fundingSource') }}</dt><dd class="break-all font-mono">{{ record.billing.billing_source ?? '—' }}</dd>
-                  <dt class="text-oh-secondary">{{ t('wp6.requests.priceVersion') }}</dt><dd class="break-all font-mono">{{ record.billing.price_version ?? '—' }}</dd>
-                  <dt class="text-oh-secondary">{{ t('wp6.requests.reserved') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.reserved, locale) }}</dd>
-                  <dt class="text-oh-secondary">{{ t('wp6.requests.charge') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.platform_charge, locale) }}</dd>
-                  <dt class="text-oh-secondary">{{ t('wp6.requests.settlementId') }}</dt><dd class="break-all font-mono">{{ record.billing.settlement_id ?? '—' }}</dd>
-                  <dt class="text-oh-secondary">{{ t('wp6.requests.ledgerEntries') }}</dt><dd class="break-all font-mono">{{ record.billing.ledger_entry_ids.join(', ') || '—' }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.billing.fundingSource') }}</dt><dd class="break-all font-mono">{{ record.billing.billing_source ?? '—' }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.priceVersion') }}</dt><dd class="break-all font-mono">{{ record.billing.price_version ?? '—' }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.reserved') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.reserved, locale) }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.charge') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.platform_charge, locale) }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.settlementId') }}</dt><dd class="break-all font-mono">{{ record.billing.settlement_id ?? '—' }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.ledgerEntries') }}</dt><dd class="break-all font-mono">{{ record.billing.ledger_entry_ids.join(', ') || '—' }}</dd>
                 </dl>
                 <RouterLink v-if="finance && record.billing.ledger_entry_ids.length" :to="ledgerLink" class="oh-focus-ring inline-flex rounded-oh-xs text-sm font-medium text-oh-accent-text hover:underline">
-                  {{ t('wp6.billing.openLedger') }}
+                  {{ t('costLedger.billing.openLedger') }}
                 </RouterLink>
               </section>
             </Card>
 
             <Card v-if="record.conversion || record.diagnostics.length || record.data_completeness.missing.length" padding="md" class="min-w-0">
-              <section class="space-y-2.5" aria-labelledby="wp6-diagnostics">
-                <h2 id="wp6-diagnostics" class="text-base font-semibold text-oh-primary">{{ t('wp6.requests.diagnostics') }}</h2>
+              <section class="space-y-2.5" aria-labelledby="oh-diagnostics">
+                <h2 id="oh-diagnostics" class="text-base font-semibold text-oh-primary">{{ t('costLedger.requests.diagnostics') }}</h2>
                 <p v-if="record.conversion" class="break-all font-mono text-xs text-oh-secondary">
                   {{ record.conversion.source_protocol }} → {{ record.conversion.target_protocol }} · {{ record.conversion.mode }}
                 </p>
@@ -180,5 +252,47 @@ async function refresh() {
         </template>
       </template>
     </div>
+
+    <Drawer
+      :open="exportDrawerOpen"
+      :title="isZh ? '导出请求记录' : 'Export Request Record'"
+      @close="exportDrawerOpen = false"
+    >
+      <div class="space-y-4 text-sm">
+        <p class="text-oh-secondary">
+          {{
+            isZh
+              ? '选择需要包含在 JSON 导出文件中的元数据区块。导出文件将遵循当前账号的字段脱敏权限。'
+              : 'Select metadata sections to include in the JSON export. Field redactions follow your current permissions.'
+          }}
+        </p>
+        <div class="space-y-2">
+          <label
+            v-for="section in allExportSections"
+            :key="section.id"
+            class="flex cursor-pointer items-center gap-2.5 rounded-oh-md border border-oh-default bg-oh-surface px-3 py-2 text-sm text-oh-primary hover:border-oh-strong"
+          >
+            <input
+              type="checkbox"
+              :checked="selectedSections.includes(section.id)"
+              class="h-4 w-4 accent-[var(--oh-accent)]"
+              @change="toggleExportSection(section.id)"
+            />
+            <span>{{ isZh ? section.labelZh : section.labelEn }}</span>
+          </label>
+        </div>
+        <p v-if="exportError" class="rounded-oh-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+          {{ exportError }}
+        </p>
+        <div class="flex justify-end gap-2 pt-2">
+          <Button size="sm" variant="ghost" :disabled="exporting" @click="exportDrawerOpen = false">
+            {{ isZh ? '取消' : 'Cancel' }}
+          </Button>
+          <Button size="sm" variant="primary" :loading="exporting" @click="handleExportRequest">
+            {{ isZh ? '导出 JSON' : 'Export JSON' }}
+          </Button>
+        </div>
+      </div>
+    </Drawer>
   </AppLayout>
 </template>

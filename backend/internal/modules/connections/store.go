@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
-	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-04"
+	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
@@ -218,7 +219,8 @@ func projectReceipt(data []byte, a identity.Access) any {
 const selection = `SELECT c.account_id,c.workspace_id,c.provider,c.auth_type,c.name,c.endpoint,coalesce(c.proxy_id::text,''),
  c.model_ids,c.pool_ids,c.concurrency,c.state,c.version,coalesce(k.version,0),k.revoked_at,k.reference,v.snapshot,CASE WHEN k.revoked_at IS NULL THEN substr(md5(k.ciphertext),1,16) END,h.last_four,
  a.extra#>>'{ollama_cloud_usage_snapshot,fetched_at}',a.extra#>>'{ollama_cloud_usage_snapshot,next_refresh_at}',
- a.extra#>>'{ollama_cloud_usage_snapshot,status}',a.extra#>>'{ollama_cloud_usage_snapshot,data,five_hour,used_percent}'
+ a.extra#>>'{ollama_cloud_usage_snapshot,status}',a.extra#>>'{ollama_cloud_usage_snapshot,data,five_hour,used_percent}',
+ a.extra->'header_overrides'
  FROM provider_connections c JOIN accounts a ON a.id=c.account_id AND a.workspace_id=c.workspace_id AND a.deleted_at IS NULL AND NOT c.legacy_dirty
  LEFT JOIN credential_secrets k ON k.account_id=c.account_id AND k.workspace_id=c.workspace_id LEFT JOIN connection_credential_versions h ON h.account_id=k.account_id AND h.version=k.version LEFT JOIN connection_verifications v ON v.id=c.verified_id`
 
@@ -231,14 +233,19 @@ func scanConnection(row scanner) (Connection, error) {
 	var reference *string
 	var fetched, nextRefresh, quotaStatus, used *string
 	var fingerprint, lastFour *string
-	var snapshot []byte
+	var snapshot, headers []byte
 	var pools []int64
-	err := row.Scan(&c.ID, &c.Workspace, &c.Provider, &c.AuthType, &c.Name, &c.Endpoint, &c.NetworkPolicyID, pq.Array(&c.Models), pq.Array(&pools), &c.Limits.Concurrency, &c.State, &c.Version, &version, &revoked, &reference, &snapshot, &fingerprint, &lastFour, &fetched, &nextRefresh, &quotaStatus, &used)
+	err := row.Scan(&c.ID, &c.Workspace, &c.Provider, &c.AuthType, &c.Name, &c.Endpoint, &c.NetworkPolicyID, pq.Array(&c.Models), pq.Array(&pools), &c.Limits.Concurrency, &c.State, &c.Version, &version, &revoked, &reference, &snapshot, &fingerprint, &lastFour, &fetched, &nextRefresh, &quotaStatus, &used, &headers)
 	if err == sql.ErrNoRows {
 		return c, fault.NotFound
 	}
 	if err != nil {
 		return c, err
+	}
+	if headers != nil {
+		if err = json.Unmarshal(headers, &c.HeaderOverrides); err != nil {
+			return c, err
+		}
 	}
 	c.Pools = []string{}
 	for _, id := range pools {
@@ -299,6 +306,12 @@ func (r *Session) Create(in Create) (any, error) {
 	if e := validatePatch(Patch{Name: &in.Name, Endpoint: &in.Endpoint, NetworkPolicyID: &in.NetworkPolicyID}); e != nil {
 		return nil, e
 	}
+	in.Endpoint = strings.TrimRight(in.Endpoint, "/")
+	account := service.Account{Platform: in.Provider, Type: legacy.AccountType(in.AuthType)}
+	headers, e := normalizeConnectionHeaders(&account, in.HeaderOverrides)
+	if e != nil {
+		return nil, e
+	}
 	if _, _, e := legacy.Proxy(r.ctx, r.tx, r.Workspace, in.NetworkPolicyID, true); e != nil {
 		return nil, e
 	}
@@ -309,6 +322,11 @@ func (r *Session) Create(in Create) (any, error) {
 	_, e = r.tx.ExecContext(r.ctx, `INSERT INTO provider_connections(account_id,workspace_id,name,provider,auth_type,endpoint,proxy_id,concurrency,state) VALUES($1,$2,$3,$4,$5,$6,nullif($7,'')::bigint,3,'draft')`, id, r.Workspace, in.Name, in.Provider, in.AuthType, in.Endpoint, in.NetworkPolicyID)
 	if e != nil {
 		return nil, e
+	}
+	if len(headers) != 0 {
+		if e = r.saveHeaders(id, headers); e != nil {
+			return nil, e
+		}
 	}
 	r.ID = id
 	if e = r.event(id, "connection.created", 1); e != nil {
@@ -442,7 +460,7 @@ func (r *Session) checkPatch(c Connection, p Patch) error {
 			return e
 		}
 	}
-	if c.Credential.Version > 0 && c.Credential.State != "revoked" && ((p.Endpoint != nil && *p.Endpoint != c.Endpoint) || (p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID)) {
+	if c.Credential.Version > 0 && c.Credential.State != "revoked" && (endpointChanged(c.Endpoint, p.Endpoint) || (p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID)) {
 		return conflict("CLEAR_CREDENTIAL_BEFORE_EGRESS_CHANGE")
 	}
 	return r.checkPools(p.Pools)
@@ -452,7 +470,7 @@ func applyPatch(c *Connection, p Patch) {
 		c.Name = *p.Name
 	}
 	if p.Endpoint != nil {
-		c.Endpoint = *p.Endpoint
+		c.Endpoint = strings.TrimRight(*p.Endpoint, "/")
 	}
 	if p.NetworkPolicyID != nil {
 		c.NetworkPolicyID = *p.NetworkPolicyID
@@ -471,6 +489,20 @@ func (r *Session) save(c Connection, state string, clearVerification bool) error
 	_, e := r.tx.ExecContext(r.ctx, `UPDATE provider_connections SET name=$3,endpoint=$4,proxy_id=nullif($5,'')::bigint,model_ids=$6,pool_ids=$7,concurrency=$8,state=$9,version=version+1,verified_id=CASE WHEN $10 THEN NULL ELSE verified_id END WHERE workspace_id=$1 AND account_id=$2`, r.Workspace, c.ID, c.Name, c.Endpoint, c.NetworkPolicyID, pq.Array(c.Models), pq.Array(c.Pools), c.Limits.Concurrency, state, clearVerification)
 	return e
 }
+func (r *Session) saveHeaders(id int64, headers map[string]string) error {
+	extra := map[string]any{}
+	if len(headers) != 0 {
+		extra["header_overrides"] = headers
+	}
+	data, err := json.Marshal(extra)
+	if err != nil {
+		return err
+	}
+	_, err = r.tx.ExecContext(r.ctx, `UPDATE accounts
+ SET extra=(coalesce(extra,'{}'::jsonb)-'header_overrides')||$3::jsonb,updated_at=now()
+ WHERE workspace_id=$1 AND id=$2`, r.Workspace, id, string(data))
+	return err
+}
 func (r *Session) Patch(p Patch) (any, error) {
 	if len(p.Snapshot()) == 0 {
 		return nil, fault.Invalid("/patch")
@@ -482,8 +514,24 @@ func (r *Session) Patch(p Patch) (any, error) {
 	if e = r.checkPatch(c, p); e != nil {
 		return nil, e
 	}
+	account := service.Account{Platform: c.Provider, Type: legacy.AccountType(c.AuthType)}
+	headers, e := normalizeConnectionHeaders(&account, p.HeaderOverrides)
+	if e != nil {
+		return nil, e
+	}
+	headersChanged := p.HeaderOverrides != nil && !maps.Equal(headers, c.HeaderOverrides)
+	if headersChanged {
+		if e = r.saveHeaders(c.ID, headers); e != nil {
+			return nil, e
+		}
+		if e = legacy.Notify(r.ctx, r.tx, c.ID); e != nil {
+			return nil, e
+		}
+	}
+	clearVerification := endpointChanged(c.Endpoint, p.Endpoint) ||
+		(p.NetworkPolicyID != nil && *p.NetworkPolicyID != c.NetworkPolicyID) || headersChanged
 	applyPatch(&c, p)
-	if e = r.save(c, "draft", true); e != nil {
+	if e = r.save(c, "draft", clearVerification); e != nil {
 		return nil, e
 	}
 	if e = r.event(c.ID, "connection.edited", c.Version+1); e != nil {

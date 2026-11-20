@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { identityV2Api } from '@/features/console/scope'
+import { identityApi } from '@/features/console/scope'
 import PlaygroundView from '../PlaygroundView.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -31,14 +31,14 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/features/console/catalogApi', () => ({
-  catalogV2Api: {
+  catalogApi: {
     listScopedModels: mocks.listScopedModels,
     listPublicModels: mocks.listPublicModels
   }
 }))
 
 vi.mock('@/features/playground/api', () => ({
-  playgroundV2Api: {
+  playgroundApi: {
     submitRun: mocks.submitRun,
     replayRequest: mocks.replayRequest,
     getRunByIdempotencyKey: mocks.getRunByIdempotencyKey,
@@ -51,7 +51,7 @@ describe('PlaygroundView 3-pane workbench', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.resetAllMocks()
-    vi.spyOn(identityV2Api, 'listScopes').mockResolvedValue({
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
           workspace_id: '2',
@@ -63,7 +63,7 @@ describe('PlaygroundView 3-pane workbench', () => {
       next_cursor: null,
       as_of: '2026-11-19T10:00:00Z'
     })
-    vi.spyOn(identityV2Api, 'listProjectKeys').mockResolvedValue({
+    vi.spyOn(identityApi, 'listProjectKeys').mockResolvedValue({
       items: [
         {
           id: '15',

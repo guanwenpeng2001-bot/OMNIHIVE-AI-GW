@@ -28,7 +28,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "test authentication required"})
 	}
 	router := server.SetupRouter(gin.New(), &handler.Handlers{Admin: &handler.AdminHandlers{}},
-		nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, paymentshttp.Handler{}, nil, nil, nil, nil, nil, nil,
 		middleware.JWTAuthMiddleware(auth), middleware.OptionalJWTAuthMiddleware(pass),
 		middleware.AdminAuthMiddleware(pass), middleware.APIKeyAuthMiddleware(auth),
 		middleware.AuditLogMiddleware(pass), middleware.StepUpAuthMiddleware(pass),
@@ -48,6 +48,7 @@ func TestProductionRouterUnknownAPIRequestsNeverUseSPAFallback(t *testing.T) {
 	require.Contains(t, registered, "POST "+taskPath+"/:id/retry")
 	const projectPath = "/api/v2/workspaces/:workspace_id/projects/:project_id"
 	for _, route := range []string{
+		"POST " + projectPath + "/quotes",
 		"POST " + projectPath + "/playground/runs",
 		"GET " + projectPath + "/playground/runs/by-idempotency-key",
 		"GET " + projectPath + "/playground/runs/:id",

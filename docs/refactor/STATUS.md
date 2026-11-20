@@ -37,14 +37,25 @@ enabled skip/exit action.
 
 ## Verification status
 
-- Frontend full gate at `edac3ce6c` (Codespace): PASS — i18n, typecheck, lint,
-  468 files / 5,357 tests / 1 skipped, production build.
+- Frontend full gate on `codex/refactor` (Codespace): PASS — i18n, typecheck, lint,
+  476 files / 5,404 tests, production build; domain naming unified (`costLedger`,
+  `channel-telemetry`, `controlClient`, `generated/openapi.d.ts`, zero `BE-*`/`WP*`/`V1`/`V2` UI residue).
 - Backend full suite at ancestor `f44eeec65`: PASS (92 packages default,
   97 packages `-tags=unit`) on isolated PostgreSQL 16 and Redis 7.
-- Backend targeted suites at `edac3ce6c`: PASS for routes, handler, tasks, BYOK,
-  connections, playground, identity, tasks controller and server lifecycle.
-- `golangci-lint` v2.15.0 at `edac3ce6c`: PASS (0 issues).
+- Backend suites on latest tip (Laptop Go 1.27.4): PASS across setup, legacy domain
+  adapters (`identity`, `connections`, `catalog`, `execution`, `restore`, `retirement`),
+  catalog/quotes/verification, connections, handler, service, repository and server router.
 - Quality gate `contracts`, `generated-drift`, `independence`: PASS.
+- Real Magpie upstream smoke (`scripts/smoke/qa_real_smoke.py`): 25/25 PASS (0 failures)
+  on both independent laptop Docker (`http://localhost:18090`) and local deployment
+  (`http://127.0.0.1:18080`), covering GPT-6.2 Astra, Gemini 3.8 Flash, DeepSeek V4 Pro,
+  Kimi K3, authoritative `POST /quotes`, workspace members, extensions, Chat Completions
+  journal + project billing activity, and release `check-updates` (`v2.0.0-rc.1`).
+- Release assets and docs: CI/Release/GoReleaser reviewed for the `omnihive`
+  binary, archive naming, GHCR repository, Go 1.27.4 alignment and
+  `BuildType=release` ldflags. `deploy/install.sh` and `deploy/docker-deploy.sh`
+  pass `bash -n`, `scripts/quality-gate.sh independence` is green, and the
+  README/deploy guides document version check, upgrade and rollback.
 - BE-24 isolated candidate `edac3ce6c`, 60-second load: J01–J06 PASS and all
   executable OPENAPI/GROUPED_PLAYGROUND/SURFACES_HTTP/PROTOCOL_HTTP/PUBLIC_NATIVE/
   CALLBACK_HTTP/ACCESS/LOAD/MATRIX/REGISTRY/STATUS_MODULE/FINANCE/MIGRATION/
@@ -85,5 +96,5 @@ targeted tests and the live embedded deployment.
 
 - Integration branch: `codex/refactor` (pushed).
 - Pull request: https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/pull/6 → `dev`.
-- Final visual evidence: `docs/refactor/design/screens/final2/` (102 captures,
-  17 routes × light/dark × 360/768/1440).
+- Final visual evidence: `docs/refactor/design/screens/release-rc1/` (18 live release-rc1
+  captures at 1920px & 360px with zero console errors) and `docs/refactor/design/screens/final2/`.

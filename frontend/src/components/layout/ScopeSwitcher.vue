@@ -565,7 +565,6 @@ onBeforeUnmount(() => {
         >
           {{ isZh ? '管理工作空间 →' : 'Manage Workspaces →' }}
         </router-link>
-        <span class="font-mono text-[10px] text-oh-muted">GET /api/v2/me/scopes</span>
       </div>
     </div>
   </div>

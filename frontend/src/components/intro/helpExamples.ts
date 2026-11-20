@@ -131,7 +131,7 @@ function clientExamples(root: string, siteName: string) {
     { label: 'Bash · Claude Code CLI', code: `export ANTHROPIC_BASE_URL=${shellQuote(root)}
 export ANTHROPIC_API_KEY="$OMNIHIVE_API_KEY"
 claude --model 'MESSAGES_MODEL_ID_FROM_LIST'` },
-    { label: 'JSON · OpenCode v1 · opencode.json', code: JSON.stringify({
+    { label: 'JSON · OpenCode · opencode.json', code: JSON.stringify({
       provider: { omnihive: { npm: '@ai-sdk/openai-compatible', name: siteName, options: { baseURL: `${root}/v1`, apiKey: '{env:OMNIHIVE_API_KEY}' }, models: { MODEL_ID_FROM_LIST: { name: 'MODEL_ID_FROM_LIST' } } } },
       model: 'omnihive/MODEL_ID_FROM_LIST'
     }, null, 2) },

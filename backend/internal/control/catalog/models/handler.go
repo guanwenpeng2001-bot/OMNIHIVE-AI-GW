@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,13 +18,15 @@ import (
 	"github.com/google/wire"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/quotes"
 	identityhttp "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
-	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-05"
+	legacy "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/pricing"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 )
 
@@ -31,15 +34,80 @@ type Handler struct {
 	reader    catalog.CatalogReader
 	access    identity.AccessEvaluator
 	cursorKey [32]byte
+	quotes    quotes.Service
 }
 
 func New(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config) *Handler {
 	return &Handler{reader: reader, access: access,
-		cursorKey: sha256.Sum256([]byte("omnihive/catalog-cursor/v1\x00" + cfg.JWT.Secret))}
+		cursorKey: sha256.Sum256([]byte("omnihive/catalog-cursor/v1\x00" + cfg.JWT.Secret)),
+		quotes:    quotes.Service{Catalog: reader}}
+}
+
+func NewWithPricing(reader catalog.CatalogReader, access identity.AccessEvaluator, cfg *config.Config, db *sql.DB) *Handler {
+	h := New(reader, access, cfg)
+	if db != nil {
+		published := pricing.VersionStore{DB: db}
+		h.quotes = quotes.Service{
+			Catalog:   reader,
+			Published: published,
+			Keys:      scopedKeyPriceResolver{db: db, access: access, store: published},
+		}
+	}
+	return h
+}
+
+type scopedKeyPriceResolver struct {
+	db     *sql.DB
+	access identity.AccessEvaluator
+	store  pricing.VersionStore
+}
+
+func (r scopedKeyPriceResolver) ResolveKeyPrice(ctx context.Context, p catalog.Perspective, keyID int64, d catalog.Detail, protocol, action string, usage pricing.Usage, at time.Time) (pricing.Version, error) {
+	if r.db == nil || p.Workspace <= 0 || p.Project <= 0 || keyID <= 0 {
+		return pricing.Version{}, fault.NotFound
+	}
+	if _, err := r.access.Evaluate(ctx, p.Actor, p.Workspace, p.Project, "models.read"); err != nil {
+		return pricing.Version{}, err
+	}
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM api_keys k
+			WHERE k.id = $1
+			  AND k.deleted_at IS NULL
+			  AND k.status = 'active'
+			  AND (
+				EXISTS (
+					SELECT 1 FROM project_key_policies pkp
+					WHERE pkp.api_key_id = k.id AND pkp.workspace_id = $2 AND pkp.project_id = $3
+				)
+				OR EXISTS (
+					SELECT 1 FROM project_resources pr
+					WHERE pr.kind = 'api_keys' AND pr.resource_id = k.id AND pr.workspace_id = $2 AND pr.project_id = $3
+				)
+			  )
+		)`, keyID, p.Workspace, p.Project).Scan(&exists)
+	if err != nil {
+		return pricing.Version{}, err
+	}
+	if !exists {
+		return pricing.Version{}, fault.NotFound
+	}
+	versions, err := r.store.At(ctx, quotes.PublicationScope(p, d.Model.ID), at)
+	if err != nil {
+		return pricing.Version{}, err
+	}
+	if resolved, err := pricing.Resolve(pricing.Candidates{Published: versions}, at); err != nil {
+		return pricing.Version{}, err
+	} else if resolved != nil {
+		return *resolved, nil
+	}
+	return quotes.Reference(d, at)
 }
 
 var ProviderSet = wire.NewSet(
-	postgres.New, legacy.NewSource, catalog.NewReader, New,
+	postgres.New, legacy.NewSource, catalog.NewReader, NewWithPricing,
 	wire.Bind(new(catalog.Acquisition), new(*legacy.Source)),
 	wire.Bind(new(catalog.CatalogPublisher), new(*postgres.Store)),
 	wire.Bind(new(catalog.CatalogReader), new(*catalog.Reader)),
@@ -48,11 +116,15 @@ var ProviderSet = wire.NewSet(
 func Register(parent *gin.RouterGroup, h *Handler, public, session []gin.HandlerFunc) {
 	anonymous := parent.Group("/public/models", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, public...)...)
 	scoped := parent.Group("/workspaces/:workspace_id/projects/:project_id/models", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
+	project := parent.Group("/workspaces/:workspace_id/projects/:project_id", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	for _, g := range []*gin.RouterGroup{anonymous, scoped} {
 		g.GET("", h.serve(h.list))
 		g.GET("/:id", h.serve(h.detail))
 		g.POST("/compare", h.serve(h.compare))
 	}
+	project.POST("/quotes", h.serve(func(ctx context.Context, p catalog.Perspective, c *gin.Context) (any, error) {
+		return h.quotes.Handle(ctx, p, c)
+	}))
 }
 
 type endpoint func(context.Context, catalog.Perspective, *gin.Context) (any, error)

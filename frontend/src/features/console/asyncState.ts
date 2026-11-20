@@ -107,7 +107,7 @@ export function classifyConsoleError(
     return {
       kind: 'unknown',
       title: isZh
-        ? '执行结果暂未确认 (Unknown Outcome)'
+        ? '执行结果暂未确认，请勿盲目重复提交'
         : 'Uncertain Execution Outcome — Do Not Blindly Re-Submit',
       message:
         normalized.message ||

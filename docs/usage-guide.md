@@ -24,16 +24,16 @@
 
 ### 地址填写规则
 
-本站公开 OpenAI 兼容 Base URL 是 **`https://omnihive2.com/v1`**，根地址为 `https://omnihive2.com`。不要用后台管理接口或供应商上游地址代替；以下示例使用这一公开入口。其他私有部署请以其管理员公布的地址为准，并保留部署前缀。
+本站公开 OpenAI 兼容 Base URL 是 **`https://api.omnihive.io/v1`**，根地址为 `https://api.omnihive.io`。不要用后台管理接口或供应商上游地址代替；以下示例使用这一公开入口。其他私有部署请以其管理员公布的地址为准，并保留部署前缀。
 
 | 名称 | 示例 | 用途 |
 | --- | --- | --- |
-| 网关根地址（本文 `GATEWAY_ROOT`） | `https://omnihive2.com` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
-| OpenAI 兼容 Base URL | `https://omnihive2.com/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
-| 完整请求 URL | `https://omnihive2.com/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
-| Gemini 完整请求 URL | `https://omnihive2.com/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
+| 网关根地址（本文 `GATEWAY_ROOT`） | `https://api.omnihive.io` | 保存完整部署前缀，不含末尾 `/v1` 或 `/v1beta` |
+| OpenAI 兼容 Base URL | `https://api.omnihive.io/v1` | 客户端或 SDK 在后面追加 `/chat/completions`、`/responses` 等 |
+| 完整请求 URL | `https://api.omnihive.io/v1/chat/completions` | curl、HTTP 工作流节点等直接请求 |
+| Gemini 完整请求 URL | `https://api.omnihive.io/v1beta/models/MODEL_ID:generateContent` | Gemini 协议请求，模型 ID 按单个路径参数编码 |
 
-如果站点提供的是 `https://omnihive2.com/v1`，本文根地址应填 `https://omnihive2.com`；只移除末尾版本段。私有部署若带 `/proxy` 等前缀，仍须保留前缀。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
+如果站点提供的是 `https://api.omnihive.io/v1`，本文根地址应填 `https://api.omnihive.io`；只移除末尾版本段。私有部署若带 `/proxy` 等前缀，仍须保留前缀。不要重复追加 `/v1`，也不要把完整 Chat URL 填进会自行追加路径的客户端 Base URL。不同客户端的字段即使都叫“API 地址”，也可能要求不同形式。
 
 ### 密钥、分组和权限
 
@@ -84,7 +84,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/models/catalog" \
 
 用户只需配置本站公开地址、本站 API Key，以及该 Key 可见的精确模型 ID。**上游账号配置由管理员完成**：供应商、区域、套餐、上游 URL、协议和供应商凭据属于另一层。后台添加供应商不会自动改变你的分组权限；供应商 Key 也不能替代本站 Key。
 
-供应商系列、地区、产品与套餐以当前后台目录为准，保留原有平台及账号路由。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://omnihive2.com/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
+供应商系列、地区、产品与套餐以当前后台目录为准，保留原有平台及账号路由。完整名称归一化、区域和套餐对应、上游根地址与鉴权见[管理员供应商接入参考](provider-configuration.md)。该文档中的供应商地址仅用于管理员配置；调用本站时仍使用 `https://api.omnihive.io/v1`。Copilot / Nous 已实现手工凭据子集：Copilot fine-grained PAT、Nous invocation token 或官方代理；无自动 OAuth / refresh。它们的上游仅 Chat，本站 Messages / Responses / Gemini 是离线合同测试覆盖的桥接，真实可用性仍需运营方使用授权 key 验证。内部 `payg` 路由不表示供应商计费方式。RelayCode 身份未解决，不能与已实现的 RelaxyCode 合并；ETok.ai 预设历史移除不代表供应商停服。
 
 管理员配置 Copilot 使用自己的 `Copilot-Integration-Id: omnihive`；模型发现是主机根 `/models`，与 `/v1/chat/completions` 分开。Nous invocation 到期手工换 token；官方代理需显式配置网关可访问的运营方 URL 前缀（不自动加 `/v1`），入口 key 可选。通过单账号编辑切换认证模式，必须明确换 key 或在切到无 key 代理时清空；同模式编辑保留密钥引用。不得读取客户端 token 存储或共享 refresh grants。
 
@@ -148,7 +148,7 @@ MiniMax 当前中国站（api.minimax.cn）与 Global（api.minimax.io）的 API
 适用于 Bash 和已安装 curl 的环境。将根地址换成本站公开地址；密钥通过不回显输入进入当前进程环境。
 
 ```bash
-export GATEWAY_ROOT='https://omnihive2.com'
+export GATEWAY_ROOT='https://api.omnihive.io'
 GATEWAY_ROOT="${GATEWAY_ROOT%/}"
 read -r -s -p 'API key: ' OMNIHIVE_API_KEY
 printf '\n'
@@ -165,7 +165,7 @@ curl --fail-with-body "$GATEWAY_ROOT/v1/chat/completions" \
 不需要 WSL。以下用 `Invoke-RestMethod` 发送相同 JSON，避免 PowerShell 的 `curl` 别名与 Bash 换行符差异。
 
 ```powershell
-$env:GATEWAY_ROOT = 'https://omnihive2.com'
+$env:GATEWAY_ROOT = 'https://api.omnihive.io'
 $env:GATEWAY_ROOT = $env:GATEWAY_ROOT.TrimEnd('/')
 $secret = Read-Host 'API key' -AsSecureString
 $env:OMNIHIVE_API_KEY = [System.Net.NetworkCredential]::new('', $secret).Password

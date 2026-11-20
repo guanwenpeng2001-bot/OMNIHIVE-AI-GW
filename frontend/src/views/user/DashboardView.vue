@@ -561,7 +561,9 @@ const loadCharts = async () => {
     chartError.value = !historyGap.value
     trendData.value = []
     modelStats.value = []
-    console.error('Failed to load charts:', error)
+    if (!historyGap.value) {
+      console.error('Failed to load charts:', error)
+    }
   } finally {
     if (sequence === chartRequestSequence) loadingCharts.value = false
   }

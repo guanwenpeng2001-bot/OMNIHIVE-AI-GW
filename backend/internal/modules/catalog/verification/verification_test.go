@@ -12,7 +12,7 @@ import (
 )
 
 func TestOpenAIChatCompatibilityFixture(t *testing.T) {
-	data, err := os.ReadFile("../../../../../contracts/api/BE-27/compatibility-example.json")
+	data, err := os.ReadFile("../../../../../contracts/api/catalog-verification/compatibility-example.json")
 	require.NoError(t, err)
 	var sample struct {
 		ID      string `json:"fixture_id"`

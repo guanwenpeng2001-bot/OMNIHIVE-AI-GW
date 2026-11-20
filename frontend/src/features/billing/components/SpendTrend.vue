@@ -16,8 +16,8 @@ const metric = ref('spend')
 const day = ref('')
 const days = computed(() => props.activity.items.filter(row => row.group !== null).sort((a, b) => a.group!.localeCompare(b.group!)))
 const options = computed(() => [
-  { value: 'spend', label: t('wp6.billing.spend') },
-  { value: 'requests', label: t('wp6.requests.logicalRequests') },
+  { value: 'spend', label: t('costLedger.billing.spend') },
+  { value: 'requests', label: t('costLedger.requests.logicalRequests') },
 ])
 
 const colors = ref({ bar: '#D97706', grid: '#DDE0E6', text: '#666C79', font: 'monospace' })
@@ -83,27 +83,27 @@ function selectDay(event: Event) {
     <div class="flex flex-wrap items-start justify-between gap-3">
       <p class="min-w-0 break-words font-mono text-xs tabular-nums text-oh-muted">
         {{ dateInZone(Date.parse(activity.from), activity.timezone) }} → {{ dateInZone(Date.parse(activity.to), activity.timezone) }} · {{ activity.timezone }}
-        <br />{{ t('wp6.billing.samples', { count: displayNumber(activity.totals.observed_usage_requests, locale) }) }}
-         · {{ t('wp6.billing.observedAt', { at: timestamp(activity.as_of, locale, activity.timezone) }) }}
+        <br />{{ t('costLedger.billing.samples', { count: displayNumber(activity.totals.observed_usage_requests, locale) }) }}
+         · {{ t('costLedger.billing.observedAt', { at: timestamp(activity.as_of, locale, activity.timezone) }) }}
       </p>
-      <SegmentedControl v-model="metric" :options="options" :aria-label="t('wp6.billing.trend')" size="sm" />
+      <SegmentedControl v-model="metric" :options="options" :aria-label="t('costLedger.billing.trend')" size="sm" />
     </div>
     <div v-if="days.some(row => graphValue(row) !== null)" class="relative h-48 min-w-0 md:h-52">
-      <Bar :data="data" :options="chartOptions" :aria-label="metric === 'spend' ? `${t('wp6.billing.spend')} · ${activity.currency}` : t('wp6.requests.logicalRequests')" />
+      <Bar :data="data" :options="chartOptions" :aria-label="metric === 'spend' ? `${t('costLedger.billing.spend')} · ${activity.currency}` : t('costLedger.requests.logicalRequests')" />
     </div>
-    <p v-else class="rounded-oh-md border border-dashed border-oh-default bg-oh-subtle p-4 text-sm text-oh-muted">{{ t('wp6.billing.noTrend') }}</p>
+    <p v-else class="rounded-oh-md border border-dashed border-oh-default bg-oh-subtle p-4 text-sm text-oh-muted">{{ t('costLedger.billing.noTrend') }}</p>
     <div v-if="days.length" class="flex flex-wrap items-end justify-between gap-2 border-t border-oh-subtle pt-3">
       <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">
-        {{ t('wp6.billing.inspectDay') }}
+        {{ t('costLedger.billing.inspectDay') }}
         <select
           :value="day" class="oh-focus-ring min-h-8 max-w-full rounded-oh-sm border border-oh-default bg-oh-surface px-2 font-mono text-xs text-oh-primary"
           @change="selectDay"
         >
-          <option value="">{{ t('wp6.billing.selectDay') }}</option>
+          <option value="">{{ t('costLedger.billing.selectDay') }}</option>
           <option v-for="row in days" :key="row.group!" :value="row.group!">{{ row.group }} · {{ exact(row) }}</option>
         </select>
       </label>
-      <Button size="sm" variant="secondary" :disabled="!day" @click="emit('day', day)">{{ t('wp6.billing.openDay') }}</Button>
+      <Button size="sm" variant="secondary" :disabled="!day" @click="emit('day', day)">{{ t('costLedger.billing.openDay') }}</Button>
     </div>
   </div>
 </template>

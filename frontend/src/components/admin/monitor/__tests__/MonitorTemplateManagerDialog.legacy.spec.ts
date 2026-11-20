@@ -24,7 +24,7 @@ it('shows preserved Cursor template fields without edit, apply, or delete action
 
   expect(wrapper.text()).toContain('Historical Cursor')
   expect(wrapper.text()).toContain('Original description')
-  expect(wrapper.text()).toContain('channelMonitorV2.cursorLegacyReadOnly')
+  expect(wrapper.text()).toContain('channelTelemetry.cursorLegacyReadOnly')
   expect(wrapper.find('pre').text()).toContain('"x-original": "preserved"')
   expect(wrapper.find('pre').text()).toContain('"original": true')
   expect(wrapper.find('pre').element.parentElement?.querySelector('button')).toBeNull()

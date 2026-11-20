@@ -18,6 +18,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/billing"
 	byok2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/models"
+	verification2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/catalog/verification"
 	connections2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/connections"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/observability"
@@ -25,17 +26,18 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/playground"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/policies"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/requests"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
+	restore2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/restore"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/status"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/control/tasks"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/handler/admin"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-05"
-	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-09"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/catalog"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/restore"
 	audit2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/byok"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/postgres"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/catalog/verification"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/connections"
 	identity2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	postgres2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity/postgres"
@@ -223,9 +225,9 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	channelMonitorRepository := repository.NewChannelMonitorRepository(client, db)
 	channelMonitorService := service.ProvideChannelMonitorService(channelMonitorRepository, aesEncryptor, settingService)
 	channelMonitorUserHandler := handler.NewChannelMonitorUserHandler(channelMonitorService, settingService)
-	channelMonitorV2Repository := repository.NewChannelMonitorV2Repository(db)
-	channelMonitorV2Service := service.ProvideChannelMonitorV2Service(channelMonitorV2Repository, settingService)
-	channelMonitorV2Handler := handler.NewChannelMonitorV2Handler(channelMonitorV2Service, apiKeyService)
+	channelTelemetryRepository := repository.NewChannelTelemetryRepository(db)
+	channelTelemetryService := service.ProvideChannelTelemetryService(channelTelemetryRepository, settingService)
+	channelTelemetryHandler := handler.NewChannelTelemetryHandler(channelTelemetryService, apiKeyService)
 	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, cfg)
 	dashboardService := service.NewDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, cfg)
@@ -378,13 +380,13 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, cfg)
 	idempotencyCleanupService := provideIdempotencyCleanupService(supervisor, idempotencyRepository, cfg)
 	openAIQuotaAutoResetService := provideOpenAIQuotaAutoResetService(supervisor, accountRepository, openAIQuotaService, rateLimitService, idempotencyCoordinator, auditLogService, settingService, leaderLockCache)
-	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelMonitorV2Handler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
+	handlers := handler.ProvideHandlers(modelAccessHandler, workspaceHandler, authHandler, userHandler, apiKeyHandler, usageHandler, redeemHandler, subscriptionHandler, announcementHandler, channelMonitorUserHandler, channelTelemetryHandler, adminHandlers, gatewayHandler, openAIGatewayHandler, handlerSettingHandler, totpHandler, passkeyHandler, handlerPaymentHandler, paymentWebhookHandler, availableChannelHandler, modelPlazaHandler, asyncImageHandler, batchImageHandler, gatewayResourceHandler, idempotencyCoordinator, idempotencyCleanupService, openAIQuotaAutoResetService)
 	postgresStore := postgres.New(db)
 	source := legacy.NewSource(postgresStore, modelPlazaService, settingService, apiKeyService, opsService)
 	reader := catalog.NewReader(source, postgresStore)
 	store2 := postgres2.NewWithCatalog(db, reader)
 	connectionsStore := connections.New(db, store2, aesEncryptor, accountTestService, cfg)
-	be09Runtime, err := be09.New(db, cfg, backupService, store2, totpService, userService)
+	restoreRuntime, err := restore.New(db, cfg, backupService, store2, totpService, userService)
 	if err != nil {
 		return nil, err
 	}
@@ -393,11 +395,13 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	byokStore := byokStoreProvider(db, aesEncryptor, accountTestService, store2, cfg)
 	auditStore := auditStoreProvider(db, store2)
 	paymentsHandler := paymentEvidenceHandlerProvider(store, store2, totpService)
-	operations := provideIdentityOperations(connectionsStore, be09Runtime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler)
+	verificationStore := catalogVerificationStoreProvider(supervisor, db, store2, aesEncryptor, accountTestService)
+	operations := provideIdentityOperations(connectionsStore, restoreRuntime, requestsHandler, billingHandler, byokStore, auditStore, paymentsHandler, verificationStore)
 	identityHandler := identity.New(store2, operations, cfg)
 	connectionsHandler := connections2.New(connectionsStore)
-	modelsHandler := models.New(reader, store2, cfg)
-	restoreHandler := restore.New(be09Runtime)
+	modelsHandler := models.NewWithPricing(reader, store2, cfg, db)
+	verificationHandler := catalogVerificationHandlerProvider(verificationStore)
+	restoreHandler := restore2.New(restoreRuntime)
 	policyStore := policies.NewStore(db, cfg)
 	policiesHandler := policies.New(policyStore, store2)
 	playgroundHandler := playgroundHandlerProvider(db, store2, store2, apiKeyService, subscriptionService, reader, policyStore, gatewayService, handlers, compositeRouteResolver, cfg)
@@ -417,7 +421,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
+	engine := server.ProvideRouter(cfg, handlers, identityHandler, connectionsHandler, modelsHandler, verificationHandler, restoreHandler, requestsHandler, policiesHandler, playgroundHandler, billingHandler, paymentsHandler, statusHandler, byokHandler, auditHandler, observabilityHandler, tasksHandler, store2, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, db)
 	httpServer := server.ProvideHTTPServer(cfg, engine)
 	opsMetricsCollector := provideOpsMetricsCollector(supervisor, opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, cfg)
 	opsAggregationService := provideOpsAggregationService(supervisor, opsRepository, settingRepository, db, redisClient, cfg)
@@ -434,9 +438,9 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	scheduledTestRunnerService := provideScheduledTestRunnerService(supervisor, scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, cfg)
 	paymentOrderExpiryService := providePaymentOrderExpiryService(supervisor, paymentService, leaderLockCache, db)
 	channelMonitorRunner := provideChannelMonitorRunner(supervisor, channelMonitorService, settingService, channelMonitorQuotaFetcher)
-	channelMonitorV2Aggregator := provideChannelMonitorV2Aggregator(supervisor, channelMonitorV2Repository, db, settingService)
+	channelTelemetryAggregator := provideChannelTelemetryAggregator(supervisor, channelTelemetryRepository, db, settingService)
 	userPlatformQuotaUsageFlusher := provideUserPlatformQuotaUsageFlusher(supervisor, cfg, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, timingWheelService, deferredService, be09Runtime, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, usageSettlementService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
+	v := provideCleanup(client, redisClient, timingWheelService, deferredService, restoreRuntime, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, usageSettlementService, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelTelemetryAggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	admission := runtime.NewAdmission()
 	application := &Application{
 		Server:          httpServer,
@@ -445,7 +449,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 		Cleanup:         v,
 		UpstreamJobs:    upstreamJobService,
 		OpsMetrics:      opsMetricsCollector,
-		Restores:        be09Runtime,
+		Restores:        restoreRuntime,
 		ImageTaskCenter: tasksHandler,
 		Status:          statusHandler,
 		Audit:           auditHandler,
@@ -464,7 +468,7 @@ type Application struct {
 
 	Status          *status.Handler
 	ImageTaskCenter *tasks.Handler
-	Restores        *be09.Runtime
+	Restores        *restore.Runtime
 	OpsMetrics      *service.OpsMetricsCollector
 	UpstreamJobs    *service.UpstreamJobService
 	Server          *http.Server
@@ -541,6 +545,19 @@ func byokHandlerProvider(store *byok.Store) *byok2.Handler {
 	return byok2.New(store)
 }
 
+func catalogVerificationStoreProvider(supervisor *runtime.Supervisor, db *sql.DB, access identity2.AccessEvaluator, enc service.SecretEncryptor, prober *service.AccountTestService) *verification.Store {
+	store := verification.NewStore(db, access)
+	if supervisor != nil && supervisor.Mode.Workers() {
+		worker := verification.NewWorker(store, verification.NewConnectionProber(db, enc, prober))
+		supervisor.Add(func(ctx context.Context) { worker.Run(ctx) })
+	}
+	return store
+}
+
+func catalogVerificationHandlerProvider(store *verification.Store) *verification2.Handler {
+	return verification2.New(store)
+}
+
 func statusHandlerProvider(db *sql.DB, store *postgres2.Store, cfg *config.Config, ops *service.OpsService) *status.Handler {
 	return handler.ProvideStatusHandler(db, store, cfg, ops)
 }
@@ -566,8 +583,8 @@ func paymentEvidenceHandlerProvider(store *payments.Store, access identity2.Acce
 	return payments2.Handler{Store: *store, Access: access, Step: totp}
 }
 
-func provideIdentityOperations(store *connections.Store, restores *be09.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store, audit3 *audit2.Store, paymentEvidence payments2.Handler) identity2.Operations {
-	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3, audit3, paymentEvidence}}
+func provideIdentityOperations(store *connections.Store, restores *restore.Runtime, requests2 *requests.Handler, billing2 *billing.Handler, byok3 *byok.Store, audit3 *audit2.Store, paymentEvidence payments2.Handler, catalogVerifications *verification.Store) identity2.Operations {
+	return identity2.Operations{Readers: []identity2.OperationReader{store, restores, requests2, billing2, byok3, audit3, paymentEvidence, catalogVerifications}}
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -593,7 +610,7 @@ func provideCleanup(
 	rdb *redis.Client,
 	wheel *service.TimingWheelService,
 	deferred *service.DeferredService,
-	restores *be09.Runtime,
+	restores *restore.Runtime,
 	opsMetricsCollector *service.OpsMetricsCollector,
 	opsAggregation *service.OpsAggregationService,
 	opsAlertEvaluator *service.OpsAlertEvaluatorService,
@@ -631,7 +648,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
-	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
+	channelTelemetryAggregator *service.ChannelTelemetryAggregator,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
@@ -859,9 +876,9 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"ChannelMonitorV2Aggregator", func() error {
-				if channelMonitorV2Aggregator != nil {
-					channelMonitorV2Aggregator.Stop()
+			{"ChannelTelemetryAggregator", func() error {
+				if channelTelemetryAggregator != nil {
+					channelTelemetryAggregator.Stop()
 				}
 				return nil
 			}},
@@ -990,5 +1007,5 @@ var runtimeServiceProviders = wire.NewSet(service.NewStagedAccountImportService,
 	provideOpenAICodexVersionSyncService,
 	provideProxyExpiryService,
 	provideSubscriptionExpiryService, service.ProvideTimingWheelService, provideDashboardAggregationService,
-	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.NewContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelMonitorV2Service, provideChannelMonitorV2Aggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
+	provideUsageCleanupService, service.ProvideDeferredService, service.NewAntigravityQuotaFetcher, service.NewGrokQuotaFetcher, service.NewUserAttributeService, service.NewUsageCache, service.NewTotpService, service.NewErrorPassthroughService, service.NewTLSFingerprintProfileService, service.NewPluginManager, service.NewDigestSessionStore, service.ProvideIdempotencyCoordinator, service.ProvideSystemOperationLockService, provideIdempotencyCleanupService, service.ProvideScheduledTestService, provideScheduledTestRunnerService, service.NewGroupCapacityService, service.NewChannelService, wire.Bind(new(service.ChannelCacheInvalidator), new(*service.ChannelService)), service.NewModelPricingResolver, service.NewModelPlazaService, service.NewContentModerationService, service.NewAffiliateService, service.ProvidePaymentConfigService, service.ProvidePaymentService, providePaymentOrderExpiryService, service.ProvideBalanceNotifyService, service.ProvideChannelMonitorService, provideChannelMonitorRunner, service.NewChannelMonitorQuotaFetcher, service.ProvideChannelTelemetryService, provideChannelTelemetryAggregator, service.NewChannelMonitorRequestTemplateService, provideUserPlatformQuotaUsageFlusher,
 )

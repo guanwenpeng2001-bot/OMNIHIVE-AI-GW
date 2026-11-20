@@ -44,28 +44,28 @@ export interface ShellNavSectionMeta {
 }
 
 export const USER_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
-  { id: 'overview', eyebrowEn: 'OVERVIEW', eyebrowZh: 'OVERVIEW · 概览' },
-  { id: 'models', eyebrowEn: 'MODELS', eyebrowZh: 'MODELS · 模型与调用' },
-  { id: 'access', eyebrowEn: 'ACCESS', eyebrowZh: 'ACCESS · 访问与空间' },
-  { id: 'requests', eyebrowEn: 'REQUESTS & TASKS', eyebrowZh: 'REQUESTS · 请求与任务' },
-  { id: 'billing', eyebrowEn: 'BILLING', eyebrowZh: 'BILLING · 费用与权益' },
-  { id: 'settings', eyebrowEn: 'SETTINGS', eyebrowZh: 'SETTINGS · 设置' }
+  { id: 'overview', eyebrowEn: 'OVERVIEW', eyebrowZh: '概览' },
+  { id: 'models', eyebrowEn: 'MODELS', eyebrowZh: '模型与调用' },
+  { id: 'access', eyebrowEn: 'ACCESS', eyebrowZh: '访问与空间' },
+  { id: 'requests', eyebrowEn: 'REQUESTS & TASKS', eyebrowZh: '请求与任务' },
+  { id: 'billing', eyebrowEn: 'BILLING', eyebrowZh: '费用与权益' },
+  { id: 'settings', eyebrowEn: 'SETTINGS', eyebrowZh: '设置' }
 ]
 
 export const ADMIN_CONSOLE_SECTIONS: readonly ShellNavSectionMeta[] = [
-  { id: 'overview', eyebrowEn: 'OVERVIEW', eyebrowZh: 'OVERVIEW · 运行概览' },
-  { id: 'models', eyebrowEn: 'CATALOG', eyebrowZh: 'CATALOG · 模型与目录' },
-  { id: 'access', eyebrowEn: 'CONNECTIONS & POOLS', eyebrowZh: 'RESOURCES · 连接与资源池' },
-  { id: 'policies', eyebrowEn: 'POLICIES', eyebrowZh: 'POLICIES · 策略与治理' },
-  { id: 'requests', eyebrowEn: 'DIAGNOSTICS & OPS', eyebrowZh: 'DIAGNOSTICS · 诊断与监控' },
-  { id: 'billing', eyebrowEn: 'SETTLEMENT', eyebrowZh: 'SETTLEMENT · 结算与套餐' },
-  { id: 'settings', eyebrowEn: 'SYSTEM', eyebrowZh: 'SYSTEM · 用户与系统' }
+  { id: 'overview', eyebrowEn: 'OVERVIEW', eyebrowZh: '运行概览' },
+  { id: 'models', eyebrowEn: 'CATALOG', eyebrowZh: '模型与目录' },
+  { id: 'access', eyebrowEn: 'CONNECTIONS & POOLS', eyebrowZh: '连接与资源池' },
+  { id: 'policies', eyebrowEn: 'POLICIES', eyebrowZh: '策略与治理' },
+  { id: 'requests', eyebrowEn: 'DIAGNOSTICS & OPS', eyebrowZh: '诊断与监控' },
+  { id: 'billing', eyebrowEn: 'SETTLEMENT', eyebrowZh: '结算与套餐' },
+  { id: 'settings', eyebrowEn: 'SYSTEM', eyebrowZh: '用户与系统' }
 ]
 
 const registeredExtensionItems = ref<ShellNavItemSpec[]>([])
 
 /**
- * Extension API for WP2–WP7 to register new console or public navigation entries
+ * Extension API for feature modules to register new console or public navigation entries
  * without creating merge hotspots in AppSidebar.vue.
  */
 export function registerNavigationItems(items: ShellNavItemSpec[]): () => void {
@@ -107,7 +107,6 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     fallbackLabelEn: 'Models',
     fallbackLabelZh: '模型广场',
     icon: 'grid',
-    featureFlag: 'modelPlaza',
     order: 20,
     keywords: ['models', 'plaza', 'catalog', 'pricing', '模型广场']
   },
@@ -145,7 +144,6 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     fallbackLabelEn: 'Model Plaza',
     fallbackLabelZh: '模型广场',
     icon: 'cube',
-    featureFlag: 'modelPlaza',
     order: 10,
     keywords: ['models', 'plaza', 'catalog', 'compare', '模型广场']
   },
@@ -183,6 +181,18 @@ export const CORE_NAVIGATION_ITEMS: readonly ShellNavItemSpec[] = [
     icon: 'key',
     order: 10,
     keywords: ['api', 'keys', 'token', 'credentials', '密钥']
+  },
+  {
+    id: 'user-byok',
+    path: '/byok',
+    tier: 'user',
+    section: 'access',
+    labelKey: 'nav.byok',
+    fallbackLabelEn: 'BYOK Credentials',
+    fallbackLabelZh: '自带密钥',
+    icon: 'shield',
+    order: 15,
+    keywords: ['byok', 'keys', 'credentials', 'provider', '自带密钥']
   },
   {
     id: 'user-workspaces',

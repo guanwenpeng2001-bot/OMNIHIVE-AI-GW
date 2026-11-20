@@ -50,6 +50,7 @@ type ModelAccess struct {
 
 type CreateKey struct {
 	Name        string      `json:"name"`
+	GroupID     *int64      `json:"group_id,string,omitempty"`
 	ModelAccess ModelAccess `json:"model_access"`
 	Actions     []string    `json:"actions"`
 	ExpiresAt   *time.Time  `json:"expires_at"`
@@ -149,4 +150,20 @@ type GrantVersion struct {
 	MemberID    int64     `json:"member_id,string"`
 	Version     int64     `json:"version,string"`
 	EffectiveAt time.Time `json:"effective_at"`
+}
+
+type Member struct {
+	ID       int64  `json:"id,string"`
+	UserID   int64  `json:"user_id,string"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	Status   string `json:"status"`
+	Version  int64  `json:"version,string"`
+}
+
+type MemberGrants struct {
+	GrantVersion
+	ProjectIDs []string `json:"project_ids"`
+	Actions    []string `json:"actions"`
 }

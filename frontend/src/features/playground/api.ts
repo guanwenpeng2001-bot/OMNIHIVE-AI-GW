@@ -1,7 +1,10 @@
+import type { components } from '@/api/generated/openapi'
 import { apiClient, buildGatewayUrl } from '@/api/client'
 import { getLocale } from '@/i18n'
 import { PlaygroundSseParser, type ParsedSseRecord } from './sseParser'
 import type {
+  ExactQuote,
+  ExactQuoteInput,
   PlaygroundReplay,
   PlaygroundResult,
   PlaygroundSubmit,
@@ -149,7 +152,7 @@ async function executeStreamingPost(
   return { kind: 'stream_completed' }
 }
 
-export const playgroundV2Api = {
+export const playgroundApi = {
   submitRun(
     workspaceId: string,
     projectId: string,
@@ -238,6 +241,33 @@ export const playgroundV2Api = {
       v2ProjectUrl(workspaceId, projectId, `/playground/runs/${encodeURIComponent(runId)}/cancel`),
       {},
       { baseURL: '' }
+    )
+    return data
+  },
+
+  async quoteProjectModel(
+    workspaceId: string,
+    projectId: string,
+    payload: ExactQuoteInput,
+    signal?: AbortSignal
+  ): Promise<ExactQuote> {
+    const { data } = await apiClient.post<ExactQuote>(
+      v2ProjectUrl(workspaceId, projectId, '/quotes'),
+      payload,
+      { baseURL: '', signal }
+    )
+    return data
+  },
+
+  async getEffectiveQuota(
+    workspaceId: string,
+    projectId: string,
+    params?: { api_key_id?: string; model_id?: string },
+    signal?: AbortSignal
+  ): Promise<components['schemas']['CostQuota']> {
+    const { data } = await apiClient.get<components['schemas']['CostQuota']>(
+      v2ProjectUrl(workspaceId, projectId, '/billing/quotas'),
+      { baseURL: '', params, signal }
     )
     return data
   }

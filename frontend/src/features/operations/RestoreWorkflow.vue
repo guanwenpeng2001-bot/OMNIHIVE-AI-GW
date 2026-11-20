@@ -5,8 +5,8 @@ import { Button, Card, CopyButton, Input } from '@/components/ui'
 import { isStepUpCancelled, useStepUp } from '@/composables/useStepUp'
 import { useAuthStore } from '@/stores/auth'
 import { classifyAsyncError, type AsyncViewState } from '@/features/shared/asyncState'
-import { createIdempotencyKey, v2Get, v2Post } from '@/features/shared/v2Client'
-import type { components } from '@/api/generated/v2'
+import { createIdempotencyKey, controlGet, controlPost } from '@/features/shared/controlClient'
+import type { components } from '@/api/generated/openapi'
 import OperationState from './OperationState.vue'
 
 type Preview = components['schemas']['RestorePreview']
@@ -130,7 +130,7 @@ async function createPreview() {
   previewKey ||= createIdempotencyKey()
   const current = revision
   try {
-    const result = await v2Post<Preview>(`${path}/previews`, {
+    const result = await controlPost<Preview>(`${path}/previews`, {
       backup_id: props.backupId,
       target: target.value,
       ...(expectedDigest ? { expected_digest: expectedDigest } : {}),
@@ -179,7 +179,7 @@ async function readOperation(id: string) {
   state.value = 'refreshing'
   message.value = ''
   try {
-    const result = await v2Get<Operation>(`${path}/${encodeURIComponent(id.trim())}`)
+    const result = await controlGet<Operation>(`${path}/${encodeURIComponent(id.trim())}`)
     if (current === revision) showOperation(result)
   } catch (cause) {
     if (current === revision) {
@@ -220,7 +220,7 @@ async function execute() {
   try {
     const result = await stepUp.run(() => {
       if (current !== revision) throw { reason: 'AUTH_SESSION_CHANGED' }
-      return v2Post<Operation>(path, attempt.body, { 'Idempotency-Key': attempt.key })
+      return controlPost<Operation>(path, attempt.body, { 'Idempotency-Key': attempt.key })
     })
     if (current !== revision) return
     if (!result.id) throw { reason: 'UNKNOWN_OUTCOME' }

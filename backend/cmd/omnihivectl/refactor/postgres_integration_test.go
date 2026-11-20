@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testDSNEnv = "BE23_INTEGRATION_TEST_DSN"
+const testDSNEnv = "MIGRATION_INTEGRATION_TEST_DSN"
 
 func TestPostgresInventoryAndCheckpoints(t *testing.T) {
 	app, appCfg := testfixture.Database(t, testDSNEnv, "job_test")
@@ -160,7 +160,7 @@ func TestPostgresInventoryWithLimitedAccess(t *testing.T) {
 	// The role can count workspaces without selecting their version, can
 	// observe an empty projects table, and sees neither RLS-filtered rows nor
 	// a view masquerading as a credential table.
-	role := "be23_inventory_" + uuid.New().String()[:8]
+	role := "migration_inventory_" + uuid.New().String()[:8]
 	execSQL(t, app, "CREATE ROLE "+role)
 	t.Cleanup(func() {
 		_, err := app.Exec("DROP OWNED BY " + role)
@@ -200,7 +200,7 @@ func cliReport(t *testing.T, artifact, command string) migration.Report {
 	t.Helper()
 	args := []string{command, "--format=json"}
 	var stdout, stderr bytes.Buffer
-	if binary := os.Getenv("BE23_SMOKE_BINARY"); binary != "" {
+	if binary := os.Getenv("MIGRATION_SMOKE_BINARY"); binary != "" {
 		cmd := exec.CommandContext(t.Context(), binary, args...)
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		require.NoError(t, cmd.Run(), "CLI failed: %s", stderr.String())
@@ -215,7 +215,7 @@ func cliReport(t *testing.T, artifact, command string) migration.Report {
 	require.False(t, report.EligibleForSwitch)
 	require.Nil(t, report.RollbackFloor)
 	require.Nil(t, report.UnexplainedDifferences)
-	if dir := os.Getenv("BE23_SMOKE_REPORT_DIR"); dir != "" {
+	if dir := os.Getenv("MIGRATION_SMOKE_REPORT_DIR"); dir != "" {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, artifact+".json"), stdout.Bytes(), 0o600))
 	}
 	return report

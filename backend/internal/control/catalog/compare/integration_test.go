@@ -49,7 +49,7 @@ func (s testKeys) ResolveKeyPrice(ctx context.Context, p catalog.Perspective, ke
 }
 
 func TestBE07QuoteCompareAndMigration(t *testing.T) {
-	dsn, addr := os.Getenv("BE07_POSTGRES_DSN"), os.Getenv("BE07_REDIS_ADDR")
+	dsn, addr := os.Getenv("QUOTES_POSTGRES_DSN"), os.Getenv("QUOTES_REDIS_ADDR")
 	if dsn == "" || addr == "" {
 		t.Skip("BE-07 requires disposable PostgreSQL and Redis")
 	}
@@ -143,15 +143,15 @@ func TestBE07QuoteCompareAndMigration(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(post("/projects/2/models/compare", hist, 200)), &historical))
 	require.Nil(t, historical.Rows[0].Quote.PriceVersion)
 
-	input, err := os.ReadFile("../../../../../contracts/api/BE-07/quote-input.json")
+	input, err := os.ReadFile("../../../../../contracts/api/quotes/quote-input.json")
 	require.NoError(t, err)
-	expected, err := os.ReadFile("../../../../../contracts/api/BE-07/quote-result.json")
+	expected, err := os.ReadFile("../../../../../contracts/api/quotes/quote-result.json")
 	require.NoError(t, err)
 	require.JSONEq(t, string(expected), post("/projects/2/quotes", string(input), 200))
 	keyed := func(id string) string { return strings.Replace(string(input), "{", `{"api_key_id":"`+id+`",`, 1) }
 	require.JSONEq(t, string(expected), post("/projects/2/quotes", keyed("5"), 200))
 	post("/projects/2/quotes", keyed("6"), 404)
-	unpriced, err := os.ReadFile("../../../../../contracts/api/BE-07/quote-unpriced.json")
+	unpriced, err := os.ReadFile("../../../../../contracts/api/quotes/quote-unpriced.json")
 	require.NoError(t, err)
 	require.JSONEq(t, string(unpriced), post("/projects/2/quotes", strings.ReplaceAll(string(input), model, unknown), 200))
 }

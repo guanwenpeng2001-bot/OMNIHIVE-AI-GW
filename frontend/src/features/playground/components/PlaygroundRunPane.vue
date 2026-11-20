@@ -82,6 +82,23 @@ const statusLabel = computed(() => {
   return s.replace(/_/g, ' ')
 })
 
+function formatSettlementLabel(state: string | null | undefined): string {
+  if (!state) return EM_DASH
+  if (!props.isZh) return state
+  const map: Record<string, string> = {
+    estimated: '预估',
+    reserved: '已冻结',
+    pending: '待结算',
+    settled: '已结算',
+    needs_review: '待核查',
+    adjusted: '已调账',
+    refunded: '已退回',
+    canceled: '已取消',
+    unknown: '未知'
+  }
+  return map[state] || state
+}
+
 function triggerToolResponse(tc: PlaygroundToolCallView): void {
   emit('inject-tool-response', {
     toolCallId: tc.toolCallId || `call_${tc.index}`,
@@ -154,8 +171,8 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
         :retry-label="
           session.status === 'disconnected_recoverable'
             ? isZh
-              ? '按幂等键恢复'
-              : 'Recover by Idempotency-Key'
+              ? '恢复原运行状态'
+              : 'Recover Original Run'
             : isZh
               ? '查询运行状态'
               : 'Query Run Status'
@@ -172,10 +189,10 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
       >
         <div class="min-w-0">
           <p class="font-medium text-[var(--oh-ink,var(--foreground))]">
-            {{ isZh ? '幂等恢复句柄已保留' : 'Idempotent Run Handle Preserved' }}
+            {{ isZh ? '运行恢复句柄已保留' : 'Run Recovery Handle Preserved' }}
           </p>
           <p class="mt-0.5 truncate font-mono text-[11px] tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-            Idempotency-Key: {{ session.idempotencyKey }}
+            {{ isZh ? '恢复标识：' : 'Recovery ID: ' }}{{ session.idempotencyKey }}
           </p>
         </div>
         <Button
@@ -184,7 +201,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           size="xs"
           @click="emit('recover')"
         >
-          {{ isZh ? '按幂等键恢复' : 'Recover Run' }}
+          {{ isZh ? '恢复运行状态' : 'Recover Run' }}
         </Button>
       </div>
 
@@ -196,8 +213,8 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
         <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
           {{
             isZh
-              ? '上游完成状态未确认（unknown），请查询运行状态与关联收据。'
-              : 'Upstream completion is uncertain (unknown). Query run status and linked settlement receipt.'
+              ? '上游完成状态暂未确认，请查询运行状态与关联结算收据。'
+              : 'Upstream completion is uncertain. Query run status and linked settlement receipt.'
           }}
         </span>
         <Button
@@ -239,7 +256,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
       >
         <div class="mb-1.5 flex items-center justify-between">
           <span class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-            Assistant Output
+            {{ isZh ? '助手输出' : 'Assistant Output' }}
           </span>
           <CopyButton :value="session.outputText" size="xs" />
         </div>
@@ -255,7 +272,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
       >
         <div class="mb-1.5 flex items-center justify-between">
           <span class="font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-            Native JSON Output
+            {{ isZh ? '同步响应 JSON' : 'Sync JSON Output' }}
           </span>
           <CopyButton :value="JSON.stringify(session.syncOutput, null, 2)" size="xs" />
         </div>
@@ -280,7 +297,7 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
       <!-- Tool Call Events -->
       <div v-if="session.toolCalls.length > 0" :data-testid="`tool-calls-${sideKey}`" class="space-y-2">
         <p class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-          {{ isZh ? '工具调用事件 (Tool Calls)' : 'Tool Call Events' }} ({{ session.toolCalls.length }})
+          {{ isZh ? '工具调用事件' : 'Tool Call Events' }} ({{ session.toolCalls.length }})
         </p>
         <div
           v-for="tc in session.toolCalls"
@@ -308,8 +325,8 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           :key="diag.seq"
           class="rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-warning-border,rgba(245,158,11,0.35))] bg-[var(--oh-warning-subtle,rgba(245,158,11,0.08))] px-2.5 py-1.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
         >
-          [{{ diag.severity || 'diagnostic' }}] {{ diag.code || EM_DASH }}
-          <span v-if="diag.field"> · field={{ diag.field }}</span>
+          [{{ diag.severity || (isZh ? '诊断' : 'diagnostic') }}] {{ diag.code || EM_DASH }}
+          <span v-if="diag.field"> · {{ isZh ? '字段：' : 'field=' }}{{ diag.field }}</span>
           <span v-if="diag.reason"> · {{ diag.reason }}</span>
         </li>
       </ul>
@@ -318,14 +335,14 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
     <!-- Footer Usage & Settlement Strip -->
     <footer class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--oh-border,var(--border))] px-3.5 py-2 font-mono text-[11px] tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">
       <div class="flex flex-wrap items-center gap-3">
-        <span>in: {{ session.inputTokens !== null ? formatNullableInteger(session.inputTokens) : EM_DASH }}</span>
-        <span>out: {{ session.outputTokens !== null ? formatNullableInteger(session.outputTokens) : EM_DASH }}</span>
-        <span>TTFT: {{ formatNullableLatencyMs(session.ttftMs) }}</span>
-        <span>Total: {{ formatNullableLatencyMs(session.elapsedMs) }}</span>
+        <span>{{ isZh ? '输入' : 'in' }}: {{ session.inputTokens !== null ? formatNullableInteger(session.inputTokens) : EM_DASH }}</span>
+        <span>{{ isZh ? '输出' : 'out' }}: {{ session.outputTokens !== null ? formatNullableInteger(session.outputTokens) : EM_DASH }}</span>
+        <span>{{ isZh ? '首字' : 'TTFT' }}: {{ formatNullableLatencyMs(session.ttftMs) }}</span>
+        <span>{{ isZh ? '总计' : 'Total' }}: {{ formatNullableLatencyMs(session.elapsedMs) }}</span>
       </div>
       <div class="flex items-center gap-2">
-        <span>settlement: {{ session.settlementState || EM_DASH }}</span>
-        <span v-if="session.requestId" class="truncate max-w-[140px]">req:{{ session.requestId.slice(0, 8) }}</span>
+        <span>{{ isZh ? '结算' : 'settlement' }}: {{ formatSettlementLabel(session.settlementState) }}</span>
+        <span v-if="session.requestId" class="truncate max-w-[140px]">{{ isZh ? '请求' : 'req' }}:{{ session.requestId.slice(0, 8) }}</span>
       </div>
     </footer>
   </section>

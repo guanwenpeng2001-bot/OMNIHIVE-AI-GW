@@ -549,9 +549,9 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 	})
 }
 
-// DashboardSnapshotV2 returns usage-page chart data scoped to the current user.
+// DashboardSnapshot returns usage-page chart data scoped to the current user.
 // GET /api/v1/usage/dashboard/snapshot-v2
-func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
+func (h *UsageHandler) DashboardSnapshot(c *gin.Context) {
 	parsed, ok := h.parseUserUsageFilters(c, true)
 	if !ok {
 		return

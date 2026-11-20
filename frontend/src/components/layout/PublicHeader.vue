@@ -45,9 +45,6 @@ const brand = computed(
 const docUrl = computed(() =>
   sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
 )
-const modelPlazaEnabled = computed(
-  () => appStore.cachedPublicSettings?.model_plaza_enabled !== false
-)
 const registrationEnabled = computed(
   () =>
     appStore.cachedPublicSettings?.registration_enabled !== false &&
@@ -60,32 +57,29 @@ const navItems = computed<PublicNavItem[]>(() => {
   const currentPath = route.path || ''
   const items: PublicNavItem[] = []
 
-  if (modelPlazaEnabled.value) {
-    items.push({
+  items.push(
+    {
       key: 'models',
       to: '/model-plaza',
-      label: isZh.value ? 'MODELS · 模型' : 'MODELS',
+      label: isZh.value ? '模型广场' : 'MODELS',
       active: currentPath.startsWith('/model-plaza')
-    })
-  }
-
-  items.push(
+    },
     {
       key: 'quota',
       to: '/key-usage',
-      label: isZh.value ? 'QUOTA · 额度查询' : 'QUOTA',
+      label: isZh.value ? '额度查询' : 'QUOTA',
       active: currentPath.startsWith('/key-usage')
     },
     {
       key: 'pricing',
       to: '/pricing',
-      label: isZh.value ? 'PRICING · 价格' : 'PRICING',
+      label: isZh.value ? '定价' : 'PRICING',
       active: currentPath.startsWith('/pricing')
     },
     {
       key: 'status',
       to: '/status',
-      label: isZh.value ? 'STATUS · 状态' : 'STATUS',
+      label: isZh.value ? '服务状态' : 'STATUS',
       active: currentPath.startsWith('/status')
     }
   )
@@ -95,14 +89,14 @@ const navItems = computed<PublicNavItem[]>(() => {
       key: 'docs',
       href: docUrl.value,
       external: true,
-      label: isZh.value ? 'DOCS · 文档 ↗' : 'DOCS ↗',
+      label: isZh.value ? '文档 ↗' : 'DOCS ↗',
       active: false
     })
   } else {
     items.push({
       key: 'docs',
       to: '/help',
-      label: isZh.value ? 'DOCS · 文档' : 'DOCS',
+      label: isZh.value ? '文档' : 'DOCS',
       active: currentPath.startsWith('/help') || currentPath.startsWith('/docs')
     })
   }
@@ -330,7 +324,7 @@ onBeforeUnmount(() => {
             class="oh-focus-ring inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-oh-md border border-transparent bg-oh-accent px-2.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-oh-accent-ink transition-colors hover:bg-oh-accent-hover sm:px-3"
           >
             <span class="sm:hidden">{{ isZh ? '控制台 →' : 'CONSOLE →' }}</span>
-            <span class="hidden sm:inline">{{ isZh ? 'CONSOLE · 控制台 →' : 'CONSOLE →' }}</span>
+            <span class="hidden sm:inline">{{ isZh ? '进入控制台 →' : 'CONSOLE →' }}</span>
           </router-link>
         </template>
         <template v-else>

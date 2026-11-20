@@ -53,7 +53,11 @@ func TestDashboardRankingCacheCoverageRevision(t *testing.T) {
 	repo.revision = "after"
 	repo.failure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 	uncached := request()
-	require.Equal(t, 409, uncached.Code)
+	require.Equal(t, 200, uncached.Code)
+	require.Contains(t, uncached.Body.String(), `"ranking":[]`)
+	require.NotContains(t, uncached.Body.String(), "total_actual_cost")
+	require.NotContains(t, uncached.Body.String(), "total_requests")
+	require.NotContains(t, uncached.Body.String(), "total_tokens")
 	require.Contains(t, uncached.Body.String(), "USAGE_HISTORY_INCOMPLETE")
 	require.Equal(t, 2, repo.rankingCalls)
 }

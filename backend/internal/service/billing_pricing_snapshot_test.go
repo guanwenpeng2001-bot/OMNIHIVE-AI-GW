@@ -187,7 +187,7 @@ func TestBE07ExactLegacyGolden(t *testing.T) {
 }
 
 func TestBE07HistoricalReplay(t *testing.T) {
-	raw, err := os.ReadFile("../../../contracts/migrations/BE-02/v1-replay.json")
+	raw, err := os.ReadFile("../../../contracts/migrations/money/v1-replay.json")
 	require.NoError(t, err)
 	var fixtures []struct {
 		Name   string

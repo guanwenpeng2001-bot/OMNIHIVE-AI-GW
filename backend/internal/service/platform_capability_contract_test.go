@@ -95,11 +95,11 @@ func TestPlatformSpecificAccountCapabilities(t *testing.T) {
 
 func TestPlatformPassiveMonitorConfig(t *testing.T) {
 	for _, p := range domain.PlatformDescriptors() {
-		cfg := ChannelMonitorV2Config{Platforms: []ChannelMonitorV2PlatformConfig{{Platform: p.ID}}}
-		require.Equal(t, p.PassiveMonitor, normalizeChannelMonitorV2Config(&cfg) == nil, p.ID)
+		cfg := ChannelTelemetryConfig{Platforms: []ChannelTelemetryPlatformConfig{{Platform: p.ID}}}
+		require.Equal(t, p.PassiveMonitor, normalizeChannelTelemetryConfig(&cfg) == nil, p.ID)
 	}
 	for _, id := range []string{"unknown", PlatformComposite, PlatformKiro} {
-		cfg := ChannelMonitorV2Config{Platforms: []ChannelMonitorV2PlatformConfig{{Platform: id}}}
-		require.ErrorIs(t, normalizeChannelMonitorV2Config(&cfg), ErrChannelMonitorV2InvalidConfig)
+		cfg := ChannelTelemetryConfig{Platforms: []ChannelTelemetryPlatformConfig{{Platform: id}}}
+		require.ErrorIs(t, normalizeChannelTelemetryConfig(&cfg), ErrChannelTelemetryInvalidConfig)
 	}
 }

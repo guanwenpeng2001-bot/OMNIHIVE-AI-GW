@@ -12,10 +12,11 @@ export interface OnboardingOptions {
 }
 
 export function useOnboardingTour(options: OnboardingOptions) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const userStore = useUserStore()
   const onboardingStore = useOnboardingStore()
-  const storageVersion = 'v4_interactive' // Bump version for new tour type
+  const storageVersion = 'v5_compact'
+  const isZh = () => String(locale?.value || 'zh').toLowerCase().startsWith('zh')
 
   // Timing constants for better maintainability
   const TIMING = {
@@ -158,7 +159,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
     // 动态获取当前用户角色和步骤
     const isAdmin = userStore.user?.role === 'admin'
     const isSimpleMode = userStore.isSimpleMode
-    const steps = isAdmin ? getAdminSteps(t, isSimpleMode) : getUserSteps(t)
+    const steps = isAdmin ? getAdminSteps(t, isSimpleMode, isZh()) : getUserSteps(t, isZh())
 
     // 确保 DOM 就绪
     await nextTick()
@@ -180,7 +181,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       animate: false,
       allowClose: true,
       allowKeyboardControl: false, // Keyboard navigation is managed below.
-      overlayClickBehavior: () => {},
+      overlayOpacity: 0.2,
+      overlayClickBehavior: dismissTour,
       stagePadding: 4,
       popoverClass: 'theme-tour-popover',
       nextBtnText: t('common.next'),

@@ -18,10 +18,22 @@ func openAIGPT62RequestModel(account *Account, model string) string {
 // Effort aliases are intentionally unavailable until every native transport can
 // carry the derived effort on the wire and in the receipt consistently.
 func rejectOpenAIGPT62Alias(account *Account, model string) *OpenAIFastBlockedError {
-	if base := openAIGPT62RequestModel(account, model); base != "" && strings.TrimSpace(model) != base {
-		return &OpenAIFastBlockedError{Message: "GPT-6.2 model aliases are not supported; use the published model ID and an explicit reasoning effort"}
+	base := openAIGPT62RequestModel(account, model)
+	if base == "" {
+		return nil
 	}
-	return nil
+	trimmed := strings.TrimSpace(model)
+	if trimmed == base {
+		return nil
+	}
+	// Provider-prefixed IDs such as codex/gpt-6.2-astra and
+	// auto/gpt-6.2-astra are published model identities, not effort aliases.
+	// A suffix alias such as gpt-6.2-astra-max remains rejected.
+	if slash := strings.LastIndexByte(trimmed, '/'); slash > 0 && slash < len(trimmed)-1 &&
+		strings.EqualFold(strings.TrimSpace(trimmed[slash+1:]), base) {
+		return nil
+	}
+	return &OpenAIFastBlockedError{Message: "GPT-6.2 model aliases are not supported; use the published model ID"}
 }
 
 func validateOpenAIGPT62RequestBody(account *Account, model string, body []byte) *OpenAIFastBlockedError {

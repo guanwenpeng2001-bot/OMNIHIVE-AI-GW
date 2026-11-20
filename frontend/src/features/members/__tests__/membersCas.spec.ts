@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { buildIfMatchHeaders, normalizeGrantInput, projectMemberPermissions, resolveCasMutationError } from '../cas'
 import { membersV2API } from '../api'
-import * as v2Client from '@/features/shared/v2Client'
+import * as controlClient from '@/features/shared/controlClient'
 
 describe('members CAS & role projections', () => {
   beforeEach(() => {
@@ -9,7 +9,8 @@ describe('members CAS & role projections', () => {
   })
 
   it('builds If-Match header from non-empty version and rejects missing version', () => {
-    expect(buildIfMatchHeaders('v-42')).toEqual({ 'If-Match': 'v-42' })
+    expect(buildIfMatchHeaders('42')).toEqual({ 'If-Match': '"42"' })
+    expect(buildIfMatchHeaders('"42"')).toEqual({ 'If-Match': '"42"' })
     expect(() => buildIfMatchHeaders('')).toThrow(/If-Match/)
     expect(() => buildIfMatchHeaders(null)).toThrow(/If-Match/)
   })
@@ -27,7 +28,7 @@ describe('members CAS & role projections', () => {
   })
 
   it('sends If-Match header when updating member grants via v2 API', async () => {
-    const putSpy = vi.spyOn(v2Client, 'v2Put').mockResolvedValue({
+    const putSpy = vi.spyOn(controlClient, 'controlPut').mockResolvedValue({
       member_id: 'mem_1',
       version: '2',
       effective_at: '2026-11-19T10:00:00Z'
@@ -44,7 +45,7 @@ describe('members CAS & role projections', () => {
         actions: ['text.chat', 'usage.read'],
         project_ids: ['proj_1', 'proj_2']
       },
-      { 'If-Match': '1' }
+      { 'If-Match': '"1"' }
     )
     expect(res.version).toBe('2')
   })

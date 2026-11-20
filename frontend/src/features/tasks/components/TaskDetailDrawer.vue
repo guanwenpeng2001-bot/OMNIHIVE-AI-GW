@@ -17,6 +17,11 @@ import {
 import {
   buildTaskLifecycleSteps,
   classifyTaskArtifact,
+  formatProgressSourceLabel,
+  formatTaskSettlementLabel,
+  formatTaskSourceLabel,
+  formatTaskStageLabel,
+  formatTaskStateLabel,
   resolveHonestTaskProgress,
   taskStateTone
 } from '../progressRules'
@@ -119,7 +124,7 @@ function handleClose(): void {
     :title="detail ? `${isZh ? '任务详情' : 'Task Detail'} · ${detail.id}` : isZh ? '任务详情' : 'Task Detail'"
     :description="
       detail
-        ? `${detail.model_id} · source=${detail.source} · v${detail.version}`
+        ? `${detail.model_id} · ${formatTaskSourceLabel(detail.source, isZh)}`
         : undefined
     "
     @update:open="(val) => !val && handleClose()"
@@ -144,13 +149,13 @@ function handleClose(): void {
         <div class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] p-3">
           <div class="flex flex-wrap items-center gap-2">
             <Badge :tone="taskStateTone(detail.state)" variant="subtle" mono>
-              {{ detail.state }}
+              {{ formatTaskStateLabel(detail.state, isZh) }}
             </Badge>
             <Badge tone="neutral" variant="outline" mono>
-              stage: {{ detail.stage || EM_DASH }}
+              {{ isZh ? '阶段：' : 'Stage: ' }}{{ formatTaskStageLabel(detail.stage, isZh) }}
             </Badge>
             <Badge tone="neutral" variant="outline" mono>
-              settlement: {{ detail.settlement_state || EM_DASH }}
+              {{ isZh ? '结算：' : 'Settlement: ' }}{{ formatTaskSettlementLabel(detail.settlement_state, isZh) }}
             </Badge>
           </div>
 
@@ -190,13 +195,13 @@ function handleClose(): void {
             v-if="!canCancel && cancelDisabledReason"
             class="rounded border border-[var(--oh-border,var(--border))] px-2 py-0.5"
           >
-            cancel: {{ cancelDisabledReason }}
+            {{ isZh ? '取消受限：' : 'Cancel: ' }}{{ cancelDisabledReason }}
           </span>
           <span
             v-if="!canRetry && retryDisabledReason"
             class="rounded border border-[var(--oh-border,var(--border))] px-2 py-0.5"
           >
-            retry: {{ retryDisabledReason }}
+            {{ isZh ? '重试受限：' : 'Retry: ' }}{{ retryDisabledReason }}
           </span>
         </div>
 
@@ -215,7 +220,7 @@ function handleClose(): void {
             >
               {{ honestProgress?.label || EM_DASH }}
               <span class="font-normal text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-                ({{ detail.progress_source || 'unreported' }})
+                ({{ formatProgressSourceLabel(detail.progress_source, isZh) }})
               </span>
             </span>
           </div>
@@ -246,29 +251,39 @@ function handleClose(): void {
             :steps="lifecycleSteps"
             :current-step-id="currentStepId"
             :allow-step-click="false"
-            aria-label="Task Lifecycle"
+            :aria-label="isZh ? '任务生命周期阶段' : 'Task Lifecycle'"
           />
 
           <!-- Sub-item Rollup Counts -->
           <div class="grid grid-cols-5 gap-2 border-t border-[var(--oh-border,var(--border))] pt-2.5 text-center font-mono text-xs tabular-nums">
             <div>
-              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Total</p>
+              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ isZh ? '总计' : 'Total' }}
+              </p>
               <p class="font-semibold text-[var(--oh-ink,var(--foreground))]">{{ formatNullableInteger(detail.items.total) }}</p>
             </div>
             <div>
-              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Succeeded</p>
+              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ isZh ? '成功' : 'Succeeded' }}
+              </p>
               <p class="font-semibold text-[var(--oh-ink,var(--foreground))]">{{ formatNullableInteger(detail.items.succeeded) }}</p>
             </div>
             <div>
-              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Failed</p>
+              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ isZh ? '失败' : 'Failed' }}
+              </p>
               <p class="font-semibold text-[var(--oh-danger,#dc2626)]">{{ formatNullableInteger(detail.items.failed) }}</p>
             </div>
             <div>
-              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Pending</p>
+              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ isZh ? '进行中' : 'Pending' }}
+              </p>
               <p class="font-semibold text-[var(--oh-ink,var(--foreground))]">{{ formatNullableInteger(detail.items.pending) }}</p>
             </div>
             <div>
-              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Canceled</p>
+              <p class="text-[10px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+                {{ isZh ? '已取消' : 'Canceled' }}
+              </p>
               <p class="font-semibold text-[var(--oh-ink,var(--foreground))]">{{ formatNullableInteger(detail.items.canceled) }}</p>
             </div>
           </div>
@@ -281,33 +296,43 @@ function handleClose(): void {
           </span>
           <dl class="grid gap-2 sm:grid-cols-2">
             <div class="flex items-center justify-between gap-2">
-              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Estimate</dt>
+              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{ isZh ? '预估费用' : 'Estimate' }}
+              </dt>
               <dd class="font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                 {{ formatChargeObject(detail.estimate) }}
               </dd>
             </div>
             <div class="flex items-center justify-between gap-2">
-              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Actual Charge</dt>
+              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{ isZh ? '实际扣费' : 'Actual Charge' }}
+              </dt>
               <dd class="font-mono font-semibold tabular-nums text-[var(--oh-accent-text,var(--brand-text,#d97706))]">
                 {{ formatChargeObject(detail.actual_charge) }}
               </dd>
             </div>
             <div class="flex items-center justify-between gap-2">
-              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Request ID</dt>
+              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{ isZh ? '关联请求 ID' : 'Request ID' }}
+              </dt>
               <dd class="flex items-center gap-1 font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                 <span class="max-w-[130px] truncate">{{ detail.request_id || EM_DASH }}</span>
                 <CopyButton v-if="detail.request_id" :value="detail.request_id" size="xs" />
               </dd>
             </div>
             <div class="flex items-center justify-between gap-2">
-              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Settlement ID</dt>
+              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{ isZh ? '结算单号' : 'Settlement ID' }}
+              </dt>
               <dd class="flex items-center gap-1 font-mono tabular-nums text-[var(--oh-ink,var(--foreground))]">
                 <span class="max-w-[130px] truncate">{{ detail.settlement_id || EM_DASH }}</span>
                 <CopyButton v-if="detail.settlement_id" :value="detail.settlement_id" size="xs" />
               </dd>
             </div>
             <div v-if="detail.parent_task_id" class="flex items-center justify-between gap-2 sm:col-span-2">
-              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Parent Task</dt>
+              <dt class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+                {{ isZh ? '父任务 ID' : 'Parent Task' }}
+              </dt>
               <dd>
                 <button
                   type="button"
@@ -328,7 +353,7 @@ function handleClose(): void {
         >
           <div class="flex items-center justify-between">
             <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-              {{ isZh ? '任务产物 (Artifacts)' : 'Task Artifacts' }} ({{ detail.artifacts.length }})
+              {{ isZh ? '任务产物' : 'Task Artifacts' }} ({{ detail.artifacts.length }})
             </span>
           </div>
 
@@ -438,7 +463,7 @@ function handleClose(): void {
         <!-- Sub-Items List -->
         <section v-if="items.length > 0" class="space-y-2 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] p-3.5">
           <span class="font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-            {{ isZh ? '子任务明细 (Items)' : 'Sub-Items' }} ({{ items.length }})
+            {{ isZh ? '子任务明细' : 'Sub-Items' }} ({{ items.length }})
           </span>
           <ul class="divide-y divide-[var(--oh-border,var(--border))]">
             <li
@@ -448,7 +473,7 @@ function handleClose(): void {
             >
               <div class="flex flex-wrap items-center gap-2 font-mono tabular-nums">
                 <span class="font-semibold text-[var(--oh-ink,var(--foreground))]">#{{ item.id }}</span>
-                <Badge :tone="taskStateTone(item.state)" variant="subtle" mono>{{ item.state }}</Badge>
+                <Badge :tone="taskStateTone(item.state)" variant="subtle" mono>{{ formatTaskStateLabel(item.state, isZh) }}</Badge>
                 <span class="text-[var(--oh-ink-tertiary,var(--muted-foreground))]">{{ item.acceptance }}</span>
                 <span v-if="item.reason" class="text-[var(--oh-danger,#dc2626)]">{{ item.reason }}</span>
               </div>

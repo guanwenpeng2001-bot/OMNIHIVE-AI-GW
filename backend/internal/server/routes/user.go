@@ -128,7 +128,7 @@ func RegisterUserRoutes(
 			usage.GET("/dashboard/stats", h.Usage.DashboardStats)
 			usage.GET("/dashboard/trend", h.Usage.DashboardTrend)
 			usage.GET("/dashboard/models", h.Usage.DashboardModels)
-			usage.GET("/dashboard/snapshot-v2", h.Usage.DashboardSnapshotV2)
+			usage.GET("/dashboard/snapshot-v2", h.Usage.DashboardSnapshot)
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 
@@ -163,18 +163,20 @@ func RegisterUserRoutes(
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
 		}
 
-		// V2 passive views require feature on + mode=v2.
-		monitorV2 := authenticated.Group("/channel-monitor-v2")
-		monitorV2.Use(middleware.DefaultWorkspaceScope())
-		monitorV2.Use(panelRateLimiter.Heavy())
-		monitorV2.Use(channelMonitorModeV2Guard(settingService))
-		{
-			monitorV2.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
-			monitorV2.GET("/snapshot", h.ChannelMonitorV2.Snapshot)
-			monitorV2.GET("/models", h.ChannelMonitorV2.Models)
-			monitorV2.GET("/matrix", h.ChannelMonitorV2.Matrix)
-			monitorV2.GET("/errors", h.ChannelMonitorV2.Errors)
-			monitorV2.GET("/users", h.ChannelMonitorV2.Users)
+		// Passive traffic telemetry views (mounted at /channel-telemetry with legacy path alias).
+		for _, telemetryPath := range []string{"/channel-telemetry", "/channel-monitor-v2"} {
+			telemetry := authenticated.Group(telemetryPath)
+			telemetry.Use(middleware.DefaultWorkspaceScope())
+			telemetry.Use(panelRateLimiter.Heavy())
+			telemetry.Use(channelMonitorModeV2Guard(settingService))
+			{
+				telemetry.GET("/dimensions", h.ChannelTelemetry.Dimensions)
+				telemetry.GET("/snapshot", h.ChannelTelemetry.Snapshot)
+				telemetry.GET("/models", h.ChannelTelemetry.Models)
+				telemetry.GET("/matrix", h.ChannelTelemetry.Matrix)
+				telemetry.GET("/errors", h.ChannelTelemetry.Errors)
+				telemetry.GET("/users", h.ChannelTelemetry.Users)
+			}
 		}
 	}
 }

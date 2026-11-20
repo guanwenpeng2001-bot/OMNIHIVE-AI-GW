@@ -245,7 +245,7 @@ export default {
             "notes": "The CLI appends /v1/messages; desktop configuration is separate. Requires a group and model that accept Messages."
           },
           "opencode": {
-            "client": "OpenCode (v1 config)",
+            "client": "OpenCode (classic config)",
             "base": "provider.<id>.options.baseURL = root + /v1",
             "key": "options.apiKey: {'{'}env:OMNIHIVE_API_KEY{'}'}",
             "model": "<provider>/MODEL_ID_FROM_LIST",
@@ -1406,7 +1406,7 @@ export default {
           "public": {
             "setting": "Public URL + site API key",
             "owner": "Your client or workflow",
-            "meaning": "OmniHive public Base URL: https://omnihive2.com/v1. Chat and Responses clients append their operation path. Claude Code uses the root https://omnihive2.com; Gemini uses /v1beta/models/…:generateContent or :streamGenerateContent."
+            "meaning": "OmniHive public Base URL: https://api.omnihive.io/v1. Chat and Responses clients append their operation path. Claude Code uses the root https://api.omnihive.io; Gemini uses /v1beta/models/…:generateContent or :streamGenerateContent."
           },
           "supplier": {
             "setting": "Supplier account + regional / plan key",

@@ -131,15 +131,15 @@ describe('PublicHeader responsive navigation', () => {
     const links = mobileNav.findAll('a')
 
     expect(links.map((node) => ({ href: node.attributes('href'), text: node.text() }))).toEqual([
-      { href: '/model-plaza', text: 'MODELS · 模型' },
-      { href: '/key-usage', text: 'QUOTA · 额度查询' },
-      { href: '/pricing', text: 'PRICING · 价格' },
-      { href: '/status', text: 'STATUS · 状态' },
-      { href: '/help', text: 'DOCS · 文档' }
+      { href: '/model-plaza', text: '模型广场' },
+      { href: '/key-usage', text: '额度查询' },
+      { href: '/pricing', text: '定价' },
+      { href: '/status', text: '服务状态' },
+      { href: '/help', text: '文档' }
     ])
   })
 
-  it('preserves modelPlazaEnabled, sanitized docUrl, registrationEnabled, and English labels', async () => {
+  it('always keeps /model-plaza visible and preserves sanitized docUrl, registrationEnabled, and English labels', async () => {
     localeRef.value = 'en'
     storeState.docUrl = 'https://docs.example.com/guide'
     storeState.cachedPublicSettings = {
@@ -156,13 +156,14 @@ describe('PublicHeader responsive navigation', () => {
       .findAll('a')
 
     expect(mobileLinks.map((node) => ({ href: node.attributes('href'), text: node.text() }))).toEqual([
+      { href: '/model-plaza', text: 'MODELS' },
       { href: '/key-usage', text: 'QUOTA' },
       { href: '/pricing', text: 'PRICING' },
       { href: '/status', text: 'STATUS' },
       { href: 'https://docs.example.com/guide', text: 'DOCS ↗' }
     ])
-    expect(mobileLinks[3].attributes('target')).toBe('_blank')
-    expect(mobileLinks[3].attributes('rel')).toBe('noopener noreferrer')
+    expect(mobileLinks[4].attributes('target')).toBe('_blank')
+    expect(mobileLinks[4].attributes('rel')).toBe('noopener noreferrer')
     expect(wrapper.find('a[href="/register"]').exists()).toBe(false)
 
     storeState.docUrl = 'javascript:alert(1)'
@@ -170,7 +171,7 @@ describe('PublicHeader responsive navigation', () => {
 
     const sanitizedDocsLink = wrapper
       .get('[data-testid="public-mobile-nav-list"]')
-      .findAll('a')[3]
+      .findAll('a')[4]
     expect(sanitizedDocsLink.attributes('href')).toBe('/help')
   })
 

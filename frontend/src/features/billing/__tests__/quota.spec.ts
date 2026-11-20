@@ -2,7 +2,7 @@ import { baseCompile } from '@intlify/message-compiler'
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { describe, expect, it } from 'vitest'
-import en from '@/i18n/locales/en/wp6'
+import en from '@/i18n/locales/en/costLedger'
 import type { Schema } from '@/features/requests/api'
 import { moneyText } from '@/features/requests/presentation'
 import QuotaWaterfall from '../components/QuotaWaterfall.vue'
@@ -27,7 +27,7 @@ describe('effective quota', () => {
       } },
       global: { plugins: [createI18n({ legacy: false, locale: 'en',
         messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(),
-        messages: { en: { wp6: en } }, })] },
+        messages: { en: { costLedger: en } }, })] },
     })
     expect(wrapper.findAll('li dd').map(node => node.text())).toEqual(['12.00000000', '0.00000000', '—', '—'])
     expect(wrapper.text()).toContain('Blocking limit')

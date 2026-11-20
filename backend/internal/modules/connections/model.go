@@ -15,6 +15,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/credentials"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
 const SchemaVersion = "1"
@@ -59,7 +60,7 @@ func Schemas(provider, auth string) []Schema {
 		if auth != "" && !slices.Contains(types, auth) {
 			continue
 		}
-		s := Schema{Provider: d.ID, Version: SchemaVersion, AuthTypes: types, Actions: []string{}, Fields: []Field{{"name", "string", true, "TextInput"}, {"endpoint", "https_url", false, "EndpointInput"}, {"network_policy_id", "id", false, "ProxyPicker"}, {"credential", "secret", true, "SecretInput"}, {"model_ids", "string_list", false, "ModelPicker"}, {"pool_ids", "id_list", false, "PoolPicker"}, {"limits.concurrency", "integer", true, "NumberInput"}}}
+		s := Schema{Provider: d.ID, Version: SchemaVersion, AuthTypes: types, Actions: []string{}, Fields: []Field{{"name", "string", true, "TextInput"}, {"endpoint", "http_url", false, "EndpointInput"}, {"network_policy_id", "id", false, "ProxyPicker"}, {"credential", "secret", true, "SecretInput"}, {"model_ids", "string_list", false, "ModelPicker"}, {"pool_ids", "id_list", false, "PoolPicker"}, {"limits.concurrency", "integer", true, "NumberInput"}}}
 		hosted := d.HostedAccountType
 		if auth != "" {
 			hosted = auth
@@ -94,20 +95,22 @@ type Limits struct {
 	Concurrency int `json:"concurrency"`
 }
 type Create struct {
-	Provider        string `json:"provider"`
-	SchemaVersion   string `json:"schema_version"`
-	AuthType        string `json:"auth_type"`
-	Name            string `json:"name"`
-	Endpoint        string `json:"endpoint"`
-	NetworkPolicyID string `json:"network_policy_id"`
+	Provider        string            `json:"provider"`
+	SchemaVersion   string            `json:"schema_version"`
+	AuthType        string            `json:"auth_type"`
+	Name            string            `json:"name"`
+	Endpoint        string            `json:"endpoint"`
+	NetworkPolicyID string            `json:"network_policy_id"`
+	HeaderOverrides map[string]string `json:"header_overrides,omitempty"`
 }
 type Patch struct {
-	Name            *string  `json:"name,omitempty"`
-	Endpoint        *string  `json:"endpoint,omitempty"`
-	NetworkPolicyID *string  `json:"network_policy_id,omitempty"`
-	Models          []string `json:"model_ids,omitempty"`
-	Pools           []string `json:"pool_ids,omitempty"`
-	Limits          *Limits  `json:"limits,omitempty"`
+	Name            *string           `json:"name,omitempty"`
+	Endpoint        *string           `json:"endpoint,omitempty"`
+	NetworkPolicyID *string           `json:"network_policy_id,omitempty"`
+	HeaderOverrides map[string]string `json:"header_overrides,omitempty"`
+	Models          []string          `json:"model_ids,omitempty"`
+	Pools           []string          `json:"pool_ids,omitempty"`
+	Limits          *Limits           `json:"limits,omitempty"`
 }
 
 func (p *Patch) UnmarshalJSON(data []byte) error {
@@ -131,7 +134,7 @@ func (p *Patch) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Marshal patches with explicitly empty lists so persisted previews can clear assignments.
+// Preserve explicit empty maps and lists so patches can clear existing values.
 func (p Patch) Snapshot() map[string]any {
 	m := map[string]any{}
 	if p.Name != nil {
@@ -142,6 +145,9 @@ func (p Patch) Snapshot() map[string]any {
 	}
 	if p.NetworkPolicyID != nil {
 		m["network_policy_id"] = *p.NetworkPolicyID
+	}
+	if p.HeaderOverrides != nil {
+		m["header_overrides"] = p.HeaderOverrides
 	}
 	if p.Models != nil {
 		m["model_ids"] = p.Models
@@ -198,7 +204,31 @@ func (c Connection) Project(a identity.Access) any {
 		c.Credential = nil
 		c.Redactions = append(c.Redactions, "credential")
 	}
+	if len(c.HeaderOverrides) != 0 && a.Require("connections.edit") != nil {
+		c.HeaderOverrides = nil
+		c.Redactions = append(c.Redactions, "header_overrides")
+	}
 	return c
+}
+
+func normalizeConnectionHeaders(account *service.Account, headers map[string]string) (map[string]string, error) {
+	if len(headers) == 0 {
+		return headers, nil
+	}
+	if !account.IsHeaderOverrideEligible() {
+		return nil, fault.Invalid("/header_overrides")
+	}
+	input := map[string]any{"header_overrides": headers}
+	if err := service.NormalizeHeaderOverrideCredentials(input); err != nil {
+		return nil, fault.Invalid("/header_overrides")
+	}
+	normalized := make(map[string]string, len(headers))
+	for name, value := range input["header_overrides"].(map[string]any) {
+		if value != "" {
+			normalized[name] = value.(string)
+		}
+	}
+	return normalized, nil
 }
 func ValidText(s string, max int) bool {
 	return utf8.ValidString(s) && s != "" && len(s) <= max && strings.TrimSpace(s) == s && strings.IndexFunc(s, unicode.IsControl) < 0
@@ -215,7 +245,12 @@ func ValidEndpoint(s string) bool {
 		return true
 	}
 	u, err := url.Parse(s)
-	return err == nil && len(s) <= 2048 && u.Scheme == "https" && u.Hostname() != "" && u.User == nil && !strings.ContainsAny(s, "?#\\") && u.RawPath == ""
+	return err == nil && len(s) <= 2048 && (u.Scheme == "https" || u.Scheme == "http") &&
+		u.Hostname() != "" && u.User == nil && !strings.ContainsAny(s, "?#\\") && u.RawPath == ""
+}
+
+func endpointChanged(current string, proposed *string) bool {
+	return proposed != nil && strings.TrimRight(*proposed, "/") != strings.TrimRight(current, "/")
 }
 func validatePatch(p Patch) error {
 	if p.Name != nil && !ValidText(*p.Name, 100) {

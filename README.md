@@ -6,6 +6,7 @@
 
 现有部署升级前请参阅[部署身份迁移说明](docs/refactor/IDENTITY_MIGRATION.md)。
 
+<p align="center"><strong>OmniHive — Unified AI Inference Gateway</strong></p>
 <p align="center"><strong>「智能算力中转蜂巢 · 企业级多模态 AI 统一网关与治理中枢」</strong></p>
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.27-00ADD8?logo=go" alt="Go 1.27" />
@@ -20,15 +21,17 @@
 
 ## 项目定位与核心特性
 
-OmniHive 面向需要统一管理多供应商、多账号和多模态 AI 调用的团队，提供协议入口、路由治理、用量结算与运维控制台。仓库标识为 `OMNIHIVE-AI-GW`，项目地址为 [GitHub](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW)。
+**OmniHive — Unified AI Inference Gateway（多协议 AI 推理统一网关）**面向需要统一管理多供应商、多账号和多模态 AI 调用的团队，提供协议入口、路由治理、精确结算与运维控制台。仓库标识为 `OMNIHIVE-AI-GW`，项目地址为 [GitHub](https://github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW)。
 
-- **多协议原生接入**：OpenAI Chat / Responses / Realtime、Anthropic Messages、Google Gemini v1beta、Codex CLI，以及 DashScope、Volcengine、Kaggle 多模态通道。实际可用端点取决于平台、账号类型、模型白名单和上游授权，详见[协议矩阵](docs/gateway-platform-protocol-matrix.md)。
-- **智能分组调度与粘性会话**：按分组、模型访问规则和账号健康度分配请求，配合会话亲和性与代理组出口，管理多账号池。
-- **上游配额探针与实时用量窗口**：结合上游可用额度、本地调用台账和运行状态，辅助容量规划、故障定位与成本管理。
-- **工作空间路由策略**：按渠道能力配置 ZDR、自动回退、提示词缓存与地域偏好；策略是否可执行以对应上游协议和账号能力为准。
-- **批量生图工作台**：异步队列、任务状态追踪、失败子项重试与 ZIP 打包下载，支持可追踪的多模态生产流程。
-- **传输插件与内置扩展**：`.ohplugin` 为签名、隔离运行的 v2 传输插件包；旧 `.s2plugin` 仅在迁移兼容窗口内验签导入。`prompt-guard`、`rate-limiter`、`cache-layer`、`cost-tracker` 四大内置网关扩展承担提示词治理、限流、缓存与成本追踪。
-- **面板更新与回滚**：管理员通过左上角版本徽标检查 GitHub Release、执行更新或选择允许回滚的版本。
+- **多协议线缆兼容网关**：以 wire-compatible 方式对外提供 OpenAI `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 与 Google Gemini `v1beta` 等协议入口，并原生桥接 Anthropic Messages、Codex CLI、DashScope、Volcengine、Kaggle 多模态通道。实际可用端点取决于平台、账号类型、模型白名单和上游授权，详见[协议矩阵](docs/gateway-platform-protocol-matrix.md)。
+- **五步上游连接向导与出口资源池**：连接向导引导「选择平台 → 填写凭据 → 网络/鉴权验证 → 模型预览 → 激活」，凭证与账号健康度统一纳入 Egress Resource Pools，配合粘性会话与代理组出口管理多账号池。
+- **路由策略工作台与路由解释**：按渠道能力配置 ZDR、自动回退、提示词缓存与地域偏好；请求详情通过 Route Explain 解释命中策略、分组与上游选择依据。
+- **精确十进制台账与权威报价**：Exact Decimal Ledger 以精确十进制记账，服务端 Authoritative Quotes 提供可核对的预估与结算证据，支撑用量结算、成本追踪与对账。
+- **工作空间/项目 RBAC 与 BYOK**：工作空间与项目隔离的成员授权与访问控制，支持租户自带密钥（BYOK）与资金兜底。
+- **公开模型广场与实时遥测状态**：Public Model Plaza 展示可公开的模型、价格与详情；Live Telemetry Status 暴露公开状态与事件生命周期。
+- **请求瀑布与异步媒体任务中心**：Request Waterfall 呈现请求逐阶段耗时；异步媒体任务以队列执行，支持状态追踪、失败子项重试与打包下载。
+- **`.ohplugin` 扩展系统**：`.ohplugin` 为签名、沙箱隔离运行的扩展插件包；历史 `.s2plugin` 包仅在迁移兼容窗口内验签导入。`prompt-guard`、`rate-limiter`、`cache-layer`、`cost-tracker` 四大内置网关扩展承担提示词治理、限流、缓存与成本追踪。
+- **面板版本检查与一键更新/回滚**：管理员通过左上角版本徽标检查 GitHub Release、执行更新或选择允许回滚的历史版本。
 
 ## 系统架构概览
 
@@ -83,7 +86,7 @@ docker compose --project-directory deploy -f deploy/docker-compose.yml logs -f o
 
 ### 源码编译
 
-工具链以 `backend/go.mod` 和 `frontend/package.json` 为准：Go 1.27.0、Node.js 24、pnpm 11。先构建前端，再嵌入后端：
+工具链以 `backend/go.mod` 和 `frontend/package.json` 为准：Go 1.27.4、Node.js 24、pnpm 11。先构建前端，再嵌入后端：
 
 ```bash
 pnpm --dir frontend install --frozen-lockfile
@@ -115,6 +118,31 @@ sudo bash install.sh
 在管理后台左上角点击版本号，检查 Release 并选择更新；发布资产携带 `checksums.txt` 时，更新器执行 SHA-256 校验，再替换二进制。更新后通过受监督的进程重启恢复服务；容器应配置重启策略，原生部署应由 systemd 等进程管理器负责拉起。重启可能中断在途请求，安排维护窗口并检查 `/health` 与 `/ready`。可从面板选择允许回滚的历史版本；二进制回滚不会撤销数据库迁移，因此升级前应备份数据库与持久化密钥。
 
 私有仓库配置 `UPDATE_GITHUB_TOKEN`，并确认该令牌拥有目标仓库的读取权限。发布与回滚行为还取决于实际工作流、资产命名和运行权限；详见[开发指南](DEV_GUIDE.md)。
+
+### 版本检查与命令行升级/回滚
+
+原生二进制安装可直接检查版本并按标签升级或回滚，安装器会保留既有服务名与数据路径：
+
+```bash
+/opt/omnihive/omnihive --version            # 查看当前二进制版本
+sudo bash deploy/install.sh list-versions   # 列出可用发布版本
+sudo bash deploy/install.sh upgrade         # 升级到最新版本
+sudo bash deploy/install.sh rollback v0.2.23            # 回滚到指定历史版本
+```
+
+Docker 部署建议固定镜像标签，升级执行 `docker compose pull` 后 `docker compose up -d`，回滚时将标签改回上一版本再重新拉起；升级前备份数据库与持久化密钥，因为二进制/镜像回滚不会撤销已应用的数据库迁移。健康检查使用 `/health`（存活）与 `/ready`（依赖就绪/排空）。
+
+## 质量门禁
+
+仓库提供一键质量门禁，默认执行全部阶段，也可只运行指定阶段：
+
+```bash
+scripts/quality-gate.sh                 # 全部阶段
+scripts/quality-gate.sh backend         # 后端 build/vet/test
+scripts/quality-gate.sh contracts generated-drift independence
+```
+
+各阶段含义、前置条件与 `--help` 用法见 `scripts/quality-gate.sh`。CI 会执行后端/前端/PostgreSQL 矩阵/安全扫描与质量门禁，详见 `.github/workflows/`。
 
 ## 目录结构与开发指南
 

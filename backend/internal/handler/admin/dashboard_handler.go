@@ -535,6 +535,25 @@ func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 	})
 }
 
+// dashboardHistoryGap describes a range the repository could not verify.
+type dashboardHistoryGap struct {
+	Complete            bool     `json:"complete"`
+	Reason              string   `json:"reason"`
+	RawRetainedFrom     string   `json:"raw_retained_from,omitempty"`
+	UnavailableSections []string `json:"unavailable_sections,omitempty"`
+}
+
+func dashboardGap(err error) *dashboardHistoryGap {
+	if err == nil {
+		return nil
+	}
+	code, status := infraerrors.ToHTTP(err)
+	if code != 409 || status.Reason != "USAGE_HISTORY_INCOMPLETE" {
+		return nil
+	}
+	return &dashboardHistoryGap{Reason: status.Reason, RawRetainedFrom: status.Metadata["raw_retained_from"]}
+}
+
 // GetUserUsageTrend handles getting user usage trend data
 // GET /api/v1/admin/dashboard/users-trend
 // Query params: start_date, end_date (YYYY-MM-DD), granularity (day/hour), limit (default 12)
@@ -548,18 +567,21 @@ func (h *DashboardHandler) GetUserUsageTrend(c *gin.Context) {
 	}
 
 	trend, hit, err := h.getUserUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
-	if err != nil {
-		writeDashboardError(c, err, "Failed to get user usage trend")
-		return
-	}
-	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
-
-	response.Success(c, gin.H{
-		"trend":       trend,
+	payload := gin.H{
 		"start_date":  startTime.Format("2006-01-02"),
 		"end_date":    endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 		"granularity": granularity,
-	})
+	}
+	if gap := dashboardGap(err); gap != nil {
+		payload["data_completeness"] = gap
+		trend = []usagestats.UserUsageTrendPoint{}
+	} else if err != nil {
+		writeDashboardError(c, err, "Failed to get user usage trend")
+		return
+	}
+	payload["trend"] = trend
+	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
+	response.Success(c, payload)
 }
 
 // BatchUsersUsageRequest represents the request body for batch user usage stats
@@ -610,18 +632,21 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 	}
 
 	ranking, err := h.dashboardService.GetUserSpendingRanking(c.Request.Context(), startTime, endTime, limit)
-	if err != nil {
+	payload := gin.H{
+		"start_date": startTime.Format("2006-01-02"),
+		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	}
+	if gap := dashboardGap(err); gap != nil {
+		payload["data_completeness"] = gap
+		payload["ranking"] = []any{}
+	} else if err != nil {
 		writeDashboardError(c, err, "Failed to get user spending ranking")
 		return
-	}
-
-	payload := gin.H{
-		"ranking":           ranking.Ranking,
-		"total_actual_cost": ranking.TotalActualCost,
-		"total_requests":    ranking.TotalRequests,
-		"total_tokens":      ranking.TotalTokens,
-		"start_date":        startTime.Format("2006-01-02"),
-		"end_date":          endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+	} else {
+		payload["ranking"] = ranking.Ranking
+		payload["total_actual_cost"] = ranking.TotalActualCost
+		payload["total_requests"] = ranking.TotalRequests
+		payload["total_tokens"] = ranking.TotalTokens
 	}
 	dashboardUsersRankingCache.Set(cacheKey, payload)
 	c.Header("X-Snapshot-Cache", "miss")

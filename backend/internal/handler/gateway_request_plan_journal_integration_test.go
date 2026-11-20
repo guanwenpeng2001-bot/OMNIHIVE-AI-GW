@@ -133,3 +133,82 @@ func TestJournalFinalizesAfterPanicAndTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestJournalChatCompletionsRoutes(t *testing.T) {
+	db, _, _ := testutil.NewCapabilityPostgres(t)
+	for _, route := range []string{"/v1/chat/completions", "/chat/completions"} {
+		t.Run(route, func(t *testing.T) {
+			h, _, upstream, _, cleanup := newGrokCredentialFailoverHandler(t, "revoked")
+			defer cleanup()
+			router := gin.New()
+			router.Use(authenticatedJournal(t, db, 902, 903))
+			group := int64(901)
+			key := &service.APIKey{ID: 902, UserID: 903, GroupID: &group, User: &service.User{ID: 903, Status: service.StatusActive}, Group: &service.Group{ID: group, Platform: service.PlatformGrok, Status: service.StatusActive}}
+			router.POST(route, func(c *gin.Context) {
+				c.Set(string(middleware.ContextKeyAPIKey), key)
+				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 903, Concurrency: 1})
+				h.ChatCompletions(c)
+			})
+			send := func(body, idempotencyKey string) *httptest.ResponseRecorder {
+				r := httptest.NewRequest(http.MethodPost, route, strings.NewReader(body))
+				r.Header.Set("Content-Type", "application/json")
+				r.Header.Set("Idempotency-Key", idempotencyKey)
+				w := httptest.NewRecorder()
+				router.ServeHTTP(w, r)
+				return w
+			}
+			body := `{"model":"grok","messages":[{"role":"user","content":"hello"}],"stream":false}`
+			w := send(body, "submit")
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			req := w.Header().Get("X-Execution-ID")
+			require.NotEmpty(t, req)
+			replay := send(`{"stream":false,"messages":[{"content":"hello","role":"user"}],"model":"grok"}`, "submit")
+			require.Equal(t, http.StatusNoContent, replay.Code, replay.Body.String())
+			require.Equal(t, "true", replay.Header().Get("X-Idempotency-Replayed"))
+			require.Equal(t, req, replay.Header().Get("X-Execution-ID"))
+			require.Empty(t, replay.Body.Bytes())
+			conflict := send(strings.Replace(body, "hello", "other", 1), "submit")
+			require.Equal(t, http.StatusConflict, conflict.Code, conflict.Body.String())
+			require.Contains(t, conflict.Body.String(), "invalid_request_error")
+			require.Len(t, upstream.accountHits(), 1)
+
+			// Ordinary clients need no idempotency header to appear in requests/billing.
+			unkeyed := send(body, "")
+			require.Equal(t, http.StatusOK, unkeyed.Code, unkeyed.Body.String())
+			unkeyedID := unkeyed.Header().Get("X-Execution-ID")
+			require.NotEmpty(t, unkeyedID)
+			require.NotEqual(t, req, unkeyedID)
+			for _, requestID := range []string{req, unkeyedID} {
+				var storedRoute, outcome string
+				var finished bool
+				require.NoError(t, db.QueryRow("SELECT route, finished_at IS NOT NULL FROM gateway_executions WHERE request_id=$1", requestID).Scan(&storedRoute, &finished))
+				require.Equal(t, route, storedRoute)
+				require.True(t, finished)
+				require.NoError(t, db.QueryRow("SELECT outcome FROM gateway_execution_attempts WHERE request_id=$1 AND ordinal=1", requestID).Scan(&outcome))
+				require.Equal(t, "transport_response", outcome)
+			}
+		})
+	}
+}
+
+func TestInstallExecutionJournalPreservesExistingStore(t *testing.T) {
+	for _, route := range []string{"/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/images/generations/async", "/images/generations/async", "/v1/chat/completions", "/chat/completions", "/v1/messages", "/messages", "/antigravity/v1/messages"} {
+		t.Run(route, func(t *testing.T) {
+			store := journal.New(nil)
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				ctx := journal.WithStore(c.Request.Context(), store)
+				ctx = journal.WithReauthorization(ctx, func(context.Context, scope.Authorized, string) error { return journal.ErrConflict })
+				c.Request = c.Request.WithContext(ctx)
+			}, InstallExecutionJournal(nil, nil))
+			router.POST(route, func(c *gin.Context) {
+				require.Same(t, store, journal.From(c.Request.Context()))
+				require.ErrorIs(t, journal.Authorize(c.Request.Context(), scope.Authorized{}, "model"), journal.ErrConflict)
+				c.Status(http.StatusNoContent)
+			})
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, route, nil))
+			require.Equal(t, http.StatusNoContent, w.Code)
+		})
+	}
+}

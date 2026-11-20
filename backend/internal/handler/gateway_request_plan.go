@@ -9,7 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
-	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/BE-06"
+	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
@@ -19,15 +19,22 @@ func InstallExecutionJournal(db *sql.DB, scopes identity.GatewayScopes) gin.Hand
 	validator := executioncompat.Validator{DB: db, Scopes: scopes}
 	return func(c *gin.Context) {
 		switch c.FullPath() {
-		case "/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/images/generations/async", "/images/generations/async":
-			ctx := journal.WithStore(c.Request.Context(), store)
-			c.Request = c.Request.WithContext(validator.Install(ctx))
+		case "/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/images/generations/async", "/images/generations/async",
+			"/v1/chat/completions", "/chat/completions", "/v1/messages", "/messages", "/antigravity/v1/messages":
+			if journal.From(c.Request.Context()) == nil {
+				ctx := journal.WithStore(c.Request.Context(), store)
+				c.Request = c.Request.WithContext(validator.Install(ctx))
+			}
 		}
 		c.Next()
 	}
 }
 
 func beginResponsesExecution(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model string, body []byte, switches int, writeError func(*gin.Context, int, string, string)) (func(), bool) {
+	return beginJournaledExecution(c, capturer, key, model, "responses", body, switches, writeError)
+}
+
+func beginJournaledExecution(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model, protocol string, body []byte, switches int, writeError func(*gin.Context, int, string, string), geminiSwitches ...int) (func(), bool) {
 	var reg *journal.Registration
 	if journal.From(c.Request.Context()) != nil {
 		var err error
@@ -37,7 +44,7 @@ func beginResponsesExecution(c *gin.Context, capturer gatewayPlanCapturer, key *
 			return func() {}, false
 		}
 	}
-	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, "responses", switches, reg)
+	finish := beginRegisteredGatewayRequestPlan(c, capturer, key, model, protocol, switches, reg, geminiSwitches...)
 	p := service.GatewayRequestPlanFromContext(c.Request.Context())
 	e, err := p.AdmittedExecution()
 	if e.RequestID != "" {

@@ -1,4 +1,4 @@
-import { createIdempotencyKey, v2Delete, v2Get, v2Patch, v2Post, v2Put } from '@/features/shared/v2Client'
+import { createIdempotencyKey, controlDelete, controlGet, controlPatch, controlPost, controlPut } from '@/features/shared/controlClient'
 import { buildIfMatchHeaders, normalizeGrantInput } from './cas'
 import type {
   IdentityAccess,
@@ -11,18 +11,18 @@ import type {
 
 export const membersV2API = {
   async listScopes(params?: { limit?: number; cursor?: string }): Promise<IdentityWorkspacePage> {
-    return v2Get<IdentityWorkspacePage>('/me/scopes', params)
+    return controlGet<IdentityWorkspacePage>('/me/scopes', params)
   },
 
   async listProjects(
     workspaceId: string,
     params?: { limit?: number; cursor?: string }
   ): Promise<IdentityProjectPage> {
-    return v2Get<IdentityProjectPage>(`/workspaces/${workspaceId}/projects`, params)
+    return controlGet<IdentityProjectPage>(`/workspaces/${workspaceId}/projects`, params)
   },
 
   async createProject(workspaceId: string, name: string): Promise<IdentityProject> {
-    return v2Post<IdentityProject>(
+    return controlPost<IdentityProject>(
       `/workspaces/${workspaceId}/projects`,
       { name: name.trim() },
       { 'Idempotency-Key': createIdempotencyKey() }
@@ -35,7 +35,7 @@ export const membersV2API = {
     name: string,
     version: string
   ): Promise<IdentityProject> {
-    return v2Patch<IdentityProject>(
+    return controlPatch<IdentityProject>(
       `/workspaces/${workspaceId}/projects/${projectId}`,
       { name: name.trim() },
       buildIfMatchHeaders(version)
@@ -43,14 +43,14 @@ export const membersV2API = {
   },
 
   async deleteProject(workspaceId: string, projectId: string, version: string): Promise<IdentityProject> {
-    return v2Delete<IdentityProject>(
+    return controlDelete<IdentityProject>(
       `/workspaces/${workspaceId}/projects/${projectId}`,
       buildIfMatchHeaders(version)
     )
   },
 
   async getProjectAccess(workspaceId: string, projectId: string): Promise<IdentityAccess> {
-    return v2Get<IdentityAccess>(`/workspaces/${workspaceId}/projects/${projectId}/access`)
+    return controlGet<IdentityAccess>(`/workspaces/${workspaceId}/projects/${projectId}/access`)
   },
 
   async setMemberGrants(
@@ -59,7 +59,7 @@ export const membersV2API = {
     version: string,
     input: IdentityGrantInput
   ): Promise<IdentityGrantVersion> {
-    return v2Put<IdentityGrantVersion>(
+    return controlPut<IdentityGrantVersion>(
       `/workspaces/${workspaceId}/members/${memberId}/grants`,
       normalizeGrantInput(input),
       buildIfMatchHeaders(version)

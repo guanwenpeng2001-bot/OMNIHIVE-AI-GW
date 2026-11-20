@@ -1,5 +1,20 @@
+import type { components } from '@/api/generated/openapi'
 import type { ConsoleAsyncNotice } from '@/features/console/asyncState'
 import type { CatalogModelRate } from '@/features/console/catalogApi'
+
+export type ExactPriceScenario = components['schemas']['ExactPriceScenario']
+export type ExactQuoteLine = components['schemas']['ExactQuoteLine']
+export type ExactQuoteInput = components['schemas']['ExactQuoteInput']
+export type ExactQuote = components['schemas']['ExactQuote']
+
+export type PlaygroundQuoteState =
+  | 'loading'
+  | 'authoritative'
+  | 'free'
+  | 'unpriced'
+  | 'requires_scope'
+  | 'fallback_catalog'
+  | 'error'
 
 export type PlaygroundProtocol =
   | 'openai_chat'
@@ -172,6 +187,13 @@ export interface PlaygroundCostEstimate {
   rateKnown: boolean
   payloadBytes: number
   exceedsBodyLimit: boolean
+  quoteState?: PlaygroundQuoteState
+  quoteSource?: string | null
+  priceVersion?: string | null
+  fundingSource?: string | null
+  budgetBlocked?: boolean
+  unpricedReason?: string | null
+  authoritativeComponents?: ExactQuoteLine[]
 }
 
 export type PlaygroundMachineStatus =

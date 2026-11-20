@@ -16,18 +16,18 @@ export default {
       features: {
         channelMonitor: {
           title: 'Channel Monitor',
-          description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',
+          description: 'Choose either Active Probes or Traffic Telemetry monitoring. When disabled, background monitoring stops and the user entry is hidden.',
           configureLink: 'Configure monitors in Channel Management > Channel Monitor',
           enabled: 'Enable Channel Monitor',
-          enabledHint: 'Disabling stops both the V1 scheduler and V2 aggregation; existing config and history are kept.',
+          enabledHint: 'Disabling stops both probe scheduling and telemetry aggregation; existing configuration and history are preserved.',
           mode: 'Monitor mode',
-          modeHint: 'Default is V1 (active probes). Switch to V2 only when you want passive aggregation; only one implementation can be active at a time.',
-          modeV2: 'V2 passive monitoring',
-          modeV1: 'V1 active probes',
-          modeV2Hint: 'Opt-in: aggregates health metrics from real gateway traffic without upstream probe traffic. V1 probes stop while V2 is active.',
-          modeV1Hint: 'Default: runs scheduled upstream health checks for configured channel monitors (probe traffic).',
+          modeHint: 'Defaults to Active Probes. Switch to Traffic Telemetry to aggregate health from live gateway traffic without upstream probe requests.',
+          modeTelemetry: 'Traffic telemetry',
+          modeProbe: 'Active probes',
+          modeTelemetryHint: 'Aggregates health metrics from real gateway traffic without sending upstream probes. Active probes pause while Traffic Telemetry is active.',
+          modeProbeHint: 'Default: runs scheduled upstream health probes for configured channel targets.',
           defaultInterval: 'Default check interval (seconds)',
-          defaultIntervalHint: 'V1 only: default interval for new monitors (overridable per monitor). Range 15 – 3600 seconds.',
+          defaultIntervalHint: 'Active Probes mode: default check interval for new monitor targets (overridable per target). Range 15 – 3600 seconds.',
           hideThroughput: 'Hide throughput rates from users (RPM / TPM)',
           hideThroughputHint:
             'When on, the user Channel Monitor page and user APIs omit RPM and TPM so fleet volume cannot be reverse-estimated from rates × window. Admins still see full metrics. Error rates, latency, and cache rates remain visible.',
@@ -36,7 +36,7 @@ export default {
             'When on, quota-mode channel monitors expose the linked account usage windows/balance on the user Channel Status page. Disabled by default; admins always see it.',
           hideUserRanking: 'Hide user ranking from users',
           hideUserRankingHint:
-            'When on, the user Channel Monitor V2 page hides the user ranking tab and the user API returns no ranking rows. Admins still see the ranking.',
+            'When enabled, the user Traffic Telemetry page hides the user ranking tab and omits ranking rows from user responses. Admins still see the ranking.',
         },
         availableChannels: {
           title: 'Available Channels',

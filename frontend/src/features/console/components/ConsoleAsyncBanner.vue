@@ -1,20 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import type { ConsoleAsyncNotice } from '../asyncState'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     notice: ConsoleAsyncNotice
     retryLabel?: string
     dismissible?: boolean
   }>(),
   {
-    retryLabel: 'Retry',
+    retryLabel: undefined,
     dismissible: false
   }
 )
+
+const { locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
+const effectiveRetryLabel = computed(() => props.retryLabel || (isZh.value ? '重试' : 'Retry'))
 
 const emit = defineEmits<{
   retry: []
@@ -69,14 +75,14 @@ const emit = defineEmits<{
           class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 font-mono text-[11px] text-oh-muted"
         >
           <span v-if="notice.requiredGrant">
-            Grant: <code class="text-oh-primary">{{ notice.requiredGrant }}</code>
+            {{ isZh ? '所需权限：' : 'Grant: ' }}<code class="text-oh-primary">{{ notice.requiredGrant }}</code>
           </span>
           <span v-if="notice.lastSyncedAt">
-            Last synced: {{ notice.lastSyncedAt }}
+            {{ isZh ? '上次同步：' : 'Last synced: ' }}{{ notice.lastSyncedAt }}
           </span>
           <span v-if="notice.requestId" class="inline-flex items-center gap-1">
-            <span>req: {{ notice.requestId }}</span>
-            <CopyButton :value="notice.requestId" size="xs" aria-label="Copy request ID" />
+            <span>{{ isZh ? '请求 ID：' : 'req: ' }}{{ notice.requestId }}</span>
+            <CopyButton :value="notice.requestId" size="xs" :aria-label="isZh ? '复制请求 ID' : 'Copy request ID'" />
           </span>
         </div>
       </div>
@@ -89,7 +95,7 @@ const emit = defineEmits<{
           data-testid="console-state-retry"
           @click="emit('retry')"
         >
-          {{ retryLabel }}
+          {{ effectiveRetryLabel }}
         </Button>
         <Button
           v-if="dismissible"
@@ -97,7 +103,7 @@ const emit = defineEmits<{
           size="sm"
           @click="emit('dismiss')"
         >
-          Dismiss
+          {{ isZh ? '关闭' : 'Dismiss' }}
         </Button>
       </div>
     </div>

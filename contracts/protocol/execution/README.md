@@ -8,4 +8,4 @@ The first attempt intent commits atomically with admission. The dispatch transac
 
 The crash fixture names the checkpoint where the subprocess stops. For the in-flight checkpoint the local provider receives the POST and withholds its reply. The parent kills the sender, advances the stored deadline, then queries the actual PostgreSQL attempt, receipt and release facts. The receipt-committed checkpoint covers the interval before client or worker acknowledgement. Explicit token-presence flags distinguish observed zero from unknown. A silent BE-03 timeout records its original reason, unknown acceptance and abandoned flag. A replacement on another account may generate its own receipt.
 
-Run `contracts/migrations/BE-06/smoke.sh` with the dedicated PostgreSQL and Redis environments. The integration handoff describes the post-composition smoke and benchmark.
+Run `contracts/migrations/execution/smoke.sh` with the dedicated PostgreSQL and Redis environments. The integration handoff describes the post-composition smoke and benchmark.

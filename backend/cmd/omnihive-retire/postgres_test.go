@@ -15,7 +15,7 @@ import (
 )
 
 func TestRetirementOnIsolatedPostgres(t *testing.T) {
-	db, cfg := testfixture.Database(t, "BE30_INTEGRATION_TEST_DSN", "job_test")
+	db, cfg := testfixture.Database(t, "RETIREMENT_INTEGRATION_TEST_DSN", "job_test")
 	t.Setenv("OMNIHIVE_REFACTOR_DSN", cfg.Database.DSN()+" default_transaction_read_only=on")
 	t.Setenv("OMNIHIVE_RESTORE_JOURNAL_DSN", "")
 	execSQL := func(s string) { t.Helper(); _, err := db.ExecContext(t.Context(), s); require.NoError(t, err) }

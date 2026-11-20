@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/client'
-import type { components } from '@/api/generated/v2'
+import type { components } from '@/api/generated/openapi'
 
 type Schema = components['schemas']
 export type PolicyHead = Schema['RoutingPolicyHead']

@@ -721,7 +721,7 @@ export default {
     allProviders: '全部供应商',
     loadError: '加载渠道状态失败',
     disabled: '渠道监控未启用，当前页面没有可展示的监控数据',
-    modeMismatch: '渠道监控当前运行在 V2 模式，请改用渠道状态 V2 页面查看',
+    modeMismatch: '渠道监控当前运行在「流量遥测」模式，请前往实时流量遥测视图查看',
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
     closeDetail: '关闭',

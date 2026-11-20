@@ -6,4 +6,4 @@ Strict region and zero-retention constraints require verified candidate evidence
 
 Replay requires the same candidate evidence, effective policy, affinity and seed. Candidate traces provide the first failing hard stage and ranking explanation in deterministic order. Candidate labels in scoped stored projections are local to each trace.
 
-See the [BE-08 API fragment](../../../backend/api/v2/fragments/BE-08.yaml) and [migration integration](../../migrations/BE-08/INTEGRATION.md).
+See the [BE-08 API fragment](../../../backend/api/v2/fragments/routing.yaml) and [migration integration](../../migrations/BE-08/INTEGRATION.md).

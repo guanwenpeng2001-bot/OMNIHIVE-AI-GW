@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { identityV2Api } from '@/features/console/scope'
+import { identityApi } from '@/features/console/scope'
 import TaskCenterView from '../TaskCenterView.vue'
 import type { ImageTaskDetail } from '@/features/tasks/types'
 
@@ -35,11 +35,11 @@ vi.mock('@/api', () => ({
 }))
 
 vi.mock('@/features/console/catalogApi', () => ({
-  catalogV2Api: { listScopedModels: mocks.listScopedModels }
+  catalogApi: { listScopedModels: mocks.listScopedModels }
 }))
 
 vi.mock('@/features/tasks/api', () => ({
-  tasksV2Api: {
+  tasksApi: {
     listTasks: mocks.listTasks,
     createTask: mocks.createTask,
     getTaskDetail: mocks.getTaskDetail,
@@ -113,7 +113,7 @@ describe('TaskCenterView BE-15 workflows and honest states', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.resetAllMocks()
-    vi.spyOn(identityV2Api, 'listScopes').mockResolvedValue({
+    vi.spyOn(identityApi, 'listScopes').mockResolvedValue({
       items: [
         {
           workspace_id: '1',

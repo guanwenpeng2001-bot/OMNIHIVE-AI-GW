@@ -169,7 +169,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := parsedReq.Model
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches, h.maxAccountSwitchesGemini)()
+	finishExecution, admitted := beginJournaledExecution(c, h.gatewayService, apiKey, reqModel, "anthropic", body, h.maxAccountSwitches, h.errorResponse, h.maxAccountSwitchesGemini)
+	defer finishExecution()
+	if !admitted {
+		return
+	}
 	requestBudget := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot()
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)

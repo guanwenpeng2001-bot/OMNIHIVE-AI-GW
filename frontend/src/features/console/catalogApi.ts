@@ -1,3 +1,4 @@
+import type { components } from '@/api/generated/openapi'
 import { apiClient, buildGatewayUrl } from '@/api/client'
 
 export interface CatalogModelRate {
@@ -20,20 +21,38 @@ export interface CatalogModelItem {
   reasoningSupported: boolean
   inputRate: CatalogModelRate | null
   outputRate: CatalogModelRate | null
+  priceState?: 'priced' | 'free' | 'unpriced' | 'error'
+  accessState?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
+  routeState?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
+  catalogVersion?: string
 }
+
+export type CatalogModelDetail = components['schemas']['ModelDetail']
+export type CatalogCompareInput = components['schemas']['CatalogCompareInput']
+export type CatalogCompareResult = components['schemas']['CatalogCompareResult']
 
 interface RawCatalogModel {
   id?: string
+  model?: string
   slug?: string
   canonical_slug?: string
   name?: string
   display_name?: string
   provider?: string
+  catalog_version?: string
   protocols?: string[]
   supported_protocols?: string[]
+  modalities?: string[]
+  actions?: string[]
+  context_tokens?: number | string | null
+  price_state?: 'priced' | 'free' | 'unpriced' | 'error'
+  access_state?: 'allowed' | 'denied' | 'unknown' | 'requires_scope'
+  route_state?: 'eligible' | 'ineligible' | 'unknown' | 'requires_scope'
+  input_rate?: CatalogModelRate | null
+  output_rate?: CatalogModelRate | null
   facts?: {
-    context_tokens?: number | null
-    max_output_tokens?: number | null
+    context_tokens?: number | string | null
+    max_output_tokens?: number | string | null
     tools?: boolean | string | null
     reasoning?: boolean | string | null
     modalities?: string[]
@@ -61,24 +80,39 @@ function normalizeRateList(raw: RawCatalogModel): {
 } {
   const rates = raw.pricing?.rates ?? raw.rates ?? []
   const inputRate =
+    raw.input_rate ??
     raw.pricing?.input ??
     rates.find((r) => r.unit === 'input_token' || r.unit === 'prompt_token') ??
     null
   const outputRate =
+    raw.output_rate ??
     raw.pricing?.output ??
     rates.find((r) => r.unit === 'output_token' || r.unit === 'completion_token') ??
     null
   return { inputRate, outputRate }
 }
 
+function parseOptionalPositiveInt(val: number | string | null | undefined): number | null {
+  if (typeof val === 'number' && Number.isFinite(val)) return val
+  if (typeof val === 'string' && val.trim() !== '') {
+    const parsed = Number(val)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
 export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | null {
-  const slug = (raw.slug || raw.canonical_slug || raw.id || '').trim()
+  const slug = (raw.slug || raw.canonical_slug || raw.model || raw.id || '').trim()
   const id = (raw.id || slug).trim()
   if (!id) return null
   const displayName = (raw.display_name || raw.name || slug || id).trim()
   const protocols = raw.protocols ?? raw.supported_protocols ?? []
-  const modalities = raw.facts?.modalities ?? []
+  const modalities = raw.modalities ?? raw.facts?.modalities ?? []
   const { inputRate, outputRate } = normalizeRateList(raw)
+  const maxOutputTokens = parseOptionalPositiveInt(raw.facts?.max_output_tokens)
+  const contextTokens =
+    parseOptionalPositiveInt(raw.context_tokens) ??
+    parseOptionalPositiveInt(raw.facts?.context_tokens)
 
   return {
     id,
@@ -87,18 +121,20 @@ export function normalizeCatalogModel(raw: RawCatalogModel): CatalogModelItem | 
     provider: (raw.provider || 'gateway').trim(),
     protocols: Array.isArray(protocols) ? protocols : [],
     modalities: Array.isArray(modalities) ? modalities : [],
-    maxOutputTokens:
-      typeof raw.facts?.max_output_tokens === 'number' ? raw.facts.max_output_tokens : null,
-    contextTokens:
-      typeof raw.facts?.context_tokens === 'number' ? raw.facts.context_tokens : null,
+    maxOutputTokens,
+    contextTokens,
     toolsSupported: Boolean(raw.facts?.tools && raw.facts.tools !== 'unsupported'),
     reasoningSupported: Boolean(raw.facts?.reasoning && raw.facts.reasoning !== 'unsupported'),
     inputRate,
-    outputRate
+    outputRate,
+    priceState: raw.price_state,
+    accessState: raw.access_state,
+    routeState: raw.route_state,
+    catalogVersion: raw.catalog_version
   }
 }
 
-export const catalogV2Api = {
+export const catalogApi = {
   async listScopedModels(
     workspaceId: string,
     projectId: string,
@@ -131,5 +167,33 @@ export const catalogV2Api = {
     })
     const list = data?.items ?? data?.models ?? []
     return list.map(normalizeCatalogModel).filter((item): item is CatalogModelItem => item !== null)
+  },
+
+  async getProjectModel(
+    workspaceId: string,
+    projectId: string,
+    modelId: string,
+    params?: { catalog_version?: string },
+    signal?: AbortSignal
+  ): Promise<CatalogModelDetail> {
+    const { data } = await apiClient.get<CatalogModelDetail>(
+      v2Url(`/workspaces/${workspaceId}/projects/${projectId}/models/${encodeURIComponent(modelId)}`),
+      { baseURL: '', params, signal }
+    )
+    return data
+  },
+
+  async compareProjectModels(
+    workspaceId: string,
+    projectId: string,
+    input: CatalogCompareInput,
+    signal?: AbortSignal
+  ): Promise<CatalogCompareResult> {
+    const { data } = await apiClient.post<CatalogCompareResult>(
+      v2Url(`/workspaces/${workspaceId}/projects/${projectId}/models/compare`),
+      input,
+      { baseURL: '', signal }
+    )
+    return data
   }
 }

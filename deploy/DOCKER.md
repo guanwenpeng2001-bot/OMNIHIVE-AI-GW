@@ -120,6 +120,27 @@ LinuxDo confidential clients default to `LINUXDO_CONNECT_USE_PKCE=false`; public
 using `token_auth_method=none` must explicitly enable PKCE. This example does not change
 the authentication default.
 
+## Version check, upgrade and rollback
+
+Pin a release tag or digest instead of `:latest` so upgrades and rollbacks are
+reproducible:
+
+```bash
+# Check the running binary version
+docker compose exec omnihive /app/omnihive --version
+
+# Upgrade to a newer pinned tag
+docker compose pull
+docker compose up -d
+
+# Rollback to the previous pinned tag (edit the image tag in Compose/.env first)
+docker compose up -d
+```
+
+Image and binary rollback do not revert applied database migrations. Back up
+PostgreSQL and `JWT_SECRET`/`TOTP_ENCRYPTION_KEY` before an upgrade, then verify
+`/health` (liveness) and `/ready` (dependency readiness/draining) after restart.
+
 ## Builds and links
 
 Build from the repository root with `docker build -f Dockerfile .` or

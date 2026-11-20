@@ -74,6 +74,51 @@ func (r *keyCreateRepo) Create(ctx context.Context, key *APIKey) error {
 	return nil
 }
 
+type projectKeyCreateRepo struct {
+	keyCreateRepo
+	project, group, user int64
+	projectWorkspace     int64
+}
+
+func (r *projectKeyCreateRepo) ResolveKeyWorkspace(_ context.Context, user, project, group int64) (int64, error) {
+	if project != r.project || group != r.group || user != r.user {
+		return 0, ErrWorkspaceNotFound
+	}
+	return r.projectWorkspace, nil
+}
+
+func (r *projectKeyCreateRepo) CreateInProject(ctx context.Context, key *APIKey, project int64) error {
+	if project != r.project || domain.ResourceWorkspaceID(ctx) != r.projectWorkspace {
+		return ErrWorkspaceNotFound
+	}
+	return r.keyCreateRepo.Create(ctx, key)
+}
+
+func TestAPIKeyCreateInSelectedProject(t *testing.T) {
+	user := &User{ID: 7, Status: StatusActive}
+	group := &Group{ID: 3, Status: StatusActive}
+	repo := &projectKeyCreateRepo{project: 19, user: user.ID, group: group.ID, projectWorkspace: 9}
+	svc := NewAPIKeyService(repo, &keyCreateUserRepo{user: user}, &keyCreateGroupRepo{group: group},
+		nil, nil, nil, &config.Config{})
+	ctx := domain.WithWorkspaceScope(t.Context(), domain.DefaultWorkspaceID)
+	req := CreateAPIKeyRequest{Name: "scoped", GroupID: &group.ID, ProjectID: &repo.project}
+	req.WorkspaceID = 4
+	_, err := svc.Create(ctx, user.ID, req)
+	require.ErrorIs(t, err, ErrWorkspaceNotFound)
+	require.Nil(t, repo.saved)
+	req.WorkspaceID = 0
+	unknown := int64(300)
+	req.ProjectID = &unknown
+	_, err = svc.Create(ctx, user.ID, req)
+	require.ErrorIs(t, err, ErrWorkspaceNotFound)
+	require.Nil(t, repo.saved)
+	req.ProjectID = &repo.project
+	issued, err := svc.Create(ctx, user.ID, req)
+	require.NoError(t, err)
+	require.Equal(t, repo.projectWorkspace, repo.workspaceID)
+	require.Equal(t, group.ID, *issued.GroupID)
+}
+
 func TestAPIKeyCreateAuthorization(t *testing.T) {
 	storageErr := errors.New("credential transaction failed")
 	for _, tc := range []struct {

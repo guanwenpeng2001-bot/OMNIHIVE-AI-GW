@@ -16,6 +16,7 @@ import (
 
 	"github.com/dgraph-io/ristretto"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/pagination"
@@ -130,6 +131,11 @@ type apiKeyAllByUserIDLister interface {
 	ListAllByUserID(ctx context.Context, userID int64, filters APIKeyListFilters) ([]APIKey, error)
 }
 
+type projectAPIKeyCreator interface {
+	ResolveKeyWorkspace(ctx context.Context, user, project, group int64) (int64, error)
+	CreateInProject(ctx context.Context, key *APIKey, project int64) error
+}
+
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
 type APIKeyRateLimitData struct {
 	Usage5h       float64
@@ -214,8 +220,11 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name        string   `json:"name"`
-	GroupID     *int64   `json:"group_id"`
+	Name      string `json:"name"`
+	GroupID   *int64 `json:"group_id"`
+	ProjectID *int64 `json:"project_id,omitempty"`
+	// WorkspaceID constrains requests made through the delegated workspace URL.
+	WorkspaceID int64    `json:"-"`
 	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
@@ -282,6 +291,9 @@ func validateAPIKeyLimit(v float64) error {
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 	if req.GroupID == nil || *req.GroupID <= 0 {
 		return ErrAPIKeyGroupRequired
+	}
+	if req.ProjectID != nil && *req.ProjectID <= 0 {
+		return infraerrors.BadRequest("PROJECT_ID_INVALID", "project_id must be a positive identifier")
 	}
 	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if err := validateAPIKeyLimit(v); err != nil {
@@ -592,6 +604,24 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	if !user.IsActive() {
 		return nil, ErrUserNotActive
 	}
+	create := s.apiKeyRepo.Create
+	if req.ProjectID != nil {
+		projects, ok := s.apiKeyRepo.(projectAPIKeyCreator)
+		if !ok {
+			return nil, ErrWorkspaceNotFound
+		}
+		workspace, err := projects.ResolveKeyWorkspace(ctx, userID, *req.ProjectID, *req.GroupID)
+		if err != nil {
+			return nil, err
+		}
+		if req.WorkspaceID != 0 && req.WorkspaceID != workspace {
+			return nil, ErrWorkspaceNotFound
+		}
+		ctx = domain.WithWorkspaceScope(ctx, workspace)
+		create = func(ctx context.Context, key *APIKey) error {
+			return projects.CreateInProject(ctx, key, *req.ProjectID)
+		}
+	}
 
 	// 验证 IP 白名单格式
 	if len(req.IPWhitelist) > 0 {
@@ -681,7 +711,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		apiKey.ExpiresAt = &expiresAt
 	}
 
-	if err := s.apiKeyRepo.Create(ctx, apiKey); err != nil {
+	if err := create(ctx, apiKey); err != nil {
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 

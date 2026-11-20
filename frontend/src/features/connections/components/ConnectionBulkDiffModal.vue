@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Badge, Button, Checkbox, Input, Modal, Select } from '@/components/ui'
-import { connectionsV2Api, pollConnectionOperation } from '../api'
+import { connectionsApi, pollConnectionOperation } from '../api'
 import { mapApiErrorToAsyncContext } from '../rules'
 import { computeBulkDiffSummary, toggleBulkSelection } from '../wizardState'
 import type {
@@ -27,6 +28,9 @@ const emit = defineEmits<{
   applied: []
 }>()
 
+const i18n = useI18n()
+const isZh = computed(() => String(i18n.locale?.value || '').toLowerCase().startsWith('zh'))
+
 const targetConcurrency = ref('')
 const targetPoolId = ref('')
 const targetModelIds = ref('')
@@ -41,8 +45,8 @@ const asyncState = ref<AsyncPageState | null>(null)
 const asyncError = ref<AsyncErrorContext | null>(null)
 
 const poolOptions = computed(() => [
-  { value: '', label: 'Keep current pools' },
-  ...pools.value.map((pool) => ({ value: pool.id, label: `${pool.name} (${pool.id})` }))
+  { value: '', label: isZh.value ? '保持当前资源池不变' : 'Keep current pools' },
+  ...pools.value.map((pool) => ({ value: pool.id, label: `${pool.name} (#${pool.id})` }))
 ])
 
 const summary = computed(() =>
@@ -59,7 +63,7 @@ watch(
     asyncError.value = null
     selectedIds.value = []
     try {
-      const poolPage = await connectionsV2Api.listPools({ limit: 100 }, props.workspaceId)
+      const poolPage = await connectionsApi.listPools({ limit: 100 }, props.workspaceId)
       pools.value = poolPage.items
     } catch {
       pools.value = []
@@ -92,7 +96,7 @@ async function runBulkPreview() {
   asyncError.value = null
   applyOperation.value = null
   try {
-    const preview = await connectionsV2Api.bulkPreview(
+    const preview = await connectionsApi.bulkPreview(
       {
         ids: props.connectionIds,
         patch: buildPatchPayload()
@@ -103,7 +107,11 @@ async function runBulkPreview() {
     selectedIds.value = computeBulkDiffSummary(preview.items).selectableIds
     asyncState.value = preview.items.length === 0 ? 'empty' : null
   } catch (err) {
-    const mapped = mapApiErrorToAsyncContext(err, 'Bulk preview failed.')
+    const mapped = mapApiErrorToAsyncContext(
+      err,
+      isZh.value ? '生成批量变更预览失败。' : 'Bulk preview failed.',
+      isZh.value
+    )
     asyncState.value = mapped.state
     asyncError.value = mapped
   } finally {
@@ -117,7 +125,7 @@ async function runBulkApply() {
   asyncState.value = 'background_refresh'
   asyncError.value = null
   try {
-    const initialOp = await connectionsV2Api.bulkApply(
+    const initialOp = await connectionsApi.bulkApply(
       {
         preview_id: previewResult.value.preview_id,
         selected_ids: selectedIds.value
@@ -135,7 +143,12 @@ async function runBulkApply() {
       asyncError.value = {
         state: 'partial_failure',
         status: 207,
-        message: typeof finalOp.error?.message === 'string' ? finalOp.error.message : 'Some connections failed to update.',
+        message:
+          typeof finalOp.error?.message === 'string'
+            ? finalOp.error.message
+            : isZh.value
+              ? '部分连接更新未成功，请检查预览状态后重试。'
+              : 'Some connections failed to update.',
         requestId: finalOp.operation_id
       }
     } else {
@@ -143,7 +156,11 @@ async function runBulkApply() {
       emit('applied')
     }
   } catch (err) {
-    const mapped = mapApiErrorToAsyncContext(err, 'Bulk apply failed.')
+    const mapped = mapApiErrorToAsyncContext(
+      err,
+      isZh.value ? '应用批量变更失败。' : 'Bulk apply failed.',
+      isZh.value
+    )
     asyncState.value = mapped.state
     asyncError.value = mapped
   } finally {
@@ -157,14 +174,27 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
   if (state === 'blocked') return 'danger'
   return 'neutral'
 }
+
+function formatItemState(state: string): string {
+  if (!isZh.value) return state
+  if (state === 'applicable') return '可应用'
+  if (state === 'applied') return '已应用'
+  if (state === 'conflict') return '修订冲突'
+  if (state === 'blocked') return '受阻断'
+  return state
+}
 </script>
 
 <template>
   <Modal
     :open="open"
     size="lg"
-    title="Bulk Connection Preview & Apply"
-    subtitle="Preview per-item version diffs before applying fenced updates"
+    :title="isZh ? '批量变更预览与应用' : 'Bulk Connection Preview & Apply'"
+    :subtitle="
+      isZh
+        ? '在批量生效前逐条检查配置修订差异与连通性前置条件'
+        : 'Preview per-connection revision diffs before applying updates'
+    "
     @update:open="emit('update:open', $event)"
   >
     <div class="space-y-4">
@@ -172,35 +202,36 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
         v-if="asyncState"
         :state="asyncState"
         :error="asyncError"
-        confirmed-label="Bulk update applied"
-        empty-title="No matching connections in preview"
+        :confirmed-label="isZh ? '批量更新已生效' : 'Bulk update applied'"
+        :empty-title="isZh ? '预览中没有可变更的连接' : 'No matching connections in preview'"
         @retry="runBulkPreview"
       />
 
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Select
           v-model="targetPoolId"
-          label="Assign Pool"
+          :label="isZh ? '分配出站资源池' : 'Assign Pool'"
           :options="poolOptions"
         />
         <Input
           v-model="targetModelIds"
-          label="Model IDs (comma-separated)"
+          :label="isZh ? '暴露模型 ID（逗号分隔）' : 'Model IDs (comma-separated)'"
           mono
-          placeholder="Unchanged"
+          :placeholder="isZh ? '留空保持不变' : 'Unchanged'"
         />
         <Input
           v-model="targetConcurrency"
-          label="Concurrency Cap"
+          :label="isZh ? '并发上限' : 'Concurrency Cap'"
           type="number"
           mono
-          placeholder="Unchanged"
+          :placeholder="isZh ? '留空保持不变' : 'Unchanged'"
         />
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-2 rounded-oh-md border border-oh-default bg-oh-subtle/40 px-3 py-2 text-xs">
         <span class="text-oh-muted">
-          Selected connections: <strong class="font-mono tabular-nums text-oh-fg">{{ connectionIds.length }}</strong>
+          {{ isZh ? '已选上游连接：' : 'Selected connections: ' }}
+          <strong class="font-mono tabular-nums text-oh-fg">{{ connectionIds.length }}</strong>
         </span>
         <Button
           size="sm"
@@ -209,24 +240,21 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
           :disabled="connectionIds.length === 0"
           @click="runBulkPreview"
         >
-          Generate Per-Item Diff Preview
+          {{ isZh ? '生成逐项差异预览' : 'Generate Diff Preview' }}
         </Button>
       </div>
 
       <div v-if="previewResult" class="space-y-3">
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <Badge tone="success" variant="subtle">
-            Applicable: {{ summary.applicableCount }}
+            {{ isZh ? '可应用' : 'Applicable' }}: {{ summary.applicableCount }}
           </Badge>
           <Badge tone="warning" variant="subtle">
-            Conflict: {{ summary.conflictCount }}
+            {{ isZh ? '修订冲突' : 'Conflict' }}: {{ summary.conflictCount }}
           </Badge>
           <Badge tone="danger" variant="subtle">
-            Blocked: {{ summary.blockedCount }}
+            {{ isZh ? '受阻断' : 'Blocked' }}: {{ summary.blockedCount }}
           </Badge>
-          <span class="ml-auto font-mono tabular-nums text-oh-muted">
-            preview: {{ previewResult.preview_id }}
-          </span>
         </div>
 
         <div class="max-h-64 overflow-y-auto divide-y divide-oh-default rounded-oh-md border border-oh-default">
@@ -243,7 +271,10 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
               />
               <div class="min-w-0">
                 <div class="font-mono tabular-nums text-oh-fg truncate">
-                  {{ item.id }} <span class="text-oh-muted">v{{ item.version ?? item.base_version }}</span>
+                  #{{ item.id }}
+                  <span class="text-oh-muted">
+                    {{ isZh ? `修订 #${item.version ?? item.base_version}` : `Rev #${item.version ?? item.base_version}` }}
+                  </span>
                 </div>
                 <div v-if="item.reason" class="text-oh-muted truncate">
                   {{ item.reason }}
@@ -251,7 +282,7 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
               </div>
             </div>
             <Badge :tone="itemBadgeTone(item.state)" variant="subtle">
-              {{ item.state }}
+              {{ formatItemState(item.state) }}
             </Badge>
           </div>
         </div>
@@ -261,7 +292,7 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
         v-if="applyOperation"
         class="rounded-oh-md border border-oh-default bg-oh-surface px-3 py-2 text-xs flex items-center justify-between"
       >
-        <span class="font-mono tabular-nums text-oh-fg">Operation {{ applyOperation.operation_id }}</span>
+        <span class="text-oh-fg">{{ isZh ? '批量应用状态' : 'Bulk Apply Status' }}</span>
         <Badge tone="accent" variant="subtle">{{ applyOperation.state }}</Badge>
       </div>
     </div>
@@ -269,7 +300,7 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
     <template #footer>
       <div class="flex items-center justify-end gap-2">
         <Button variant="ghost" size="sm" @click="emit('update:open', false)">
-          Close
+          {{ isZh ? '关闭' : 'Close' }}
         </Button>
         <Button
           variant="primary"
@@ -278,7 +309,7 @@ function itemBadgeTone(state: string): 'success' | 'warning' | 'danger' | 'neutr
           :disabled="!previewResult || selectedIds.length === 0"
           @click="runBulkApply"
         >
-          Apply ({{ selectedIds.length }})
+          {{ isZh ? `确认应用 (${selectedIds.length})` : `Apply (${selectedIds.length})` }}
         </Button>
       </div>
     </template>

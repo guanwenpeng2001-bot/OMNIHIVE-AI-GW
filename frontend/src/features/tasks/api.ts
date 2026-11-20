@@ -44,7 +44,7 @@ function buildTaskQueryPairs(params?: TaskListFilterParams): URLSearchParams {
   return search
 }
 
-export const tasksV2Api = {
+export const tasksApi = {
   async listTasks(
     workspaceId: string,
     projectId: string,

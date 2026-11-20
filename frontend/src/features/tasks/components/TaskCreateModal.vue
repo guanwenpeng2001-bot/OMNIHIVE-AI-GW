@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import Button from '@/components/ui/Button.vue'
 import Modal from '@/components/ui/Modal.vue'
 import type { ImageTaskCreateInput } from '../types'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
-    keys: Array<{ id: string; name: string }>
+    keys: Array<{ id: string; name: string; prefix?: string; scopeLabel?: string }>
     models: Array<{ id: string; slug: string; displayName: string }>
     submitting?: boolean
     isZh?: boolean
@@ -23,6 +23,7 @@ withDefaults(
 const emit = defineEmits<{
   'update:open': [value: boolean]
   submit: [payload: ImageTaskCreateInput]
+  'navigate-keys': []
 }>()
 
 const form = reactive({
@@ -33,6 +34,16 @@ const form = reactive({
   count: 1,
   acknowledged: false
 })
+
+watch(
+  () => [props.open, props.keys] as const,
+  ([isOpen, keyList]) => {
+    if (isOpen && !form.apiKeyId && keyList.length > 0) {
+      form.apiKeyId = keyList[0].id
+    }
+  },
+  { immediate: true }
+)
 
 function handleClose(): void {
   emit('update:open', false)
@@ -59,7 +70,7 @@ function handleSubmit(): void {
     :open="open"
     size="md"
     :teleport-disabled="teleportDisabled"
-    :title="isZh ? '新建图像生成任务 (BE-15)' : 'New Image Generation Task (BE-15)'"
+    :title="isZh ? '新建图像生成任务' : 'New Image Generation Task'"
     :description="
       isZh
         ? '异步生成产物将归档至受控私有存储（保留窗口 24 小时）。'
@@ -69,8 +80,19 @@ function handleSubmit(): void {
     @close="handleClose"
   >
     <div data-testid="task-create-modal" class="space-y-3 text-xs">
-      <label class="block space-y-1">
-        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">API Key</span>
+      <div class="space-y-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? 'API 密钥' : 'API Key' }}
+          </span>
+          <button
+            type="button"
+            class="oh-focus-ring rounded font-mono text-[11px] text-[var(--oh-accent-text,var(--brand-text,#d97706))] underline"
+            @click="emit('navigate-keys')"
+          >
+            {{ isZh ? '管理密钥 →' : 'Manage Keys →' }}
+          </button>
+        </div>
         <select
           v-if="keys.length > 0"
           v-model="form.apiKeyId"
@@ -78,20 +100,39 @@ function handleSubmit(): void {
         >
           <option value="">{{ isZh ? '选择密钥…' : 'Select key…' }}</option>
           <option v-for="k in keys" :key="k.id" :value="k.id">
-            {{ k.name }} (#{{ k.id }})
+            {{ k.name }} (#{{ k.id }}{{ k.prefix ? ` · ${k.prefix}` : '' }}{{ k.scopeLabel ? ` · ${k.scopeLabel}` : '' }})
           </option>
         </select>
-        <input
+        <div
           v-else
-          v-model="form.apiKeyId"
-          type="text"
-          placeholder="Key ID"
-          class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
-        />
-      </label>
+          data-testid="task-empty-keys-guidance"
+          class="space-y-2 rounded-[var(--oh-r-sm,6px)] border border-dashed border-[var(--oh-accent-border,rgba(245,158,11,0.45))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.08))] p-2.5"
+        >
+          <p class="text-[11px] leading-relaxed text-[var(--oh-ink,var(--foreground))]">
+            {{
+              isZh
+                ? '当前项目或个人账户下暂无可用 API 密钥。请先前往「API 密钥」页面创建密钥，或输入已有数字密钥 ID。'
+                : 'No active user or project API keys found. Create an API key first, or enter an existing numeric key ID.'
+            }}
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="xs" @click="emit('navigate-keys')">
+              {{ isZh ? '前往创建 API 密钥 →' : 'Go to API Keys →' }}
+            </Button>
+            <input
+              v-model="form.apiKeyId"
+              type="text"
+              :placeholder="isZh ? '或输入密钥 ID（如 12）' : 'Or enter Key ID (e.g. 12)'"
+              class="h-7 flex-1 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
+            />
+          </div>
+        </div>
+      </div>
 
       <label class="block space-y-1">
-        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Model ID</span>
+        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ isZh ? '图像模型' : 'Image Model' }}
+        </span>
         <select
           v-if="models.length > 0"
           v-model="form.modelId"
@@ -112,7 +153,9 @@ function handleSubmit(): void {
 
       <div class="grid grid-cols-2 gap-2">
         <label class="block space-y-1">
-          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Size</span>
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '图像尺寸' : 'Image Size' }}
+          </span>
           <select
             v-model="form.size"
             class="h-8 w-full rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2 font-mono text-xs tabular-nums text-[var(--oh-ink,var(--foreground))]"
@@ -123,7 +166,9 @@ function handleSubmit(): void {
           </select>
         </label>
         <label class="block space-y-1">
-          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Count (1–4)</span>
+          <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{ isZh ? '生成张数 (1–4)' : 'Count (1–4)' }}
+          </span>
           <input
             v-model.number="form.count"
             type="number"
@@ -135,7 +180,9 @@ function handleSubmit(): void {
       </div>
 
       <label class="block space-y-1">
-        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">Prompt</span>
+        <span class="text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+          {{ isZh ? '图像提示词' : 'Prompt' }}
+        </span>
         <textarea
           v-model="form.prompt"
           rows="3"
@@ -150,8 +197,8 @@ function handleSubmit(): void {
         <span class="text-[var(--oh-ink,var(--foreground))]">
           {{
             isZh
-              ? '我确认本任务将按当前价格版本独立冻结预算并产生计费（funding_acknowledged: true）。'
-              : 'I acknowledge this task reserves budget and bills under the active price version (funding_acknowledged: true).'
+              ? '我确认本任务将按当前生效价格版本独立冻结预算并按回执计费。'
+              : 'I acknowledge this task independently reserves budget and settles under the active price version.'
           }}
         </span>
       </label>

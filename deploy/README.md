@@ -238,6 +238,32 @@ docker compose up -d
 docker compose down -v
 ```
 
+### Version Check, Upgrade and Rollback (Docker)
+
+Pin the image tag (for example `:v0.2.23` or `:0.2`) instead of `:latest` so an
+upgrade or rollback is reproducible:
+
+```bash
+# Check the running binary version
+docker compose exec omnihive /app/omnihive --version
+
+# Health check (liveness) and dependency readiness
+curl -fsS http://localhost:8080/health
+curl -fsS http://localhost:8080/ready
+
+# Upgrade: move the tag forward
+docker compose pull
+docker compose up -d
+
+# Rollback: point the Compose image back to the previous tag
+# (edit the image tag in docker-compose.yml / .env, then:)
+docker compose up -d
+```
+
+Container images do not roll back database migrations, so back up PostgreSQL and
+the persisted keys before an upgrade, then verify `/health` and `/ready` after
+the restart.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
@@ -445,6 +471,15 @@ sudo ./install.sh
 
 # Upgrade
 sudo ./install.sh upgrade
+
+# Version check
+sudo /opt/omnihive/omnihive --version
+
+# List available release versions
+sudo ./install.sh list-versions
+
+# Rollback to a specific release version
+sudo ./install.sh rollback v0.2.23
 
 # Uninstall
 sudo ./install.sh uninstall

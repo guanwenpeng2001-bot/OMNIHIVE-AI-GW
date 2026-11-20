@@ -104,6 +104,18 @@ func (h *Handler) keys(r request) (any, error) {
 	return pageResult(h, r, "keys", p, rows, func(x domain.Key) int64 { return x.ID }), nil
 }
 
+func (h *Handler) members(r request) (any, error) {
+	p, err := h.page(r, "members")
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.store.Members(r.Request.Context(), r.actor, r.w, p)
+	if err != nil {
+		return nil, err
+	}
+	return pageResult(h, r, "members", p, rows, func(x domain.Member) int64 { return x.UserID }), nil
+}
+
 func (h *Handler) workspaces(r request) (any, error) {
 	p, err := h.page(r, "workspaces")
 	if err != nil {

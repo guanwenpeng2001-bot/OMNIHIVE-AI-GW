@@ -11,12 +11,12 @@ import ChannelMonitorView from '@/views/admin/ChannelMonitorView.vue'
 const { listMonitors } = vi.hoisted(() => ({ listMonitors: vi.fn() }))
 
 vi.mock('@/utils/featureFlags', () => ({
-  isChannelMonitorV1Mode: () => true,
-  isChannelMonitorV2Mode: () => false,
+  isChannelProbeMode: () => true,
+  isChannelTelemetryMode: () => false,
   getChannelMonitorMode: () => 'v1' as const,
 }))
 
-vi.mock('@/features/channel-monitor-v2/MonitorSettingsPanel.vue', () => ({
+vi.mock('@/features/channel-telemetry/MonitorSettingsPanel.vue', () => ({
   default: { name: 'MonitorSettingsPanel', template: '<div data-testid="v2-settings" />' },
 }))
 

@@ -28,6 +28,14 @@ describe('connections/wizardState', () => {
     state.name = 'OpenAI Main'
     state.endpoint = 'https://api.openai.com'
     expect(canProceedFromStep(state, 'provider').valid).toBe(true)
+
+    state.endpoint = 'http://127.0.0.1:3425'
+    expect(canProceedFromStep(state, 'provider').valid).toBe(true)
+
+    state.networkPolicyId = 'default'
+    expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(false)
+    state.networkPolicyId = ''
+    expect(canProceedFromStep(state, 'provider', null, Date.now(), true).valid).toBe(true)
   })
 
   it('enforces explicit keep / set / clear credential semantics', () => {
@@ -82,7 +90,7 @@ describe('connections/wizardState', () => {
       auth_type: 'api_key',
       name: 'Anthropic Backup',
       endpoint: 'https://api.anthropic.com',
-      network_policy_id: 'default',
+      network_policy_id: '42',
       credential: {
         version: '3',
         type: 'api_key',

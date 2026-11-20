@@ -11,7 +11,7 @@ const app = useAppStore()
 const auth = useAuthStore()
 const router = useRouter()
 const links = computed(() => [
-  ...(router?.hasRoute?.('ProjectBilling') ? [{ path: '/billing', label: t('wp6.billing.title') }] : []),
+  ...(router?.hasRoute?.('ProjectBilling') ? [{ path: '/billing', label: t('costLedger.billing.title') }] : []),
   ...resolveVisibleTierNavItems('user', {
     isAuthenticated: auth.isAuthenticated,
     isAdmin: auth.isAdmin,
@@ -28,7 +28,7 @@ const links = computed(() => [
 </script>
 
 <template>
-  <nav v-if="links.length" :aria-label="t('wp6.billing.navigation')" class="mb-4 flex w-full min-w-0 flex-wrap gap-1.5 border-b border-oh-subtle pb-2 text-sm">
+  <nav v-if="links.length" :aria-label="t('costLedger.billing.navigation')" class="mb-4 flex w-full min-w-0 flex-wrap gap-1.5 border-b border-oh-subtle pb-2 text-sm">
     <RouterLink v-for="link in links" :key="link.path" :to="link.path" class="oh-focus-ring rounded-oh-sm px-2 py-1.5 font-medium text-oh-secondary hover:bg-oh-hover hover:text-oh-primary" exact-active-class="bg-oh-selected text-oh-accent-text">
       {{ link.label }}
     </RouterLink>

@@ -279,7 +279,7 @@ onMounted(() => {
             <path d="M16 8.5l6.5 3.75v7.5L16 23.5l-6.5-3.75v-7.5L16 8.5z" fill="var(--oh-accent)" />
           </svg>
           <span class="truncate text-sm font-semibold tracking-tight">{{ 'OmniHive' }}</span>
-          <Badge tone="accent" mono size="xs">DESIGN SYSTEM v1 · DEV GALLERY</Badge>
+          <Badge tone="accent" mono size="xs">OMNIHIVE DESIGN SYSTEM · GALLERY</Badge>
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -317,7 +317,7 @@ onMounted(() => {
         description="Interactive verification of semantic tokens, self-hosted Inter & JetBrains Mono tabular typography, keyboard accessibility, and all ten async/edge states."
         :breadcrumbs="[
           { label: 'Console', to: '/home' },
-          { label: 'Design System v1' }
+          { label: 'Design System' }
         ]"
       >
         <template #badges>

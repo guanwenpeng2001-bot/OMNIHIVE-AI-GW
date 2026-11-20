@@ -33,7 +33,7 @@ const options = computed(() => {
   })))
   const current = scopeValue(props.scope)
   if (current && !values.some(option => option.value === current)) {
-    values.unshift({ value: current, label: t('wp6.scope.currentIds', { scope: current }) })
+    values.unshift({ value: current, label: t('costLedger.scope.currentIds', { scope: current }) })
   }
   return values
 })
@@ -80,8 +80,8 @@ async function moreProjects() {
   <div class="w-full min-w-0 sm:w-64">
     <Select
       :model-value="scopeValue(scope)"
-      :label="t('wp6.scope.project')"
-      :placeholder="t('wp6.scope.select')"
+      :label="t('costLedger.scope.project')"
+      :placeholder="t('costLedger.scope.select')"
       :options="options"
       :disabled="directory.loading.value && options.length === 0"
       @update:model-value="select"
@@ -93,7 +93,7 @@ async function moreProjects() {
         variant="ghost"
         @click="directory.refresh"
       >
-        {{ t('wp6.state.retrySection') }}
+        {{ t('costLedger.state.retrySection') }}
       </Button>
       <Button
         v-else-if="directory.data.value?.next_cursor"
@@ -102,14 +102,14 @@ async function moreProjects() {
         :disabled="directory.loading.value"
         @click="more"
       >
-        {{ t('wp6.scope.moreWorkspaces') }}
+        {{ t('costLedger.scope.moreWorkspaces') }}
       </Button>
       <Button v-if="moreProjectWorkspace" size="xs" variant="ghost" :loading="loadingProjects" @click="moreProjects">
-        {{ t('wp6.scope.moreProjects', { name: moreProjectWorkspace.name }) }}
+        {{ t('costLedger.scope.moreProjects', { name: moreProjectWorkspace.name }) }}
       </Button>
     </div>
     <p v-if="projectRequestFailed" role="status" class="mt-1 text-xs text-oh-status-danger-fg">
-      {{ t('wp6.state.loadFailed') }}
+      {{ t('costLedger.state.loadFailed') }}
     </p>
   </div>
 </template>

@@ -323,7 +323,6 @@ const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
-const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
@@ -380,10 +379,11 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'user-overview',
     domain: 'user',
     section: 'overview',
-    label: isZh.value ? 'OVERVIEW · 概览' : 'OVERVIEW',
+    label: isZh.value ? '概览' : 'OVERVIEW',
     items: [
       { path: '/dashboard', label: label('nav.dashboard', '控制台首页'), icon: 'grid' },
       { path: '/keys', label: t('nav.apiKeys'), icon: 'key' },
+      { path: '/byok', label: label('nav.byok', isZh.value ? '自带密钥' : 'BYOK Credentials'), icon: 'shield' },
       { path: '/workspaces', label: label('workspaces.title', '工作空间'), icon: 'users' },
       ...extensionItemsFor('user', 'overview')
     ]
@@ -392,9 +392,9 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'user-models',
     domain: 'user',
     section: 'models',
-    label: isZh.value ? 'MODELS · 模型与调用' : 'MODELS & RUN',
+    label: isZh.value ? '模型与调用' : 'MODELS & RUN',
     items: [
-      { path: '/model-plaza', label: label('nav.modelPlaza', '模型广场'), icon: 'cube', featureFlag: flagModelPlaza },
+      { path: '/model-plaza', label: label('nav.modelPlaza', '模型广场'), icon: 'cube' },
       { path: '/playground', label: isZh.value ? 'Playground 调试台' : 'Playground', icon: 'play' },
       ...extensionItemsFor('user', 'models')
     ]
@@ -403,7 +403,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'user-usage',
     domain: 'user',
     section: 'activity',
-    label: isZh.value ? 'USAGE & TASKS · 用量与任务' : 'USAGE & TASKS',
+    label: isZh.value ? '用量与任务' : 'USAGE & TASKS',
     items: [
       { path: '/requests', label: isZh.value ? '请求记录' : 'Requests', icon: 'document' },
       { path: '/tasks', label: isZh.value ? '任务中心' : 'Task Center', icon: 'inbox' },
@@ -418,7 +418,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'user-billing',
     domain: 'user',
     section: 'billing',
-    label: isZh.value ? 'BILLING · 计费与额度' : 'BILLING & CREDITS',
+    label: isZh.value ? '计费与额度' : 'BILLING & CREDITS',
     items: [
       { path: '/billing', label: isZh.value ? '费用与额度' : 'Costs & Quota', icon: 'calculator' },
       { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: 'creditCard', hideInSimpleMode: true, featureFlag: flagSubscription },
@@ -433,7 +433,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'user-settings',
     domain: 'user',
     section: 'settings',
-    label: isZh.value ? 'SETTINGS · 账户与文档' : 'SETTINGS & DOCS',
+    label: isZh.value ? '账户与文档' : 'SETTINGS & DOCS',
     items: [
       { path: '/settings/mcp', label: isZh.value ? 'MCP 授权' : 'MCP Authorization', icon: 'link' },
       { path: '/profile', label: t('nav.profile'), icon: 'user' },
@@ -446,7 +446,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'admin-operations',
     domain: 'admin',
     section: 'ops',
-    label: isZh.value ? 'OPERATIONS · 运行观测' : 'OPERATIONS',
+    label: isZh.value ? '运行观测' : 'OPERATIONS',
     items: [
       { path: '/admin/dashboard', label: label('nav.dashboard', '总览仪表盘'), icon: 'grid' },
       { path: '/admin/requests', label: isZh.value ? '请求诊断' : 'Request Diagnostics', icon: 'document' },
@@ -460,7 +460,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'admin-channels',
     domain: 'admin',
     section: 'connections',
-    label: isZh.value ? 'CONNECTIONS · 连接与路由' : 'CONNECTIONS & ROUTING',
+    label: isZh.value ? '连接与路由' : 'CONNECTIONS & ROUTING',
     items: [
       { path: '/admin/accounts', label: label('nav.accounts', '上游账号'), icon: 'globe' },
       { path: '/admin/connections/new', label: isZh.value ? '新建上游连接' : 'New Upstream Connection', icon: 'plus' },
@@ -477,7 +477,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'admin-billing',
     domain: 'admin',
     section: 'settlement',
-    label: isZh.value ? 'SETTLEMENT · 结算与套餐' : 'SETTLEMENT & PLANS',
+    label: isZh.value ? '结算与套餐' : 'SETTLEMENT & PLANS',
     items: [
       { path: '/admin/billing', label: isZh.value ? '对账与账本' : 'Reconciliation & Ledger', icon: 'calculator' },
       { path: '/admin/orders', label: t('nav.orderManagement'), icon: 'document', hideInSimpleMode: true, featureFlag: flagAdminPayment },
@@ -496,7 +496,7 @@ const navigationGroups = computed((): NavGroup[] => [
     key: 'admin-governance',
     domain: 'admin',
     section: 'settings',
-    label: isZh.value ? 'GOVERNANCE · 治理与系统' : 'GOVERNANCE & SYSTEM',
+    label: isZh.value ? '系统与治理' : 'GOVERNANCE & SYSTEM',
     items: [
       { path: '/admin/users', label: t('nav.users'), icon: 'users', hideInSimpleMode: true },
       { path: '/admin/audit', label: isZh.value ? '项目审计' : 'Project Audit', icon: 'shield' },

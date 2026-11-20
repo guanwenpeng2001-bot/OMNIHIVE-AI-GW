@@ -286,7 +286,7 @@ func TestRequestsPostgres(t *testing.T) {
 	t.Run("scoped idempotent reauthorized export", func(t *testing.T) {
 		base := f.projectURL(f.w, f.p)
 		path := base + "/" + success + "/exports"
-		body, err := os.ReadFile("../../../../contracts/api/BE-14/export-input.json")
+		body, err := os.ReadFile("../../../../contracts/api/requests/export-input.json")
 		require.NoError(t, err)
 		token := "same-operation-key"
 		begin := f.call(f.observer, "POST", path, string(body), token)
@@ -476,7 +476,7 @@ func array(t *testing.T, value any) []any {
 
 func contract(t *testing.T, filename string) map[string]any {
 	t.Helper()
-	b, err := os.ReadFile("../../../../contracts/api/BE-14/" + filename)
+	b, err := os.ReadFile("../../../../contracts/api/requests/" + filename)
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(b, &out))

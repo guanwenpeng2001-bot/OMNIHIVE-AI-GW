@@ -13,7 +13,7 @@
                 <span class="font-mono tabular-nums">{{ workspaces.length }}</span>
               </span>
               <span v-if="selected" class="pill pill-ghost font-mono text-[11px] uppercase">
-                {{ selected.role }}
+                {{ selected.role === 'admin' ? t('workspaces.admin') : t('workspaces.member') }}
               </span>
               <span
                 v-if="selected && String(selected.id) === activeScope.workspaceId"
@@ -95,15 +95,15 @@
         </div>
         <div class="flex flex-wrap gap-2.5">
           <RouterLink :to="`/workspaces/${selected.id}/keys`" class="btn btn-secondary">{{ t('nav.apiKeys') }}</RouterLink>
-          <RouterLink to="/playground" class="btn btn-secondary">Playground</RouterLink>
-          <RouterLink to="/tasks" class="btn btn-secondary">Task Center</RouterLink>
+          <RouterLink to="/playground" class="btn btn-secondary">{{ isZh ? '模型调试台' : 'Playground' }}</RouterLink>
+          <RouterLink to="/tasks" class="btn btn-secondary">{{ isZh ? '任务中心' : 'Task Center' }}</RouterLink>
           <template v-if="selected.role === 'admin'">
             <RouterLink v-for="resource in resources" :key="resource.path" :to="`/workspaces/${selected.id}/${resource.path}`" class="btn btn-secondary">{{ t(resource.label) }}</RouterLink>
           </template>
         </div>
       </section>
 
-      <!-- BE-01 Projects & Scope Switcher Section (uses div/table so legacy form/li selectors stay untouched) -->
+      <!-- Projects & Scope Switcher Section (uses div/table so legacy form/li selectors stay untouched) -->
       <section v-if="selected" data-testid="workspace-projects-section" class="card space-y-4 p-5">
         <div class="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] pb-3">
           <div>
@@ -161,9 +161,9 @@
             <thead>
               <tr class="border-b border-[var(--border)] font-mono text-[11px] uppercase tracking-wider text-[var(--muted-foreground)]">
                 <th class="py-2 pr-3">ID</th>
-                <th class="px-3 py-2">Project</th>
-                <th class="px-3 py-2">State</th>
-                <th class="py-2 pl-3 text-right">Actions</th>
+                <th class="px-3 py-2">{{ isZh ? '项目名称' : 'Project' }}</th>
+                <th class="px-3 py-2">{{ isZh ? '状态' : 'State' }}</th>
+                <th class="py-2 pl-3 text-right">{{ isZh ? '操作' : 'Actions' }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[var(--border)]">
@@ -185,14 +185,14 @@
                       :disabled="projectActionBusy || !renameProjectDraft.trim()"
                       @click="confirmRenameProject(proj)"
                     >
-                      Save
+                      {{ isZh ? '保存' : 'Save' }}
                     </button>
                     <button
                       type="button"
                       class="btn btn-secondary btn-sm px-2 py-1 text-xs"
                       @click="renamingProjectId = null"
                     >
-                      ×
+                      {{ isZh ? '取消' : 'Cancel' }}
                     </button>
                   </div>
                   <div v-else class="flex items-center gap-2">
@@ -204,12 +204,20 @@
                       "
                       class="rounded border border-[var(--oh-accent-border,rgba(245,158,11,0.4))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.12))] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--foreground)]"
                     >
-                      ACTIVE
+                      {{ isZh ? '当前生效' : 'ACTIVE' }}
                     </span>
                   </div>
                 </td>
                 <td class="px-3 py-2.5 font-mono text-[11px] uppercase text-[var(--muted-foreground)]">
-                  {{ proj.state ?? 'active' }} · v{{ proj.version }}
+                  {{
+                    (proj.state ?? 'active') === 'archived'
+                      ? isZh
+                        ? '已归档'
+                        : 'Archived'
+                      : isZh
+                        ? '启用中'
+                        : 'Active'
+                  }}
                 </td>
                 <td class="py-2.5 pl-3 text-right">
                   <div class="inline-flex flex-wrap items-center justify-end gap-1.5">
@@ -274,27 +282,69 @@
       <section class="card space-y-5 p-5 sm:p-6" :aria-busy="policyLoading || policySaving" aria-labelledby="workspace-policy-title">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 id="workspace-policy-title" class="text-lg font-semibold text-[var(--foreground)]">OmniHive 工作空间路由与合规策略中心</h2>
-            <p class="mt-2 text-sm text-[var(--muted-foreground)]">管理当前账户的路由偏好与合规配置；切换工作空间不会更改此账户级设置。</p>
+            <h2 id="workspace-policy-title" class="text-lg font-semibold text-[var(--foreground)]">
+              {{ isZh ? '工作空间路由与合规策略中心' : 'Workspace Routing & Compliance Policy' }}
+            </h2>
+            <p class="mt-2 text-sm text-[var(--muted-foreground)]">
+              {{
+                isZh
+                  ? '管理当前账户的路由偏好与合规配置；切换工作空间不会更改此账户级设置。'
+                  : 'Manage account-level routing preferences and compliance guardrails across workspaces.'
+              }}
+            </p>
           </div>
-          <button type="button" class="btn btn-secondary" :disabled="policyLoading || policySaving" @click="loadRoutingPolicies">{{ policyLoading ? '正在读取…' : '重新读取' }}</button>
+          <button type="button" class="btn btn-secondary" :disabled="policyLoading || policySaving" @click="loadRoutingPolicies">
+            {{ policyLoading ? (isZh ? '正在读取…' : 'Loading…') : (isZh ? '重新读取' : 'Reload') }}
+          </button>
         </div>
         <p v-if="policyError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ policyError }}</p>
         <fieldset v-if="routingPolicy" :disabled="policyLoading || policySaving" class="space-y-5">
-          <legend class="sr-only">路由与合规策略配置</legend>
+          <legend class="sr-only">{{ isZh ? '路由与合规策略配置' : 'Routing & Compliance Policy' }}</legend>
           <div class="grid gap-4 sm:grid-cols-3">
-            <label class="flex items-center gap-2 text-sm"><input v-model="routingPolicy.zdr_enabled" type="checkbox" class="h-4 w-4" />零数据留存 (ZDR)</label>
-            <label class="flex items-center gap-2 text-sm"><input v-model="routingPolicy.allow_fallback" type="checkbox" class="h-4 w-4" />允许回退渠道</label>
-            <label class="flex items-center gap-2 text-sm"><input v-model="routingPolicy.auto_prompt_cache" type="checkbox" class="h-4 w-4" />自动提示词缓存</label>
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="routingPolicy.zdr_enabled" type="checkbox" class="h-4 w-4" />
+              {{ isZh ? '零数据留存 (ZDR)' : 'Zero Data Retention (ZDR)' }}
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="routingPolicy.allow_fallback" type="checkbox" class="h-4 w-4" />
+              {{ isZh ? '允许回退渠道' : 'Allow Fallback Channels' }}
+            </label>
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="routingPolicy.auto_prompt_cache" type="checkbox" class="h-4 w-4" />
+              {{ isZh ? '自动提示词缓存' : 'Automatic Prompt Caching' }}
+            </label>
           </div>
           <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <label class="space-y-2 text-sm"><span class="block">路由偏好</span><select v-model="routingPolicy.strategy_mode" class="input w-full"><option value="smart">智能均衡</option><option value="price">最低成本</option><option value="latency">最低延迟</option><option value="throughput">最高吞吐</option></select></label>
-            <label class="space-y-2 text-sm"><span class="block">数据处理区域</span><select v-model="routingPolicy.region_preference" class="input w-full"><option value="global">全球自动</option><option value="us">美国 US</option><option value="eu">欧盟 EU</option><option value="ap">亚太 APAC</option></select></label>
-            <label class="space-y-2 text-sm"><span class="block">月度预算告警阈值 (%)</span><input v-model.number="routingPolicy.alert_threshold_percent" type="number" min="1" max="100" step="1" required class="input w-full font-mono" /></label>
+            <label class="space-y-2 text-sm">
+              <span class="block">{{ isZh ? '路由偏好' : 'Routing Strategy' }}</span>
+              <select v-model="routingPolicy.strategy_mode" class="input w-full">
+                <option value="smart">{{ isZh ? '智能均衡' : 'Balanced (Smart)' }}</option>
+                <option value="price">{{ isZh ? '最低成本' : 'Lowest Cost' }}</option>
+                <option value="latency">{{ isZh ? '最低延迟' : 'Lowest Latency' }}</option>
+                <option value="throughput">{{ isZh ? '最高吞吐' : 'Highest Throughput' }}</option>
+              </select>
+            </label>
+            <label class="space-y-2 text-sm">
+              <span class="block">{{ isZh ? '数据处理区域' : 'Data Processing Region' }}</span>
+              <select v-model="routingPolicy.region_preference" class="input w-full">
+                <option value="global">{{ isZh ? '全球自动' : 'Global Auto' }}</option>
+                <option value="us">{{ isZh ? '美国 (US)' : 'United States (US)' }}</option>
+                <option value="eu">{{ isZh ? '欧盟 (EU)' : 'European Union (EU)' }}</option>
+                <option value="ap">{{ isZh ? '亚太 (APAC)' : 'Asia Pacific (APAC)' }}</option>
+              </select>
+            </label>
+            <label class="space-y-2 text-sm">
+              <span class="block">{{ isZh ? '月度预算告警阈值 (%)' : 'Monthly Budget Alert Threshold (%)' }}</span>
+              <input v-model.number="routingPolicy.alert_threshold_percent" type="number" min="1" max="100" step="1" required class="input w-full font-mono" />
+            </label>
           </div>
-          <button type="button" class="btn btn-primary" @click="saveRoutingPolicies">{{ policySaving ? '正在保存…' : '保存路由策略' }}</button>
+          <button type="button" class="btn btn-primary" @click="saveRoutingPolicies">
+            {{ policySaving ? (isZh ? '正在保存…' : 'Saving…') : (isZh ? '保存路由策略' : 'Save Routing Policy') }}
+          </button>
         </fieldset>
-        <p v-else-if="policyLoading" role="status" class="text-sm text-[var(--muted-foreground)]">正在读取路由策略…</p>
+        <p v-else-if="policyLoading" role="status" class="text-sm text-[var(--muted-foreground)]">
+          {{ isZh ? '正在读取路由策略…' : 'Loading routing policy…' }}
+        </p>
       </section>
     </div>
   </AppLayout>
@@ -313,14 +363,15 @@ import type { RoutingPolicyConfig } from '@/api/mcp'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import {
-  identityV2Api,
+  identityApi,
   persistConsoleScope,
   readPersistedConsoleScope,
   type ConsoleScopeSelection,
   type IdentityProject
 } from '@/features/console/scope'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const auth = useAuthStore()
 const app = useAppStore()
 const workspaces = ref<Workspace[]>([])
@@ -362,7 +413,11 @@ async function loadRoutingPolicies() {
     const config = await mcpAPI.getRoutingPolicies()
     if (request === policyRequest) routingPolicy.value = config
   } catch (error) {
-    if (request === policyRequest) policyError.value = normalizeApiError(error).message || '路由策略暂时无法读取，请重试。'
+    if (request === policyRequest) {
+      policyError.value =
+        normalizeApiError(error).message ||
+        (isZh.value ? '路由策略暂时无法读取，请重试。' : 'Failed to load routing policy. Please try again.')
+    }
   } finally {
     if (request === policyRequest) policyLoading.value = false
   }
@@ -372,7 +427,9 @@ async function saveRoutingPolicies() {
   if (!routingPolicy.value || policySaving.value || policyLoading.value) return
   const config = routingPolicy.value
   if (!Number.isInteger(config.alert_threshold_percent) || config.alert_threshold_percent < 1 || config.alert_threshold_percent > 100) {
-    policyError.value = '月度预算告警阈值须为 1 至 100 的整数。'
+    policyError.value = isZh.value
+      ? '月度预算告警阈值须为 1 至 100 的整数。'
+      : 'Monthly budget alert threshold must be an integer between 1 and 100.'
     return
   }
   const request = ++policyRequest
@@ -391,10 +448,12 @@ async function saveRoutingPolicies() {
     })
     if (request !== policyRequest) return
     routingPolicy.value = saved
-    app.showSuccess('路由与合规策略已保存。')
+    app.showSuccess(isZh.value ? '路由与合规策略已保存。' : 'Routing and compliance policy saved.')
   } catch (error) {
     if (request !== policyRequest) return
-    policyError.value = normalizeApiError(error).message || '保存失败，请稍后重试。'
+    policyError.value =
+      normalizeApiError(error).message ||
+      (isZh.value ? '保存失败，请稍后重试。' : 'Failed to save policy. Please try again.')
     app.showError(policyError.value)
   } finally {
     if (request === policyRequest) policySaving.value = false
@@ -447,7 +506,7 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
   const hadCached = projects.value.length > 0
   projectsLoading.value = true
   try {
-    const page = await identityV2Api.listProjects(String(workspaceID), { limit: 100 })
+    const page = await identityApi.listProjects(String(workspaceID), { limit: 100 })
     if (seq === projectRequestSeq) {
       projects.value = page.items ?? []
     }
@@ -455,7 +514,8 @@ async function loadProjects(workspaceID: number | null | undefined, explicit = f
     if (seq === projectRequestSeq) {
       projectsNotice.value = classifyConsoleError(err, {
         hasCachedData: hadCached,
-        requiredGrantFallback: 'projects.read'
+        requiredGrantFallback: 'projects.read',
+        isZh: isZh.value
       })
     }
   } finally {
@@ -483,8 +543,12 @@ function activateScope(workspaceId: string, projectId: string | null) {
   scopeConfirmedNotice.value = {
     kind: 'confirmed',
     title: projectId
-      ? `Active scope switched to Workspace #${workspaceId} / Project #${projectId}`
-      : `Active scope switched to Workspace #${workspaceId}`
+      ? isZh.value
+        ? `当前作用域已切换至工作空间 #${workspaceId} / 项目 #${projectId}`
+        : `Active scope switched to Workspace #${workspaceId} / Project #${projectId}`
+      : isZh.value
+        ? `当前作用域已切换至工作空间 #${workspaceId}`
+        : `Active scope switched to Workspace #${workspaceId}`
   }
 }
 
@@ -493,18 +557,21 @@ async function handleCreateProject() {
   projectActionBusy.value = true
   projectsNotice.value = null
   try {
-    const created = await identityV2Api.createProject(String(selected.value.id), {
+    const created = await identityApi.createProject(String(selected.value.id), {
       name: newProjectName.value.trim()
     })
     newProjectName.value = ''
     projects.value = [created, ...projects.value.filter((p) => p.id !== created.id)]
     scopeConfirmedNotice.value = {
       kind: 'confirmed',
-      title: `Created project "${created.name}" (#${created.id})`
+      title: isZh.value
+        ? `已创建项目「${created.name}」(#${created.id})`
+        : `Created project "${created.name}" (#${created.id})`
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write'
+      requiredGrantFallback: 'projects.write',
+      isZh: isZh.value
     })
   } finally {
     projectActionBusy.value = false
@@ -521,7 +588,7 @@ async function confirmRenameProject(proj: IdentityProject) {
   projectActionBusy.value = true
   projectsNotice.value = null
   try {
-    const updated = await identityV2Api.renameProject(
+    const updated = await identityApi.renameProject(
       String(selected.value.id),
       proj.id,
       { name: renameProjectDraft.value.trim() },
@@ -531,11 +598,14 @@ async function confirmRenameProject(proj: IdentityProject) {
     renamingProjectId.value = null
     scopeConfirmedNotice.value = {
       kind: 'confirmed',
-      title: `Renamed project #${updated.id} to "${updated.name}" (v${updated.version})`
+      title: isZh.value
+        ? `已将项目 #${updated.id} 重命名为「${updated.name}」`
+        : `Renamed project #${updated.id} to "${updated.name}"`
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write'
+      requiredGrantFallback: 'projects.write',
+      isZh: isZh.value
     })
   } finally {
     projectActionBusy.value = false
@@ -547,7 +617,7 @@ async function handleArchiveProject(proj: IdentityProject) {
   projectActionBusy.value = true
   projectsNotice.value = null
   try {
-    const archived = await identityV2Api.archiveProject(
+    const archived = await identityApi.archiveProject(
       String(selected.value.id),
       proj.id,
       proj.version
@@ -555,11 +625,14 @@ async function handleArchiveProject(proj: IdentityProject) {
     projects.value = projects.value.map((item) => (item.id === archived.id ? archived : item))
     scopeConfirmedNotice.value = {
       kind: 'confirmed',
-      title: `Archived project "${archived.name}" (#${archived.id})`
+      title: isZh.value
+        ? `已归档项目「${archived.name}」(#${archived.id})`
+        : `Archived project "${archived.name}" (#${archived.id})`
     }
   } catch (err) {
     projectsNotice.value = classifyConsoleError(err, {
-      requiredGrantFallback: 'projects.write'
+      requiredGrantFallback: 'projects.write',
+      isZh: isZh.value
     })
   } finally {
     projectActionBusy.value = false

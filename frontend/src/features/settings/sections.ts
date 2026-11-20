@@ -13,7 +13,9 @@ export type SettingsSectionId =
 export interface SettingsSectionMeta {
   id: SettingsSectionId
   label: string
+  labelZh: string
   description: string
+  descriptionZh: string
   fields: string[]
   secretFields?: string[]
 }
@@ -22,13 +24,17 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: 'general',
     label: 'General & Brand',
+    labelZh: '基础与品牌',
     description: 'Site identity, frontend URL, and public registration toggles.',
+    descriptionZh: '站点名称、前端访问地址以及公开注册开关配置。',
     fields: ['site_name', 'site_subtitle', 'frontend_url', 'registration_enabled', 'invitation_code_enabled']
   },
   {
     id: 'security',
     label: 'Security & Auth',
+    labelZh: '安全与认证',
     description: 'TOTP 2FA, Passkeys, session binding, step-up verification, and Turnstile.',
+    descriptionZh: 'TOTP 两步验证、Passkey、会话绑定、敏感操作二次校验及人机验证。',
     fields: [
       'totp_enabled',
       'passkey_enabled',
@@ -45,7 +51,9 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: 'users',
     label: 'User Defaults',
+    labelZh: '用户默认配额',
     description: 'Default balance, concurrency, RPM limits, and affiliate rebates.',
+    descriptionZh: '新用户默认余额、并发与速率上限，以及推广返利策略。',
     fields: [
       'default_balance',
       'default_concurrency',
@@ -58,19 +66,25 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: 'gateway',
     label: 'Gateway & Docs',
+    labelZh: '网关与文档',
     description: 'API base URL, contact info, and documentation links.',
+    descriptionZh: 'API 接入地址、运营商联系方式与文档入口链接。',
     fields: ['api_base_url', 'contact_info', 'doc_url', 'hide_ccs_import_button']
   },
   {
     id: 'payment',
     label: 'Payment & Top-Up',
+    labelZh: '支付与充值',
     description: 'Payment feature toggle, promo codes, and checkout policy.',
+    descriptionZh: '在线支付能力、优惠码功能及结算策略开关。',
     fields: ['payment_enabled', 'promo_code_enabled']
   },
   {
     id: 'email',
     label: 'Email & SMTP',
+    labelZh: '邮件与 SMTP',
     description: 'SMTP relay host, port, TLS, sender address, and verification policy.',
+    descriptionZh: 'SMTP 发信服务器、端口、TLS 加密、发件人及邮箱验证策略。',
     fields: [
       'email_verify_enabled',
       'password_reset_enabled',
@@ -87,13 +101,17 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: 'features',
     label: 'Feature Flags',
+    labelZh: '功能开关',
     description: 'Domain quota enforcement and runtime feature toggles.',
+    descriptionZh: '邮箱域名配额限制与运行时扩展能力开关。',
     fields: ['registration_email_domain_quota_enabled', 'user_custom_key_enabled']
   },
   {
     id: 'agreement',
     label: 'Login Agreement',
+    labelZh: '登录协议',
     description: 'Terms and privacy agreement enforcement mode on sign-in.',
+    descriptionZh: '登录与注册时的服务条款和隐私协议展示方式。',
     fields: ['login_agreement_enabled', 'login_agreement_mode']
   }
 ]

@@ -23,14 +23,14 @@ const applied = computed(() => requestFilters(route.query))
 const draft = reactive({ ...applied.value })
 watch(applied, (filters) => Object.assign(draft, filters))
 const filterIssue = computed(() => {
-  if (!timeWindow(draft)) return t('wp6.filters.invalidWindow')
-  if (draft.key_id && !opaqueNumericId(draft.key_id)) return t('wp6.filters.invalidKey')
+  if (!timeWindow(draft)) return t('costLedger.filters.invalidWindow')
+  if (draft.key_id && !opaqueNumericId(draft.key_id)) return t('costLedger.filters.invalidKey')
   return ''
 })
 const active = computed(() => Boolean(applied.value.from || applied.value.to || applied.value.model_id || applied.value.key_id || applied.value.outcome))
 const outcomeOptions = computed(() => [
-  { value: '', label: t('wp6.filters.allOutcomes') },
-  ...outcomes.map(value => ({ value, label: t(`wp6.states.${value}`) })),
+  { value: '', label: t('costLedger.filters.allOutcomes') },
+  ...outcomes.map(value => ({ value, label: t(`costLedger.states.${value}`) })),
 ])
 const window = computed(() => timeWindow(applied.value))
 const filterKey = computed(() => JSON.stringify([scopeKey.value, applied.value]))
@@ -50,19 +50,19 @@ const attempts = computed(() => {
 })
 const incompleteAttempts = computed(() => rows.value.some(row => row.attempt_count === null))
 const appliedChips = computed(() => [
-  applied.value.from && `${t('wp6.filters.from')} ${applied.value.from}`,
-  applied.value.to && `${t('wp6.filters.to')} ${applied.value.to}`,
+  applied.value.from && `${t('costLedger.filters.from')} ${applied.value.from}`,
+  applied.value.to && `${t('costLedger.filters.to')} ${applied.value.to}`,
   applied.value.model_id,
-  applied.value.key_id && `${t('wp6.filters.key')} ${applied.value.key_id}`,
-  applied.value.outcome && t(`wp6.states.${applied.value.outcome}`),
+  applied.value.key_id && `${t('costLedger.filters.key')} ${applied.value.key_id}`,
+  applied.value.outcome && t(`costLedger.states.${applied.value.outcome}`),
 ].filter(Boolean))
 const columns = computed<UiTableColumn[]>(() => [
-  { key: 'request', label: t('wp6.requests.request') },
-  { key: 'state', label: t('wp6.requests.outcome') },
-  { key: 'at', label: t('wp6.requests.started'), minWidth: '11rem' },
-  { key: 'attempts', label: t('wp6.requests.attempts'), mono: true },
-  { key: 'receipt', label: t('wp6.requests.settlement') },
-  ...(can('billing.ledger.read') ? [{ key: 'charge', label: t('wp6.requests.charge'), mono: true }] : []),
+  { key: 'request', label: t('costLedger.requests.request') },
+  { key: 'state', label: t('costLedger.requests.outcome') },
+  { key: 'at', label: t('costLedger.requests.started'), minWidth: '11rem' },
+  { key: 'attempts', label: t('costLedger.requests.attempts'), mono: true },
+  { key: 'receipt', label: t('costLedger.requests.settlement') },
+  ...(can('billing.ledger.read') ? [{ key: 'charge', label: t('costLedger.requests.charge'), mono: true }] : []),
 ])
 function link(id: string) {
   return requestLocation(scope.value!, id, admin.value)
@@ -91,49 +91,49 @@ function rowOf(row: Record<string, unknown>) {
 <template>
   <AppLayout contained>
     <div class="mx-auto min-w-0 space-y-5">
-      <PageHeader :title="t('wp6.requests.title')" :description="t('wp6.requests.description')">
+      <PageHeader :title="t('costLedger.requests.title')" :description="t('costLedger.requests.description')">
         <template #actions><ScopePicker :scope="scope" @change="choose" /></template>
       </PageHeader>
 
-      <EmptyState v-if="!scope" :title="t('wp6.scope.select')" :description="t('wp6.scope.required')" />
+      <EmptyState v-if="!scope" :title="t('costLedger.scope.select')" :description="t('costLedger.scope.required')" />
       <template v-else>
         <ReadNotice
           :loading="access.loading.value" :error="access.error.value" :has-data="Boolean(access.data.value)"
           :offline="access.offline.value" :last-synced="access.lastSynced.value" @retry="access.refresh"
         />
         <p v-if="access.data.value && !can('requests.read') && !access.loading.value" class="rounded-oh-lg border border-oh-default bg-oh-surface p-4 text-sm text-oh-secondary" role="status">
-          {{ t('wp6.state.requiredGrant', { grant: 'requests.read' }) }}
+          {{ t('costLedger.state.requiredGrant', { grant: 'requests.read' }) }}
         </p>
         <template v-if="can('requests.read')">
           <Card padding="md">
             <form class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 md:grid-cols-3 2xl:grid-cols-7" @submit.prevent="filters()">
               <DateRangeFields v-model:from="draft.from" v-model:to="draft.to" v-model:timezone="draft.timezone" />
-              <Select v-model="draft.outcome" :label="t('wp6.requests.outcome')" :options="outcomeOptions" />
-              <Input v-model="draft.model_id" :label="t('wp6.filters.model')" :placeholder="t('wp6.filters.anyModel')" :maxlength="255" mono />
+              <Select v-model="draft.outcome" :label="t('costLedger.requests.outcome')" :options="outcomeOptions" />
+              <Input v-model="draft.model_id" :label="t('costLedger.filters.model')" :placeholder="t('costLedger.filters.anyModel')" :maxlength="255" mono />
               <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">
-                {{ t('wp6.filters.key') }}
+                {{ t('costLedger.filters.key') }}
                 <input
-                  v-model.trim="draft.key_id" list="wp6-request-keys" inputmode="numeric" maxlength="19"
-                  :placeholder="t('wp6.filters.anyKey')"
+                  v-model.trim="draft.key_id" list="oh-request-keys" inputmode="numeric" maxlength="19"
+                  :placeholder="t('costLedger.filters.anyKey')"
                   class="oh-focus-ring h-9 w-full min-w-0 rounded-oh-md border border-oh-default bg-oh-surface px-2.5 font-mono text-base text-oh-primary sm:text-sm"
                 />
-                <datalist id="wp6-request-keys">
+                <datalist id="oh-request-keys">
                   <option v-for="key in keys.data.value?.items ?? []" :key="key.id" :value="key.id">{{ key.name }}</option>
                 </datalist>
               </label>
               <div class="col-span-full flex flex-wrap items-center gap-2 sm:col-span-2 md:col-span-3 2xl:col-span-1">
-                <Button type="submit" variant="primary" :disabled="Boolean(filterIssue)">{{ t('wp6.filters.apply') }}</Button>
-                <Button v-if="active" type="button" variant="ghost" @click="filters(true)">{{ t('wp6.filters.clear') }}</Button>
+                <Button type="submit" variant="primary" :disabled="Boolean(filterIssue)">{{ t('costLedger.filters.apply') }}</Button>
+                <Button v-if="active" type="button" variant="ghost" @click="filters(true)">{{ t('costLedger.filters.clear') }}</Button>
               </div>
               <p v-if="filterIssue" role="status" class="col-span-full text-sm text-oh-status-danger-fg">{{ filterIssue }}</p>
             </form>
           </Card>
           <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
             <div v-if="list.data.value" class="flex flex-wrap gap-x-4 gap-y-1 text-oh-secondary">
-              <span>{{ t('wp6.requests.pageRequests') }} <strong class="font-mono tabular-nums text-oh-primary">{{ displayNumber(rows.length, locale) }}</strong></span>
-              <span>{{ t(incompleteAttempts ? 'wp6.requests.observedPageAttempts' : 'wp6.requests.pageAttempts') }} <strong class="font-mono tabular-nums text-oh-primary">{{ displayNumber(attempts, locale) }}</strong></span>
+              <span>{{ t('costLedger.requests.pageRequests') }} <strong class="font-mono tabular-nums text-oh-primary">{{ displayNumber(rows.length, locale) }}</strong></span>
+              <span>{{ t(incompleteAttempts ? 'costLedger.requests.observedPageAttempts' : 'costLedger.requests.pageAttempts') }} <strong class="font-mono tabular-nums text-oh-primary">{{ displayNumber(attempts, locale) }}</strong></span>
             </div>
-            <Button variant="ghost" size="sm" :disabled="list.loading.value" @click="retry">{{ t('wp6.state.refresh') }}</Button>
+            <Button variant="ghost" size="sm" :disabled="list.loading.value" @click="retry">{{ t('costLedger.state.refresh') }}</Button>
           </div>
           <div v-if="appliedChips.length" class="flex min-w-0 flex-wrap items-center gap-1.5">
             <Badge v-for="(chip, index) in appliedChips" :key="index" size="xs">{{ chip }}</Badge>
@@ -142,13 +142,13 @@ function rowOf(row: Record<string, unknown>) {
             :loading="list.loading.value" :error="list.error.value" :has-data="Boolean(list.data.value)"
             :offline="list.offline.value" :last-synced="list.lastSynced.value" grant="requests.read" @retry="retry"
           />
-          <ErrorState v-if="!window" :title="t('wp6.filters.invalidWindow')" :retryable="false" />
+          <ErrorState v-if="!window" :title="t('costLedger.filters.invalidWindow')" :retryable="false" />
           <Table
             v-if="list.data.value"
-            :columns="columns" :rows="rows" :caption="t('wp6.requests.title')"
-            :filtered="active" :empty-title="t('wp6.requests.empty')"
-            :empty-description="t('wp6.requests.emptyDescription')"
-            :filtered-empty-title="t('wp6.state.noMatches')" :filtered-empty-description="t('wp6.state.noMatchesDescription')"
+            :columns="columns" :rows="rows" :caption="t('costLedger.requests.title')"
+            :filtered="active" :empty-title="t('costLedger.requests.empty')"
+            :empty-description="t('costLedger.requests.emptyDescription')"
+            :filtered-empty-title="t('costLedger.state.noMatches')" :filtered-empty-description="t('costLedger.state.noMatchesDescription')"
             @clear-filters="filters(true)"
           >
             <template #cell-request="{ row }">
@@ -160,13 +160,13 @@ function rowOf(row: Record<string, unknown>) {
               </div>
             </template>
             <template #cell-state="{ row }">
-              <Badge :tone="statusTone(rowOf(row).outcome)" dot>{{ t(`wp6.states.${rowOf(row).outcome}`) }}</Badge>
+              <Badge :tone="statusTone(rowOf(row).outcome)" dot>{{ t(`costLedger.states.${rowOf(row).outcome}`) }}</Badge>
             </template>
             <template #cell-at="{ row }">
               <time :datetime="rowOf(row).started_at" class="font-mono text-xs tabular-nums">{{ timestamp(rowOf(row).started_at, locale, applied.timezone) }}</time>
             </template>
             <template #cell-attempts="{ row }">{{ displayNumber(rowOf(row).attempt_count, locale) }}</template>
-            <template #cell-receipt="{ row }"><Badge :tone="statusTone(rowOf(row).settlement_state)">{{ t(`wp6.states.${rowOf(row).settlement_state}`) }}</Badge></template>
+            <template #cell-receipt="{ row }"><Badge :tone="statusTone(rowOf(row).settlement_state)">{{ t(`costLedger.states.${rowOf(row).settlement_state}`) }}</Badge></template>
             <template #cell-charge="{ row }">{{ moneyText(rowOf(row).charged_amount, locale) }}</template>
           </Table>
           <CursorButtons

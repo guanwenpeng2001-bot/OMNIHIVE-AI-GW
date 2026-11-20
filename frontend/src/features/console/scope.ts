@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { components } from '@/api/generated/v2'
+import type { components } from '@/api/generated/openapi'
 import { buildGatewayUrl } from '@/api/url'
 import { workspaceIDFromPath } from '@/api/workspaceScope'
 
@@ -31,6 +31,13 @@ export interface IdentityMemberPage {
 }
 export type IdentityGrantInput = components['schemas']['IdentityGrantInput']
 export type IdentityGrantVersion = components['schemas']['IdentityGrantVersion']
+export interface IdentityMemberGrants {
+  member_id: string
+  project_ids: string[]
+  actions: string[]
+  version: string
+  effective_at?: string
+}
 export type IdentityKey = components['schemas']['IdentityKey'] & {
   state?: string
 }
@@ -123,7 +130,7 @@ async function getApiClient() {
   return apiClient
 }
 
-export const identityV2Api = {
+export const identityApi = {
   async listScopes(params?: { cursor?: string; limit?: number }, signal?: AbortSignal): Promise<IdentityWorkspacePage> {
     const apiClient = await getApiClient()
     const { data } = await apiClient.get<IdentityWorkspacePage>(v2Url('/me/scopes'), {
@@ -198,13 +205,37 @@ export const identityV2Api = {
 
   async listMembers(
     workspaceId: string,
-    params?: { cursor?: string; limit?: number },
+    _params?: { cursor?: string; limit?: number },
     signal?: AbortSignal
   ): Promise<IdentityMemberPage> {
     const apiClient = await getApiClient()
-    const { data } = await apiClient.get<IdentityMemberPage>(
-      v2Url(`/workspaces/${workspaceId}/members`),
-      { baseURL: '', params, signal }
+    const { data } = await apiClient.get<
+      Array<{ user_id: number | string; role?: string; email?: string; version?: string }> | IdentityMemberPage
+    >(`/workspaces/${workspaceId}/members`, { signal })
+    if (Array.isArray(data)) {
+      return {
+        items: data.map((m) => ({
+          id: String(m.user_id),
+          user_id: String(m.user_id),
+          email: m.email,
+          role: m.role,
+          version: m.version ?? '0'
+        })),
+        next_cursor: null
+      }
+    }
+    return data
+  },
+
+  async getMemberGrants(
+    workspaceId: string,
+    memberId: string,
+    signal?: AbortSignal
+  ): Promise<IdentityMemberGrants> {
+    const apiClient = await getApiClient()
+    const { data } = await apiClient.get<IdentityMemberGrants>(
+      v2Url(`/workspaces/${workspaceId}/members/${memberId}/grants`),
+      { baseURL: '', signal }
     )
     return data
   },
@@ -251,28 +282,6 @@ export const identityV2Api = {
       { baseURL: '', headers: { 'Idempotency-Key': idempotencyKey } }
     )
     return data
-  },
-
-  async rotateProjectKey(
-    workspaceId: string,
-    projectId: string,
-    keyId: string,
-    version: string,
-    idempotencyKey = generateIdempotencyKey()
-  ): Promise<IdentityKey> {
-    const apiClient = await getApiClient()
-    const { data } = await apiClient.post<IdentityKey>(
-      v2Url(`/workspaces/${workspaceId}/projects/${projectId}/keys/${keyId}/rotate`),
-      {},
-      {
-        baseURL: '',
-        headers: {
-          ...ifMatch(version),
-          'Idempotency-Key': idempotencyKey
-        }
-      }
-    )
-    return data
   }
 }
 
@@ -316,7 +325,7 @@ export function useConsoleScope() {
     }
     scopeError.value = null
     try {
-      const page = await identityV2Api.listScopes({ limit: 50 })
+      const page = await identityApi.listScopes({ limit: 50 })
       scopes.value = page.items ?? []
       lastSyncedAt.value = page.as_of || new Date().toISOString()
       loaded.value = true

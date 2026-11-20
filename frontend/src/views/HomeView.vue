@@ -1614,7 +1614,7 @@ function moveSdkTab(event: KeyboardEvent, index: number) {
 
 const sdkSnippets: Record<SdkTabKey, { file: string; code: string }> = {
   opencode: {
-    file: 'opencode.json · OpenCode v2',
+    file: 'opencode.json · OpenCode',
     code: `{
   "$schema": "https://opencode.ai/config.json",
   "providers": {

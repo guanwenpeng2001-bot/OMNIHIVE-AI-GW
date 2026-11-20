@@ -119,8 +119,8 @@ def matrix(out):
 
 def finance():
     helper=WORK/"receipt"
-    remap=overlay("receipt",{"api/v2/compose/main.go":HERE/"receipt.go.fixture"})
-    command("go","build",remap,"-o",helper,"./api/v2/compose",cwd=BACKEND)
+    remap=overlay("receipt",{"api/openapi/compose/main.go":HERE/"receipt.go.fixture"})
+    command("go","build",remap,"-o",helper,"./api/openapi/compose",cwd=BACKEND)
     rows=[]
     for mode in ("before-persist","after-persist","before-commit","after-commit"):
         seed=command(helper,"seed")
@@ -256,8 +256,8 @@ def main():
     results={}
     env=dict(revision=rev,go=command("go","version"),postgres=command("pg_ctl","--version"),redis=command("redis-server","--version"),
              kernel=platform.release(),machine_hash=hashlib.sha256(Path("/etc/machine-id").read_bytes()).hexdigest()[:16],cpu=platform.machine(),cpu_count=os.cpu_count(),network=command("ip","-brief","address"),
-             openapi_sha256=hashlib.sha256((BACKEND/"api/v2/openapi.yaml").read_bytes()).hexdigest(),started=started.isoformat())
-    env.update(product_clean=not bool(command("git","status","--porcelain","--","backend","frontend/src/api/generated/v2.d.ts")),
+             openapi_sha256=hashlib.sha256((BACKEND/"api/openapi/openapi.yaml").read_bytes()).hexdigest(),started=started.isoformat())
+    env.update(product_clean=not bool(command("git","status","--porcelain","--","backend","frontend/src/api/generated/openapi.d.ts")),
                load_driver_sha256=hashlib.sha256((HERE/"live.py").read_bytes()).hexdigest(),
                node=command("node","--version"),python=platform.python_version())
     def run(name,fn):
@@ -284,9 +284,9 @@ def main():
         if not cli:
             return dict(status="pending",reason="install openapi-typescript@7.10.1 in the offline tool cache")
         version=command(cli,"--version")
-        generated=WORK/"v2.d.ts"
-        command(cli,BACKEND/"api/v2/openapi.yaml","-o",generated)
-        committed=ROOT/"frontend/src/api/generated/v2.d.ts"
+        generated=WORK/"openapi.d.ts"
+        command(cli,BACKEND/"api/openapi/openapi.yaml","-o",generated)
+        committed=ROOT/"frontend/src/api/generated/openapi.d.ts"
         digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
         ok=version.lstrip("v")=="7.10.1" and generated.read_bytes()==committed.read_bytes()
         return dict(status="pass" if ok else "fail",version=version,checked_in_sha256=digest(committed),generated_sha256=digest(generated))
@@ -295,8 +295,8 @@ def main():
         binary=WORK/"server"
         command("go","build","-o",binary,"./cmd/server",cwd=BACKEND)
         policy_seed=WORK/"policy-seed"
-        policy_overlay=overlay("policy",{"api/v2/compose/main.go":HERE/"policy_snapshot.go.fixture"})
-        command("go","build",policy_overlay,"-o",policy_seed,"./api/v2/compose",cwd=BACKEND)
+        policy_overlay=overlay("policy",{"api/openapi/compose/main.go":HERE/"policy_snapshot.go.fixture"})
+        command("go","build",policy_overlay,"-o",policy_seed,"./api/openapi/compose",cwd=BACKEND)
         with live.deployment(binary) as (email,pwd,procs,cert,key):
             token,native,prefix=live.provision(email,pwd)
             run("JOURNEY",lambda:live.journey(token,prefix))
@@ -314,8 +314,8 @@ def main():
             run("LOAD",load)
             # Independent HTTP smoke uses its own local TLS upstream and exercises wizard/rotation.
             smoke_env=dict(os.environ,SMOKE_BASE_URL="http://127.0.0.1:18080",SMOKE_ADMIN_EMAIL=email,SMOKE_ADMIN_PASSWORD=pwd,SMOKE_TLS_CERT=str(cert),SMOKE_TLS_KEY=str(key))
-            rc=sp.run([ROOT/"contracts/migrations/BE-04/smoke.sh"],env=smoke_env,stdout=sp.DEVNULL).returncode
-            return dict(status="pass" if rc==0 else "fail",fixture="BE-04/smoke.sh",exit_code=rc)
+            rc=sp.run([ROOT/"contracts/migrations/connections/smoke.sh"],env=smoke_env,stdout=sp.DEVNULL).returncode
+            return dict(status="pass" if rc==0 else "fail",fixture="connections/smoke.sh",exit_code=rc)
     run("LIVE",http)
     run("MATRIX",lambda:matrix(out))
     run("REGISTRY",lambda:registry(out))

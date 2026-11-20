@@ -1,19 +1,36 @@
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import PublicShell from '@/components/layout/PublicShell.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
+import CopyButton from '@/components/ui/CopyButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorState from '@/components/ui/ErrorState.vue'
 import Input from '@/components/ui/Input.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import { publicTokenPrice, publicValue } from '@/features/public/format'
+import Tooltip from '@/components/ui/Tooltip.vue'
+import { useAuthStore } from '@/stores/auth'
+import {
+  formatContextTokens,
+  formatPublicTimestamp,
+  maturityLabel,
+  publicTokenPrice,
+  publicValue,
+  routeStateLabel,
+  routeStateTone
+} from '@/features/public/format'
 import { listPublicModels, type ListParams, type PublicModelSummary } from '@/features/public/api'
 
 type ViewMode = 'table' | 'cards'
+
+const { locale } = useI18n()
+const isZh = computed(() => String(locale?.value ?? '').startsWith('zh'))
+const router = useRouter()
+const authStore = useAuthStore()
 
 const models = ref<PublicModelSummary[]>([])
 const nextCursor = ref<string | null>(null)
@@ -27,11 +44,52 @@ const query = ref('')
 const sort = ref<NonNullable<ListParams['sort']>>('name')
 const viewMode = ref<ViewMode>('table')
 const providers = ref<string[]>([])
+const selectedActions = ref<string[]>([])
+const selectedModalities = ref<string[]>([])
+const selectedProtocols = ref<string[]>([])
+const searchContainerRef = ref<HTMLElement | null>(null)
 
 const providerOptions = ref<string[]>([])
 let appliedQuery = ''
 
-const activeFilters = computed(() => providers.value.length > 0 || query.value.trim().length > 0)
+const categoryChips = computed(() => [
+  { value: 'text.chat', label: isZh.value ? '对话推理' : 'Chat & Reasoning' },
+  { value: 'image.generate', label: isZh.value ? '图像生成' : 'Image Generation' },
+  { value: 'text.embeddings', label: isZh.value ? '向量嵌入' : 'Embeddings' },
+  { value: 'audio.stt', label: isZh.value ? '语音识别' : 'Speech-to-Text' },
+  { value: 'audio.tts', label: isZh.value ? '语音合成' : 'Text-to-Speech' }
+])
+
+const modalityChips = computed(() => [
+  { value: 'text', label: isZh.value ? '文本 Text' : 'Text' },
+  { value: 'image', label: isZh.value ? '视觉 Image' : 'Image' },
+  { value: 'audio', label: isZh.value ? '音频 Audio' : 'Audio' },
+  { value: 'video', label: isZh.value ? '视频 Video' : 'Video' },
+  { value: 'pdf', label: 'PDF' }
+])
+
+const protocolChips = computed(() => [
+  { value: 'openai_chat', label: 'OpenAI Chat' },
+  { value: 'openai_responses', label: 'OpenAI Responses' },
+  { value: 'anthropic_messages', label: 'Anthropic Messages' },
+  { value: 'gemini_generate', label: 'Gemini' }
+])
+
+const sortOptions = computed(() => [
+  { value: 'name', label: isZh.value ? '按模型名称' : 'Sort: Name' },
+  { value: 'price_input', label: isZh.value ? '按输入价格' : 'Sort: Input Price' },
+  { value: 'context', label: isZh.value ? '按上下文长度' : 'Sort: Context Window' },
+  { value: 'ttft', label: isZh.value ? '按首字延迟 (TTFT)' : 'Sort: TTFT' }
+])
+
+const activeFilters = computed(
+  () =>
+    providers.value.length > 0 ||
+    selectedActions.value.length > 0 ||
+    selectedModalities.value.length > 0 ||
+    selectedProtocols.value.length > 0 ||
+    query.value.trim().length > 0
+)
 
 async function load(reset = true): Promise<void> {
   if (!reset && (loading.value || loadingMore.value || !nextCursor.value)) return
@@ -49,12 +107,21 @@ async function load(reset = true): Promise<void> {
     const page = await listPublicModels({
       q: appliedQuery || undefined,
       provider: providers.value.length ? providers.value : undefined,
+      action: selectedActions.value.length ? selectedActions.value : undefined,
+      modality: selectedModalities.value.length ? selectedModalities.value : undefined,
+      protocol: selectedProtocols.value.length ? selectedProtocols.value : undefined,
       sort: sort.value,
       cursor: reset ? undefined : nextCursor.value,
       limit: 20
     })
     if (currentRequest !== request) return
-    if (!appliedQuery && !providers.value.length) {
+    if (
+      !appliedQuery &&
+      !providers.value.length &&
+      !selectedActions.value.length &&
+      !selectedModalities.value.length &&
+      !selectedProtocols.value.length
+    ) {
       const seen = new Set(providerOptions.value)
       for (const model of page.items ?? []) {
         const provider = model.provider?.trim()
@@ -78,121 +145,347 @@ async function load(reset = true): Promise<void> {
   }
 }
 
-function toggleProvider(provider: string): void {
-  providers.value = providers.value.includes(provider)
-    ? providers.value.filter((item) => item !== provider)
-    : [...providers.value, provider]
+function toggleFilterByKey(kind: 'action' | 'modality' | 'protocol' | 'provider', item: string): void {
+  const map = {
+    action: selectedActions,
+    modality: selectedModalities,
+    protocol: selectedProtocols,
+    provider: providers
+  }
+  const target = map[kind]
+  target.value = target.value.includes(item)
+    ? target.value.filter((entry) => entry !== item)
+    : [...target.value, item]
   void load()
 }
 
 function resetFilters(): void {
   query.value = ''
   providers.value = []
+  selectedActions.value = []
+  selectedModalities.value = []
+  selectedProtocols.value = []
   sort.value = 'name'
   void load()
 }
 
-function contextText(value?: string | null): string {
-  if (!value) return '—'
-  const tokens = Number(value)
-  if (!Number.isFinite(tokens)) return '—'
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
-  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`
-  return String(tokens)
+function displayRate(model: PublicModelSummary, kind: 'input' | 'output'): string {
+  if (model.price_state === 'free') return isZh.value ? '免费' : 'Free'
+  const rate = kind === 'input' ? model.input_rate : model.output_rate
+  return publicTokenPrice(rate, 2, isZh.value)
 }
 
-onMounted(() => void load())
+function modelTtftMs(model: PublicModelSummary): number | null {
+  const ms = model.metrics?.ttft_p50_ms
+  return typeof ms === 'number' && Number.isFinite(ms) ? ms : null
+}
+
+function ttftTooltip(model: PublicModelSummary): string {
+  if (model.observed_at) {
+    return isZh.value
+      ? `目录验证于 ${formatPublicTimestamp(model.observed_at)}；点击进入模型详情查看实时分位延迟与吞吐样本`
+      : `Catalog verified ${formatPublicTimestamp(model.observed_at)}; open model details for live P50 TTFT and throughput telemetry`
+  }
+  return isZh.value
+    ? '当前周期尚无足够真实调用样本，点击查看指标披露状态；未观测数据绝不伪造为 0'
+    : 'No live sample threshold met yet. Open model details for telemetry status; unobserved metrics are never reported as zero'
+}
+
+function openConsoleEmptyAction(): void {
+  void router.push(authStore.isAuthenticated ? '/dashboard' : '/login')
+}
+
+function handleGlobalShortcut(event: KeyboardEvent): void {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    const activeTag = (document.activeElement as HTMLElement | null)?.tagName
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return
+    event.preventDefault()
+    searchContainerRef.value?.querySelector('input')?.focus()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleGlobalShortcut)
+  void load()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleGlobalShortcut)
+})
 </script>
 
 <template>
   <PublicShell>
-    <section class="border-b border-oh-default pb-6">
-      <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">MODEL DIRECTORY</p>
-      <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary sm:text-4xl">Models</h1>
-      <p class="mt-2 max-w-[65ch] text-sm text-oh-secondary">
-        Compare capabilities, pricing and observed performance across every provider OmniHive routes to.
-        Unknown values stay unknown; they are never reported as zero.
-      </p>
+    <section class="flex flex-wrap items-end justify-between gap-4 border-b border-oh-default pb-6">
+      <div>
+        <p class="font-mono text-xs uppercase tracking-[0.18em] text-oh-muted">
+          {{ isZh ? '公开模型目录 · MODEL DIRECTORY' : 'MODEL DIRECTORY' }}
+        </p>
+        <h1 class="mt-3 text-3xl font-semibold tracking-tight text-oh-primary sm:text-4xl">
+          {{ isZh ? '模型广场' : 'Models' }}
+        </h1>
+        <p class="mt-2 max-w-[68ch] text-sm text-oh-secondary">
+          {{
+            isZh
+              ? '统一检索并对比 OmniHive 已发布上游模型的上下文规格、精确 Token 费率、协议兼容性与实测延迟。未观测或未声明指标均诚实标注，绝不伪造为零。'
+              : 'Compare capabilities, exact per-token pricing, protocol support, and observed latency across every published provider. Unknown values stay explicitly labeled, never faked as zero.'
+          }}
+        </p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <RouterLink
+          to="/model-plaza/compare"
+          class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-primary hover:border-oh-strong hover:bg-oh-hover"
+        >
+          {{ isZh ? '多模型横向对比' : 'Compare models' }}
+        </RouterLink>
+        <RouterLink
+          to="/pricing"
+          class="oh-focus-ring inline-flex h-9 items-center rounded-oh-md border border-oh-default bg-oh-surface px-3.5 text-xs font-medium text-oh-secondary hover:border-oh-strong hover:text-oh-primary"
+        >
+          {{ isZh ? '费率总表' : 'Pricing sheet' }}
+        </RouterLink>
+      </div>
     </section>
 
-    <section class="flex flex-col gap-4 py-6">
+    <section class="flex flex-col gap-3.5 py-6">
       <div class="flex flex-wrap items-center gap-3">
-        <Input v-model="query" class="w-full sm:w-72" placeholder="Search models, providers..." @keyup.enter="load()" />
-        <Button variant="secondary" @click="load()">Search</Button>
-        <div class="ml-auto flex items-center gap-2">
+        <div ref="searchContainerRef" class="relative w-full sm:w-80">
+          <Input
+            v-model="query"
+            type="search"
+            clearable
+            :placeholder="isZh ? '搜索模型 ID、显示名称或供应商… (⌘K)' : 'Search model ID, name, or provider... (⌘K)'"
+            @keydown.enter="load()"
+            @clear="load()"
+          />
+        </div>
+        <Button variant="secondary" @click="load()">{{ isZh ? '搜索' : 'Search' }}</Button>
+
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <label class="sr-only" for="public-models-sort">{{ isZh ? '排序方式' : 'Sort models' }}</label>
+          <select
+            id="public-models-sort"
+            v-model="sort"
+            class="oh-focus-ring h-9 rounded-oh-md border border-oh-default bg-oh-surface px-3 font-mono text-xs text-oh-primary hover:border-oh-strong"
+            @change="load()"
+          >
+            <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+
           <SegmentedControl
             :model-value="viewMode"
             :options="[
-              { value: 'table', label: 'Table' },
-              { value: 'cards', label: 'Cards' }
+              { value: 'table', label: isZh ? '表格' : 'Table' },
+              { value: 'cards', label: isZh ? '卡片' : 'Cards' }
             ]"
             @update:model-value="viewMode = $event as ViewMode"
           />
         </div>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '能力类别' : 'Category' }}
+        </span>
+        <button
+          v-for="chip in categoryChips"
+          :key="chip.value"
+          type="button"
+          class="oh-focus-ring rounded-full border px-2.5 py-1 text-xs transition-colors"
+          :class="
+            selectedActions.includes(chip.value)
+              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+          "
+          :aria-pressed="selectedActions.includes(chip.value)"
+          @click="toggleFilterByKey('action', chip.value)"
+        >
+          {{ chip.label }}
+        </button>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '输入模态' : 'Modality' }}
+        </span>
+        <button
+          v-for="chip in modalityChips"
+          :key="chip.value"
+          type="button"
+          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
+          :class="
+            selectedModalities.includes(chip.value)
+              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+          "
+          :aria-pressed="selectedModalities.includes(chip.value)"
+          @click="toggleFilterByKey('modality', chip.value)"
+        >
+          {{ chip.label }}
+        </button>
+
+        <span class="ml-2 mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '兼容协议' : 'Protocol' }}
+        </span>
+        <button
+          v-for="chip in protocolChips"
+          :key="chip.value"
+          type="button"
+          class="oh-focus-ring rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
+          :class="
+            selectedProtocols.includes(chip.value)
+              ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
+              : 'border-oh-default text-oh-secondary hover:border-oh-strong hover:text-oh-primary'
+          "
+          :aria-pressed="selectedProtocols.includes(chip.value)"
+          @click="toggleFilterByKey('protocol', chip.value)"
+        >
+          {{ chip.label }}
+        </button>
+      </div>
+
+      <div v-if="providerOptions.length > 0 || activeFilters || asOf" class="flex flex-wrap items-center gap-1.5">
+        <span v-if="providerOptions.length > 0" class="mr-1 font-mono text-[11px] uppercase tracking-wider text-oh-muted">
+          {{ isZh ? '供应商' : 'Provider' }}
+        </span>
         <button
           v-for="provider in providerOptions"
           :key="provider"
           type="button"
-          class="oh-focus-ring max-w-full break-all rounded-full border px-3 py-1 font-mono text-xs transition-colors"
+          class="oh-focus-ring max-w-full break-all rounded-full border px-2.5 py-1 font-mono text-xs transition-colors"
           :class="providers.includes(provider)
-            ? 'border-oh-accent bg-oh-accent-subtle text-oh-accent-text'
+            ? 'border-oh-accent bg-oh-accent-subtle font-medium text-oh-accent-text'
             : 'border-oh-default text-oh-secondary hover:border-oh-strong'"
           :aria-pressed="providers.includes(provider)"
-          @click="toggleProvider(provider)"
+          @click="toggleFilterByKey('provider', provider)"
         >
           {{ provider }}
         </button>
         <button
           v-if="activeFilters"
           type="button"
-          class="oh-focus-ring rounded-oh-sm text-xs text-oh-muted underline-offset-2 hover:underline"
+          class="oh-focus-ring ml-1 rounded-oh-sm text-xs font-medium text-oh-accent-text underline-offset-2 hover:underline"
           @click="resetFilters"
         >
-          Clear filters
+          {{ isZh ? '重置筛选条件' : 'Clear filters' }}
         </button>
-        <span v-if="asOf" class="ml-auto font-mono text-[11px] text-oh-muted">as of {{ asOf }}</span>
+        <span v-if="asOf" class="ml-auto font-mono text-[11px] text-oh-muted">
+          {{ isZh ? `目录快照 ${formatPublicTimestamp(asOf)}` : `Snapshot ${formatPublicTimestamp(asOf)}` }}
+        </span>
       </div>
     </section>
 
-    <Skeleton v-if="loading" class="py-4" :lines="8" />
-    <ErrorState v-else-if="error" title="Model catalog unavailable" :message="extractApiErrorMessage(error, '')" @retry="load()" />
+    <Skeleton v-if="loading" class="py-4" :lines="8" :label="isZh ? '正在加载公开模型目录' : 'Loading model catalog'" />
+    <ErrorState
+      v-else-if="error"
+      :title="isZh ? '公开模型目录暂时无法访问' : 'Model catalog unavailable'"
+      :message="extractApiErrorMessage(error, '')"
+      :retry-label="isZh ? '重新加载' : 'Retry'"
+      @retry="load()"
+    />
     <EmptyState
       v-else-if="models.length === 0"
-      :title="activeFilters ? 'No models match these filters' : 'No models published yet'"
-      :description="activeFilters ? 'Clear the filters or try a different search term.' : undefined"
-      :action-label="activeFilters ? 'Reset filters' : undefined"
-      @action="resetFilters"
+      :variant="activeFilters ? 'filtered' : 'empty'"
+      :title="
+        activeFilters
+          ? (isZh ? '没有符合筛选条件的模型' : 'No models match these filters')
+          : (isZh ? '暂未发布公开模型目录' : 'No public models published yet')
+      "
+      :description="
+        activeFilters
+          ? (isZh ? '请尝试清空筛选条件，或更换模型关键词与协议类别。' : 'Clear active filters or try a broader search query.')
+          : (isZh
+              ? '当管理员在控制台完成上游连接验证、配置分组定价并确认模型上架后，模型规格与实时费率将自动在此公开展示。'
+              : 'Models and per-token rates appear here automatically once an administrator verifies upstream connections, configures pricing, and publishes the catalog.')
+      "
+      :action-label="
+        activeFilters
+          ? undefined
+          : (authStore.isAuthenticated ? (isZh ? '前往控制台发布模型' : 'Open Console') : (isZh ? '管理员登录配置' : 'Sign in to Console'))
+      "
+      :clear-filter-label="isZh ? '清空全部筛选' : 'Reset filters'"
+      @action="openConsoleEmptyAction"
+      @clear-filters="resetFilters"
     />
 
     <template v-else>
-      <div v-if="viewMode === 'table'" class="oh-focus-ring overflow-x-auto border border-oh-default" tabindex="0" role="region" aria-label="Model catalog table">
-        <table class="w-full min-w-[720px] border-collapse text-sm">
+      <div
+        v-if="viewMode === 'table'"
+        class="oh-focus-ring overflow-x-auto rounded-oh-md border border-oh-default bg-oh-surface"
+        tabindex="0"
+        role="region"
+        :aria-label="isZh ? '公开模型目录表格' : 'Model catalog table'"
+      >
+        <table class="w-full min-w-[820px] border-collapse text-sm">
           <thead>
             <tr class="border-b border-oh-default bg-oh-subtle text-left font-mono text-[11px] uppercase tracking-wider text-oh-muted">
-              <th class="px-4 py-2.5">Model</th>
-              <th class="px-4 py-2.5">Provider</th>
-              <th class="px-4 py-2.5 text-right">Context</th>
-              <th class="px-4 py-2.5 text-right">Input</th>
-              <th class="px-4 py-2.5 text-right">Output</th>
-              <th class="px-4 py-2.5 text-right">TTFT</th>
+              <th class="px-4 py-2.5">{{ isZh ? '模型 / ID' : 'Model' }}</th>
+              <th class="px-4 py-2.5">{{ isZh ? '供应商与协议' : 'Provider & Protocols' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '上下文' : 'Context' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</th>
+              <th class="px-4 py-2.5 text-right">{{ isZh ? '首字延迟 (TTFT)' : 'TTFT' }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="model in models" :key="model.id" class="border-b border-oh-subtle last:border-0 hover:bg-oh-hover">
-              <td class="max-w-[14rem] break-all px-4 py-3 xl:max-w-[22rem]">
-                <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
-                  {{ model.model }}
-                </RouterLink>
-                <div class="font-mono text-[11px] text-oh-muted">{{ model.id }}</div>
+              <td class="max-w-[18rem] break-all px-4 py-3 xl:max-w-[24rem]">
+                <div class="flex items-center gap-2">
+                  <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring rounded-oh-xs font-medium text-oh-primary hover:text-oh-accent-text">
+                    {{ model.display_name || model.model }}
+                  </RouterLink>
+                  <Badge :tone="routeStateTone(model.route_state)" size="xs" variant="subtle">
+                    {{ routeStateLabel(model.route_state, isZh) }}
+                  </Badge>
+                </div>
+                <div class="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-oh-muted">
+                  <span class="truncate">{{ model.model }}</span>
+                  <CopyButton :value="model.model" size="xs" :aria-label="isZh ? '复制模型名称' : 'Copy model name'" />
+                </div>
               </td>
-              <td class="px-4 py-3 text-oh-secondary">{{ publicValue(model.provider) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ contextText(model.context_tokens) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ publicTokenPrice(model.input_rate) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">{{ publicTokenPrice(model.output_rate) }}</td>
-              <td class="px-4 py-3 text-right font-mono tabular-nums">—</td>
+              <td class="px-4 py-3">
+                <div class="font-mono text-xs text-oh-primary">{{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }}</div>
+                <div v-if="model.modalities?.length || model.protocols?.length" class="mt-1 flex flex-wrap gap-1">
+                  <span
+                    v-for="mod in (model.modalities ?? []).slice(0, 3)"
+                    :key="mod"
+                    class="rounded-oh-xs bg-oh-subtle px-1.5 py-0.5 font-mono text-[10px] text-oh-secondary"
+                  >
+                    {{ mod }}
+                  </span>
+                  <span
+                    v-for="proto in (model.protocols ?? []).slice(0, 2)"
+                    :key="proto"
+                    class="rounded-oh-xs border border-oh-subtle px-1.5 py-0.5 font-mono text-[10px] text-oh-muted"
+                  >
+                    {{ proto }}
+                  </span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
+                {{ formatContextTokens(model.context_tokens) }}
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
+                {{ displayRate(model, 'input') }}
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums text-oh-primary">
+                {{ displayRate(model, 'output') }}
+              </td>
+              <td class="px-4 py-3 text-right font-mono tabular-nums">
+                <span v-if="modelTtftMs(model) !== null" class="text-oh-primary">
+                  {{ modelTtftMs(model) }} ms
+                </span>
+                <Tooltip v-else :content="ttftTooltip(model)" placement="left">
+                  <RouterLink :to="`/model-plaza/${encodeURIComponent(model.id)}`" class="oh-focus-ring inline-flex rounded-oh-xs">
+                    <Badge tone="unknown" size="xs" variant="subtle">
+                      {{ isZh ? '未观测' : 'Unobserved' }}
+                    </Badge>
+                  </RouterLink>
+                </Tooltip>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -203,20 +496,38 @@ onMounted(() => void load())
           v-for="model in models"
           :key="model.id"
           :to="`/model-plaza/${encodeURIComponent(model.id)}`"
-          class="oh-focus-ring group min-w-0 border border-oh-default p-4 transition-colors hover:border-oh-strong"
+          class="oh-focus-ring group flex min-w-0 flex-col justify-between rounded-oh-md border border-oh-default bg-oh-surface p-4 transition-colors hover:border-oh-strong"
         >
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="truncate font-medium text-oh-primary">{{ model.model }}</p>
-              <p class="break-all font-mono text-[11px] text-oh-muted">{{ publicValue(model.provider) }}</p>
+              <p class="truncate font-medium text-oh-primary group-hover:text-oh-accent-text">
+                {{ model.display_name || model.model }}
+              </p>
+              <p class="break-all font-mono text-[11px] text-oh-muted">
+                {{ publicValue(model.provider, isZh ? '未声明' : 'Undeclared') }} · {{ model.model }}
+              </p>
             </div>
-            <Badge tone="neutral" variant="subtle">{{ contextText(model.context_tokens) }}</Badge>
+            <Badge tone="neutral" size="xs" variant="subtle">{{ formatContextTokens(model.context_tokens) }}</Badge>
           </div>
-          <dl class="mt-4 grid grid-cols-2 gap-2 font-mono text-xs tabular-nums">
-            <div><dt class="text-oh-muted">in</dt><dd>{{ publicTokenPrice(model.input_rate) }}</dd></div>
-            <div><dt class="text-oh-muted">out</dt><dd>{{ publicTokenPrice(model.output_rate) }}</dd></div>
-            <div><dt class="text-oh-muted">ttft</dt><dd>—</dd></div>
-            <div><dt class="text-oh-muted">stability</dt><dd>—</dd></div>
+          <dl class="mt-4 grid grid-cols-2 gap-2 border-t border-oh-subtle pt-3 font-mono text-xs tabular-nums">
+            <div>
+              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输入 / 1M' : 'Input / 1M' }}</dt>
+              <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'input') }}</dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '输出 / 1M' : 'Output / 1M' }}</dt>
+              <dd class="mt-0.5 text-oh-primary">{{ displayRate(model, 'output') }}</dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase text-oh-muted">TTFT</dt>
+              <dd class="mt-0.5 text-oh-secondary">
+                {{ modelTtftMs(model) !== null ? `${modelTtftMs(model)} ms` : (isZh ? '未观测' : 'Unobserved') }}
+              </dd>
+            </div>
+            <div>
+              <dt class="text-[10px] uppercase text-oh-muted">{{ isZh ? '成熟度' : 'Stability' }}</dt>
+              <dd class="mt-0.5 text-oh-secondary">{{ maturityLabel(model.maturity, isZh) }}</dd>
+            </div>
           </dl>
         </RouterLink>
       </div>
@@ -225,12 +536,17 @@ onMounted(() => void load())
         v-if="paginationError"
         compact
         class="mt-4"
-        title="Could not load more models"
+        :title="isZh ? '加载更多模型失败' : 'Could not load more models'"
+        :retry-label="isZh ? '重试加载' : 'Retry'"
         @retry="load(false)"
       />
       <div class="flex flex-col items-center gap-2 py-8">
-        <p role="status" class="text-xs text-oh-muted">{{ models.length }} models loaded</p>
-        <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">Load more</Button>
+        <p role="status" class="text-xs text-oh-muted">
+          {{ isZh ? `已加载 ${models.length} 个模型` : `${models.length} models loaded` }}
+        </p>
+        <Button v-if="nextCursor && !paginationError" variant="secondary" :loading="loadingMore" @click="load(false)">
+          {{ isZh ? '加载更多' : 'Load more' }}
+        </Button>
       </div>
     </template>
   </PublicShell>

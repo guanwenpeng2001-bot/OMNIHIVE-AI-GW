@@ -5,6 +5,7 @@ const paths = new Set(CORE_NAVIGATION_ITEMS.map((item) => item.path))
 
 describe('core console navigation surfaces', () => {
   it.each([
+    '/byok',
     '/playground',
     '/requests',
     '/tasks',

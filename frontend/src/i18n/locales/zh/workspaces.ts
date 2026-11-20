@@ -16,7 +16,7 @@ export default {
   default: '默认工作区',
   saved: '成员权限已更新',
   projectsTitle: '项目与控制台作用域切换',
-  projectsDesc: '切换当前控制台生效的工作空间与项目，或管理 BE-01 隔离项目。',
+  projectsDesc: '切换当前控制台生效的工作空间与项目，或管理隔离项目。',
   activateScope: '设为当前作用域',
   activeScopeBadge: '当前生效作用域',
   newProjectPlaceholder: '输入新项目名称…',
@@ -24,5 +24,5 @@ export default {
   renameProject: '重命名',
   archiveProject: '归档',
   noProjects: '当前工作空间下暂无可见项目。',
-  memberGrants: '细粒度授权 (BE-01)',
+  memberGrants: '细粒度授权',
 }

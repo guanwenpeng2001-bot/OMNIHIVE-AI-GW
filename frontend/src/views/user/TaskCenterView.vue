@@ -8,16 +8,22 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import { keysAPI } from '@/api'
 import { classifyConsoleError, type ConsoleAsyncNotice } from '@/features/console/asyncState'
-import { catalogV2Api, type CatalogModelItem } from '@/features/console/catalogApi'
+import { catalogApi, type CatalogModelItem } from '@/features/console/catalogApi'
 import ConsoleAsyncBanner from '@/features/console/components/ConsoleAsyncBanner.vue'
 import ConsoleScopeBar from '@/features/console/components/ConsoleScopeBar.vue'
 import { EM_DASH, formatNullableInteger } from '@/features/console/format'
-import { useConsoleScope } from '@/features/console/scope'
-import { tasksV2Api } from '@/features/tasks/api'
+import { identityApi, useConsoleScope } from '@/features/console/scope'
+import { tasksApi } from '@/features/tasks/api'
 import TaskCreateModal from '@/features/tasks/components/TaskCreateModal.vue'
 import TaskDetailDrawer from '@/features/tasks/components/TaskDetailDrawer.vue'
 import TaskPaidRetryModal from '@/features/tasks/components/TaskPaidRetryModal.vue'
-import { resolveHonestTaskProgress, taskStateTone } from '@/features/tasks/progressRules'
+import {
+  formatTaskSettlementLabel,
+  formatTaskStageLabel,
+  formatTaskStateLabel,
+  resolveHonestTaskProgress,
+  taskStateTone
+} from '@/features/tasks/progressRules'
 import type {
   ImageTaskArtifact,
   ImageTaskCreateInput,
@@ -38,7 +44,7 @@ const props = withDefaults(
 )
 
 const { locale } = useI18n()
-const isZh = computed(() => String(locale.value || '').startsWith('zh'))
+const isZh = computed(() => String(locale?.value || '').startsWith('zh'))
 const instance = getCurrentInstance()
 const scope = useConsoleScope()
 
@@ -77,7 +83,7 @@ const retrySubmitting = ref(false)
 
 const createModalOpen = ref(false)
 const createSubmitting = ref(false)
-const createKeys = ref<Array<{ id: string; name: string }>>([])
+const createKeys = ref<Array<{ id: string; name: string; prefix?: string; scopeLabel?: string }>>([])
 const createModels = ref<CatalogModelItem[]>([])
 
 const summaryCounts = computed(() => {
@@ -117,7 +123,7 @@ async function loadTasks(options?: { refresh?: boolean; cursor?: string }): Prom
     await scope.refreshScopes(false)
     const wsId = scope.activeWorkspaceId.value || '1'
     const projId = scope.activeProjectId.value || '1'
-    const page = await tasksV2Api.listTasks(wsId, projId, {
+    const page = await tasksApi.listTasks(wsId, projId, {
       cursor: options?.cursor,
       limit: 25,
       state: filters.state ? [filters.state] : undefined,
@@ -178,8 +184,8 @@ async function openTaskDetail(taskId: string): Promise<void> {
 
   try {
     const [detail, itemPage] = await Promise.all([
-      tasksV2Api.getTaskDetail(wsId, projId, taskId),
-      tasksV2Api.listTaskItems(wsId, projId, taskId, { limit: 100 }).catch(() => ({
+      tasksApi.getTaskDetail(wsId, projId, taskId),
+      tasksApi.listTaskItems(wsId, projId, taskId, { limit: 100 }).catch(() => ({
         items: [],
         next_cursor: null,
         as_of: ''
@@ -204,7 +210,7 @@ async function handleCancelTask(taskId: string): Promise<void> {
   const wsId = scope.activeWorkspaceId.value || '1'
   const projId = scope.activeProjectId.value || '1'
   try {
-    const res = await tasksV2Api.cancelTask(wsId, projId, taskId)
+    const res = await tasksApi.cancelTask(wsId, projId, taskId)
     confirmedNotice.value = {
       kind: 'confirmed',
       title: isZh.value
@@ -234,7 +240,7 @@ async function handleConfirmPaidRetry(payload: { itemIds: string[] }): Promise<v
   const wsId = scope.activeWorkspaceId.value || '1'
   const projId = scope.activeProjectId.value || '1'
   try {
-    const result = await tasksV2Api.retryTask(wsId, projId, selectedDetail.value.id, {
+    const result = await tasksApi.retryTask(wsId, projId, selectedDetail.value.id, {
       item_ids: payload.itemIds.length > 0 ? payload.itemIds : undefined,
       funding_acknowledged: true
     })
@@ -270,8 +276,8 @@ async function handleDownloadArtifact(artifact: ImageTaskArtifact): Promise<void
   const taskId = selectedDetail.value.id
 
   try {
-    const ticket = await tasksV2Api.issueArtifactDownloadTicket(wsId, projId, taskId, artifact.id)
-    const blob = await tasksV2Api.fetchArtifactContentBlob(wsId, projId, taskId, artifact.id, ticket)
+    const ticket = await tasksApi.issueArtifactDownloadTicket(wsId, projId, taskId, artifact.id)
+    const blob = await tasksApi.fetchArtifactContentBlob(wsId, projId, taskId, artifact.id, ticket)
     if (typeof window !== 'undefined' && typeof URL.createObjectURL === 'function') {
       const blobUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -309,7 +315,7 @@ async function handleRevokeArtifact(artifact: ImageTaskArtifact): Promise<void> 
   const taskId = selectedDetail.value.id
 
   try {
-    await tasksV2Api.revokeArtifact(wsId, projId, taskId, artifact.id)
+    await tasksApi.revokeArtifact(wsId, projId, taskId, artifact.id)
     confirmedNotice.value = {
       kind: 'confirmed',
       title: isZh.value
@@ -331,16 +337,54 @@ async function openCreateModal(): Promise<void> {
   createModalOpen.value = true
   const wsId = scope.activeWorkspaceId.value || '1'
   const projId = scope.activeProjectId.value || '1'
-  const [kRes, mRes] = await Promise.allSettled([
+  const [projKeysRes, userKeysRes, mRes] = await Promise.allSettled([
+    scope.activeWorkspaceId.value &&
+    scope.activeProjectId.value &&
+    typeof identityApi.listProjectKeys === 'function'
+      ? identityApi.listProjectKeys(scope.activeWorkspaceId.value, scope.activeProjectId.value, {
+          limit: 100
+        })
+      : Promise.resolve({ items: [] }),
     keysAPI.list(1, 50, { status: 'active' }),
-    catalogV2Api.listScopedModels(wsId, projId, { modality: ['image'], limit: 50 })
+    catalogApi.listScopedModels(wsId, projId, { modality: ['image'], limit: 50 })
   ])
-  if (kRes.status === 'fulfilled') {
-    createKeys.value = (kRes.value.items || []).map((k) => ({ id: String(k.id), name: k.name }))
+
+  const merged = new Map<string, { id: string; name: string; prefix?: string; scopeLabel?: string }>()
+  if (projKeysRes.status === 'fulfilled') {
+    for (const k of projKeysRes.value.items || []) {
+      if (!k.state || k.state === 'active') {
+        merged.set(String(k.id), {
+          id: String(k.id),
+          name: k.name,
+          prefix: k.prefix,
+          scopeLabel: isZh.value ? '项目密钥' : 'Project'
+        })
+      }
+    }
   }
+  if (userKeysRes.status === 'fulfilled') {
+    for (const k of userKeysRes.value.items || []) {
+      const id = String(k.id)
+      if (!merged.has(id)) {
+        merged.set(id, {
+          id,
+          name: k.name,
+          prefix: k.key ? k.key.slice(0, 10) : undefined,
+          scopeLabel: isZh.value ? '账户密钥' : 'Account'
+        })
+      }
+    }
+  }
+  createKeys.value = Array.from(merged.values())
+
   if (mRes.status === 'fulfilled') {
     createModels.value = mRes.value
   }
+}
+
+function handleNavigateToKeysFromCreate(): void {
+  createModalOpen.value = false
+  navigateTo('/keys')
 }
 
 async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
@@ -348,7 +392,7 @@ async function handleCreateTask(payload: ImageTaskCreateInput): Promise<void> {
   const wsId = scope.activeWorkspaceId.value || '1'
   const projId = scope.activeProjectId.value || '1'
   try {
-    const created = await tasksV2Api.createTask(wsId, projId, payload)
+    const created = await tasksApi.createTask(wsId, projId, payload)
     createModalOpen.value = false
     confirmedNotice.value = {
       kind: 'confirmed',
@@ -409,7 +453,6 @@ onMounted(() => {
             <h1 class="text-lg font-semibold tracking-tight text-[var(--oh-ink,var(--foreground))]">
               {{ isZh ? '任务中心' : 'Task Center' }}
             </h1>
-            <Badge tone="accent" variant="subtle" mono>BE-15 · v2</Badge>
           </div>
           <p class="mt-0.5 text-xs text-[var(--oh-ink-secondary,var(--muted-foreground))]">
             {{
@@ -486,7 +529,9 @@ onMounted(() => {
       <section class="flex flex-wrap items-end justify-between gap-3 rounded-[var(--oh-r-md,8px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-surface,var(--card))] p-3.5">
         <div class="flex flex-wrap items-end gap-2.5">
           <label class="space-y-1 text-xs">
-            <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">State</span>
+            <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+              {{ isZh ? '任务状态' : 'State' }}
+            </span>
             <select
               v-model="filters.state"
               data-testid="filter-task-state"
@@ -494,22 +539,24 @@ onMounted(() => {
               @change="applyFilters"
             >
               <option value="">{{ isZh ? '全部状态' : 'All States' }}</option>
-              <option value="queued">queued</option>
-              <option value="running">running</option>
-              <option value="succeeded">succeeded</option>
-              <option value="failed">failed</option>
-              <option value="canceled">canceled</option>
-              <option value="unknown">unknown</option>
+              <option value="queued">{{ isZh ? '排队中' : 'Queued' }}</option>
+              <option value="running">{{ isZh ? '执行中' : 'Running' }}</option>
+              <option value="succeeded">{{ isZh ? '已完成' : 'Succeeded' }}</option>
+              <option value="failed">{{ isZh ? '执行失败' : 'Failed' }}</option>
+              <option value="canceled">{{ isZh ? '已取消' : 'Canceled' }}</option>
+              <option value="unknown">{{ isZh ? '状态未知' : 'Unknown' }}</option>
             </select>
           </label>
 
           <label class="space-y-1 text-xs">
-            <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">Model</span>
+            <span class="block font-mono text-[11px] uppercase text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
+              {{ isZh ? '模型标识' : 'Model' }}
+            </span>
             <input
               v-model="filters.modelId"
               data-testid="filter-task-model"
               type="search"
-              :placeholder="isZh ? '按 model_id 筛选…' : 'Filter model_id…'"
+              :placeholder="isZh ? '按模型标识筛选…' : 'Filter by model…'"
               class="h-8 rounded-[var(--oh-r-sm,6px)] border border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] px-2.5 font-mono text-xs text-[var(--oh-ink,var(--foreground))]"
               @keydown.enter="applyFilters"
             />
@@ -524,7 +571,7 @@ onMounted(() => {
         </div>
 
         <div class="flex items-center gap-2 font-mono text-xs tabular-nums text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-          <span v-if="asOf">as_of: {{ asOf.slice(0, 19).replace('T', ' ') }}Z</span>
+          <span v-if="asOf">{{ isZh ? '同步快照：' : 'Snapshot: ' }}{{ asOf.slice(0, 19).replace('T', ' ') }}Z</span>
         </div>
       </section>
 
@@ -583,13 +630,13 @@ onMounted(() => {
         <table class="w-full border-collapse text-left text-xs">
           <thead>
             <tr class="border-b border-[var(--oh-border,var(--border))] bg-[var(--oh-bg-subtle,var(--surface-2))] font-mono text-[11px] uppercase tracking-wider text-[var(--oh-ink-tertiary,var(--muted-foreground))]">
-              <th class="px-3.5 py-2.5">Task ID</th>
-              <th class="px-3.5 py-2.5">Model</th>
-              <th class="px-3.5 py-2.5">State / Stage</th>
-              <th class="px-3.5 py-2.5 text-right">Progress</th>
-              <th class="px-3.5 py-2.5">Settlement</th>
-              <th class="px-3.5 py-2.5 text-right">Created</th>
-              <th class="px-3.5 py-2.5 text-right">Actions</th>
+              <th class="px-3.5 py-2.5">{{ isZh ? '任务 ID' : 'Task ID' }}</th>
+              <th class="px-3.5 py-2.5">{{ isZh ? '模型' : 'Model' }}</th>
+              <th class="px-3.5 py-2.5">{{ isZh ? '状态 / 阶段' : 'State / Stage' }}</th>
+              <th class="px-3.5 py-2.5 text-right">{{ isZh ? '进度' : 'Progress' }}</th>
+              <th class="px-3.5 py-2.5">{{ isZh ? '结算状态' : 'Settlement' }}</th>
+              <th class="px-3.5 py-2.5 text-right">{{ isZh ? '创建时间' : 'Created' }}</th>
+              <th class="px-3.5 py-2.5 text-right">{{ isZh ? '操作' : 'Actions' }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-[var(--oh-border,var(--border))]">
@@ -609,10 +656,10 @@ onMounted(() => {
               <td class="px-3.5 py-3">
                 <div class="flex flex-wrap items-center gap-1.5">
                   <Badge :tone="taskStateTone(task.state)" variant="subtle" mono>
-                    {{ task.state }}
+                    {{ formatTaskStateLabel(task.state, isZh) }}
                   </Badge>
                   <span class="font-mono text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                    {{ task.stage || EM_DASH }}
+                    {{ formatTaskStageLabel(task.stage, isZh) }}
                   </span>
                 </div>
               </td>
@@ -640,7 +687,7 @@ onMounted(() => {
                 </span>
               </td>
               <td class="px-3.5 py-3 font-mono tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">
-                {{ task.settlement_state || EM_DASH }}
+                {{ formatTaskSettlementLabel(task.settlement_state, isZh) }}
               </td>
               <td class="px-3.5 py-3 text-right font-mono tabular-nums text-[var(--oh-ink-secondary,var(--muted-foreground))]">
                 {{ task.created_at ? task.created_at.slice(0, 19).replace('T', ' ') : EM_DASH }}
@@ -724,6 +771,7 @@ onMounted(() => {
       :is-zh="isZh"
       :teleport-disabled="props.teleportDisabled"
       @submit="handleCreateTask"
+      @navigate-keys="handleNavigateToKeysFromCreate"
     />
   </AppLayout>
 </template>

@@ -716,7 +716,7 @@ export default {
     allProviders: 'All Providers',
     loadError: 'Failed to load channel status',
     disabled: 'Channel monitoring is disabled, so there is no monitoring data to show',
-    modeMismatch: 'Channel monitoring is running in V2 mode; use the V2 channel status page instead',
+    modeMismatch: 'Channel monitoring is running in Traffic Telemetry mode; open the Traffic Telemetry status view instead',
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
     closeDetail: 'Close',

@@ -169,6 +169,7 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    byok: 'BYOK Credentials',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',

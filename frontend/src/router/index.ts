@@ -291,6 +291,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/byok',
+    name: 'ByokCredentials',
+    component: () => import('@/views/user/ByokView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'BYOK Credentials',
+      titleKey: 'nav.byok'
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',
@@ -311,7 +322,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Requests',
-      titleKey: 'wp6.requests.title'
+      titleKey: 'costLedger.requests.title'
     }
   },
   {
@@ -322,7 +333,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Request Detail',
-      titleKey: 'wp6.requests.detail'
+      titleKey: 'costLedger.requests.detail'
     }
   },
   {
@@ -333,7 +344,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Requests',
-      titleKey: 'wp6.requests.title'
+      titleKey: 'costLedger.requests.title'
     }
   },
   {
@@ -344,7 +355,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Request Detail',
-      titleKey: 'wp6.requests.detail'
+      titleKey: 'costLedger.requests.detail'
     }
   },
   {
@@ -355,7 +366,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Costs & Quota',
-      titleKey: 'wp6.billing.title'
+      titleKey: 'costLedger.billing.title'
     }
   },
   {
@@ -390,7 +401,7 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: true,
       title: 'Reconciliation',
-      titleKey: 'wp6.reconciliation.title'
+      titleKey: 'costLedger.reconciliation.title'
     }
   },
   {

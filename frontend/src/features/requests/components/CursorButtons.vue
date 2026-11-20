@@ -9,10 +9,10 @@ const { t } = useI18n()
 <template>
   <div v-if="next || previous" class="flex flex-wrap items-center justify-end gap-2">
     <Button size="sm" variant="secondary" :disabled="loading || !previous" @click="emit('previous')">
-      {{ t('wp6.pagination.previous') }}
+      {{ t('costLedger.pagination.previous') }}
     </Button>
     <Button size="sm" variant="secondary" :disabled="loading || !next" @click="emit('next')">
-      {{ t('wp6.pagination.next') }}
+      {{ t('costLedger.pagination.next') }}
     </Button>
   </div>
 </template>

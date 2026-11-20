@@ -45,6 +45,7 @@ var headerOverrideBlockedNames = map[string]struct{}{
 	"trailer":                  {},
 	"upgrade":                  {},
 	"authorization":            {},
+	"api-key":                  {},
 	"x-api-key":                {},
 	"x-goog-api-key":           {},
 	"cookie":                   {},
@@ -92,36 +93,48 @@ func (a *Account) IsHeaderOverrideEligible() bool {
 
 // IsHeaderOverrideEnabled 报告账号是否启用了请求头覆写。
 func (a *Account) IsHeaderOverrideEnabled() bool {
-	if !a.IsHeaderOverrideEligible() || a.Credentials == nil {
-		return false
+	return a.headerOverrideConfig() != nil
+}
+
+func (a *Account) headerOverrideConfig() map[string]any {
+	if !a.IsHeaderOverrideEligible() {
+		return nil
 	}
-	enabled, ok := a.Credentials[credKeyHeaderOverrideEnabled].(bool)
-	return ok && enabled
+	switch a.Extra[credKeyHeaderOverrides].(type) {
+	case map[string]any, map[string]string:
+		return a.Extra
+	}
+	if enabled, _ := a.Credentials[credKeyHeaderOverrideEnabled].(bool); enabled {
+		return a.Credentials
+	}
+	return nil
 }
 
 // GetHeaderOverrides 返回生效的请求头覆写表（key 统一小写）。
 // 未启用、不符合平台/类型条件或配置为空时返回 nil。
 // 空 value 的条目（模板占位）与非法/禁止的 header 名会被跳过。
-// 结果带热路径缓存（同 GetModelMapping 先例）：同一 credentials 映射在
+// 结果带热路径缓存（同 GetModelMapping 先例）：同一来源映射在
 // 一次请求 / 一条 WS 会话内的多次调用只做一次解析与校验。
 func (a *Account) GetHeaderOverrides() map[string]string {
-	if !a.IsHeaderOverrideEnabled() {
+	config := a.headerOverrideConfig()
+	if config == nil {
 		return nil
 	}
-	rawMapping, rawIsAnyMap := a.Credentials[credKeyHeaderOverrides].(map[string]any)
+	raw := config[credKeyHeaderOverrides]
+	rawMapping, rawIsAnyMap := raw.(map[string]any)
 	if !rawIsAnyMap {
 		// 非 JSON 反序列化产物（如直接注入的 map[string]string）：直接解析，不缓存
-		return resolveHeaderOverrides(stringMappingFromRaw(a.Credentials[credKeyHeaderOverrides]))
+		return resolveHeaderOverrides(stringMappingFromRaw(raw))
 	}
 
-	credentialsPtr := mapPtr(a.Credentials)
+	configPtr := mapPtr(config)
 	rawPtr := mapPtr(rawMapping)
 	rawLen := len(rawMapping)
 	rawSig := uint64(0)
 	rawSigReady := false
 
 	if a.headerOverrideCacheReady &&
-		a.headerOverrideCacheCredentialsPtr == credentialsPtr &&
+		a.headerOverrideCacheCredentialsPtr == configPtr &&
 		a.headerOverrideCacheRawPtr == rawPtr &&
 		a.headerOverrideCacheRawLen == rawLen {
 		rawSig = modelMappingSignature(rawMapping)
@@ -138,7 +151,7 @@ func (a *Account) GetHeaderOverrides() map[string]string {
 
 	a.headerOverrideCache = overrides
 	a.headerOverrideCacheReady = true
-	a.headerOverrideCacheCredentialsPtr = credentialsPtr
+	a.headerOverrideCacheCredentialsPtr = configPtr
 	a.headerOverrideCacheRawPtr = rawPtr
 	a.headerOverrideCacheRawLen = rawLen
 	a.headerOverrideCacheRawSig = rawSig

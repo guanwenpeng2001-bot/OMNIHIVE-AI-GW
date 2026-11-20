@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { classifyConsoleError } from '@/features/console/asyncState'
 import { generateIdempotencyKey } from '@/features/console/scope'
-import { playgroundV2Api } from './api'
+import { playgroundApi } from './api'
 import type { ParsedSseRecord } from './sseParser'
 import type {
   PlaygroundEvent,
@@ -14,11 +14,11 @@ import type {
 } from './types'
 
 export interface PlaygroundApiAdapter {
-  submitRun: typeof playgroundV2Api.submitRun
-  replayRequest: typeof playgroundV2Api.replayRequest
-  getRunByIdempotencyKey: typeof playgroundV2Api.getRunByIdempotencyKey
-  getRunDetail: typeof playgroundV2Api.getRunDetail
-  cancelRun: typeof playgroundV2Api.cancelRun
+  submitRun: typeof playgroundApi.submitRun
+  replayRequest: typeof playgroundApi.replayRequest
+  getRunByIdempotencyKey: typeof playgroundApi.getRunByIdempotencyKey
+  getRunDetail: typeof playgroundApi.getRunDetail
+  cancelRun: typeof playgroundApi.cancelRun
 }
 
 function createInitialSnapshot(): PlaygroundSessionSnapshot {
@@ -72,7 +72,7 @@ export function createPlaygroundRunController(
     isZh?: () => boolean
   }
 ) {
-  const api = options?.api ?? playgroundV2Api
+  const api = options?.api ?? playgroundApi
   const now = options?.now ?? (() => Date.now())
   const isZh = options?.isZh ?? (() => false)
 
@@ -378,11 +378,11 @@ export function createPlaygroundRunController(
         state.errorNotice = {
           kind: 'unknown',
           title: isZh()
-            ? '连接中断 — 可使用原幂等键安全恢复状态'
-            : 'Stream Disconnected — Recover Safely by Idempotency Key',
+            ? '连接中断 — 可使用原恢复标识安全查询状态'
+            : 'Stream Disconnected — Recover Safely Without Re-Billing',
           message: isZh()
-            ? '切勿盲目重新提交计费请求；点击「按幂等键恢复」查询原运行状态与扣费结算。'
-            : 'Do not re-submit a new billable request. Recover the existing run handle using the original Idempotency-Key.',
+            ? '切勿盲目重新提交计费请求；点击「恢复原运行状态」查询已受理的执行与扣费结算。'
+            : 'Do not re-submit a new billable request. Recover the existing run status using the preserved recovery handle.',
           retryable: true
         }
         return

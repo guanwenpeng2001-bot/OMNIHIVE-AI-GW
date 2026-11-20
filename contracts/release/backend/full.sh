@@ -47,7 +47,7 @@ for db in candidate job_test be09_journal_test previous upgraded; do createdb -h
 createdb -h 127.0.0.1 -p 5433 -U postgres be09_rehearsal_test
 createdb -h 127.0.0.1 -p 5433 -U postgres job_test
 export UPSTREAM_JOB_TEST_DSN='postgres://postgres@127.0.0.1:5432/job_test?sslmode=disable'
-export BE23_INTEGRATION_TEST_DSN="$UPSTREAM_JOB_TEST_DSN"
+export MIGRATION_INTEGRATION_TEST_DSN="$UPSTREAM_JOB_TEST_DSN"
 export BE09_TEST_JOURNAL_DSN='postgres://postgres@127.0.0.1:5432/be09_journal_test?sslmode=disable'
 export BE09_TEST_ISOLATED_DSN='postgres://postgres@127.0.0.1:5433/be09_rehearsal_test?sslmode=disable'
 export AFFINITY_REDIS_TEST_ADDR=127.0.0.1:6379 OMNIHIVE_TEST_EXTERNAL_SERVICES=1

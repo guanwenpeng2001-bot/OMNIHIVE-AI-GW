@@ -469,6 +469,23 @@ func createAdminUser(cfg *SetupConfig) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	// Seed public features only after the initial administrator is created.
+	// Existing installations keep their explicitly configured settings.
+	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value, updated_at)
+		VALUES ('model_plaza_enabled', 'true', NOW()), ('registration_enabled', 'true', NOW())
+		ON CONFLICT (key) DO NOTHING`); err != nil {
+		return false, "", fmt.Errorf("failed to seed initial settings: %w", err)
+	}
+	// Record the verified empty-history origin for a brand-new installation so
+	// multi-day dashboard windows before install time return zeroed empty series
+	// rather than USAGE_HISTORY_INCOMPLETE.
+	_, _ = db.ExecContext(ctx, `
+		UPDATE usage_dashboard_aggregation_watermark
+		   SET history_known_empty_before = raw_retained_from, updated_at = NOW()
+		 WHERE id = 1
+		   AND history_known_empty_before IS NULL
+		   AND NOT EXISTS (SELECT 1 FROM usage_logs)
+		   AND NOT EXISTS (SELECT 1 FROM usage_cleanup_tasks)`)
 	return true, decision.reason, nil
 }
 

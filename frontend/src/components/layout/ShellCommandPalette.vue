@@ -126,7 +126,7 @@ const groups = computed<UiCommandGroup[]>(() => {
     if (userItems.length > 0) {
       result.push({
         id: 'nav-user',
-        label: isZh.value ? 'DEVELOPER CONSOLE · 开发者控制台' : 'DEVELOPER CONSOLE',
+        label: isZh.value ? '开发者控制台' : 'DEVELOPER CONSOLE',
         items: userItems.map(
           (entry): UiCommandItem => ({
             id: `cmd-${entry.id}`,
@@ -146,7 +146,7 @@ const groups = computed<UiCommandGroup[]>(() => {
       if (adminItems.length > 0) {
         result.push({
           id: 'nav-admin',
-          label: isZh.value ? 'ADMIN CONSOLE · 管理控制台' : 'ADMIN CONSOLE',
+          label: isZh.value ? '管理控制台' : 'ADMIN CONSOLE',
           items: adminItems.map(
             (entry): UiCommandItem => ({
               id: `cmd-${entry.id}`,
@@ -186,7 +186,7 @@ const groups = computed<UiCommandGroup[]>(() => {
       ]
       result.push({
         id: 'scopes',
-        label: isZh.value ? 'SCOPES · 工作空间切换' : 'SCOPES',
+        label: isZh.value ? '工作空间切换' : 'SCOPES',
         items: scopeItems
       })
     }
@@ -196,7 +196,7 @@ const groups = computed<UiCommandGroup[]>(() => {
   if (publicItems.length > 0) {
     result.push({
       id: 'nav-public',
-      label: isZh.value ? 'PUBLIC · 公开站点' : 'PUBLIC',
+      label: isZh.value ? '公开站点' : 'PUBLIC',
       items: publicItems.map(
         (entry): UiCommandItem => ({
           id: `cmd-${entry.id}`,
@@ -214,7 +214,7 @@ const groups = computed<UiCommandGroup[]>(() => {
   if (liveModelNames.value.length > 0) {
     result.push({
       id: 'live-models',
-      label: isZh.value ? 'CATALOG MODELS · 实时目录模型' : 'CATALOG MODELS',
+      label: isZh.value ? '实时目录模型' : 'CATALOG MODELS',
       items: liveModelNames.value.map(
         (model): UiCommandItem => ({
           id: `mdl-${model.name}`,
@@ -287,7 +287,7 @@ const groups = computed<UiCommandGroup[]>(() => {
 
   result.push({
     id: 'preferences',
-    label: isZh.value ? 'PREFERENCES · 外观与偏好' : 'PREFERENCES',
+    label: isZh.value ? '外观与偏好' : 'PREFERENCES',
     items: actionItems
   })
 

@@ -3,18 +3,36 @@
     <section class="plugins-page space-y-4">
       <header class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 class="text-2xl font-bold tracking-tight">插件管理</h1>
-          <p class="mt-1 text-sm text-[var(--muted-foreground)]">管理宿主动态传输插件（.ohplugin、.s2plugin）与网关核心流量扩展引擎</p>
+          <h1 class="text-2xl font-bold tracking-tight">{{ isZh ? '插件与扩展能力管理' : 'Plugins & Extension Inventory' }}</h1>
+          <p class="mt-1 text-sm text-[var(--muted-foreground)]">
+            {{
+              isZh
+                ? '管理宿主动态传输插件（.ohplugin、.s2plugin）及已签名的网关扩展能力包清单'
+                : 'Manage host transport plugins (.ohplugin, .s2plugin) and verified signed extension capability packages'
+            }}
+          </p>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || actionBusy" @click="loadPlugins">
           <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
-          刷新列表
+          {{ isZh ? '刷新列表' : 'Refresh' }}
         </button>
       </header>
 
       <div class="plugin-card space-y-2 p-4 text-sm">
-        <p>现有传输能力：OpenAI OAuth 出站传输；API Key 请求路径保持隔离，不受传输插件影响。停用后新请求恢复宿主原有路径。</p>
-        <p class="text-[var(--muted-foreground)]">插件菜单开关仅控制入口显示，不停止运行中的插件。安装、启停、卸载与配置保存等敏感操作受宿主二次验证机制保护。</p>
+        <p>
+          {{
+            isZh
+              ? '现有传输能力：OpenAI OAuth 出站传输与已授权的适配器扩展动作；标准 API Key 请求路径保持隔离，停用插件后新请求立即恢复宿主原生转发路径。'
+              : 'Active host capabilities cover OpenAI OAuth outbound transport and authorized adapter actions. Standard API Key traffic remains isolated and reverts to native host routing when disabled.'
+          }}
+        </p>
+        <p class="text-[var(--muted-foreground)]">
+          {{
+            isZh
+              ? '安装、启停、卸载与配置保存等敏感操作均受宿主二次验证（TOTP Step-Up）保护。'
+              : 'Sensitive lifecycle actions including installation, activation, removal, and config writes require TOTP step-up verification.'
+          }}
+        </p>
       </div>
 
       <section
@@ -26,23 +44,53 @@
         @dragleave.prevent="dragDepth = Math.max(0, dragDepth - 1)"
         @drop.prevent="handleDrop"
       >
-        <h2 class="font-semibold">安装插件</h2>
-        <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入单个 .ohplugin 或 .s2plugin 文件（ZIP 包），宿主自动校验包清单、协议版本、兼容性范围与可信签名。</p>
-        <input ref="fileInput" class="hidden" type="file" accept=".ohplugin,.s2plugin" aria-label="选择 .ohplugin 或 .s2plugin 文件" @change="handleFileSelected" />
+        <h2 class="font-semibold">{{ isZh ? '安装宿主插件包' : 'Install Plugin Archive' }}</h2>
+        <p class="mt-2 text-sm text-[var(--muted-foreground)]">
+          {{
+            isZh
+              ? '选择或拖入单个 .ohplugin 或兼容的 .s2plugin 归档包，宿主将自动校验清单协议、版本范围、哈希摘要与发布者签名。'
+              : 'Select or drop a single .ohplugin (or legacy .s2plugin) archive. The host verifies manifest schema, protocol version, SHA-256 digest, and publisher signature.'
+          }}
+        </p>
+        <input
+          ref="fileInput"
+          class="hidden"
+          type="file"
+          accept=".ohplugin,.s2plugin"
+          :aria-label="isZh ? '选择 .ohplugin 或 .s2plugin 文件' : 'Select .ohplugin or .s2plugin archive'"
+          @change="handleFileSelected"
+        />
         <button type="button" class="btn btn-primary btn-sm mt-3" :disabled="actionBusy" @click="fileInput?.click()">
           <Icon name="upload" size="sm" />
-          {{ uploading ? '正在安装…' : '选择 .ohplugin 或 .s2plugin 文件' }}
+          {{
+            uploading
+              ? (isZh ? '正在安装…' : 'Installing...')
+              : (isZh ? '选择 .ohplugin 或 .s2plugin 文件' : 'Select .ohplugin / .s2plugin file')
+          }}
         </button>
-        <span v-if="dragDepth > 0" class="ml-3 text-sm text-[var(--brand-text)]" role="status">松开以安装插件</span>
+        <span v-if="dragDepth > 0" class="ml-3 text-sm text-[var(--brand-text)]" role="status">
+          {{ isZh ? '松开以安装插件' : 'Release to install archive' }}
+        </span>
       </section>
 
       <section aria-labelledby="installed-plugins-title" :aria-busy="loading">
-        <h2 id="installed-plugins-title" class="mb-3 font-semibold">已安装传输插件</h2>
-        <p v-if="pluginLoadError" class="plugin-card p-4 text-sm text-[var(--bad-text)]" role="alert">{{ pluginLoadError }} 请刷新列表重试。</p>
-        <p v-else-if="loading && !plugins.length" class="plugin-card p-8 text-center text-sm text-[var(--muted-foreground)]" role="status">正在加载插件…</p>
+        <h2 id="installed-plugins-title" class="mb-3 font-semibold">
+          {{ isZh ? '已安装传输插件' : 'Installed Transport Plugins' }}
+        </h2>
+        <div v-if="pluginLoadError" class="plugin-card flex flex-wrap items-center justify-between gap-3 p-4 text-sm text-[var(--bad-text)]" role="alert">
+          <span>{{ pluginLoadError }}</span>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadPlugins">
+            {{ isZh ? '重试加载' : 'Retry' }}
+          </button>
+        </div>
+        <p v-else-if="loading && !plugins.length" class="plugin-card p-8 text-center text-sm text-[var(--muted-foreground)]" role="status">
+          {{ isZh ? '正在加载插件…' : 'Loading installed plugins...' }}
+        </p>
         <div v-else-if="!plugins.length" class="plugin-card p-8 text-center">
           <p class="font-semibold">{{ t('admin.plugins.empty') }}</p>
-          <p class="mt-2 text-sm text-[var(--muted-foreground)]">选择或拖入本机的 .ohplugin 或 .s2plugin 文件进行安装。</p>
+          <p class="mt-2 text-sm text-[var(--muted-foreground)]">
+            {{ isZh ? '选择或拖入本机的 .ohplugin 或 .s2plugin 文件进行安装。' : 'Upload a signed .ohplugin or .s2plugin package above to register a transport plugin.' }}
+          </p>
         </div>
         <div v-if="plugins.length" class="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <article v-for="plugin in plugins" :key="plugin.id" class="plugin-card flex flex-col gap-4 p-5">
@@ -89,66 +137,154 @@
       </section>
 
       <section class="plugin-card p-4" aria-labelledby="gateway-extensions-title">
-        <h2 id="gateway-extensions-title" class="font-semibold">网关内置扩展引擎 · {{ extensions.length || 4 }} 项</h2>
-        <p class="mt-2 text-sm text-[var(--muted-foreground)]">独立管理网关流量策略、响应缓存与成本预算。</p>
-        <p v-if="hasLocalExtensions" class="mt-2 text-sm text-[var(--warn-text)]" role="status">网关扩展接口暂未接通，当前配置仅保存在本次页面会话内；接通接口后由网关执行，自检仅验证本地配置。</p>
-        <p v-if="extensionLoadError" class="mt-3 text-sm text-[var(--bad-text)]" role="alert">{{ extensionLoadError }} 请刷新列表重试。</p>
-        <p v-else-if="loading && !extensions.length" class="py-6 text-sm text-[var(--muted-foreground)]" role="status">正在加载扩展引擎…</p>
-        <p v-else-if="!extensions.length" class="py-6 text-sm text-[var(--muted-foreground)]">网关尚未提供可用扩展。</p>
-        <div class="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <article v-for="extension in extensions" :key="extension.key" class="plugin-card flex flex-col gap-4 p-5">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 id="gateway-extensions-title" class="font-semibold">
+              {{ isZh ? '已签名扩展能力清单' : 'Signed Extension Capability Inventory' }}
+              <span class="ml-1.5 font-mono text-xs text-[var(--muted-foreground)]">({{ extensions.length }})</span>
+            </h2>
+            <p class="mt-1 text-sm text-[var(--muted-foreground)]">
+              {{
+                isZh
+                  ? '实时读取宿主已验证的扩展包身份、SDK 协议版本、归档哈希摘要与已授权网关动作（无本地模拟回退）。'
+                  : 'Live inventory of host-verified extension packages, SDK versions, archive digests, and authorized runtime actions.'
+              }}
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-if="extensionLoadError"
+          data-testid="extensions-error-state"
+          class="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border)] p-4 text-sm text-[var(--bad-text)]"
+          role="alert"
+        >
+          <span>{{ extensionLoadError }}</span>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadPlugins">
+            {{ isZh ? '重试加载' : 'Retry' }}
+          </button>
+        </div>
+        <p
+          v-else-if="loading && !extensions.length"
+          class="py-6 text-center text-sm text-[var(--muted-foreground)]"
+          role="status"
+        >
+          {{ isZh ? '正在读取扩展能力清单…' : 'Loading extension capability inventory...' }}
+        </p>
+        <div
+          v-else-if="!extensions.length"
+          data-testid="extensions-empty-state"
+          class="mt-3 rounded-lg border border-dashed border-[var(--border)] p-6 text-center"
+        >
+          <p class="text-sm font-medium">
+            {{ isZh ? '当前无已注册的扩展能力包' : 'No signed extension capability packages registered' }}
+          </p>
+          <p class="mt-1 text-xs text-[var(--muted-foreground)]">
+            {{
+              isZh
+                ? '安装并验证包含可信能力声明的 .ohplugin 扩展包后，其授权动作与哈希摘要将自动显示在此清单中。'
+                : 'Install and verify a signed .ohplugin archive declaring host capabilities to populate this inventory.'
+            }}
+          </p>
+        </div>
+        <div v-else class="mt-3 grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <article
+            v-for="extension in extensions"
+            :key="extension.id"
+            data-testid="extension-inventory-card"
+            class="plugin-card flex flex-col gap-3.5 p-5"
+          >
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
-                  <h3 class="font-semibold">{{ extension.name }}</h3>
-                  <span class="plugin-status" :class="extension.enabled ? isLocalExtension(extension.key) ? 'status-warn' : extension.runtime_healthy ? 'status-ok' : 'status-bad' : 'status-neutral'"><span aria-hidden="true">●</span>{{ extension.enabled ? isLocalExtension(extension.key) ? '本地已启用' : extension.runtime_healthy ? '运行正常' : '运行异常' : '已停用' }}</span>
+                  <h3 class="break-all font-mono text-sm font-semibold">{{ extension.id }}</h3>
+                  <span class="plugin-status" :class="extensionStateClass(extension.state)">
+                    <span aria-hidden="true">●</span>{{ extensionStateLabel(extension.state) }}
+                  </span>
                 </div>
-                <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">{{ extension.key }} · 版本 {{ extension.version }} · {{ extension.author }}</p>
-                <p class="mt-2 text-sm text-[var(--muted-foreground)]">{{ extension.description }}</p>
+                <p class="mt-1 break-all font-mono text-xs text-[var(--muted-foreground)]">
+                  SDK v{{ extension.sdk_version }}
+                  <template v-if="extension.publisher_id">
+                    · {{ isZh ? '发布者' : 'Publisher' }} {{ extension.publisher_id }}
+                  </template>
+                </p>
               </div>
-              <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="actionBusy" @click="openExtensionConfiguration(extension)">配置</button>
             </div>
-            <div class="grid gap-3 text-sm sm:grid-cols-2">
-              <div><h4 class="font-semibold">扩展能力</h4><p class="mt-1">{{ extension.category }}</p></div>
+
+            <div v-if="extension.digest" class="flex items-center justify-between gap-2 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 font-mono text-[11px]">
+              <span class="truncate text-[var(--muted-foreground)]" :title="extension.digest">
+                SHA-256: {{ extension.digest }}
+              </span>
+              <CopyButton :value="extension.digest" size="xs" :aria-label="isZh ? '复制包哈希摘要' : 'Copy archive digest'" />
+            </div>
+
+            <div class="grid gap-3 text-xs sm:grid-cols-2">
               <div>
-                <h4 class="font-semibold">运行状态</h4>
-                <p class="mt-1">{{ isLocalExtension(extension.key) ? '等待连接网关' : extension.runtime_healthy ? '运行正常' : extension.enabled ? '运行异常' : '未运行' }}</p>
-                <p v-if="extension.last_test" class="mt-1 break-words text-xs" :class="extension.last_test.success ? 'text-[var(--ok-text)]' : 'text-[var(--bad-text)]'" role="status">{{ extension.last_test.message }} · {{ extension.last_test.latency_ms }} ms</p>
-                <p v-else class="mt-1 text-xs text-[var(--muted-foreground)]">尚未测试</p>
+                <h4 class="font-semibold text-[var(--foreground)]">
+                  {{ isZh ? '已授权运行时动作' : 'Authorized Actions' }}
+                </h4>
+                <div v-if="extension.authorized_actions?.length" class="mt-1.5 flex flex-wrap gap-1">
+                  <span
+                    v-for="act in extension.authorized_actions"
+                    :key="act"
+                    class="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-0.5 font-mono text-[11px]"
+                  >
+                    {{ act }}
+                  </span>
+                </div>
+                <p v-else class="mt-1 text-[var(--muted-foreground)]">
+                  {{ isZh ? '无激活授权动作' : 'No active authorized actions' }}
+                </p>
               </div>
-            </div>
-            <div class="mt-auto">
-              <label :for="`extension-rollout-${extension.key}`" class="block text-sm">流量覆盖比例 <b class="font-mono tabular-nums">{{ extensionRollouts[extension.key] ?? extension.rollout_percent }}%</b></label>
-              <input :id="`extension-rollout-${extension.key}`" :value="extensionRollouts[extension.key] ?? extension.rollout_percent" :style="{ '--rollout': `${extensionRollouts[extension.key] ?? extension.rollout_percent}%` }" class="plugin-range mt-3" type="range" min="1" max="100" step="1" :disabled="actionBusy" @input="extensionRollouts[extension.key] = rangeValue($event)" @change="saveExtensionRollout(extension)" />
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="actionBusy" @click="testGatewayExtension(extension)">{{ isLocalExtension(extension.key) ? '配置自检' : '测试' }}</button>
-              <button type="button" class="btn btn-sm" :class="extension.enabled ? 'btn-secondary' : 'btn-primary'" :disabled="actionBusy" @click="toggleExtension(extension)">{{ extension.enabled ? '停用' : '启用' }}</button>
-              <span v-if="busyExtension === extension.key" class="self-center text-xs text-[var(--muted-foreground)]" role="status">正在处理…</span>
+
+              <div>
+                <h4 class="font-semibold text-[var(--foreground)]">
+                  {{ isZh ? '声明能力绑定' : 'Declared Capabilities' }}
+                </h4>
+                <ul v-if="extension.capabilities?.length" class="mt-1.5 space-y-1 font-mono text-[11px] text-[var(--muted-foreground)]">
+                  <li v-for="(cap, idx) in extension.capabilities" :key="`${cap.id}-${idx}`">
+                    {{ cap.id }} ({{ cap.platform }} / {{ cap.account_type }})
+                  </li>
+                </ul>
+                <p v-else class="mt-1 text-[var(--muted-foreground)]">
+                  {{ isZh ? '未声明特定平台能力' : 'No platform capabilities declared' }}
+                </p>
+              </div>
             </div>
           </article>
         </div>
       </section>
 
-      <BaseDialog :show="configPlugin !== null || configExtension !== null" :title="`${configPlugin?.name || configExtension?.name || ''} · 配置`" :width="configMode === 'iframe' ? 'full' : 'wide'" :close-on-escape="!configSaving" :show-close-button="!configSaving" @close="closeConfiguration">
+      <BaseDialog :show="configPlugin !== null" :title="`${configPlugin?.name || ''} · ${isZh ? '配置' : 'Configure'}`" :width="configMode === 'iframe' ? 'full' : 'wide'" :close-on-escape="!configSaving" :show-close-button="!configSaving" @close="closeConfiguration">
         <div v-if="configMode === 'iframe'" class="space-y-3">
-          <div class="flex justify-end"><button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="openJsonConfiguration">切换 JSON 编辑器</button></div>
+          <div class="flex justify-end">
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="openJsonConfiguration">
+              {{ isZh ? '切换 JSON 编辑器' : 'Switch to JSON Editor' }}
+            </button>
+          </div>
           <div class="relative min-h-[520px] overflow-hidden bg-[var(--surface-2)]" :style="{ height: `${iframeHeight}px` }">
             <p v-if="uiLoading" class="absolute inset-0 flex items-center justify-center text-sm text-[var(--muted-foreground)]" role="status">{{ t('admin.plugins.loadingUI') }}</p>
             <iframe v-if="uiSession" ref="pluginFrame" :src="uiSession.url" sandbox="allow-scripts" referrerpolicy="no-referrer" class="h-full w-full border-0 bg-[var(--card)]" :title="`${configPlugin?.name || ''} 配置`" @load="handlePluginFrameLoad" @error="openJsonConfiguration" />
           </div>
         </div>
         <div v-else class="space-y-3">
-          <p class="text-sm text-[var(--muted-foreground)]">编辑完整 JSON 对象并保存。参数由对应插件或网关扩展校验。</p>
-          <p v-if="configExtension && isLocalExtension(configExtension.key)" class="text-sm text-[var(--warn-text)]">当前为会话内配置，尚未写入网关。</p>
-          <p v-if="jsonLoading" class="text-sm" role="status">正在读取配置…</p>
-          <label for="plugin-config-json" class="block text-sm font-medium">配置 JSON 对象</label>
+          <p class="text-sm text-[var(--muted-foreground)]">
+            {{ isZh ? '编辑完整 JSON 配置对象并持久化保存，参数由目标插件运行时校验。' : 'Edit the full JSON configuration object. Parameters are validated by the plugin runtime.' }}
+          </p>
+          <p v-if="jsonLoading" class="text-sm" role="status">{{ isZh ? '正在读取配置…' : 'Loading configuration...' }}</p>
+          <label for="plugin-config-json" class="block text-sm font-medium">{{ isZh ? '配置 JSON 对象' : 'JSON Configuration Object' }}</label>
           <textarea id="plugin-config-json" v-model="jsonDraft" class="input min-h-64 w-full font-mono text-sm" rows="14" spellcheck="false" :disabled="jsonLoading || configSaving || !jsonReady" :aria-invalid="!!jsonError" :aria-describedby="jsonError ? 'plugin-config-error' : undefined" />
           <p v-if="jsonError" id="plugin-config-error" class="break-words text-sm text-[var(--bad-text)]" role="alert">{{ jsonError }}</p>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-primary btn-sm" :disabled="jsonLoading || configSaving || !jsonReady" @click="saveJsonConfiguration">{{ configSaving ? '正在保存…' : '保存配置' }}</button>
-            <button v-if="!jsonReady && !jsonLoading" type="button" class="btn btn-secondary btn-sm" @click="openJsonConfiguration">重新读取</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="closeConfiguration">关闭</button>
+            <button type="button" class="btn btn-primary btn-sm" :disabled="jsonLoading || configSaving || !jsonReady" @click="saveJsonConfiguration">
+              {{ configSaving ? (isZh ? '正在保存…' : 'Saving...') : (isZh ? '保存配置' : 'Save Configuration') }}
+            </button>
+            <button v-if="!jsonReady && !jsonLoading" type="button" class="btn btn-secondary btn-sm" @click="openJsonConfiguration">
+              {{ isZh ? '重新读取' : 'Reload' }}
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="configSaving" @click="closeConfiguration">
+              {{ isZh ? '关闭' : 'Close' }}
+            </button>
           </div>
         </div>
       </BaseDialog>
@@ -161,12 +297,13 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type PluginInstallation, type PluginUISession } from '@/api/admin'
-import type { GatewayExtensionModule, GatewayExtensionUpdate, PluginTestResult } from '@/api/admin/plugins'
+import type { ExtensionInventoryItem, PluginTestResult } from '@/api/admin/plugins'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CopyButton from '@/components/ui/CopyButton.vue'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import { isStepUpBlocked, isStepUpCancelled, stepUpBlockReason, useStepUp } from '@/composables/useStepUp'
 
@@ -181,24 +318,22 @@ interface PluginBridgeMessage {
   message?: unknown
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const isZh = computed(() => String(locale?.value ?? 'zh').startsWith('zh'))
 const appStore = useAppStore()
 const pluginStepUp = useStepUp()
 const plugins = ref<PluginInstallation[]>([])
-const extensions = ref<GatewayExtensionModule[]>([])
+const extensions = ref<ExtensionInventoryItem[]>([])
 const loading = ref(false)
 const uploading = ref(false)
 const busyID = ref<number | null>(null)
-const busyExtension = ref<string | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragDepth = ref(0)
 const rolloutValues = ref<Record<number, number>>({})
-const extensionRollouts = ref<Record<string, number>>({})
 const pluginTests = ref<Record<number, PluginTestResult>>({})
 const pluginLoadError = ref('')
 const extensionLoadError = ref('')
 const configPlugin = ref<PluginInstallation | null>(null)
-const configExtension = ref<GatewayExtensionModule | null>(null)
 const configMode = ref<'iframe' | 'json'>('json')
 const jsonDraft = ref('')
 const jsonOriginal = ref('')
@@ -212,9 +347,7 @@ const uiLoading = ref(false)
 const iframeHeight = ref(640)
 const pluginFrameLoaded = ref(false)
 const pendingBridgeRequests = new Map<string, number>()
-const localKeys = ref<string[]>([])
-const hasLocalExtensions = computed(() => localKeys.value.length > 0)
-const actionBusy = computed(() => loading.value || uploading.value || busyID.value !== null || busyExtension.value !== null || configSaving.value)
+const actionBusy = computed(() => loading.value || uploading.value || busyID.value !== null || configSaving.value)
 let configGeneration = 0
 let frameTimeout: number | undefined
 let disposed = false
@@ -232,14 +365,6 @@ function reportSensitiveActionError(error: unknown): void {
     return
   }
   appStore.showError(errorMessage(error))
-}
-
-function syncLocalKeys(): void {
-  localKeys.value = extensions.value.filter(extension => adminAPI.plugins.isExtensionLocal(extension.key)).map(extension => extension.key)
-}
-
-function isLocalExtension(key: string): boolean {
-  return localKeys.value.includes(key)
 }
 
 async function loadPlugins(): Promise<void> {
@@ -260,8 +385,6 @@ async function loadPlugins(): Promise<void> {
   }
   if (extensionResult.status === 'fulfilled') {
     extensions.value = extensionResult.value
-    for (const extension of extensions.value) extensionRollouts.value[extension.key] = extension.rollout_percent
-    syncLocalKeys()
   } else {
     extensionLoadError.value = errorMessage(extensionResult.reason)
   }
@@ -371,50 +494,18 @@ async function testPlugin(plugin: PluginInstallation): Promise<void> {
   }
 }
 
-function replaceExtension(extension: GatewayExtensionModule): void {
-  extensions.value = extensions.value.map(current => current.key === extension.key ? extension : current)
-  extensionRollouts.value[extension.key] = extension.rollout_percent
-  syncLocalKeys()
+function extensionStateLabel(state: string): string {
+  if (state === 'enabled') return isZh.value ? '已启用' : 'Enabled'
+  if (state === 'starting') return isZh.value ? '启动中' : 'Starting'
+  if (state === 'error' || state === 'incompatible') return isZh.value ? '异常' : 'Error'
+  return isZh.value ? '已停用' : 'Disabled'
 }
 
-async function changeExtension(extension: GatewayExtensionModule, payload: GatewayExtensionUpdate): Promise<void> {
-  if (actionBusy.value) return
-  busyExtension.value = extension.key
-  try {
-    const updated = await pluginStepUp.run(() => adminAPI.plugins.updateExtension(extension.key, payload))
-    replaceExtension(updated)
-    appStore.showSuccess(isLocalExtension(extension.key) ? '本次会话内的扩展配置已更新' : '扩展配置已更新')
-  } catch (error: unknown) {
-    extensionRollouts.value[extension.key] = extension.rollout_percent
-    reportSensitiveActionError(error)
-  } finally {
-    busyExtension.value = null
-  }
-}
-
-async function toggleExtension(extension: GatewayExtensionModule): Promise<void> {
-  await changeExtension(extension, { enabled: !extension.enabled })
-}
-
-async function saveExtensionRollout(extension: GatewayExtensionModule): Promise<void> {
-  const rollout = extensionRollouts.value[extension.key] ?? extension.rollout_percent
-  if (rollout !== extension.rollout_percent) await changeExtension(extension, { rollout_percent: rollout })
-}
-
-async function testGatewayExtension(extension: GatewayExtensionModule): Promise<void> {
-  if (actionBusy.value) return
-  busyExtension.value = extension.key
-  try {
-    const result = await pluginStepUp.run(() => adminAPI.plugins.testExtension(extension.key))
-    syncLocalKeys()
-    replaceExtension({ ...extension, last_test: result, runtime_healthy: !isLocalExtension(extension.key) && extension.enabled && result.success })
-    if (result.success) appStore.showSuccess(result.message)
-    else appStore.showError(result.message)
-  } catch (error: unknown) {
-    reportSensitiveActionError(error)
-  } finally {
-    busyExtension.value = null
-  }
+function extensionStateClass(state: string): string {
+  if (state === 'enabled') return 'status-ok'
+  if (state === 'starting') return 'status-warn'
+  if (state === 'error' || state === 'incompatible') return 'status-bad'
+  return 'status-neutral'
 }
 
 function resetConfiguration(): void {
@@ -423,7 +514,6 @@ function resetConfiguration(): void {
   clearPendingBridgeRequests()
   pluginFrameLoaded.value = false
   configPlugin.value = null
-  configExtension.value = null
   uiSession.value = null
   uiLoading.value = false
   jsonDraft.value = ''
@@ -464,16 +554,6 @@ async function openConfiguration(plugin: PluginInstallation): Promise<void> {
   }
 }
 
-function openExtensionConfiguration(extension: GatewayExtensionModule): void {
-  if (actionBusy.value || !canCloseConfiguration()) return
-  resetConfiguration()
-  configExtension.value = extension
-  configMode.value = 'json'
-  jsonDraft.value = JSON.stringify(extension.config, null, 2)
-  jsonOriginal.value = jsonDraft.value
-  jsonReady.value = true
-}
-
 async function openJsonConfiguration(): Promise<void> {
   if (configSaving.value || !configPlugin.value) return
   const pluginID = configPlugin.value.id
@@ -512,24 +592,15 @@ async function saveJsonConfiguration(): Promise<void> {
     return
   }
   const plugin = configPlugin.value
-  const extension = configExtension.value
-  if (!plugin && !extension) return
+  if (!plugin) return
   const generation = configGeneration
   configSaving.value = true
   try {
-    let saved: Record<string, unknown>
-    if (extension) {
-      const updated = await pluginStepUp.run(() => adminAPI.plugins.updateExtension(extension.key, { config }))
-      replaceExtension(updated)
-      configExtension.value = updated
-      saved = updated.config
-    } else {
-      saved = await pluginStepUp.run(() => adminAPI.plugins.saveJsonConfig(plugin!.id, config))
-    }
+    const saved = await pluginStepUp.run(() => adminAPI.plugins.saveJsonConfig(plugin.id, config))
     if (generation !== configGeneration) return
     jsonDraft.value = JSON.stringify(saved, null, 2)
     jsonOriginal.value = jsonDraft.value
-    appStore.showSuccess(extension && isLocalExtension(extension.key) ? '配置已保存至本次会话' : '配置已保存')
+    appStore.showSuccess(isZh.value ? '配置已保存' : 'Configuration saved')
   } catch (error: unknown) {
     if (generation === configGeneration && !isStepUpCancelled(error)) jsonError.value = errorMessage(error)
     reportSensitiveActionError(error)

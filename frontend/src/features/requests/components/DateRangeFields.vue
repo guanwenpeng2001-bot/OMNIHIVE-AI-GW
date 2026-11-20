@@ -13,15 +13,15 @@ const inputClass = 'oh-focus-ring h-9 w-full min-w-0 rounded-oh-md border border
 
 <template>
   <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">
-    {{ t('wp6.filters.from') }}
+    {{ t('costLedger.filters.from') }}
     <input v-model="from" type="date" :required="required" :class="inputClass" />
   </label>
   <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">
-    {{ t('wp6.filters.to') }}
+    {{ t('costLedger.filters.to') }}
     <input v-model="to" type="date" :required="required" :class="inputClass" />
   </label>
   <label class="grid min-w-0 gap-1.5 text-xs font-medium text-oh-secondary">
-    {{ t('wp6.filters.timezone') }}
+    {{ t('costLedger.filters.timezone') }}
     <input v-model.trim="timezone" type="text" :list="timezoneList" maxlength="80" required :class="inputClass" />
     <datalist :id="timezoneList">
       <option value="UTC" />

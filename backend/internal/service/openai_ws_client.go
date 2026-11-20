@@ -14,7 +14,7 @@ import (
 
 	coderws "github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
-	openaiwsv2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service/openai_ws_v2"
+	openaiwsrelay "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service/openai_ws_relay"
 )
 
 const openAIWSMessageReadLimitBytes int64 = 16 * 1024 * 1024
@@ -300,7 +300,7 @@ func (c *coderOpenAIWSClientConn) UpstreamPingCount() int64 {
 	return c.upstreamPings.Load()
 }
 
-var _ openaiwsv2.FrameConn = (*coderOpenAIWSClientConn)(nil)
+var _ openaiwsrelay.FrameConn = (*coderOpenAIWSClientConn)(nil)
 
 func (c *coderOpenAIWSClientConn) WriteJSON(ctx context.Context, value any) error {
 	if c == nil || c.conn == nil {

@@ -84,6 +84,25 @@ describe('onboarding cancellable lifecycle (real driver)', () => {
     noOverlay()
   })
 
+  it('keeps built-in onboarding steps concise and non-blocking (4-5 steps)', async () => {
+    const actual = await vi.importActual<typeof import('@/components/Guide/steps')>(
+      '@/components/Guide/steps'
+    )
+    const identity = (key: string) => key
+    const adminSteps = actual.getAdminSteps(identity, false, true)
+    const simpleAdminSteps = actual.getAdminSteps(identity, true, true)
+    const userSteps = actual.getUserSteps(identity, true)
+
+    expect(adminSteps.length).toBeGreaterThanOrEqual(4)
+    expect(adminSteps.length).toBeLessThanOrEqual(5)
+    expect(simpleAdminSteps.length).toBe(adminSteps.length - 1)
+    expect(userSteps.length).toBeLessThanOrEqual(4)
+    for (const step of [...adminSteps, ...userSteps]) {
+      expect(step.popover?.showButtons).toContain('close')
+      expect(step.popover?.showButtons).toContain('next')
+    }
+  })
+
   it('remembers Esc cancellation across remount without recording completion', async () => {
     host(true)
     await advance(1100)
