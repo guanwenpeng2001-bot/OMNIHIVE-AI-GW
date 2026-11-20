@@ -278,5 +278,26 @@ export default {
     }
   },
 
+  public: {
+    nav: {
+      home: 'Home',
+      models: 'Models',
+      quota: 'Quota',
+      pricing: 'Pricing',
+      status: 'Status',
+      docs: 'Docs',
+    },
+    titles: {
+      home: 'Home',
+      models: 'Model Plaza',
+      modelCompare: 'Compare Models',
+      modelDetail: 'Model Detail',
+      pricing: 'Pricing',
+      status: 'Service Status',
+      keyUsage: 'Key Quota',
+      legalDocument: 'Legal Document',
+    },
+  },
+
   // Common
 }

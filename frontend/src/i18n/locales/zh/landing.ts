@@ -278,5 +278,26 @@ export default {
     }
   },
 
+  public: {
+    nav: {
+      home: '首页',
+      models: '模型广场',
+      quota: '额度查询',
+      pricing: '定价',
+      status: '服务状态',
+      docs: '文档',
+    },
+    titles: {
+      home: '首页',
+      models: '模型广场',
+      modelCompare: '模型对比',
+      modelDetail: '模型详情',
+      pricing: '定价与套餐',
+      status: '服务状态',
+      keyUsage: '密钥额度查询',
+      legalDocument: '法律文档',
+    },
+  },
+
   // Common
 }

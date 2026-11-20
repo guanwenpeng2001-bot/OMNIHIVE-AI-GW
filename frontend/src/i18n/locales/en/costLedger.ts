@@ -90,10 +90,12 @@ export default {
     "routePartial": "The recorded route trace is partial.",
     "noRouteTrace": "No routing decision was recorded for this request.",
     "partialEvidence": "Partial evidence",
+    "traceNotRecorded": "Legacy request prior to full route tracing",
     "receipt": "Receipt state",
     "receiptProof": "Settlement evidence",
     "priceVersion": "Price version",
     "reserved": "Reserved",
+    "directWalletSettlement": "Direct wallet settlement (no pre-hold)",
     "settlementId": "Settlement ID",
     "ledgerEntries": "Ledger entries",
     "diagnostics": "Diagnostics"

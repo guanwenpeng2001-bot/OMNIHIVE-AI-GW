@@ -619,6 +619,12 @@ export default {
       }
     },
 
+    // Resource Pools
+    pools: {
+      title: 'Resource Pools',
+      description: 'Manage outbound resource pools, member connections, and concurrency limits',
+    },
+
     // Groups
     groups: {
       title: 'Group Management',

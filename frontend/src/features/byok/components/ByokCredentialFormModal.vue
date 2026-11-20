@@ -62,6 +62,9 @@ const validationError = ref('')
 const enabledClasses = computed(() =>
   props.providerClasses.filter((item) => item.supported && item.enabled)
 )
+const createBlockedByPolicy = computed(
+  () => props.mode === 'create' && enabledClasses.value.length === 0
+)
 
 const authTypeOptions: ByokAuthType[] = [
   'api_key',
@@ -235,6 +238,9 @@ function buildPolicy(): ByokPolicyPayload | null {
 
 function handleSubmit(): void {
   validationError.value = ''
+  if (createBlockedByPolicy.value) {
+    return
+  }
   const policy = buildPolicy()
   if (!policy) return
 
@@ -307,6 +313,42 @@ function handleSubmit(): void {
       </div>
 
       <template v-if="mode === 'create'">
+        <div
+          v-if="createBlockedByPolicy"
+          data-testid="byok-policy-disabled-card"
+          class="space-y-2 rounded-oh-md border border-dashed border-oh-status-warn-border bg-oh-status-warn-bg/60 px-4 py-3.5 text-xs"
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <Badge tone="warning" size="xs">
+              {{ isZh ? '策略未开启' : 'Policy Disabled' }}
+            </Badge>
+            <span class="font-semibold text-oh-primary">
+              {{
+                isZh
+                  ? '当前工作空间尚未启用租户自有凭据 (BYOK) 供应商类别'
+                  : 'No BYOK provider classes are currently enabled for this workspace'
+              }}
+            </span>
+          </div>
+          <p class="leading-relaxed text-oh-secondary">
+            {{
+              isZh
+                ? '管理员尚未为当前工作空间开通可用的自有凭据供应商策略，新建凭据提交已禁用。请联系工作空间管理员启用 BYOK 供应商类别后再试。'
+                : 'Tenant-owned credential enrollment is unavailable until an administrator enables at least one supported provider class for this workspace.'
+            }}
+          </p>
+          <div v-if="providerClasses.length > 0" class="flex flex-wrap gap-1.5 pt-1">
+            <span
+              v-for="cls in providerClasses"
+              :key="`disabled-${cls.provider}::${cls.auth_type}`"
+              class="inline-flex items-center gap-1 rounded-oh-xs border border-oh-default bg-oh-surface px-2 py-0.5 font-mono text-[11px] text-oh-muted"
+            >
+              <span>{{ cls.provider }} · {{ cls.auth_type }}</span>
+              <span>({{ isZh ? '未启用' : 'disabled' }})</span>
+            </span>
+          </div>
+        </div>
+
         <div v-if="providerClasses.length > 0" class="space-y-1.5">
           <label class="block text-xs font-medium text-oh-secondary">
             {{ isZh ? '支持的上游供应商与认证类型' : 'Supported Provider & Auth Classes' }}
@@ -497,6 +539,13 @@ function handleSubmit(): void {
         {{ isZh ? '取消' : 'Cancel' }}
       </Button>
       <Button type="submit" form="byok-credential-form" :loading="saving">
+      <Button
+        type="submit"
+        form="byok-credential-form"
+        data-testid="byok-submit-btn"
+        :disabled="createBlockedByPolicy || Boolean(saving)"
+        :loading="saving"
+      >
         {{
           mode === 'create'
             ? (isZh ? '创建并保存密钥' : 'Enroll Credential')

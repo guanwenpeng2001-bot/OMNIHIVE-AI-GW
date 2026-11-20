@@ -221,6 +221,15 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+    home: 'Home',
+    pools: 'Resource Pools',
+    playground: 'Playground',
+    keyUsage: 'Quota Inspector',
+    pricing: 'Pricing',
+    status: 'Service Status',
+    modelCompare: 'Compare Models',
+    modelDetail: 'Model Detail',
+    legalDocument: 'Legal Document',
   },
 
   // Auth

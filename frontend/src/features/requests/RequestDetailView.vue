@@ -43,6 +43,11 @@ const trace = useScopedRead(
 const record = detail.data
 const finance = computed(() => can('billing.ledger.read') && !record.value?.redactions.includes('financial_details'))
 const connectionAccess = computed(() => can('connections.read'))
+const isDirectWalletSettlement = computed(() =>
+  record.value?.billing.state === 'settled' &&
+  record.value?.billing.estimate == null &&
+  record.value?.billing.reserved == null
+)
 const unit = (kind: 'input_token' | 'output_token') => record.value?.usage.units.find(item => item.kind === kind)?.quantity ?? null
 const breadcrumbs = computed(() => [
   { label: t('costLedger.requests.title'), to: scope.value ? router.resolve(requestLocation(scope.value, null, admin.value)).href : undefined },
@@ -221,7 +226,11 @@ async function handleExportRequest() {
                 <dl v-else class="grid grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
                   <dt class="text-oh-secondary">{{ t('costLedger.billing.fundingSource') }}</dt><dd class="break-all font-mono">{{ record.billing.billing_source ?? '—' }}</dd>
                   <dt class="text-oh-secondary">{{ t('costLedger.requests.priceVersion') }}</dt><dd class="break-all font-mono">{{ record.billing.price_version ?? '—' }}</dd>
-                  <dt class="text-oh-secondary">{{ t('costLedger.requests.reserved') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.reserved, locale) }}</dd>
+                  <dt class="text-oh-secondary">{{ t('costLedger.requests.reserved') }}</dt>
+                  <dd data-testid="billing-reserved-value" class="break-all font-mono tabular-nums">
+                    <Badge v-if="isDirectWalletSettlement" tone="info" variant="subtle" size="xs">{{ t('costLedger.requests.directWalletSettlement') }}</Badge>
+                    <template v-else>{{ moneyText(record.billing.reserved, locale) }}</template>
+                  </dd>
                   <dt class="text-oh-secondary">{{ t('costLedger.requests.charge') }}</dt><dd class="break-all font-mono tabular-nums">{{ moneyText(record.billing.platform_charge, locale) }}</dd>
                   <dt class="text-oh-secondary">{{ t('costLedger.requests.settlementId') }}</dt><dd class="break-all font-mono">{{ record.billing.settlement_id ?? '—' }}</dd>
                   <dt class="text-oh-secondary">{{ t('costLedger.requests.ledgerEntries') }}</dt><dd class="break-all font-mono">{{ record.billing.ledger_entry_ids.join(', ') || '—' }}</dd>
@@ -244,6 +253,7 @@ async function handleExportRequest() {
                   <li v-for="item in record.data_completeness.missing" :key="`${item.section}:${item.reason}`" class="flex flex-wrap items-center gap-2">
                     <Badge tone="unknown" size="xs">{{ item.section }}</Badge>
                     <code class="break-all text-oh-muted">{{ item.reason }}</code>
+                    <span v-if="item.reason === 'TRACE_NOT_RECORDED'" class="text-oh-secondary">{{ t('costLedger.requests.traceNotRecorded') }}</span>
                   </li>
                 </ul>
               </section>

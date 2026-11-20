@@ -787,6 +787,9 @@ export default {
       status: {
         active: '正常',
         inactive: '停用',
+        disabled: '已停用',
+        draft: '草稿',
+        unverified: '待验证',
         expired: '已过期',
         error: '错误',
         cooldown: '冷却中',

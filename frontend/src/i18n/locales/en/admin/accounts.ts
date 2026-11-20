@@ -581,6 +581,9 @@ export default {
       status: {
         active: 'Active',
         inactive: 'Inactive',
+        disabled: 'Disabled',
+        draft: 'Draft',
+        unverified: 'Unverified',
         expired: 'Expired',
         error: 'Error',
         cooldown: 'Cooldown',

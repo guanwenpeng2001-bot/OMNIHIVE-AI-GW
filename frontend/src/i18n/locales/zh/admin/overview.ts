@@ -616,6 +616,12 @@ export default {
       }
     },
 
+    // Resource Pools
+    pools: {
+      title: '资源池',
+      description: '管理出站资源池、成员连接与并发上限',
+    },
+
     // Groups Management
     groups: {
       title: '分组管理',

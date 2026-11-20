@@ -84,6 +84,9 @@ const statusLabel = computed(() => {
 
 function formatSettlementLabel(state: string | null | undefined): string {
   if (!state) return EM_DASH
+  if (state === 'pending' && props.session.status === 'succeeded') {
+    return props.isZh ? '异步确认中' : 'confirming'
+  }
   if (!props.isZh) return state
   const map: Record<string, string> = {
     estimated: '预估',
@@ -224,6 +227,37 @@ function triggerToolResponse(tc: PlaygroundToolCallView): void {
           @click="emit('query-status')"
         >
           {{ isZh ? '刷新状态' : 'Query Status' }}
+        </Button>
+      </div>
+
+      <div
+        v-if="session.status === 'succeeded' && session.settlementState === 'pending'"
+        :data-testid="`settlement-pending-${sideKey}`"
+        class="flex flex-wrap items-center justify-between gap-2 rounded-[var(--oh-r-md,8px)] border border-oh-status-info-border bg-oh-status-info-bg px-3 py-2 text-xs"
+      >
+        <div class="min-w-0">
+          <p class="font-medium text-[var(--oh-ink,var(--foreground))]">
+            {{
+              isZh
+                ? '推理已完成 · 账本异步确认中'
+                : 'Completed · Ledger confirming asynchronously'
+            }}
+          </p>
+          <p class="mt-0.5 text-[11px] text-[var(--oh-ink-secondary,var(--muted-foreground))]">
+            {{
+              isZh
+                ? '本次推理结果已成功返回，最终扣费与结算流水正在后台异步入账。'
+                : 'The inference response succeeded. Final ledger settlement is confirming in the background.'
+            }}
+          </p>
+        </div>
+        <Button
+          :data-testid="`refresh-settlement-btn-${sideKey}`"
+          variant="secondary"
+          size="xs"
+          @click="emit('query-status')"
+        >
+          {{ isZh ? '刷新结算状态' : 'Refresh Settlement' }}
         </Button>
       </div>
 

@@ -221,6 +221,15 @@ export default {
     contentModeration: '内容审核',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+    home: '首页',
+    pools: '资源池',
+    playground: 'Playground 调试台',
+    keyUsage: '额度查询',
+    pricing: '定价',
+    status: '服务状态',
+    modelCompare: '模型对比',
+    modelDetail: '模型详情',
+    legalDocument: '法律文档',
   },
 
   // Auth

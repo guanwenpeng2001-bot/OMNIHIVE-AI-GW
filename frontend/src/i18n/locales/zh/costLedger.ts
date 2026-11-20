@@ -90,10 +90,12 @@ export default {
     "routePartial": "已记录的路由轨迹不完整。",
     "noRouteTrace": "此请求暂无已记录的路由决策。",
     "partialEvidence": "证据不完整",
+    "traceNotRecorded": "早期兼容请求未记录完整选路轨迹",
     "receipt": "回执状态",
     "receiptProof": "结算证据",
     "priceVersion": "价格版本",
     "reserved": "已预留",
+    "directWalletSettlement": "钱包实时直扣（无预冻结）",
     "settlementId": "结算 ID",
     "ledgerEntries": "账本分录",
     "diagnostics": "诊断信息"
