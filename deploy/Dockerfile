@@ -134,6 +134,7 @@ COPY --from=backend-builder --chown=omnihive:omnihive /app/backend/resources /ap
 RUN mkdir -p /app/data && chown omnihive:omnihive /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to omnihive)
+COPY LICENSE NOTICE /app/
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 

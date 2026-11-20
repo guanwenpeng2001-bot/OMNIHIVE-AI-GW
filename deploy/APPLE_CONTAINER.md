@@ -1,6 +1,6 @@
 # Apple container Deployment
 
-For existing installations, see the [deployment identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md).
+For existing installations, see the [deployment identity migration guide](../docs/operations/identity-migration.md).
 
 OmniHive can run as a native three-service stack with Apple's `container` CLI. This workflow runs the published OmniHive, PostgreSQL, and Redis OCI images without Docker Desktop or a Docker-compatible daemon.
 

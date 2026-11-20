@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-ALLOWLIST="${ROOT}/docs/refactor/IDENTITY_ALLOWLIST.md"
+ALLOWLIST="${ROOT}/contracts/identity/IDENTITY_ALLOWLIST.md"
 
 [[ -f "$ALLOWLIST" ]] || { echo "missing allowlist: ${ALLOWLIST}" >&2; exit 1; }
 
@@ -41,7 +41,7 @@ exclude=(
   ':(exclude)**/*.spec.ts'
   ':(exclude)**/*.snap'
   ':(exclude)contracts/**'
-  ':(exclude)docs/refactor/IDENTITY_ALLOWLIST.md'
+  ':(exclude)contracts/identity/IDENTITY_ALLOWLIST.md'
   ':(exclude)scripts/independence-check.sh'
   ':(exclude)scripts/quality-gate.sh'
 )
@@ -81,7 +81,7 @@ if violations:
     for file, number, text in violations:
         print(f"{file}:{number}:{text}", file=sys.stderr)
     print(f"independence: {len(violations)} non-allowlisted sub2api identifier line(s) ({checked} scanned)", file=sys.stderr)
-    print("new sub2api identifier requires docs/refactor/IDENTITY_ALLOWLIST.md entry", file=sys.stderr)
+    print("new sub2api identifier requires contracts/identity/IDENTITY_ALLOWLIST.md entry", file=sys.stderr)
     raise SystemExit(1)
 
 print(f"independence: {checked} existing sub2api identifier line(s) covered by the allowlist")

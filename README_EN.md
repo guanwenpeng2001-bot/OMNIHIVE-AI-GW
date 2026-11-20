@@ -4,7 +4,7 @@
 
 # OmniHive AI Gateway (OMNIHIVE-AI-GW)
 
-For existing installations, see the [deployment identity migration guide](docs/refactor/IDENTITY_MIGRATION.md).
+For existing installations, see the [deployment identity migration guide](docs/operations/identity-migration.md).
 
 <p align="center"><strong>OmniHive — Unified AI Inference Gateway</strong></p>
 <p align="center"><strong>An intelligent compute hive · Enterprise multimodal AI gateway and governance platform</strong></p>
@@ -88,7 +88,7 @@ Generate signing and encryption secrets separately with `openssl rand -hex 32` a
 
 ### Build from source
 
-The toolchain is defined by `backend/go.mod` and `frontend/package.json`: Go 1.27.0, Node.js 24 and pnpm 11. Build the frontend before embedding it in the backend:
+The toolchain is defined by `backend/go.mod` and `frontend/package.json`: Go 1.27.4, Node.js 24 and pnpm 11. Build the frontend before embedding it in the backend:
 
 ```bash
 pnpm --dir frontend install --frozen-lockfile

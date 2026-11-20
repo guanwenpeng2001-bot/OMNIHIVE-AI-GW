@@ -4,7 +4,7 @@
 
 # OmniHive AI Gateway (OMNIHIVE-AI-GW)
 
-现有部署升级前请参阅[部署身份迁移说明](docs/refactor/IDENTITY_MIGRATION.md)。
+现有部署升级前请参阅[部署身份迁移说明](docs/operations/identity-migration.md)。
 
 <p align="center"><strong>OmniHive — Unified AI Inference Gateway</strong></p>
 <p align="center"><strong>「智能算力中转蜂巢 · 企业级多模态 AI 统一网关与治理中枢」</strong></p>

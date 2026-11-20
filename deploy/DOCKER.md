@@ -1,6 +1,6 @@
 # OmniHive Docker Image
 
-For existing installations, see the [deployment identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md).
+For existing installations, see the [deployment identity migration guide](../docs/operations/identity-migration.md).
 
 OmniHive distributes and manages AI API quotas. Production images include the web UI,
 runtime pricing resources and PostgreSQL 18 `pg_dump`/`psql` for backup and restore.

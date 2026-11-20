@@ -564,7 +564,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 
 #### Application Configuration
 
-The setup wizard writes `/etc/omnihive/config.yaml`. The native service keeps application data in `/opt/omnihive/data`. See [the identity migration guide](../docs/refactor/IDENTITY_MIGRATION.md) before switching an existing installation.
+The setup wizard writes `/etc/omnihive/config.yaml`. The native service keeps application data in `/opt/omnihive/data`. See [the identity migration guide](../docs/operations/identity-migration.md) before switching an existing installation.
 
 ### Prerequisites
 

@@ -319,7 +319,8 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       # The full vitest suite includes the platform contract spec, which shells out to
-      # `go test` (execFileSync in frontend/src/constants/__tests__/platforms.spec.ts).
+      # `go test` (execFileSync in
+      # frontend/src/components/account/__tests__/LatePlatformProtocolAlignment.spec.ts).
       # Without this the job depends on whatever Go the runner image happens to ship,
       # while backend/go.mod requires a specific version.
       - name: Setup Go
@@ -332,6 +333,9 @@ jobs:
       - name: Warm Go modules for frontend contract tests
         working-directory: backend
         run: go mod download
+      - name: Pre-warm Go test build cache for contract specs
+        working-directory: backend
+        run: go test -run '^$' ./internal/domain ./internal/service
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
