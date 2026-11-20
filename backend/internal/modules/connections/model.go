@@ -241,9 +241,10 @@ func normalizeConnectionHeaders(account *service.Account, headers map[string]str
 		return nil, fault.Invalid("/header_overrides")
 	}
 	normalized := make(map[string]string, len(headers))
-	for name, value := range input["header_overrides"].(map[string]any) {
-		if value != "" {
-			normalized[name] = value.(string)
+	rawHeaders, _ := input["header_overrides"].(map[string]any)
+	for name, value := range rawHeaders {
+		if text, ok := value.(string); ok && text != "" {
+			normalized[name] = text
 		}
 	}
 	return normalized, nil

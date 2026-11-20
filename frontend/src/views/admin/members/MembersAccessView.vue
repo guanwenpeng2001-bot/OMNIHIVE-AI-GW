@@ -1,30 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { i18n as globalI18n } from '@/i18n'
 import { useAppStore } from '@/stores'
+import { useIsZhLocale } from '@/utils/activeLocale'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import MembersAccessPage from '@/features/members/MembersAccessPage.vue'
 
 const route = useRoute()
 const appStore = useAppStore()
-
-let i18nLocale: { value?: string } | string | undefined
-try {
-  const composer = useI18n()
-  i18nLocale = composer?.locale
-} catch {
-  i18nLocale = undefined
-}
-
-const isZh = computed(() => {
-  const raw =
-    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
-    globalI18n?.global?.locale?.value ||
-    'zh'
-  return String(raw).toLowerCase().startsWith('zh')
-})
+const isZh = useIsZhLocale('zh')
 
 const initialWorkspaceId = computed(() => {
   const fromQuery = typeof route.query?.workspace_id === 'string' ? route.query.workspace_id : ''

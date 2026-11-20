@@ -89,33 +89,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
 import DOMPurify from 'dompurify'
-import { i18n as globalI18n } from '@/i18n'
 import { useAppStore } from '@/stores'
 import { useThemeDirection } from '@/composables/useThemeDirection'
+import { useIsZhLocale } from '@/utils/activeLocale'
 
 const router = useRouter()
 const appStore = useAppStore()
-
-let i18nLocale: { value?: string } | string | undefined
-try {
-  const composer = useI18n()
-  i18nLocale = composer?.locale
-} catch {
-  i18nLocale = undefined
-}
-
-const isZh = computed(() => {
-  const raw =
-    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
-    globalI18n?.global?.locale?.value ||
-    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
-    'zh'
-  return String(raw).toLowerCase().startsWith('zh')
-})
+const isZh = useIsZhLocale('zh')
 
 const {
   drawerState,

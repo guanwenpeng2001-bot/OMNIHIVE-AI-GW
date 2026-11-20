@@ -60,10 +60,12 @@ func TestConnectionHeaderOverrideValidationAndProjection(t *testing.T) {
 	require.Equal(t, map[string]string{"user-agent": "Gateway/1", "x-upstream-route": "fixture"}, headers)
 
 	connection := Connection{Create: Create{HeaderOverrides: headers}}
-	reader := connection.Project(identity.Access{Actions: []string{"connections.read"}}).(Connection)
+	reader, ok := connection.Project(identity.Access{Actions: []string{"connections.read"}}).(Connection)
+	require.True(t, ok)
 	require.Empty(t, reader.HeaderOverrides)
 	require.Contains(t, reader.Redactions, "header_overrides")
-	editor := connection.Project(identity.Access{Actions: []string{"connections.read", "connections.edit"}}).(Connection)
+	editor, ok := connection.Project(identity.Access{Actions: []string{"connections.read", "connections.edit"}}).(Connection)
+	require.True(t, ok)
 	require.Equal(t, headers, editor.HeaderOverrides)
 
 	for _, invalid := range []map[string]string{

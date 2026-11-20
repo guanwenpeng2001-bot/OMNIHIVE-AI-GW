@@ -129,7 +129,7 @@ func readAccess(ctx context.Context, q queryer, c Caller, s Scenario) error {
 
 func (s *Store) Simulate(ctx context.Context, c Caller, id string, in SimulationInput) (Simulation, error) {
 	out, err := s.simulate(ctx, c, id, in)
-	if !errors.Is(err, needWorkbenchGraph) {
+	if !errors.Is(err, errNeedWorkbenchGraph) {
 		return out, err
 	}
 	if err = s.captureWorkbench(ctx, c, in.Scenario); err != nil {
@@ -180,7 +180,7 @@ func (s *Store) simulate(ctx context.Context, c Caller, id string, in Simulation
 	}
 	g, err := currentGraph(ctx, tx, c, in.Scenario, in.Snapshot, true)
 	if needsWorkbenchGraph(in, g, err) {
-		return out, needWorkbenchGraph
+		return out, errNeedWorkbenchGraph
 	}
 	if err != nil {
 		return out, err

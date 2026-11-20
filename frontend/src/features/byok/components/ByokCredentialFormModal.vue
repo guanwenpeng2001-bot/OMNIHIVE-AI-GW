@@ -538,7 +538,6 @@ function handleSubmit(): void {
       <Button variant="secondary" :disabled="saving" @click="emit('update:open', false)">
         {{ isZh ? '取消' : 'Cancel' }}
       </Button>
-      <Button type="submit" form="byok-credential-form" :loading="saving">
       <Button
         type="submit"
         form="byok-credential-form"

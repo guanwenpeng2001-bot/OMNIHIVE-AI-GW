@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { i18n as globalI18n } from '@/i18n'
+import { useIsZhLocale } from '@/utils/activeLocale'
 import Button from './Button.vue'
 import CopyButton from './CopyButton.vue'
 import { cn } from './utils'
@@ -35,22 +34,7 @@ const emit = defineEmits<{
   retry: []
 }>()
 
-let i18nLocale: { value?: string } | string | undefined
-try {
-  const composer = useI18n()
-  i18nLocale = composer?.locale
-} catch {
-  i18nLocale = undefined
-}
-
-const isZh = computed(() => {
-  const raw =
-    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
-    globalI18n?.global?.locale?.value ||
-    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
-    'en'
-  return String(raw).toLowerCase().startsWith('zh')
-})
+const isZh = useIsZhLocale('en')
 
 const resolvedRetryLabel = computed(() => props.retryLabel ?? (isZh.value ? '重试' : 'Retry'))
 </script>

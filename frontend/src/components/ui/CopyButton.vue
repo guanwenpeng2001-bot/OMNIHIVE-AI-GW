@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { i18n as globalI18n } from '@/i18n'
+import { useIsZhLocale } from '@/utils/activeLocale'
 import type { UiSize } from './types'
 import { cn } from './utils'
 
@@ -35,22 +34,7 @@ const emit = defineEmits<{
   error: [reason: unknown]
 }>()
 
-let i18nLocale: { value?: string } | string | undefined
-try {
-  const composer = useI18n()
-  i18nLocale = composer?.locale
-} catch {
-  i18nLocale = undefined
-}
-
-const isZh = computed(() => {
-  const raw =
-    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
-    globalI18n?.global?.locale?.value ||
-    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
-    'en'
-  return String(raw).toLowerCase().startsWith('zh')
-})
+const isZh = useIsZhLocale('en')
 
 const resolvedLabel = computed(() => props.label ?? (isZh.value ? '复制' : 'Copy'))
 const resolvedCopiedLabel = computed(() => props.copiedLabel ?? (isZh.value ? '已复制' : 'Copied'))

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { i18n as globalI18n } from '@/i18n'
 import * as stores from '@/stores'
+import { useIsZhLocale } from '@/utils/activeLocale'
 import { sanitizeUrl } from '@/utils/url'
 import BrandMark from './BrandMark.vue'
 import PublicHeader from './PublicHeader.vue'
@@ -20,14 +19,6 @@ withDefaults(
   }
 )
 
-let i18nLocale: { value?: string } | string | undefined
-try {
-  const composer = useI18n()
-  i18nLocale = composer?.locale
-} catch {
-  i18nLocale = undefined
-}
-
 const appStore = (() => {
   try {
     return typeof stores.useAppStore === 'function' ? stores.useAppStore() : null
@@ -36,14 +27,7 @@ const appStore = (() => {
   }
 })()
 
-const isZh = computed(() => {
-  const raw =
-    (typeof i18nLocale === 'string' ? i18nLocale : i18nLocale?.value) ||
-    globalI18n?.global?.locale?.value ||
-    (typeof document !== 'undefined' ? document.documentElement?.lang : '') ||
-    'zh'
-  return String(raw).toLowerCase().startsWith('zh')
-})
+const isZh = useIsZhLocale('zh')
 
 const brand = computed(
   () =>

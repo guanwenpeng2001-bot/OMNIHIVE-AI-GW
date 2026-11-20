@@ -15,7 +15,7 @@ import (
 	"github.com/lib/pq"
 )
 
-var needWorkbenchGraph = errors.New("workbench snapshot needed")
+var errNeedWorkbenchGraph = errors.New("workbench snapshot needed")
 
 func needsWorkbenchGraph(in SimulationInput, g Graph, err error) bool {
 	return in.Snapshot == "" && errors.Is(err, Expired) &&
