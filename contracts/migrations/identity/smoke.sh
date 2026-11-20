@@ -97,8 +97,8 @@ if compliance["required"]:
             payload={"phrase": compliance["ack_phrase_en"], "language": "en"})
 request("POST", f"/api/v1/admin/users/{user_id}/balance", 200, bearer=session,
         payload={"balance": 1, "operation": "set", "notes": "Isolated BE-01 smoke"})
-billing = request("GET", "/v1/sub2api/billing", 403, bearer=credential)
-require(billing["error"]["message"] == "API key is not assigned to a group", "Ordinary gateway did not admit the allowed project action.")
+billing = request("GET", "/v1/sub2api/billing", 200, bearer=credential)
+require(billing.get("object") == "sub2api.key_billing", "Ordinary gateway did not admit the allowed usage.read project action.")
 ordinary = request("POST", "/v1/embeddings", 403, bearer=credential,
                    payload={"model": "text-embedding-3-small", "input": "Smoke"})
 require(ordinary["error"]["message"] == "Access denied", "Ordinary gateway failed outside project action enforcement.")
