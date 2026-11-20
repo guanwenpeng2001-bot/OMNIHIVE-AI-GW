@@ -267,9 +267,15 @@ func (r detailRow) readBilling(ctx context.Context, tx *sql.Tx, p Projection, d 
 
 	b.Source, b.PriceVersion, b.SettlementID, b.PricingState = &r.source, r.priceVersion, r.receiptID, r.pricingState
 	b.PlatformCharge = d.ChargedAmount
-	var hold *string
+	var hold, estimate *string
 	err := tx.QueryRowContext(ctx, `
-SELECT funded.id, reservation.id, reservation.status, reservation.hold_amount::text,
+SELECT funded.id, reservation.id,
+       COALESCE(reservation.status,
+                CASE WHEN project_hold.request_id IS NOT NULL THEN
+                    CASE WHEN project_hold.released_at IS NULL THEN 'reserved' ELSE 'released' END
+                END),
+       COALESCE(reservation.hold_amount::text, settled_receipt.billing_command->'reserved'->>'amount', project_hold.amount::text),
+       COALESCE(settled_receipt.billing_command->'estimate'->>'amount', reservation.hold_amount::text, project_hold.amount::text),
        CASE WHEN reservation.id IS NOT NULL THEN obligation.reservation_id IS NOT NULL END,
        ARRAY(SELECT event.id::text
              FROM billing_settlement_outbox settled
@@ -282,13 +288,17 @@ FROM (
 ) anchor
 LEFT JOIN gateway_executions execution ON execution.request_id = anchor.journal_id
 LEFT JOIN billing_funding_accounts funded ON funded.user_id = anchor.funding_user_id AND funded.currency = 'USD'
+LEFT JOIN usage_settlement_receipts settled_receipt ON settled_receipt.id = anchor.receipt
 LEFT JOIN api_key_budget_reservations reservation
     ON reservation.api_key_id = anchor.api_key_id AND reservation.user_id = anchor.funding_user_id
     AND reservation.request_id = NULLIF(execution.reservation_ref, '')
+LEFT JOIN billing_project_holds project_hold
+    ON project_hold.workspace_id = $1 AND project_hold.project_id = $2 AND project_hold.currency = 'USD'
+    AND project_hold.request_id = COALESCE(NULLIF(settled_receipt.billing_command->>'project_reservation_ref', ''), anchor.journal_id::text)
 LEFT JOIN gateway_execution_release_obligations obligation
     ON obligation.workspace_id = $1 AND obligation.project_id = $2 AND obligation.request_id = anchor.journal_id
     AND obligation.reservation_id = reservation.id`, p.WorkspaceID, p.ProjectID, r.ID, r.receiptID).Scan(
-		&d.FundingAccountID, &b.ReservationID, &b.ReservationState, &hold, &b.ReleasePending, pq.Array(&b.LedgerEntryIDs))
+		&d.FundingAccountID, &b.ReservationID, &b.ReservationState, &hold, &estimate, &b.ReleasePending, pq.Array(&b.LedgerEntryIDs))
 	if err != nil {
 		return err
 	}
@@ -296,7 +306,11 @@ LEFT JOIN gateway_execution_release_obligations obligation
 	if err != nil {
 		return err
 	}
-	if b.PlatformCharge != nil || b.Reserved != nil {
+	b.Estimate, err = usd(estimate)
+	if err != nil {
+		return err
+	}
+	if b.PlatformCharge != nil || b.Reserved != nil || b.Estimate != nil {
 		b.Currency = nonempty("USD")
 	}
 	if b.PlatformCharge != nil {

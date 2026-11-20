@@ -6,10 +6,11 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/fault"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
-	identitycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	executioncompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/execution"
+	identitycompat "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/legacy/identity"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/identity"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -247,22 +248,30 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 	billingInfo := !google && path == "/v1/sub2api/billing"
 	diagnostic := !google && (path == "/v1/usage" || billingInfo || isAsyncImageTaskRead(c.Request.Method, path) || isUpstreamJobRead(c.Request.Method, path))
 	if policy != nil {
+		c.Set("project_key_policy", policy)
 		action := projectKeyAction(c)
-		var models []string
-		if policy.Mode == "allow_list" && action != "" && action != "usage.read" && action != "tasks.read" {
-			if m := groupModelAllowlistModelFromParams(c); m != "" {
-				models = []string{m}
-			} else {
-				var ok bool
-				models, ok = groupModelAllowlistModelsFromBody(c)
-				if !ok {
-					return
+		if isResponsesWebSocketRoute(c) {
+			if !slices.Contains(policy.Actions, action) || (policy.Mode == "allow_list" && len(policy.Models) == 0) {
+				abort(403, "ACTION_DENIED", "Access denied")
+				return
+			}
+		} else {
+			var models []string
+			if policy.Mode == "allow_list" && action != "" && action != "usage.read" && action != "tasks.read" {
+				if m := groupModelAllowlistModelFromParams(c); m != "" {
+					models = []string{m}
+				} else {
+					var ok bool
+					models, ok = groupModelAllowlistModelsFromBody(c)
+					if !ok {
+						return
+					}
 				}
 			}
-		}
-		if !policy.Allows(action, models) {
-			abort(403, "ACTION_DENIED", "Access denied")
-			return
+			if !policy.Allows(action, models) {
+				abort(403, "ACTION_DENIED", "Access denied")
+				return
+			}
 		}
 	}
 	simple := cfg.RunMode == config.RunModeSimple
@@ -295,10 +304,12 @@ func projectKeyAction(c *gin.Context) string {
 			return "usage.read"
 		case "/v1/images/tasks/:task_id", "/images/tasks/:task_id", "/api/v1/tasks/:task_id", "/api/v1/tasks/:request_id":
 			return "tasks.read"
+		case "/v1/responses", "/responses", "/backend-api/codex/responses":
+			return "text.chat"
 		}
 	case http.MethodPost:
 		switch path {
-		case "/v1/messages", "/messages", "/antigravity/v1/messages", "/v1/chat/completions", "/chat/completions", "/responses", "/v1/responses", "/backend-api/codex/responses":
+		case "/v1/messages", "/messages", "/antigravity/v1/messages", "/v1/chat/completions", "/chat/completions", "/responses", "/v1/responses", "/backend-api/codex/responses", "/responses/*subpath", "/v1/responses/*subpath", "/backend-api/codex/responses/*subpath":
 			return "text.chat"
 		case "/v1beta/models/*modelAction", "/antigravity/v1beta/models/*modelAction":
 			_, operation, _ := strings.Cut(c.Param("modelAction"), ":")
@@ -312,6 +323,21 @@ func projectKeyAction(c *gin.Context) string {
 		}
 	}
 	return ""
+}
+
+func AllowsProjectKeyModels(c *gin.Context, action string, models []string) bool {
+	if c == nil {
+		return true
+	}
+	raw, exists := c.Get("project_key_policy")
+	if !exists {
+		return true
+	}
+	policy, ok := raw.(*identity.KeyPolicy)
+	if !ok || policy == nil {
+		return true
+	}
+	return policy.Allows(action, models)
 }
 
 func apiKeyHeadersTooLarge(c *gin.Context) bool {

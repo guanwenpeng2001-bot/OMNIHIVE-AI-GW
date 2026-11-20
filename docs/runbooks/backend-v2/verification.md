@@ -1,6 +1,6 @@
 # BE-24A 后端发布验证
 
-固定准备基线为 `2e9752eb95a347ce78ff7ad04ac40424a2d66aa6`。最终候选须包含 BE-22、BE-23 及独立发行验证，由发布负责人记录候选 SHA、镜像 digest 和迁移版本。本页表格提供开跑前的验收模板，各次执行的实际结果见 [GA 清单](GA_CHECKLIST.md)。范围与门槛见 [BE-24](../../refactor/backend/WORK_PACKAGES.md#be-24--full-scope-release-verification-and-cutover-gate--astra) 和 [API 契约](../../refactor/backend/API_CONTRACTS.md)。
+固定准备基线为 `2e9752eb95a347ce78ff7ad04ac40424a2d66aa6`。最终候选须包含 BE-22、BE-23 及独立发行验证，由发布负责人记录候选 SHA、镜像 digest 和迁移版本。本页表格提供开跑前的验收模板，各次执行的实际结果见 [GA 清单](GA_CHECKLIST.md)。范围与门槛见 [发布门禁契约](../../../contracts/release/backend/journey.json) 和 [OpenAPI 契约](../../../backend/api/openapi/openapi.yaml)。
 
 ## 只读检查
 

@@ -56,12 +56,13 @@ SELECT a.attempt_id::text, f.id,
        CASE WHEN u.receipt_state = 'settled' THEN
            CASE WHEN receipt.pricing_state = 'free' THEN '0'
                 WHEN receipt.pricing_state = 'priced' THEN
-                    (CASE WHEN (receipt.billing_command->>'SubscriptionID')::bigint IS NOT NULL
-                          THEN receipt.billing_command->>'SubscriptionCost'
-                          ELSE receipt.billing_command->>'BalanceCost' END)::numeric(28,8)::text
+                    COALESCE(receipt.billing_command->'charged_amount'->>'amount',
+                             (CASE WHEN (receipt.billing_command->>'SubscriptionID')::bigint IS NOT NULL
+                                   THEN receipt.billing_command->>'SubscriptionCost'
+                                   ELSE receipt.billing_command->>'BalanceCost' END)::numeric(28,8)::text)
            END
        END,
-       hold.hold_amount::text,
+       COALESCE(hold.hold_amount::text, receipt.billing_command->'reserved'->>'amount', project_hold.amount::text),
        u.input_tokens, u.output_tokens, review.reason,
        ARRAY(SELECT event.id FROM billing_wallet_events event
              WHERE event.funding_account_id = f.id
@@ -74,6 +75,10 @@ JOIN billing_funding_accounts f ON f.user_id = e.funding_user_id AND f.currency 
 LEFT JOIN usage_settlement_receipts receipt ON receipt.id = u.receipt_id
 LEFT JOIN api_key_budget_reservations hold ON hold.api_key_id = e.api_key_id
     AND hold.user_id = e.funding_user_id AND hold.request_id = NULLIF(e.reservation_ref, '')
+LEFT JOIN billing_project_holds project_hold
+    ON project_hold.workspace_id = e.workspace_id AND project_hold.project_id = e.project_id
+    AND project_hold.currency = 'USD'
+    AND project_hold.request_id = COALESCE(NULLIF(receipt.billing_command->>'project_reservation_ref', ''), e.request_id::text)
 LEFT JOIN billing_settlement_outbox settled ON settled.receipt_id = receipt.id
 LEFT JOIN gateway_execution_reconciliation review
     ON review.request_id = e.request_id AND review.attempt_id = a.attempt_id

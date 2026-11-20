@@ -4,7 +4,7 @@ This draft covers BE-23 preparation. Inventory and status are available now. The
 
 ## Capture the inventory
 
-1. Record the release, maintenance window and approved deployment identity. Confirm the application database and the separately bound BE-09 journal against the running deployment. Record the physical application, PostgreSQL and Redis volume bindings, backup object-store access, persistent encryption-key continuity and retained plugin artifacts in the deployment's restricted record. Preserve the previous binary and recoverable backups. [Deployment identity migration](../../refactor/IDENTITY_MIGRATION.md)
+1. Record the release, maintenance window and approved deployment identity. Confirm the application database and the separately bound BE-09 journal against the running deployment. Record the physical application, PostgreSQL and Redis volume bindings, backup object-store access, persistent encryption-key continuity and retained plugin artifacts in the deployment's restricted record. Preserve the previous binary and recoverable backups. [Deployment identity migration](../../operations/identity-migration.md)
 2. Configure `OMNIHIVE_REFACTOR_DSN` and, if the separate journal is deployed, `OMNIHIVE_RESTORE_JOURNAL_DSN` with approved read-only credentials. Export the JSON artifacts with protected file permissions.
 
    ```sh
