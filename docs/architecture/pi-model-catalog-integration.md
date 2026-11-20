@@ -25,7 +25,7 @@ The capability dataset uses pi-ai's total context window, output token limit, in
 
 `pi-prices-supplement.json` contains reference prices in USD per token. The generator shifts each decimal by six places and writes JSON numbers for input, output, cache reads, and cache writes. It excludes all-zero and negative sentinel tariffs and records the upstream context window as the reference input upper bound alongside the output limit. Price lookup uses a provider-qualified key for each supported tariff and an unqualified model ID where a single unscoped provider supplies that ID. Aggregator and hosted gateway tariffs use their qualified keys.
 
-`PricingService.GetModelPricing` consults the dependency map after custom pricing, LiteLLM, and the existing family and static fallbacks. The pi-ai lookup uses the full key to preserve provider scope. The operator's active pricing dataset, source previews, and billing identification of upstream-reported model names continue to use the existing price layers.
+The catalog detail projects the provider-qualified pi-ai token rates under `reference_price` when the model is unpriced. Billing, budget admission and quotations use the active pricing dataset.
 
 ## Regeneration
 

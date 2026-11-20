@@ -5,8 +5,10 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
 	modelcapabilities "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-capabilities"
+	modelpricing "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/resources/model-pricing"
 )
 
 // Built-in limits and methods describe a model, independently of tenant
@@ -177,4 +179,34 @@ func BuiltinMethods(provider, model string) []string {
 		}
 	}
 	return slices.Clone(methods)
+}
+
+type piTokenRates struct {
+	Provider string      `json:"litellm_provider"`
+	Input    json.Number `json:"input_cost_per_token"`
+	Output   json.Number `json:"output_cost_per_token"`
+}
+
+var piTokenPrices = sync.OnceValue(func() map[string]piTokenRates {
+	var prices map[string]piTokenRates
+	if err := json.Unmarshal(modelpricing.PiSupplementJSON(), &prices); err != nil {
+		panic(err)
+	}
+	return prices
+})
+
+func piReferencePrice(provider, model string) *Price {
+	rates, ok := piTokenPrices()[provider+"/"+model]
+	if !ok || rates.Provider != provider {
+		return nil
+	}
+	in, err := money.NewRate("USD", rates.Input.String(), "input_token", "1")
+	if err != nil {
+		return nil
+	}
+	out, err := money.NewRate("USD", rates.Output.String(), "output_token", "1")
+	if err != nil {
+		return nil
+	}
+	return &Price{State: "reference", Source: "pi-ai", Input: &in, Output: &out}
 }

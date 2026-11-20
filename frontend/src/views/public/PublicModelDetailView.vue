@@ -388,6 +388,9 @@ onMounted(() => void load())
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('input') }}
           </p>
+          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.input_rate, 'adaptive', isZh) }}
+          </p>
           <p v-if="detail?.price_source" class="mt-1 font-mono text-[11px] text-oh-muted">
             {{ isZh ? `定价源：${formatPriceSourceLabel(detail.price_source, true)}` : `Source: ${formatPriceSourceLabel(detail.price_source, false)}` }}
           </p>
@@ -399,6 +402,9 @@ onMounted(() => void load())
           </p>
           <p class="mt-2 font-mono text-lg font-semibold tabular-nums text-oh-primary">
             {{ displayPrice('output') }}
+          </p>
+          <p v-if="detail?.reference_price" class="mt-1 text-xs text-oh-muted">
+            {{ isZh ? 'pi-ai 参考价' : 'pi-ai reference price' }} · {{ publicTokenPrice(detail.reference_price.output_rate, 'adaptive', isZh) }}
           </p>
           <p v-if="detail?.price_version" class="mt-1 truncate font-mono text-[11px] text-oh-muted" :title="detail.price_version">
             {{ isZh ? `费率快照 ${formatShortVersion(detail.price_version)}` : `Snapshot ${formatShortVersion(detail.price_version)}` }}

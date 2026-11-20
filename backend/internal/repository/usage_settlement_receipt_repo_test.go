@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/money"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/billing/readmodel"
@@ -69,6 +70,34 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 			ResolutionState: "resolved", CompletionState: "complete",
 		}
 	}
+
+	t.Run("pi_reference_then_operator_price_wallet_effect", func(t *testing.T) {
+		r := fixture(t, 0)
+		cfg := &config.Config{}
+		cfg.Default.RateMultiplier = 1
+		billing := service.NewBillingService(cfg, service.NewPricingService(cfg, nil))
+		gateway := service.ProvideOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, billing, nil, nil, nil, nil, nil, nil,
+			service.NewModelPricingResolver(nil, billing), nil, nil, nil, nil, service.NewUsageSettlementService(repo, nil, nil))
+		group := &service.Group{Platform: service.PlatformOpenAI, RateMultiplier: 1}
+		require.NoError(t, db.QueryRow(`INSERT INTO groups(name,platform) VALUES($1,'openai') RETURNING id`, uuid.NewString()).Scan(&group.ID))
+		const model = "gemini-1.5-flash"
+		input := &service.OpenAIRecordUsageInput{
+			Result: &service.OpenAIForwardResult{RequestID: uuid.NewString(), Model: model, Usage: service.OpenAIUsage{InputTokens: 100, OutputTokens: 20}},
+			User:   &service.User{ID: r.Key.UserID}, APIKey: &service.APIKey{ID: r.Key.APIKeyID, UserID: r.Key.UserID, GroupID: &group.ID, Group: group},
+			Account: &service.Account{ID: r.Command.AccountID, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey},
+		}
+		require.ErrorIs(t, gateway.RecordUsage(ctx, input), service.ErrUsageSettlementNeedsReview)
+		var correct bool
+		require.NoError(t, db.QueryRow(`SELECT balance=100 AND EXISTS(SELECT 1 FROM usage_settlement_receipts WHERE api_key_id=$2 AND state='needs_review') FROM users WHERE id=$1`, r.Key.UserID, r.Key.APIKeyID).Scan(&correct))
+		require.True(t, correct)
+		var card []byte
+		require.NoError(t, db.QueryRow(`UPDATE groups SET model_pricing=$1::jsonb WHERE id=$2 RETURNING model_pricing`, `[{"models":["gemini-1.5-flash"],"billing_mode":"token","input_price":0.000002,"output_price":0.000004}]`, group.ID).Scan(&card))
+		require.NoError(t, json.Unmarshal(card, &group.ModelPricing))
+		input.Result.RequestID = uuid.NewString()
+		require.NoError(t, gateway.RecordUsage(ctx, input))
+		require.NoError(t, db.QueryRow(`SELECT balance=99.99972 AND EXISTS(SELECT 1 FROM usage_settlement_receipts WHERE api_key_id=$2 AND state='settled') FROM users WHERE id=$1`, r.Key.UserID, r.Key.APIKeyID).Scan(&correct))
+		require.True(t, correct)
+	})
 
 	holdFor := func(t *testing.T, r *service.UsageSettlementReceipt, now time.Time) *service.KeyBudgetReservation {
 		t.Helper()

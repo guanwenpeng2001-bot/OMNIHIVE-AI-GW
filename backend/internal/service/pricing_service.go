@@ -1229,16 +1229,6 @@ func (s *PricingService) validatePricingURL(raw string) (string, error) {
 	return normalized, nil
 }
 
-// Load the compiled reference prices independently of operator overrides and
-// LiteLLM refreshes. They are consulted only after existing lookup paths miss.
-var piPricing = sync.OnceValue(func() map[string]*LiteLLMModelPricing {
-	prices, err := (&PricingService{}).parsePricingData(modelpricing.PiSupplementJSON())
-	if err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Could not load pi-ai reference prices: %v", err)
-	}
-	return prices
-})
-
 // GetModelPricing 获取模型价格（带模糊匹配）
 func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing {
 	s.mu.RLock()
@@ -1269,9 +1259,7 @@ func (s *PricingService) GetModelPricing(modelName string) *LiteLLMModelPricing 
 		}
 	}
 
-	// Match the full model ID or qualified key. Dropping provider path segments
-	// here could price an aggregator model using a native provider's rate.
-	return piPricing()[strings.TrimPrefix(modelLower, "models/")]
+	return nil
 }
 
 // lookupIdentifiedModelPricingLocked 只做"确定性识别"的三步查找：精确键、已知拼写

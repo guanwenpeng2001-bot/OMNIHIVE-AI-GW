@@ -37,7 +37,7 @@ func TestPiPriceSupplementUsesExactDecimalTokenRates(t *testing.T) {
 	require.NotContains(t, prices, "github-copilot/claude-haiku-4.5")
 }
 
-func TestPiPriceSupplementIsLowestPriority(t *testing.T) {
+func TestPiPriceSupplementIsDisplayOnly(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Pricing.DataDir = t.TempDir()
 	cfg.Pricing.UpdateIntervalHours = 24
@@ -60,14 +60,14 @@ func TestPiPriceSupplementIsLowestPriority(t *testing.T) {
 		"gemini-1.5-pro":                      0.000003,
 		"groq/deepseek-r1-distill-llama-70b":  0.000004,
 		"anthropic/claude-3-5-haiku-20241022": 0.000006,
-		"gemini-1.5-flash":                    0.000000075,
-		"gemini/gemini-1.5-flash":             0.000000075,
 	}
 	for model, rate := range cases {
 		got := svc.GetModelPricing(model)
 		require.NotNil(t, got, model)
 		require.Equal(t, rate, got.InputCostPerToken, model)
 	}
+	require.Nil(t, svc.GetModelPricing("gemini-1.5-flash"))
+	require.Nil(t, svc.GetModelPricing("gemini/gemini-1.5-flash"))
 	require.Nil(t, svc.GetModelPricing("openrouter/gemini-1.5-flash"))
 	require.Nil(t, svc.GetIdentifiedModelPricing("gemini-1.5-flash"))
 }

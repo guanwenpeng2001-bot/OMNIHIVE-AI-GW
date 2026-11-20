@@ -148,6 +148,7 @@ export interface PublicModelDetail {
   endpoints?: PublicCatalogEndpoint[]
   price_version?: string | null
   price_source?: string | null
+  reference_price?: { source: string; input_rate: PublicRate; output_rate: PublicRate }
   additional_rates?: PublicRateBand[]
   context_basis?: string
   time_bands?: PublicTimeBand[]

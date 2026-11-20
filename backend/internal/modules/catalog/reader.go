@@ -219,6 +219,9 @@ func projectModel(p Perspective, m Candidate, entries []RegistryModel, w Window,
 	}
 
 	price := commonPrice(m.Offers, p.Public())
+	if price.State == "unpriced" {
+		d.ReferencePrice = piReferencePrice(d.Model.Provider, d.Model.Model)
+	}
 	d.Model.PriceState, d.Model.Input, d.Model.Output = price.State, price.Input, price.Output
 	d.PriceSource, d.ContextBasis = price.Source, price.ContextBasis
 	d.AdditionalRates, d.TimeBands = price.Additional, price.TimeBands

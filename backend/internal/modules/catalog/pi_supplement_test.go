@@ -92,6 +92,11 @@ func TestPiCapabilitySupplementProjectsNewModelWithExactProvider(t *testing.T) {
 
 	input := Input{Models: []Candidate{{Provider: provider, Model: id}}}
 	detail := Project(Perspective{}, input, Window{}, time.Now()).Details[0]
+	require.Equal(t, "unpriced", detail.Model.PriceState)
+	require.Nil(t, detail.Model.Input)
+	require.NotNil(t, detail.ReferencePrice)
+	require.Equal(t, "pi-ai", detail.ReferencePrice.Source)
+	require.Equal(t, "0.000000075", detail.ReferencePrice.Input.Amount().String())
 	require.Equal(t, "Gemini 1.5 Flash", detail.Model.DisplayName)
 	require.ElementsMatch(t, []string{"text", "image"}, detail.Model.Modalities)
 	require.Equal(t, []string{"gemini_generate"}, detail.Model.Protocols)
