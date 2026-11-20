@@ -188,7 +188,9 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	hold := p.budgetHold
 	// Once a financial producer owns the request, settlement (including
 	// recovery) consumes the hold. Pending work must still count as reserved.
-	release := !p.usage.Load() && p.state.ReceiptState == ""
+	// An unresolved receipt persisted in needs_review does not enter the
+	// settlement outbox and must release its pre-hold on finalization.
+	release := p.state.ReceiptState == UsageSettlementNeedsReview || (!p.usage.Load() && p.state.ReceiptState == "")
 	// A context cancellation may race the adapter handing its observed usage
 	// to the worker. Only the final adapter unwind can prove there is no producer.
 	project := !canceled && release && p.projectHold != nil && !p.projectReleased

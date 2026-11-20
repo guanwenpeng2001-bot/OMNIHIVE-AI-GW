@@ -87,8 +87,10 @@ func TestDashboardHistoryErrors(t *testing.T) {
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 			if path == "/users" || strings.HasPrefix(path, "/snapshot") {
 				require.Equal(t, 200, response.Code)
-				data := body["data"].(map[string]any)
-				gap := data["data_completeness"].(map[string]any)
+				data, ok := body["data"].(map[string]any)
+				require.True(t, ok)
+				gap, ok := data["data_completeness"].(map[string]any)
+				require.True(t, ok)
 				require.Equal(t, false, gap["complete"])
 				require.Equal(t, "2026-03-05T00:00:00Z", gap["raw_retained_from"])
 				if path == "/users" {
