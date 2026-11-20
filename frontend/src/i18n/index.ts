@@ -31,29 +31,41 @@ function getDefaultLocale(): LocaleCode {
   return DEFAULT_LOCALE
 }
 
-type I18nInstance = ReturnType<typeof vueI18n.createI18n>
+function createAppI18n() {
+  return vueI18n.createI18n({
+    legacy: false,
+    locale: getDefaultLocale(),
+    fallbackLocale: DEFAULT_LOCALE,
+    messages: {},
+    // 禁用 HTML 消息警告 - 引导步骤使用富文本内容（driver.js 支持 HTML）
+    // 这些内容是内部定义的，不存在 XSS 风险
+    warnHtmlMessage: false
+  })
+}
 
-export const i18n: I18nInstance =
-  typeof vueI18n.createI18n === 'function'
-    ? vueI18n.createI18n({
-        legacy: false,
-        locale: getDefaultLocale(),
-        fallbackLocale: DEFAULT_LOCALE,
-        messages: {},
-        // 禁用 HTML 消息警告 - 引导步骤使用富文本内容（driver.js 支持 HTML）
-        // 这些内容是内部定义的，不存在 XSS 风险
-        warnHtmlMessage: false
-      })
-    : ({
-        global: {
-          locale: { value: getDefaultLocale() },
-          t: (key: string) => key,
-          te: () => false,
-          mergeLocaleMessage: () => {},
-          setLocaleMessage: () => {}
-        },
-        install: () => {}
-      } as unknown as I18nInstance)
+type I18nInstance = ReturnType<typeof createAppI18n>
+
+function buildI18nInstance(): I18nInstance {
+  try {
+    if (typeof vueI18n.createI18n === 'function') {
+      return createAppI18n()
+    }
+  } catch {
+    // Partial vi.mock('vue-i18n') in unit tests without createI18n export
+  }
+  return {
+    global: {
+      locale: { value: getDefaultLocale() },
+      t: (key: string) => key,
+      te: () => false,
+      mergeLocaleMessage: () => {},
+      setLocaleMessage: () => {}
+    },
+    install: () => {}
+  } as unknown as I18nInstance
+}
+
+export const i18n: I18nInstance = buildI18nInstance()
 
 let localeRevision = 0
 const pendingLocales = new Map<LocaleCode, Promise<void>>()

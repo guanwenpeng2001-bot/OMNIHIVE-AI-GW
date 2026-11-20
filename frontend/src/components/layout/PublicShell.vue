@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted } from 'vue'
 import * as stores from '@/stores'
 import { useIsZhLocale } from '@/utils/activeLocale'
 import { sanitizeUrl } from '@/utils/url'
 import BrandMark from './BrandMark.vue'
 import PublicHeader from './PublicHeader.vue'
-import SiteICPFooter from './SiteICPFooter.vue'
 import { activePublicShellCount } from './shellState'
+
+const SiteICPFooter = defineAsyncComponent(() => import('./SiteICPFooter.vue'))
 
 withDefaults(
   defineProps<{
