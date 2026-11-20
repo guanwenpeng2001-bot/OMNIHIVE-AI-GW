@@ -100,6 +100,7 @@ services:
       # JWT Configuration
       # =======================================================================
       - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_ROTATE=${JWT_ROTATE:-false}
       # Persist the same 64-hex encryption key across rebuilds and database restores.
       - TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-}
       - JWT_EXPIRE_HOUR=${JWT_EXPIRE_HOUR:-24}

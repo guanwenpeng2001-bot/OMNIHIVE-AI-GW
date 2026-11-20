@@ -21,7 +21,7 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("DATA_DIR", "")
-	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	t.Setenv("JWT_SECRET", "test-config-key-with-distinct-bytes-for-validation")
 }
 
 func TestLoadDatabaseName(t *testing.T) {
@@ -1594,8 +1594,8 @@ func TestValidateJWTSecret_UTF8Bytes(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 
-	// 32 bytes OK.
-	cfg.JWT.Secret = strings.Repeat("a", 32)
+	// 32 distinct bytes OK.
+	cfg.JWT.Secret = strings.Join([]string{"abcdefgh", "ijklmnop", "qrstuvwx", "yzABCDEF"}, "")
 	err = cfg.Validate()
 	if err != nil {
 		t.Fatalf("Validate() should accept 32-byte secret: %v", err)
@@ -2692,4 +2692,14 @@ func TestProbeHTTPRequiresExactAllowlistEntry(t *testing.T) {
 	}
 	_, err = policy.ValidateProbeURL("https://sub.test.example")
 	require.NoError(t, err)
+}
+
+func TestReleaseRejectsExampleJWT(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("SERVER_MODE", "release")
+	for _, weak := range []string{"change-this-to-a-secure-random-string", strings.Repeat("a", 64), strings.Repeat("12345678", 8)} {
+		t.Setenv("JWT_SECRET", weak)
+		_, err := LoadForBootstrap()
+		require.ErrorContains(t, err, "jwt.secret")
+	}
 }

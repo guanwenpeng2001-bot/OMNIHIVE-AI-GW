@@ -916,10 +916,11 @@ ops:
 # JWT 配置
 # =============================================================================
 jwt:
-  # IMPORTANT: Change this to a random string in production!
-  # 重要：生产环境中请更改为随机字符串！
-  # Generate with / 生成命令: openssl rand -hex 32
-  secret: "change-this-to-a-secure-random-string"
+  # Empty on first boot generates and persists a random key. Release rejects weak keys.
+  # To rotate, stop all replicas, set a fresh JWT_SECRET and JWT_ROTATE=true,
+  # start one replica, then clear the flag and restart all replicas.
+  secret: ""
+  rotate: false
   # Token expiration time in hours (max 168)
   # 令牌过期时间（小时，最大 168）
   expire_hour: 24
@@ -936,12 +937,8 @@ jwt:
 totp:
   # IMPORTANT: Set a fixed encryption key for TOTP secrets.
   # 重要：设置固定的 TOTP 加密密钥。
-  # If left empty, a random key will be generated on each startup, causing all
-  # existing TOTP configurations to become invalid (users won't be able to
-  # login with 2FA).
-  # 如果留空，每次启动将生成随机密钥，导致现有的 TOTP 配置失效（用户无法使用
-  # 双因素认证登录）。
-  # Generate with / 生成命令: openssl rand -hex 32
+  # Release requires a fixed 64-character hex key for account credentials and 2FA.
+  # Preserve the existing key during upgrades and keep a separate protected backup.
   encryption_key: ""
 
 # =============================================================================

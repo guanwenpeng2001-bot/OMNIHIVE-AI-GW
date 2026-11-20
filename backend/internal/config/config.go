@@ -1695,6 +1695,7 @@ type OpsMetricsCollectorCacheConfig struct {
 }
 
 type JWTConfig struct {
+	Rotate     bool   `mapstructure:"rotate"`
 	Secret     string `mapstructure:"secret"`
 	ExpireHour int    `mapstructure:"expire_hour"`
 	// AccessTokenExpireMinutes: Access Token有效期（分钟）
@@ -2020,18 +2021,8 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 		cfg.Totp.EncryptionKeyConfigured = true
 	}
 
-	originalJWTSecret := cfg.JWT.Secret
-	if allowMissingJWTSecret && originalJWTSecret == "" {
-		// 启动阶段允许先无 JWT 密钥，后续在数据库初始化后补齐。
-		cfg.JWT.Secret = strings.Repeat("0", 32)
-	}
-
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.validate(allowMissingJWTSecret); err != nil {
 		return nil, fmt.Errorf("validate config error: %w", err)
-	}
-
-	if allowMissingJWTSecret && originalJWTSecret == "" {
-		cfg.JWT.Secret = ""
 	}
 
 	if !cfg.Security.URLAllowlist.Enabled {
@@ -2366,6 +2357,7 @@ func setDefaults() {
 
 	// JWT
 	viper.SetDefault("jwt.secret", "")
+	viper.SetDefault("jwt.rotate", false)
 	viper.SetDefault("jwt.expire_hour", 24)
 	viper.SetDefault("jwt.access_token_expire_minutes", 0) // 0 表示回退到 expire_hour
 	viper.SetDefault("jwt.refresh_token_expire_days", 30)  // 30天Refresh Token有效期
@@ -2762,7 +2754,8 @@ func setEnvReachableDefaults() {
 	viper.SetDefault("dingtalk_connect.sync_corp_email_attr_name", "")
 }
 
-func (c *Config) Validate() error {
+func (c *Config) Validate() error { return c.validate(false) }
+func (c *Config) validate(allowMissingJWT bool) error {
 	if c.Gateway.AffinityHMACKey != "" && c.Gateway.AffinityHMACKeyVersion == "" {
 		return fmt.Errorf("gateway.affinity_hmac_key_version is required when gateway.affinity_hmac_key is set")
 	}
@@ -2832,14 +2825,10 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("api_key_auth_cache.invalid_abuse.capacity must be between 256 and 1000000")
 		}
 	}
-	jwtSecret := strings.TrimSpace(c.JWT.Secret)
-	if jwtSecret == "" {
-		return fmt.Errorf("jwt.secret is required")
-	}
-	// NOTE: 按 UTF-8 编码后的字节长度计算。
-	// 选择 bytes 而不是 rune 计数，确保二进制/随机串的长度语义更接近“熵”而非“字符数”。
-	if len([]byte(jwtSecret)) < 32 {
-		return fmt.Errorf("jwt.secret must be at least 32 bytes")
+	if !allowMissingJWT || c.JWT.Secret != "" || c.JWT.Rotate {
+		if err := ValidateJWTSecret(c.Server.Mode, c.JWT.Secret); err != nil {
+			return err
+		}
 	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
@@ -3857,20 +3846,41 @@ func normalizeStringSlice(values []string) []string {
 	return normalized
 }
 
+func ValidateJWTSecret(mode, secret string) error {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return fmt.Errorf("jwt.secret is required")
+	}
+	if len(secret) < 32 {
+		return fmt.Errorf("jwt.secret must be at least 32 bytes")
+	}
+	if mode == "release" && isWeakJWTSecret(secret) {
+		return fmt.Errorf("weak jwt.secret in release mode: configure a new random JWT_SECRET and use JWT_ROTATE=true to replace the persisted key")
+	}
+	return nil
+}
+
 func isWeakJWTSecret(secret string) bool {
 	lower := strings.ToLower(strings.TrimSpace(secret))
 	if lower == "" {
 		return true
 	}
 	weak := map[string]struct{}{
-		"change-me-in-production": {},
-		"changeme":                {},
-		"secret":                  {},
-		"password":                {},
-		"123456":                  {},
-		"12345678":                {},
-		"admin":                   {},
-		"jwt-secret":              {},
+		"change-me-in-production":               {},
+		"change-this-to-a-secure-random-string": {},
+		"replace-with-a-generated-secret":       {},
+		"changeme":                              {},
+		"secret":                                {},
+		"password":                              {},
+		"123456":                                {},
+		"12345678":                              {},
+		"admin":                                 {},
+		"jwt-secret":                            {},
+	}
+	for period := 1; period <= 16 && period*2 <= len(lower); period++ {
+		if lower[period:] == lower[:len(lower)-period] {
+			return true
+		}
 	}
 	_, exists := weak[lower]
 	return exists

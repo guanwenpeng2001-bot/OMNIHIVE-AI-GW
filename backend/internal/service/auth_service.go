@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -1748,7 +1749,7 @@ func (s *AuthService) generateRefreshToken(ctx context.Context, user *User, fami
 	rawToken := refreshTokenPrefix + hex.EncodeToString(tokenBytes)
 
 	// 计算Token哈希（存储哈希而非原始Token）
-	tokenHash := hashToken(rawToken)
+	tokenHash := s.refreshTokenHash(rawToken)
 
 	// 如果没有提供familyID，生成新的
 	if familyID == "" {
@@ -1804,7 +1805,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 		return nil, ErrRefreshTokenInvalid
 	}
 
-	tokenHash := hashToken(refreshToken)
+	tokenHash := s.refreshTokenHash(refreshToken)
 
 	// 获取Token数据
 	data, err := s.refreshTokenCache.GetRefreshToken(ctx, tokenHash)
@@ -1892,7 +1893,7 @@ func (s *AuthService) RevokeRefreshToken(ctx context.Context, refreshToken strin
 		return ErrRefreshTokenInvalid
 	}
 
-	tokenHash := hashToken(refreshToken)
+	tokenHash := s.refreshTokenHash(refreshToken)
 	return s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
 }
 
@@ -1932,10 +1933,10 @@ func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) err
 	return nil
 }
 
-// hashToken 计算Token的SHA256哈希
-func hashToken(token string) string {
-	hash := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(hash[:])
+func (s *AuthService) refreshTokenHash(token string) string {
+	mac := hmac.New(sha256.New, []byte(s.cfg.JWT.Secret))
+	mac.Write([]byte("omnihive-refresh-v1\x00" + token))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func resolvedTokenVersion(user *User) int64 {
