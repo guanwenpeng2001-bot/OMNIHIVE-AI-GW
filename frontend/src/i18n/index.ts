@@ -1,5 +1,5 @@
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
-import { createI18n } from 'vue-i18n'
+import * as vueI18n from 'vue-i18n'
 
 type LocaleCode = 'en' | 'zh'
 
@@ -31,15 +31,29 @@ function getDefaultLocale(): LocaleCode {
   return DEFAULT_LOCALE
 }
 
-export const i18n = createI18n({
-  legacy: false,
-  locale: getDefaultLocale(),
-  fallbackLocale: DEFAULT_LOCALE,
-  messages: {},
-  // 禁用 HTML 消息警告 - 引导步骤使用富文本内容（driver.js 支持 HTML）
-  // 这些内容是内部定义的，不存在 XSS 风险
-  warnHtmlMessage: false
-})
+type I18nInstance = ReturnType<typeof vueI18n.createI18n>
+
+export const i18n: I18nInstance =
+  typeof vueI18n.createI18n === 'function'
+    ? vueI18n.createI18n({
+        legacy: false,
+        locale: getDefaultLocale(),
+        fallbackLocale: DEFAULT_LOCALE,
+        messages: {},
+        // 禁用 HTML 消息警告 - 引导步骤使用富文本内容（driver.js 支持 HTML）
+        // 这些内容是内部定义的，不存在 XSS 风险
+        warnHtmlMessage: false
+      })
+    : ({
+        global: {
+          locale: { value: getDefaultLocale() },
+          t: (key: string) => key,
+          te: () => false,
+          mergeLocaleMessage: () => {},
+          setLocaleMessage: () => {}
+        },
+        install: () => {}
+      } as unknown as I18nInstance)
 
 let localeRevision = 0
 const pendingLocales = new Map<LocaleCode, Promise<void>>()
