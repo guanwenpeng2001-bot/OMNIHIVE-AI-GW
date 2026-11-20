@@ -799,7 +799,7 @@ func redirectOAuthError(c *gin.Context, frontendCallback string, code string, me
 }
 
 func (h *AuthHandler) redirectOAuthTokenPair(c *gin.Context, frontendCallback string, tokenPair *service.TokenPair, redirectTo string) {
-	claims, err := h.authService.ValidateToken(tokenPair.AccessToken)
+	claims, err := h.authService.ValidateTokenContext(c.Request.Context(), tokenPair.AccessToken)
 	if err != nil {
 		redirectOAuthError(c, frontendCallback, "invalid_token", "OAuth completion failed", "")
 		return
@@ -1152,7 +1152,7 @@ func (h *AuthHandler) buildOAuthBindUserCookieFromContext(c *gin.Context) (strin
 
 func (h *AuthHandler) PrepareOAuthBindAccessTokenCookie(c *gin.Context) {
 	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-	claims, err := h.authService.ValidateToken(token)
+	claims, err := h.authService.ValidateTokenContext(c.Request.Context(), token)
 	if err != nil {
 		response.ErrorFrom(c, service.ErrInvalidToken)
 		return

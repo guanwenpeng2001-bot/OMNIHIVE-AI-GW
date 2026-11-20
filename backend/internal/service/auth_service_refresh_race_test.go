@@ -102,3 +102,20 @@ func TestAuthServiceRefreshTokenPairConsumesTokenOnce(t *testing.T) {
 	require.Equal(t, 1, successes)
 	require.Equal(t, workers-1, invalid)
 }
+
+func TestLogoutRevokesAccessFamily(t *testing.T) {
+	ctx := context.Background()
+	cache := newEmailBindRefreshTokenCacheStub()
+	user := &service.User{ID: 1, Status: service.StatusActive}
+	cfg := &config.Config{JWT: config.JWTConfig{Secret: "test-login-family", ExpireHour: 1, RefreshTokenExpireDays: 7}}
+	svc := service.NewAuthService(nil, newEmailBindUserRepoStub(user), nil, cache, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
+	pair, err := svc.GenerateTokenPair(ctx, user, "")
+	require.NoError(t, err)
+	sibling, err := svc.GenerateTokenPair(ctx, user, "")
+	require.NoError(t, err)
+	require.NoError(t, svc.RevokeRefreshToken(ctx, pair.RefreshToken))
+	_, err = svc.ValidateTokenContext(ctx, pair.AccessToken)
+	require.ErrorIs(t, err, service.ErrTokenRevoked)
+	_, err = svc.ValidateTokenContext(ctx, sibling.AccessToken)
+	require.NoError(t, err)
+}

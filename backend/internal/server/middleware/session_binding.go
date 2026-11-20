@@ -78,7 +78,10 @@ func enforceSessionBinding(
 	}
 
 	if authService != nil {
-		_ = authService.RevokeSessionFamily(c.Request.Context(), claims.SessionID)
+		if err := authService.RevokeSessionFamily(c.Request.Context(), claims.SessionID); err != nil {
+			AbortWithError(c, 503, "SESSION_REVOCATION_UNAVAILABLE", "Session revocation is temporarily unavailable")
+			return false
+		}
 	}
 	if auditService != nil {
 		uid := claims.UserID

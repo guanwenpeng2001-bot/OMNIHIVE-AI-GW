@@ -1365,6 +1365,14 @@ func buildEmailSuffixNotAllowedError(whitelist []string) error {
 
 // ValidateToken 验证JWT token并返回用户声明
 func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
+	return s.validateToken(context.Background(), tokenString)
+}
+
+func (s *AuthService) ValidateTokenContext(ctx context.Context, tokenString string) (*JWTClaims, error) {
+	return s.validateToken(ctx, tokenString)
+}
+
+func (s *AuthService) validateToken(ctx context.Context, tokenString string) (*JWTClaims, error) {
 	// 先做长度校验，尽早拒绝异常超长 token，降低 DoS 风险。
 	if len(tokenString) > maxTokenLength {
 		return nil, ErrTokenTooLarge
@@ -1399,10 +1407,25 @@ func (s *AuthService) ValidateToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
+		revoked, err := s.sessionFamilyRevoked(ctx, claims.SessionID)
+		if err != nil {
+			return nil, ErrServiceUnavailable
+		}
+		if revoked {
+			return nil, ErrTokenRevoked
+		}
 		return claims, nil
 	}
 
 	return nil, ErrInvalidToken
+}
+
+func (s *AuthService) sessionFamilyRevoked(ctx context.Context, familyID string) (bool, error) {
+	cache, ok := s.refreshTokenCache.(SessionFamilyRevocationCache)
+	if !ok || familyID == "" {
+		return false, nil
+	}
+	return cache.IsSessionFamilyRevoked(ctx, familyID)
 }
 
 func randomHexString(byteLength int) (string, error) {
@@ -1909,7 +1932,17 @@ func (s *AuthService) RevokeRefreshToken(ctx context.Context, refreshToken strin
 	}
 
 	tokenHash := s.refreshTokenHash(refreshToken)
-	return s.refreshTokenCache.DeleteRefreshToken(ctx, tokenHash)
+	data, err := s.refreshTokenCache.ConsumeRefreshToken(ctx, tokenHash)
+	if err != nil {
+		if errors.Is(err, ErrRefreshTokenNotFound) {
+			return nil
+		}
+		return err
+	}
+	if data == nil || data.FamilyID == "" {
+		return nil
+	}
+	return s.revokeSessionFamily(ctx, data.FamilyID)
 }
 
 // RevokeSessionFamily 撤销单个会话家族（该会话的所有 refresh token）。
@@ -1918,7 +1951,26 @@ func (s *AuthService) RevokeSessionFamily(ctx context.Context, familyID string) 
 	if s.refreshTokenCache == nil || familyID == "" {
 		return nil
 	}
+	return s.revokeSessionFamily(ctx, familyID)
+}
+
+func (s *AuthService) revokeSessionFamily(ctx context.Context, familyID string) error {
+	cache, ok := s.refreshTokenCache.(SessionFamilyRevocationCache)
+	if !ok || familyID == "" {
+		return ErrServiceUnavailable
+	}
+	ttl := time.Duration(s.cfg.JWT.RefreshTokenExpireDays)*24*time.Hour + s.accessTokenLifetime() + time.Minute
+	if err := cache.RevokeSessionFamily(ctx, familyID, ttl); err != nil {
+		return err
+	}
 	return s.refreshTokenCache.DeleteTokenFamily(ctx, familyID)
+}
+
+func (s *AuthService) accessTokenLifetime() time.Duration {
+	if s.cfg.JWT.AccessTokenExpireMinutes > 0 {
+		return time.Duration(s.cfg.JWT.AccessTokenExpireMinutes) * time.Minute
+	}
+	return time.Duration(s.cfg.JWT.ExpireHour) * time.Hour
 }
 
 // RevokeAllUserSessions 撤销用户的所有会话（所有Refresh Token）

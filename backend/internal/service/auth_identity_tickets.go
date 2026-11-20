@@ -60,7 +60,7 @@ func (pendingService *AuthPendingIdentityService) ConsumeIdentityTicket(ctx cont
 const AdminWebSocketTicketPath = "/api/v1/admin/ops/ws/qps"
 
 func (authService *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token string) (string, error) {
-	claims, err := authService.ValidateToken(token)
+	claims, err := authService.ValidateTokenContext(ctx, token)
 	if err != nil {
 		return "", err
 	}
