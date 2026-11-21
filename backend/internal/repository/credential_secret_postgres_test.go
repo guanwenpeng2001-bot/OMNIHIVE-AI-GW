@@ -466,7 +466,7 @@ func TestAccountSecretBackfillRepairsLegacySecretResiduePostgres(t *testing.T) {
 	require.Greater(t, service.CredentialVersion(reloaded.Credentials), service.CredentialVersion(loaded.Credentials))
 	_, err = f.db.ExecContext(f.ctx, `UPDATE accounts SET credentials=credentials || '{"api_key":"rejected-inline"}'::jsonb WHERE id=$1`, account.ID)
 	require.Error(t, err)
-	migration, err := migrations.FS.ReadFile("331_account_secret_guard_replay.sql")
+	migration, err := migrations.FS.ReadFile("332_account_secret_guard_replay.sql")
 	require.NoError(t, err)
 	_, err = f.db.ExecContext(f.ctx, string(migration))
 	require.NoError(t, err)
