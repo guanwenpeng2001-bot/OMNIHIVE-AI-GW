@@ -384,4 +384,48 @@ describe('KeysView project-scoped API key group binding guard (W1-E2E-P0-01)', (
       })
     )
   })
+
+  it('displays project key granted actions and models.read non-grantable scope before and after creation (E2-2)', async () => {
+    mocks.getAvailableGroups.mockResolvedValue([
+      {
+        id: '12',
+        name: 'openai-main',
+        platform: 'openai',
+        status: 'active',
+        subscription_type: 'standard',
+        rate_multiplier: 1,
+        is_exclusive: false,
+      },
+    ])
+    mocks.createProjectKey.mockResolvedValue({
+      id: 'pk_12',
+      name: 'scoped-key',
+      credential: 'sk-proj-test',
+      actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+    })
+
+    const wrapper = mount(KeysView, { global: { stubs } })
+    await flushPromises()
+
+    await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('#key-form input[type="checkbox"]').setValue(true)
+    await flushPromises()
+
+    const preview = wrapper.get('[data-testid="project-key-scope-preview"]')
+    expect(preview.text()).toContain('text.chat')
+    expect(preview.text()).toContain('models.read')
+    expect(preview.text()).toContain('keys.projectScopeModelsReadNotice')
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('scoped-key')
+    await wrapper.get('#key-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const issuedBanner = wrapper.get('[data-testid="issued-project-key-scope-banner"]')
+    expect(issuedBanner.text()).toContain('keys.issuedProjectKeyScopeTitle')
+    expect(issuedBanner.text()).toContain('text.chat')
+    expect(issuedBanner.text()).toContain('models.read')
+    expect(issuedBanner.text()).toContain('keys.projectScopeModelsReadNotice')
+  })
 })

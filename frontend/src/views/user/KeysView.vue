@@ -102,6 +102,46 @@
         </details>
       </section>
 
+      <section
+        v-if="lastIssuedProjectKeyScope"
+        data-testid="issued-project-key-scope-banner"
+        class="card space-y-2 border-[var(--oh-accent-border,rgba(245,158,11,0.35))] bg-[var(--oh-accent-subtle,rgba(245,158,11,0.06))] p-3 sm:px-4"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-xs font-semibold text-[var(--foreground)]">
+            {{ t('keys.issuedProjectKeyScopeTitle', { name: lastIssuedProjectKeyScope.name }) }}
+          </span>
+          <button
+            type="button"
+            class="text-xs text-[var(--muted-foreground)] underline"
+            @click="lastIssuedProjectKeyScope = null"
+          >
+            {{ t('keys.dismissScopeBanner') }}
+          </button>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span class="font-medium text-[var(--muted-foreground)]">{{ t('keys.projectScopeGrantedActions') }}:</span>
+          <code
+            v-for="act in lastIssuedProjectKeyScope.actions"
+            :key="act"
+            class="rounded border border-[var(--border)] bg-[var(--card)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--foreground)]"
+          >
+            {{ act }}
+          </code>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+          <span class="font-medium">{{ t('keys.projectScopeNotGrantedActions') }}:</span>
+          <code
+            v-for="act in lastIssuedProjectKeyScope.excludedActions"
+            :key="act"
+            class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono text-[11px] dark:border-amber-800 dark:bg-amber-950/40"
+          >
+            {{ act }}
+          </code>
+          <span>{{ t('keys.projectScopeModelsReadNotice') }}</span>
+        </div>
+      </section>
+
       <section class="oh-gateway-banner card p-3 sm:px-4" aria-labelledby="pay-as-you-go-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="flex flex-wrap items-center gap-2.5">
@@ -824,6 +864,36 @@
               }}
             </span>
           </label>
+          <div
+            v-if="issueProjectPolicyCredential"
+            data-testid="project-key-scope-preview"
+            class="mt-2.5 space-y-1.5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-2.5 text-[11px]"
+          >
+            <p class="font-semibold text-[var(--foreground)]">
+              {{ t('keys.projectScopePreviewTitle') }}
+            </p>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-[var(--muted-foreground)]">{{ t('keys.projectScopeGrantedActions') }}:</span>
+              <code
+                v-for="act in PROJECT_KEY_GRANTED_ACTIONS"
+                :key="act"
+                class="rounded border border-[var(--border)] bg-[var(--surface-2,transparent)] px-1.5 py-0.5 font-mono text-[var(--foreground)]"
+              >
+                {{ act }}
+              </code>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5 text-amber-700 dark:text-amber-300">
+              <span>{{ t('keys.projectScopeNotGrantedActions') }}:</span>
+              <code
+                v-for="act in PROJECT_KEY_EXCLUDED_ACTIONS"
+                :key="act"
+                class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 font-mono dark:border-amber-800 dark:bg-amber-950/40"
+              >
+                {{ act }}
+              </code>
+              <span>{{ t('keys.projectScopeModelsReadNotice') }}</span>
+            </div>
+          </div>
         </div>
 
         <div>
@@ -1722,6 +1792,19 @@ const instance = getCurrentInstance()
 const activeConsoleScope = ref<ConsoleScopeSelection>(readPersistedConsoleScope())
 const projectScopedKeys = ref<IdentityKey[]>([])
 const issueProjectPolicyCredential = ref(false)
+const PROJECT_KEY_GRANTED_ACTIONS = [
+  'text.chat',
+  'text.embeddings',
+  'image.generate',
+  'usage.read',
+  'tasks.read'
+] as const
+const PROJECT_KEY_EXCLUDED_ACTIONS = ['models.read'] as const
+const lastIssuedProjectKeyScope = ref<{
+  name: string
+  actions: string[]
+  excludedActions: string[]
+} | null>(null)
 
 const scopedBillingHref = computed(() => {
   const ws = activeConsoleScope.value.workspaceId
@@ -2856,10 +2939,18 @@ const handleSubmit = async () => {
           group_id: String(projectGroupId),
           name: formData.value.name.trim(),
           model_access: { mode: 'inherit', ids: [] },
-          actions: ['text.chat', 'text.embeddings', 'image.generate', 'usage.read', 'tasks.read'],
+          actions: [...PROJECT_KEY_GRANTED_ACTIONS],
           expires_at: expiresAt || null
         }
       )
+      lastIssuedProjectKeyScope.value = {
+        name: created?.name || formData.value.name.trim(),
+        actions:
+          Array.isArray(created?.actions) && created.actions.length > 0
+            ? created.actions
+            : [...PROJECT_KEY_GRANTED_ACTIONS],
+        excludedActions: [...PROJECT_KEY_EXCLUDED_ACTIONS]
+      }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (created?.credential) {
         issuedSecret.value = created.credential
