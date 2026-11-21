@@ -113,8 +113,15 @@ google_payload = {"contents": [{"role": "user", "parts": [{"text": "Smoke"}]}]}
 google_model = "/v1beta/models/gemini-2.5-flash:"
 google = request("POST", google_model + "countTokens", 403, google_key=credential, payload=google_payload)
 require(google["error"]["message"] == "Access denied", "Google gateway failed outside project action enforcement.")
-google = request("POST", google_model + "generateContent", 403, google_key=credential, payload=google_payload)
-require("not assigned to any group" in google["error"]["message"], "Google gateway did not admit the allowed project action.")
+# Admitted text.chat: depending on whether the restricted key already resolved
+# an eligible group, the request stops either at group admission (403) or at
+# scheduling because this isolated server has no upstream accounts (503).
+google_status, google = request("POST", google_model + "generateContent", (403, 503), google_key=credential,
+                                payload=google_payload, with_status=True)
+if google_status == 403:
+    require("not assigned to any group" in google["error"]["message"], "Google gateway did not admit the allowed project action.")
+else:
+    require("available" in google["error"]["message"].lower(), "Google gateway did not reach scheduling for the allowed project action.")
 print("Both gateway adapters recognized the restricted credential and enforced its actions.")
 
 group = request("POST", "/api/v1/admin/groups", 200, bearer=session, payload={
