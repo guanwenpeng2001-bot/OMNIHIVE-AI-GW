@@ -61,13 +61,13 @@ const COMPAT_MESSAGES = {
     pluginV2Badge: 'Current Standard · v2',
     pluginV2Title: 'omnihive.plugin.v2 (.ohplugin)',
     pluginV2Body:
-      'Target signed archive format with v2 manifest schema and SHA-256 package digest verification. Note: the current admin host bridge still dispatches sub2api-plugin-host / sub2api.plugin.ready while transitioning to omnihive-plugin-host.',
+      'Target signed archive format with v2 manifest schema and SHA-256 package digest verification. Note: the admin host bridge still speaks the legacy v1 host message protocol while transitioning to omnihive-plugin-host.',
     pluginV2Action: 'Required for all newly published plugins and production upgrades.',
 
     pluginV1Badge: 'Deprecated · Compatibility Bridge',
     pluginV1Title: 'Legacy .s2plugin (v1 Bridge)',
     pluginV1Body:
-      'Currently handled by the admin compatibility loader (sub2api-plugin-host / sub2api.plugin.ready) during the v1 -> v2 migration window. Legacy postMessage sources and un-scoped localStorage keys are scheduled for removal.',
+      'Currently handled by the admin compatibility loader (legacy v1 host message protocol) during the v1 -> v2 migration window. Legacy postMessage sources and un-scoped localStorage keys are scheduled for removal.',
     pluginV1Action: 'Repackage existing extensions to .ohplugin with manifest_version: 2 before cutover.',
 
     releaseEyebrow: 'RELEASE SAFETY & ROLLBACK',
@@ -145,13 +145,13 @@ const COMPAT_MESSAGES = {
     pluginV2Badge: '当前主标准 · v2',
     pluginV2Title: 'omnihive.plugin.v2 (.ohplugin)',
     pluginV2Body:
-      '目标签名归档格式，采用 v2 Manifest 清单与 SHA-256 摘要校验。注：当前管理端宿主桥接仍使用 sub2api-plugin-host / sub2api.plugin.ready，正逐步过渡至 omnihive-plugin-host。',
+      '目标签名归档格式，采用 v2 Manifest 清单与 SHA-256 摘要校验。注：当前管理端宿主桥接仍使用旧版 v1 宿主消息协议，正逐步过渡至 omnihive-plugin-host。',
     pluginV2Action: '所有新上架扩展与生产环境自动化部署均须使用 .ohplugin v2 格式。',
 
     pluginV1Badge: '已弃用 · 迁移窗口兼容',
     pluginV1Title: '旧版 .s2plugin（v1 兼容桥接）',
     pluginV1Body:
-      '当前由管理端兼容加载器（sub2api-plugin-host / sub2api.plugin.ready）在 v1 → v2 过渡窗口内承接；旧版 postMessage source 与未分区缓存键将在窗口结束后下线。',
+      '当前由管理端兼容加载器（旧版 v1 宿主消息协议）在 v1 → v2 过渡窗口内承接；旧版 postMessage source 与未分区缓存键将在窗口结束后下线。',
     pluginV1Action: '请在迁移窗口期内升级清单至 manifest_version: 2 并重新打包为 .ohplugin。',
 
     releaseEyebrow: '版本更新、校验和与回滚保障',

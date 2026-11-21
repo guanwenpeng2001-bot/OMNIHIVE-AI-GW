@@ -110,7 +110,7 @@ export default {
       v200: {
           version: 'v2.0.0',
           date: '2026-10-15',
-          summary: 'Connection wizard v2 requires /models probe evidence (409 EVIDENCE_UNAVAILABLE if unsupported); .s2plugin bridge remains active via sub2api-plugin-host during migration.',
+          summary: 'Connection wizard v2 requires /models probe evidence (409 EVIDENCE_UNAVAILABLE if unsupported); legacy .s2plugin packages remain loadable through the v1 host message protocol during migration.',
           migration: 'Migrate extensions to .ohplugin v2 before legacy bridge removal; save non-probing upstreams as drafts.'
       }
     },

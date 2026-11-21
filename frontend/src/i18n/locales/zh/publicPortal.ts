@@ -110,7 +110,7 @@ export default {
       v200: {
           version: 'v2.0.0',
           date: '2026-10-15',
-          summary: 'v2 连接向导强制校验 /models 探针证据（缺失返回 409 EVIDENCE_UNAVAILABLE）；管理端当前仍通过 sub2api-plugin-host 兼容桥接 .s2plugin。',
+          summary: 'v2 连接向导强制校验 /models 探针证据（缺失返回 409 EVIDENCE_UNAVAILABLE）；管理端当前仍通过旧版 v1 宿主消息协议兼容加载 .s2plugin。',
           migration: '请在兼容窗口期内将扩展迁移至 .ohplugin v2；无探针上游可保存为草稿或通过受控白名单接入。'
       }
     },
