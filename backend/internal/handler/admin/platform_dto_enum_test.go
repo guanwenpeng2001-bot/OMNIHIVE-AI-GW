@@ -74,7 +74,7 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 	})
 	// Migration 282 replaces both historical 264 provider CHECKs. Validate the
 	// current storage authority without rewriting the historical migration.
-	migration, err := os.ReadFile("../../../migrations/335_workbuddy_platform.sql")
+	migration, err := os.ReadFile("../../../migrations/336_kilo_platform.sql")
 	require.NoError(t, err)
 	var monitors []string
 	for _, constraint := range []string{"channel_monitors_provider_check", "channel_monitor_request_templates_provider_check"} {
@@ -107,7 +107,7 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 		}
 	}
 	monitors = writableMonitors
-	require.Len(t, monitors, 13)
+	require.Len(t, monitors, 14)
 	require.NotContains(t, monitors, domain.PlatformOpenRouter)
 	checked := 0
 	require.NoError(t, filepath.WalkDir("..", func(path string, d fs.DirEntry, walkErr error) error {

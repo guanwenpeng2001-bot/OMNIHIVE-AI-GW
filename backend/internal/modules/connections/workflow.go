@@ -70,7 +70,7 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 	action := "connections.verify"
 	if replacement != nil {
 		action = "credentials.rotate"
-		secret, e = replacement.Payload(c.AuthType)
+		secret, e = c.credentialPayload(*replacement)
 	} else {
 		secret, e = credentials.Resolve(r.ctx, r.tx, r.store.enc, r.Workspace, c.ID, in.CredentialVersion)
 	}
@@ -90,6 +90,9 @@ func (r *Session) verify(in Verify, replacement *credentials.Change) (any, error
 		fields["base_url"] = c.Endpoint
 	}
 	native := service.Account{ID: c.ID, WorkspaceID: c.Workspace, Platform: c.Provider, Type: legacy.AccountType(c.AuthType), Credentials: fields}
+	if err := service.NormalizeFreeModelCredentials(&native); err != nil {
+		return nil, err
+	}
 	if len(c.HeaderOverrides) != 0 {
 		native.Extra = map[string]any{"header_overrides": c.HeaderOverrides}
 	}

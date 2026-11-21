@@ -95,7 +95,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *accoun
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("Adaptive Anthropic endpoint returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
@@ -156,7 +156,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 		body, _ := io.ReadAll(resp.Body)
 		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, resp.Header, body, testModelID)
 		errMsg := fmt.Sprintf("Adaptive Responses endpoint returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
@@ -250,7 +250,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *accountProbeCo
 		body, _ := io.ReadAll(resp.Body)
 		s.observeOpenCodePaymentFailure(ctx, account, resp.StatusCode, resp.Header, body, testModelID)
 		errMsg := fmt.Sprintf("Anthropic endpoint returned %d: %s", resp.StatusCode, string(body))
-		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && s.accountRepo != nil {
+		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && s.accountRepo != nil && !publicModelLane(account) {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)

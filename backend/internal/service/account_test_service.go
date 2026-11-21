@@ -445,6 +445,9 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *accountProbeCont
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = DefaultOpenCodeGoTestModel
+		if account.IsOpenCodeZenFree() {
+			testModelID = "big-pickle"
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 	proto := account.GetAPIProtocol()
@@ -481,6 +484,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountP
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
+		if account.Platform == PlatformKilo {
+			testModelID = "kilo-auto/free"
+		}
 		if account.Platform == PlatformWorkBuddy {
 			testModelID = workBuddyModels(workBuddySiteFor(account).ID)[0].ID
 		}
@@ -488,7 +494,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountP
 	testModelID = account.GetMappedModel(testModelID)
 
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
-	if authToken == "" {
+	if authToken == "" && !account.IsKiloFree() {
 		return s.sendErrorAndEnd(c, "No API key available")
 	}
 
@@ -955,7 +961,7 @@ func (s *AccountTestService) probeTestOpenAIAccountConnection(c *accountProbeCon
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2114,6 +2120,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 ) error {
 	ctx := c.ctx
 	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+	if account.Platform == PlatformKilo {
+		apiURL = strings.TrimRight(normalizedBaseURL, "/") + "/chat/completions"
+	}
 	if IsCompatibleProvider(account.Platform) {
 		apiURL = account.buildOpenAIEndpointURL(normalizedBaseURL, "/v1/chat/completions")
 	}
@@ -2166,7 +2175,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2322,7 +2331,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *accountProbeContext,
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && !publicModelLane(account) {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -3326,7 +3335,7 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		return result
 	}
 	body = workBuddyConfigFallback(body, account)
-	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform, workBuddySiteFor(account).ID)
+	models, _, err := extractAccountModelCatalog(body, account)
 	if err != nil {
 		result.DiscoveryReason = "PROBE_FAILED"
 		result.Detail = "Upstream returned an invalid model catalog."
@@ -3341,6 +3350,11 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		}
 	}
 	result.Discovery = "passed"
+	// Kilo validates a supplied bearer even though its free catalog is public.
+	if publicModelLane(account) || account.Platform == PlatformKilo {
+		result.Authorization = "passed"
+		return result
+	}
 	anon := req.Clone(req.Context())
 	removed := false
 	for name, values := range anon.Header {

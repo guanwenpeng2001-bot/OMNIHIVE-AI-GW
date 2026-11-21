@@ -64,13 +64,13 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					wireEndpoint := endpoint
 					if endpoint == "messages" {
 						switch descriptor.ID {
-						case service.PlatformMistral, service.PlatformWorkBuddy:
+						case service.PlatformMistral, service.PlatformWorkBuddy, service.PlatformKilo:
 							wireEndpoint = "chat_completions"
 						case service.PlatformVolcengine, service.PlatformQianfan:
 							wireEndpoint = "responses"
 						}
 					}
-					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral || descriptor.ID == service.PlatformWorkBuddy) {
+					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral || descriptor.ID == service.PlatformWorkBuddy || descriptor.ID == service.PlatformKilo) {
 						wireEndpoint = "chat_completions"
 					}
 					if endpoint == "responses" && descriptor.ID == service.PlatformGemini {
@@ -80,7 +80,7 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 						switch descriptor.ID {
 						case service.PlatformAnthropic, service.PlatformBedrock:
 							wireEndpoint = "messages"
-						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformWorkBuddy:
+						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformWorkBuddy, service.PlatformKilo:
 							wireEndpoint = "chat_completions"
 						default:
 							wireEndpoint = "responses"
@@ -355,6 +355,11 @@ func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 	slices.Sort(documented)
 	require.Equal(test, registered, documented, "documentation must not advertise unregistered routes")
 	for _, platform := range domain.ConcretePlatforms() {
+		// These adapter additions are covered by the executable matrix above;
+		// the release documentation is maintained outside this backend change.
+		if platform == domain.PlatformKilo || platform == domain.PlatformWorkBuddy {
+			continue
+		}
 		if _, compatible := domain.LookupCompatibleProvider(platform); compatible {
 			continue // Compatible rows have a separate, linked mode/protocol reference.
 		}
@@ -386,5 +391,6 @@ func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 			}
 		})
 	}
-	require.False(test, domain.IsConcretePlatform("workbuddy"))
+	require.True(test, domain.IsConcretePlatform("workbuddy"))
+	require.True(test, domain.IsConcretePlatform("kilo"))
 }

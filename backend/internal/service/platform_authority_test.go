@@ -14,7 +14,7 @@ import (
 func TestMonitorAndQuotaPlatformAuthorities(t *testing.T) {
 	require.ElementsMatch(t, append(expectedServicePlatforms(), "vertex"), AllowedQuotaPlatforms)
 	// Original monitor eligibility is literal, independent of descriptor flags.
-	expectedMonitors := []string{"anthropic", "gemini", "openai", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go", "qianwen", "commandcode", "workbuddy"}
+	expectedMonitors := []string{"anthropic", "gemini", "openai", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go", "qianwen", "commandcode", "workbuddy", "kilo"}
 	actual := []string{}
 	for _, platform := range ConcretePlatforms() {
 		if validateProvider(platform) == nil {

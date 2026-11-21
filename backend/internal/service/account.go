@@ -371,6 +371,15 @@ func (a *Account) CanGetUsage() bool {
 }
 
 func (a *Account) GetCredential(key string) string {
+	// Public lanes have no per-account secret, including older unnormalized rows.
+	if key == "api_key" {
+		if a.IsOpenCodeZenFree() {
+			return "public"
+		}
+		if a.IsKiloFree() {
+			return ""
+		}
+	}
 	if a.Credentials == nil {
 		return ""
 	}
@@ -1429,6 +1438,9 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
+	if a != nil && a.Platform == PlatformKilo {
+		return kiloBaseURL(a)
+	}
 	if a != nil && a.Platform == PlatformWorkBuddy {
 		return workBuddyEndpoint(a) + "/v2"
 	}

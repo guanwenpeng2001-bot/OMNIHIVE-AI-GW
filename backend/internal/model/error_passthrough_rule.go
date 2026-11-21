@@ -49,6 +49,7 @@ const (
 	PlatformCursor      = domain.PlatformCursor
 	PlatformQianwen     = domain.PlatformQianwen
 	PlatformCommandCode = domain.PlatformCommandCode
+	PlatformKilo        = domain.PlatformKilo
 )
 
 // AllPlatforms 返回所有支持的平台列表

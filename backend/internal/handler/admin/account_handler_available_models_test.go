@@ -878,6 +878,10 @@ func TestSyncPreviewCandidatesReturnUnconfirmed(test *testing.T) {
 		for _, saved := range []bool{false, true} {
 			test.Run(fmt.Sprintf("%s/saved=%t", platform, saved), func(test *testing.T) {
 				credentials := map[string]any{"api_key": "private-secret", "model_mapping": map[string]any{"kept": "kept"}}
+				if platform == service.PlatformVolcengine {
+					// PAYG discovery is confirmed; the coding profile remains manual.
+					credentials["base_url"] = "https://ark.cn-beijing.volces.com/api/coding/v3"
+				}
 				if platform == service.PlatformHunyuan {
 					credentials["base_url"] = "https://api.hunyuan.cloud.tencent.com/v1"
 				}

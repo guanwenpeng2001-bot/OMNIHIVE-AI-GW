@@ -34,11 +34,14 @@ const (
 )
 
 type UpstreamModelMetadata struct {
-	SupportedParameters []string `json:"supported_parameters,omitempty"`
-	CreatedAt           string   `json:"created_at,omitempty"`
-	ModelVersion        string   `json:"model_version,omitempty"`
-	CreatedAtStatus     string   `json:"created_at_status,omitempty"`
-	ModelVersionStatus  string   `json:"model_version_status,omitempty"`
+	MaxInputTokens      int64                      `json:"max_input_tokens,omitempty"`
+	Free                *bool                      `json:"free,omitempty"`
+	Pricing             map[string]json.RawMessage `json:"pricing,omitempty"`
+	SupportedParameters []string                   `json:"supported_parameters,omitempty"`
+	CreatedAt           string                     `json:"created_at,omitempty"`
+	ModelVersion        string                     `json:"model_version,omitempty"`
+	CreatedAtStatus     string                     `json:"created_at_status,omitempty"`
+	ModelVersionStatus  string                     `json:"model_version_status,omitempty"`
 
 	SupportsPDF             *bool                              `json:"supports_pdf,omitempty"`
 	RejectedCandidates      []ModelCapabilityRejection         `json:"rejected_candidates,omitempty"`
@@ -361,7 +364,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	}
 	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
 	if len(body) > 0 {
-		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok(), account.Platform, workBuddySiteFor(account).ID)
+		_, directMetadata, parseErr := extractAccountModelCatalog(body, account)
 		if parseErr == nil {
 			catalog.Metadata = directMetadata
 			if len(directMetadata) > 0 {
@@ -769,11 +772,18 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 // Clone even unchanged entries: callers must not mutate cached registry or
 // native snapshots through a merged pointer, slice, map, or RawMessage.
 func cloneUpstreamModelMetadata(metadata UpstreamModelMetadata) UpstreamModelMetadata {
-	for _, p := range []**bool{&metadata.SupportsVision, &metadata.SupportsPDF, &metadata.SupportsFunctionCalling, &metadata.SupportsPromptCaching} {
+	for _, p := range []**bool{&metadata.Free, &metadata.SupportsVision, &metadata.SupportsPDF, &metadata.SupportsFunctionCalling, &metadata.SupportsPromptCaching} {
 		if *p != nil {
 			v := **p
 			*p = &v
 		}
+	}
+	if metadata.Pricing != nil {
+		pricing := make(map[string]json.RawMessage, len(metadata.Pricing))
+		for k, v := range metadata.Pricing {
+			pricing[k] = slices.Clone(v)
+		}
+		metadata.Pricing = pricing
 	}
 	metadata.ReasoningControl = cloneReasoningControl(metadata.ReasoningControl)
 	metadata.FieldEvidence = cloneCapabilityEvidence(metadata.FieldEvidence)
@@ -1076,6 +1086,9 @@ func reasoningLevelsFromModelsDevOptions(options []modelsDevReasoningOption) []s
 }
 
 func upstreamModelRegistryBaseURL(account *Account) string {
+	if account != nil && account.Platform == PlatformKilo {
+		return kiloBaseURL(account)
+	}
 	if account != nil && account.Platform == PlatformWorkBuddy {
 		return workBuddyEndpoint(account)
 	}
@@ -1349,6 +1362,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Platform == PlatformKilo {
+		return s.buildKiloModelsRequest(ctx, account)
+	}
 	if account.Platform == PlatformWorkBuddy {
 		return s.buildWorkBuddyModelsRequest(ctx, account)
 	}
@@ -1600,6 +1616,9 @@ func (s *AccountTestService) buildOpenAIUpstreamModelsRequest(ctx context.Contex
 // buildOpenAIAPIKeyModelsRequest is shared by admin discovery and public model
 // listing. Codex content negotiation is intentionally absent from this request.
 func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, validateBaseURL func(string) (string, error)) (*http.Request, error) {
+	if account.IsOpenCodeZenFree() {
+		return buildZenFreeModelsRequest(ctx, account, validateBaseURL)
+	}
 	if err := nativeProfileDiscoveryError(account); err != nil {
 		return nil, err
 	}
@@ -2629,7 +2648,7 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 			Data   []json.RawMessage `json:"data"`
 			Object string            `json:"object,omitempty"`
 		}{entries, object})
-		models, metadata, parseErr := extractUpstreamModelCatalog(merged, account.IsGrok(), account.Platform)
+		models, metadata, parseErr := extractAccountModelCatalog(merged, account)
 		if parseErr != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
 		}

@@ -242,7 +242,7 @@ func TestCompatibleEmptyRegistryPreservesLegacy(t *testing.T) {
 	if len(CompatibleProviders()) != 0 {
 		t.Fatal("empty registry fixture was not installed")
 	}
-	if !reflect.DeepEqual(PlatformDescriptors(), platformDescriptors) || len(PlatformDescriptors()) != 20 {
+	if !reflect.DeepEqual(PlatformDescriptors(), platformDescriptors) || len(PlatformDescriptors()) != 21 {
 		t.Fatal("legacy descriptor changed")
 	}
 	before := make(map[string][]ActionDescriptor)

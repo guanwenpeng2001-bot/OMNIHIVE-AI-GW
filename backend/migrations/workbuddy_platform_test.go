@@ -18,7 +18,9 @@ func TestWorkBuddyPlatformMigrationOnlyAddsWorkBuddy(t *testing.T) {
 		after := compatibleIdentityValues(t, body, constraint.name)
 		require.ElementsMatch(t, append(before, "workbuddy"), after)
 		for _, id := range domain.ConcretePlatforms() {
-			require.Contains(t, after, id)
+			if id != domain.PlatformKilo {
+				require.Contains(t, after, id)
+			}
 		}
 		for _, pattern := range []string{
 			`ALTER TABLE ` + constraint.table + `\s+DROP CONSTRAINT IF EXISTS ` + constraint.name + `;`,

@@ -61,6 +61,16 @@ func Schemas(provider, auth string) []Schema {
 			continue
 		}
 		s := Schema{Provider: d.ID, Version: SchemaVersion, AuthTypes: types, Actions: []string{}, Fields: []Field{{"name", "string", true, "TextInput"}, {"endpoint", "http_url", false, "EndpointInput"}, {"network_policy_id", "id", false, "ProxyPicker"}, {"credential", "secret", true, "SecretInput"}, {"model_ids", "string_list", false, "ModelPicker"}, {"pool_ids", "id_list", false, "PoolPicker"}, {"limits.concurrency", "integer", true, "NumberInput"}}}
+		if d.ID == domain.PlatformKilo || d.ID == domain.PlatformOpenCodeGo {
+			s.Fields = append(s.Fields, Field{"account_mode", "string", false, "Select"})
+			// Credential requirements depend on the selected lane; server validation
+			// remains authoritative for paid modes.
+			for i := range s.Fields {
+				if s.Fields[i].Path == "credential" {
+					s.Fields[i].Required = false
+				}
+			}
+		}
 		hosted := d.HostedAccountType
 		if auth != "" {
 			hosted = auth
@@ -98,6 +108,7 @@ type Limits struct {
 	Concurrency int `json:"concurrency"`
 }
 type Create struct {
+	AccountMode     string            `json:"account_mode,omitempty"`
 	Provider        string            `json:"provider"`
 	SchemaVersion   string            `json:"schema_version"`
 	AuthType        string            `json:"auth_type"`
@@ -117,6 +128,12 @@ func (in Create) validateSchema() error {
 	}
 	if !slices.Contains(schemas[0].AuthTypes, in.AuthType) {
 		return fault.Invalid("/auth_type")
+	}
+	if in.AccountMode != "" {
+		valid := in.AuthType == "api_key" && ((in.Provider == domain.PlatformKilo && slices.Contains([]string{"free", "apikey"}, in.AccountMode)) || (in.Provider == domain.PlatformOpenCodeGo && slices.Contains([]string{"go", "zen", "zen_free"}, in.AccountMode)))
+		if !valid {
+			return fault.Invalid("/account_mode")
+		}
 	}
 	if in.SchemaVersion != schemas[0].Version {
 		return fault.Invalid("/schema_version")
@@ -344,4 +361,26 @@ type Event struct {
 	Version int64     `json:"version,string"`
 	At      time.Time `json:"at"`
 	Actor   *string   `json:"actor_id"`
+}
+
+// Public lanes use the same versioned secret lifecycle with an empty/public key.
+func (c Connection) credentialPayload(change credentials.Change) (map[string]any, error) {
+	a := &service.Account{Platform: c.Provider, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"account_mode": c.AccountMode, "api_key": strings.TrimSpace(change.Secret)}}
+	if change.Operation == "set" && c.AuthType == "api_key" && (a.IsKiloFree() || a.IsOpenCodeZenFree()) {
+		if change.Type != c.AuthType || change.RefreshToken != "" {
+			return nil, fault.Invalid("/type")
+		}
+		if err := service.NormalizeFreeModelCredentials(a); err != nil {
+			return nil, err
+		}
+		return map[string]any{"api_key": a.GetCredential("api_key")}, nil
+	}
+	values, err := change.Payload(c.AuthType)
+	if err == nil && values != nil && c.Provider == service.PlatformKilo {
+		a.Credentials["api_key"] = values["api_key"]
+		if err = service.NormalizeFreeModelCredentials(a); err != nil {
+			return nil, err
+		}
+	}
+	return values, err
 }

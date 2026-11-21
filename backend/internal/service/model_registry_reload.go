@@ -42,7 +42,7 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 	}
 	for _, preset := range definitions {
 		// WorkBuddy adapter candidates are not part of this signed release.
-		if preset.Platform == PlatformWorkBuddy {
+		if preset.Platform == PlatformWorkBuddy || preset.Platform == PlatformKilo || preset.ProviderProfile == "opencode-zen-free" {
 			continue
 		}
 		profile := preset.ProviderProfile
