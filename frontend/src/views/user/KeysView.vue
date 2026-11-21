@@ -2236,20 +2236,30 @@ const recommendedDefaultGroup = computed<GroupOption | null>(() => {
   const defaultId = resolveDefaultRoutingGroupId(
     candidates.map((item) => ({ id: item.value, subscription_type: item.subscriptionType }))
   )
-  return candidates.find((item) => item.value === defaultId) ?? candidates[0] ?? null
+  return (
+    (defaultId !== null
+      ? candidates.find((item) => String(item.value) === String(defaultId))
+      : undefined) ??
+    candidates[0] ??
+    null
+  )
 })
 
-const resolvedProjectGroupId = computed<number | null>(() => {
-  if (formData.value.group_id !== null && groups.value.some((group) => group.id === formData.value.group_id)) {
+const resolvedProjectGroupId = computed<number | string | null>(() => {
+  if (
+    formData.value.group_id !== null &&
+    groups.value.some((group) => String(group.id) === String(formData.value.group_id))
+  ) {
     return formData.value.group_id
   }
   const recommended = recommendedDefaultGroup.value?.value ?? null
-  if (recommended !== null && groups.value.some((group) => group.id === recommended)) {
+  if (recommended !== null && groups.value.some((group) => String(group.id) === String(recommended))) {
     return recommended
   }
   const fallback = resolveDefaultRoutingGroupId(groups.value)
-  if (fallback !== null && groups.value.some((group) => group.id === fallback)) {
-    return fallback
+  if (fallback !== null) {
+    const matched = groups.value.find((group) => String(group.id) === String(fallback))
+    if (matched) return matched.id
   }
   return null
 })
