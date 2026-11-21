@@ -2840,7 +2840,8 @@ const handleSubmit = async () => {
       appStore.showError(t('keys.projectGroupRequired'))
       return
     }
-    formData.value.group_id = resolvedProjectGroupId.value
+    const numericProjectGroupId = Number(resolvedProjectGroupId.value)
+    formData.value.group_id = Number.isSafeInteger(numericProjectGroupId) ? numericProjectGroupId : null
   }
   if (!showEditModal.value && !issueProjectPolicyCredential.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
     appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
@@ -2943,11 +2944,12 @@ const handleSubmit = async () => {
           expires_at: expiresAt || null
         }
       )
+      const createdActions = (created as { actions?: string[] } | undefined)?.actions
       lastIssuedProjectKeyScope.value = {
         name: created?.name || formData.value.name.trim(),
         actions:
-          Array.isArray(created?.actions) && created.actions.length > 0
-            ? created.actions
+          Array.isArray(createdActions) && createdActions.length > 0
+            ? createdActions
             : [...PROJECT_KEY_GRANTED_ACTIONS],
         excludedActions: [...PROJECT_KEY_EXCLUDED_ACTIONS]
       }

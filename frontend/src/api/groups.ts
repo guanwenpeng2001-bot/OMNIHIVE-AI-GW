@@ -88,22 +88,25 @@ export async function getAvailable(options?: AvailableGroupsOptions): Promise<Gr
   const projectId = options?.projectId != null ? String(options.projectId).trim() : ''
   if (workspaceId && projectId) {
     const items = await getProjectKeyGroups(workspaceId, projectId, { signal: options?.signal })
-    return items.map((item) => ({
-      id: item.id as unknown as number,
-      name: item.name,
-      description: null,
-      platform: item.platform as Group['platform'],
-      rate_multiplier: 1,
-      is_exclusive: false,
-      status: 'active',
-      subscription_type: 'standard',
-      daily_limit_usd: null,
-      weekly_limit_usd: null,
-      monthly_limit_usd: null,
-      user_count: 0,
-      created_at: '',
-      updated_at: ''
-    }))
+    return items.map(
+      (item) =>
+        ({
+          id: item.id as unknown as number,
+          name: item.name,
+          description: null,
+          platform: item.platform as Group['platform'],
+          rate_multiplier: 1,
+          is_exclusive: false,
+          status: 'active',
+          subscription_type: 'standard',
+          daily_limit_usd: null,
+          weekly_limit_usd: null,
+          monthly_limit_usd: null,
+          user_count: 0,
+          created_at: '',
+          updated_at: ''
+        }) as unknown as Group
+    )
   }
   const url = workspaceId
     ? `/workspaces/${encodeURIComponent(workspaceId)}/groups/available`
