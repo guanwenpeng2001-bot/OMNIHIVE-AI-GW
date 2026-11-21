@@ -237,5 +237,17 @@ export default {
   "browseKeys": "浏览项目 Key",
   "keysUnavailable": "暂无法列出 Key。有路由权限时可输入已知的数字 Key ID。",
   "simulating": "正在评估冻结候选…",
-  "origins": "约束来源"
+  "origins": "约束来源",
+  "telemetry": {
+    "title": "网关遥测",
+    "status": {
+      "unknown": "未知",
+      "healthy": "正常",
+      "degraded": "降级",
+      "failed": "读取失败",
+      "disconnected": "已断线"
+    },
+    "lastObservedLabel": "最后观测：{time}",
+    "lastObservedUnknown": "最后观测：—"
+  }
 }

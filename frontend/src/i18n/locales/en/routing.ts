@@ -237,5 +237,17 @@ export default {
   "browseKeys": "Browse project keys",
   "keysUnavailable": "Keys are unavailable. Enter a known numeric key ID if you have routing access.",
   "simulating": "Evaluating frozen candidates…",
-  "origins": "Constraint origins"
+  "origins": "Constraint origins",
+  "telemetry": {
+    "title": "GATEWAY TELEMETRY",
+    "status": {
+      "unknown": "Unknown",
+      "healthy": "Healthy",
+      "degraded": "Degraded",
+      "failed": "Read failed",
+      "disconnected": "Disconnected"
+    },
+    "lastObservedLabel": "Last observed: {time}",
+    "lastObservedUnknown": "Last observed: —"
+  }
 }
