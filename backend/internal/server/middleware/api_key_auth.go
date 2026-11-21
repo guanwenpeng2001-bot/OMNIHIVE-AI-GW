@@ -173,7 +173,7 @@ func authenticateKey(c *gin.Context, secret string, keys *service.APIKeyService,
 			MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
 			abort(503, "API_KEY_AUTH_OVERLOADED", "API key authentication is temporarily unavailable")
 		default:
-			abort(500, "INTERNAL_ERROR", "Failed to validate API key")
+			abort(503, "API_KEY_AUTH_UNAVAILABLE", "API key authentication is temporarily unavailable")
 		}
 		return
 	}

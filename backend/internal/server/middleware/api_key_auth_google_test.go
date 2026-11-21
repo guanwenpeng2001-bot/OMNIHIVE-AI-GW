@@ -543,12 +543,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_RepoError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, http.StatusInternalServerError, resp.Error.Code)
-	require.Equal(t, "Failed to validate API key", resp.Error.Message)
-	require.Equal(t, "INTERNAL", resp.Error.Status)
+	require.Equal(t, http.StatusServiceUnavailable, resp.Error.Code)
+	require.Equal(t, "API key authentication is temporarily unavailable", resp.Error.Message)
+	require.Equal(t, "UNAVAILABLE", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_DisabledKey(t *testing.T) {
