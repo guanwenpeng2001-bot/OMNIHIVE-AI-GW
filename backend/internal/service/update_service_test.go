@@ -545,3 +545,11 @@ func TestUpdateServiceDirectRollbackVerifiesManifestDigestAndFloor(t *testing.T)
 	require.NoError(t, svc.prepareBackupManifest(backup))
 	require.ErrorIs(t, svc.Rollback(), ErrRollbackVersionNotAllowed)
 }
+
+func TestCompareVersionsOrdersPrereleaseBeforeRelease(t *testing.T) {
+	require.Equal(t, -1, compareVersions("0.3.0-rc.1", "0.3.0"))
+	require.Equal(t, 1, compareVersions("0.3.0", "0.3.0-rc.1"))
+	require.Equal(t, 0, compareVersions("v0.3.0", "0.3.0"))
+	require.Equal(t, -1, compareVersions("0.3.0", "0.3.1-rc.1"))
+	require.Equal(t, 0, compareVersions("0.3.0+build.7", "0.3.0"))
+}
