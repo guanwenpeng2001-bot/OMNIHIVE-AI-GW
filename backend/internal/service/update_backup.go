@@ -82,7 +82,8 @@ func (s *UpdateService) prepareBackupManifest(path string) error {
 	if version == "" {
 		return fmt.Errorf("invalid running release version")
 	}
-	m := backupManifest{Product: updateBinaryName, Version: version, Digest: hex.EncodeToString(sha256.Sum256(data))}
+	digest := sha256.Sum256(data)
+	m := backupManifest{Product: updateBinaryName, Version: version, Digest: hex.EncodeToString(digest[:])}
 	m.MAC, err = s.backupMAC(m)
 	if err != nil {
 		return err

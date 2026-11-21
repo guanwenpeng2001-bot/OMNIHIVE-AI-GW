@@ -3,4 +3,4 @@ CREATE TABLE release_schema_compatibility (
     singleton boolean PRIMARY KEY CHECK (singleton),
     minimum_rollback_version text NOT NULL
 );
-INSERT INTO release_schema_compatibility VALUES (true, 'v0.2.23-omnihive.2');
+INSERT INTO release_schema_compatibility VALUES (true, '0.2.23-omnihive.2');

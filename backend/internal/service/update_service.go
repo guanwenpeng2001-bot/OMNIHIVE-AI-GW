@@ -415,7 +415,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 	// 2. Rename new -> current (atomic on Unix, same filesystem)
 	// If step 2 fails, restore backup
 	backupPath := exePath + ".backup"
-	manifest, err := s.runningManifest()
+	backupManifest, err := s.runningManifest()
 	if err != nil {
 		return fmt.Errorf("backup manifest failed: %w", err)
 	}
@@ -430,7 +430,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, version string, 
 		}
 		return fmt.Errorf("backup failed: %w", err)
 	}
-	if err := writeBackupManifest(backupPath, manifest); err != nil {
+	if err := writeBackupManifest(backupPath, backupManifest); err != nil {
 		if restoreErr := os.Rename(backupPath, exePath); restoreErr != nil {
 			return fmt.Errorf("backup manifest failed and restore failed: %w (restore error: %v)", err, restoreErr)
 		}

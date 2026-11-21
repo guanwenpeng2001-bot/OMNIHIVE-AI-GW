@@ -490,6 +490,17 @@ func prepareRollbackService(t *testing.T, svc *UpdateService) {
 	svc.readRollbackFloor = func(context.Context) (string, error) { return "v0.2.23-omnihive.2", nil }
 }
 
+func TestBackupVersionNormalizesPersistedFloor(t *testing.T) {
+	for input, expected := range map[string]string{
+		"0.2.23-omnihive.2":  "v0.2.23-omnihive.2",
+		"v0.2.23-omnihive.2": "v0.2.23-omnihive.2",
+		"0.2.5":              "v0.2.5",
+		"development":        "",
+	} {
+		require.Equal(t, expected, backupVersion(input))
+	}
+}
+
 func TestUpdateServiceDirectRollbackVerifiesManifestDigestAndFloor(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("OMNIHIVE_DATA_DIR", filepath.Join(root, "absent"))
