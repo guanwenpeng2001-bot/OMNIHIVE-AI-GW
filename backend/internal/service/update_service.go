@@ -27,6 +27,7 @@ import (
 
 var (
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
+	ErrRollbackManifestInvalid   = infraerrors.Conflict("ROLLBACK_MANIFEST_INVALID", "invalid backup identity or manifest authentication")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
 )
 

@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	infraerrors "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -525,6 +527,20 @@ func TestUpdateServiceDirectRollbackVerifiesManifestDigestAndFloor(t *testing.T)
 	require.Equal(t, "new", string(content))
 
 	require.NoError(t, os.WriteFile(backup, []byte("old"), 0755))
+	require.NoError(t, svc.prepareBackupManifest(backup))
+	raw, err := os.ReadFile(backup + ".manifest.json")
+	require.NoError(t, err)
+	var manifest backupManifest
+	require.NoError(t, json.Unmarshal(raw, &manifest))
+	manifest.MAC[0] ^= 1
+	require.NoError(t, writeBackupManifest(backup, manifest))
+	status, body := infraerrors.ToHTTP(svc.Rollback())
+	require.Equal(t, 409, status)
+	require.Equal(t, "ROLLBACK_MANIFEST_INVALID", body.Reason)
+	content, err = os.ReadFile(exe)
+	require.NoError(t, err)
+	require.Equal(t, "new", string(content))
+
 	svc.currentVersion = "v0.2.5"
 	require.NoError(t, svc.prepareBackupManifest(backup))
 	require.ErrorIs(t, svc.Rollback(), ErrRollbackVersionNotAllowed)

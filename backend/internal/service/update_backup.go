@@ -123,7 +123,7 @@ func (s *UpdateService) verifyBackup(path, floor string) error {
 		return err
 	}
 	if !hmac.Equal(m.MAC, mac) || m.Product != updateBinaryName || backupVersion(m.Version) == "" {
-		return fmt.Errorf("invalid backup identity or manifest authentication")
+		return ErrRollbackManifestInvalid
 	}
 	if semver.Compare(releaseVersion(m.Version), floor) < 0 {
 		return rollbackBelowFloor(m.Version, floor)
