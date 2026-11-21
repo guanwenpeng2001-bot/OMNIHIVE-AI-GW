@@ -33,8 +33,8 @@ func ollamaCloudBaseURLMatchesSQL(expression string) string {
 }
 
 // ListOllamaCloudUsageGroupAccounts resolves every sibling for all supplied
-// identities with one ID query and one batch hydration. API keys are query
-// parameters only; no derived shared key is persisted.
+// identities with one ID query and one batch hydration. API keys are
+// resolved in memory; the grouping query only receives digests.
 func (r *accountRepository) ListOllamaCloudUsageGroupAccounts(ctx context.Context, accounts []*service.Account) ([]service.Account, error) {
 	if r == nil || r.sql == nil {
 		return nil, service.ErrOllamaCloudUsageUnavailable
@@ -195,7 +195,7 @@ func (r *accountRepository) updateOllamaCloudUsageGroup(
 		if !matchesProxy {
 			return service.ErrOllamaCloudUsageIdentityChanged
 		}
-		members, err := lockOllamaCloudUsageGroup(txCtx, client, account, apiKey)
+		members, err := lockOllamaCloudUsageGroup(txCtx, client, account)
 		if err != nil {
 			return err
 		}
@@ -286,7 +286,6 @@ func lockOllamaCloudUsageGroup(
 	ctx context.Context,
 	client *dbent.Client,
 	account *service.Account,
-	apiKey string,
 ) ([]lockedOllamaCloudUsageMember, error) {
 	credentials, err := json.Marshal(service.StoredCredentialDocument(account.Credentials))
 	if err != nil {

@@ -46,6 +46,7 @@ import (
 type accountRepository struct {
 	egressRuntime       *service.ProxyGroupRuntime
 	credentialEncryptor service.SecretEncryptor
+	bulkUpdateSecrets   func(context.Context, []int64, service.AccountBulkUpdate) (int64, error)
 	client              *dbent.Client // Ent ORM 客户端
 	sql                 sqlExecutor   // 原生 SQL 执行接口
 	// schedulerCache 用于在账号状态变更时主动同步快照到缓存，
@@ -123,7 +124,9 @@ func NewAdminAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCac
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
 func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository := &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+	repository.bulkUpdateSecrets = repository.bulkUpdateCredentialSecrets
+	return repository
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
@@ -3424,7 +3427,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	// Management secrets require the per-account encrypted/reference write path;
 	// the generic bulk JSONB merge must never persist them inline.
 	if hasCredentialSecrets(updates.Credentials) {
-		return 0, service.ErrCredentialSecretInvalid
+		return r.bulkUpdateSecrets(ctx, ids, updates)
 	}
 	defer invalidateCatalogAfterWrite(ctx)
 	if len(ids) == 0 {

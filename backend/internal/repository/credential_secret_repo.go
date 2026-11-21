@@ -6,11 +6,15 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"maps"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	dbent "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/ent"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 )
 
@@ -365,4 +369,62 @@ func prepareReferencedCredentials(ctx context.Context, database credentialSQL, e
 	inline[service.CredentialSecretReferenceKey] = reference
 	inline[service.CredentialSecretVersionKey] = metadata.Version
 	return inline, nil
+}
+
+func (r *accountRepository) bulkUpdateCredentialSecrets(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if r.client == nil || r.credentialEncryptor == nil {
+		return 0, service.ErrCredentialSecretInvalid
+	}
+	tx := dbent.TxFromContext(ctx)
+	owned := false
+	if tx == nil {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return 0, err
+		}
+		if tx != nil {
+			owned = true
+			defer tx.Rollback()
+			ctx = dbent.NewTxContext(ctx, tx)
+		}
+	}
+	client := clientFromContext(ctx, r.client)
+	if err := validateBulkCopilotNousCredentials(ctx, client, ids, updates.Credentials); err != nil {
+		return 0, err
+	}
+	inline, secrets := service.SplitCredentialSecrets(updates.Credentials)
+	updates.Credentials = inline
+	if _, err := r.BulkUpdate(ctx, ids, updates); err != nil {
+		return 0, err
+	}
+	ids = slices.Clone(ids)
+	slices.Sort(ids)
+	var count int64
+	for _, id := range slices.Compact(ids) {
+		_, current, _, err := lockCredentialAccount(ctx, client, id)
+		if errors.Is(err, service.ErrAccountNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if current == nil {
+			current = map[string]any{}
+		}
+		maps.Copy(current, secrets)
+		if err = r.UpdateCredentials(ctx, id, current); err != nil {
+			return 0, err
+		}
+		count++
+	}
+	if owned {
+		if err := tx.Commit(); err != nil {
+			return 0, err
+		}
+	}
+	return count, nil
 }

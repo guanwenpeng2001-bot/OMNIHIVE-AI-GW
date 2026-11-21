@@ -215,7 +215,7 @@ func TestVolcengineQueryCreateTransactionRollback(t *testing.T) {
 }
 
 func TestVolcengineQuerySecretsRejectBulkInlineWrite(t *testing.T) {
-	repo := &accountRepository{}
+	repo := newAccountRepositoryWithSQL(nil, nil, nil)
 	_, err := repo.BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: map[string]any{"volcengine_secret_access_key": "secret"}})
 	require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
 	// No plaintext accidentally included in the generic serialized config.
@@ -376,7 +376,7 @@ func TestManagementQuerySecretAloneTriggersEncryption(t *testing.T) {
 			require.True(t, projected.CredentialsStatus["has_"+field])
 
 			require.NoError(t, mock.ExpectationsWereMet())
-			_, err = (&accountRepository{}).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
+			_, err = newAccountRepositoryWithSQL(nil, nil, nil).BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{Credentials: credentials})
 			require.ErrorIs(t, err, service.ErrCredentialSecretInvalid)
 		})
 	}
@@ -419,4 +419,16 @@ func TestByteplusBulkSeatChangeClearsOldWindows(test *testing.T) {
 	}
 	require.Contains(test, query, "credentials IS DISTINCT FROM")
 	require.Less(test, strings.Index(query, "extra ="), strings.Index(query, "credentials = COALESCE"))
+}
+
+type encryptedAccountDocument struct{}
+
+func (encryptedAccountDocument) Match(value driver.Value) bool {
+	raw, ok := value.(string)
+	var doc map[string]any
+	if !ok || json.Unmarshal([]byte(raw), &doc) != nil {
+		return false
+	}
+	ref, _ := service.CredentialReference(doc)
+	return ref != "" && !hasCredentialSecrets(doc)
 }

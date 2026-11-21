@@ -36,6 +36,7 @@ func TestReviewCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 	require.NoError(t, ApplyMigrations(ctx, database))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
 	repository := newAccountRepositoryWithSQL(client, database, nil)
+	repository.credentialEncryptor = persistentTestAES(t, true)
 	for _, mode := range []string{"single_update", "bulk_update", "extra_update"} {
 		t.Run(mode, func(t *testing.T) {
 			entity, err := client.Account.Create().SetName("review-catalog-runtime").SetPlatform("cursor").SetType("oauth").
@@ -90,9 +91,15 @@ func TestBulkUpdateAndUpdateExtraSQLClearRuntimeObservationsOnIdentityChange(t *
 			mock.ExpectClose()
 			require.NoError(t, database.Close())
 		}()
-		mock.ExpectQuery(`SELECT platform, credentials FROM accounts`).WillReturnRows(sqlmock.NewRows([]string{"platform", "credentials"}))
 		exec := &credentialGuardRecordingExecutor{recording: recordingSQLExecutor{result: rowsAffectedResult(1)}, DB: database}
 		repository := newAccountRepositoryWithSQL(nil, exec, nil)
+		originalBulkUpdate := repository.BulkUpdate
+		repository.bulkUpdateSecrets = func(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+			inline, _ := service.SplitCredentialSecrets(updates.Credentials)
+			updates.Credentials = inline
+			_, err := originalBulkUpdate(ctx, ids, updates)
+			return int64(len(ids)), err
+		}
 		count, err := repository.BulkUpdate(context.Background(), []int64{42}, service.AccountBulkUpdate{Credentials: map[string]any{"access_token": "replacement"}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), count)

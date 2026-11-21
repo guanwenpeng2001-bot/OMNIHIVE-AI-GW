@@ -47,11 +47,11 @@ func TestCopilotNousReferencedBulkBoundaryPostgres(t *testing.T) {
 				require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
 			}
 			count, err = fixture.accounts.BulkUpdate(fixture.ctx, []int64{inline.ID}, service.AccountBulkUpdate{Credentials: patch})
-			require.NoError(t, err)
-			require.EqualValues(t, 1, count)
+			require.ErrorContains(t, err, "single-account")
+			require.Zero(t, count)
 			loaded, err := fixture.accounts.GetByID(fixture.ctx, inline.ID)
 			require.NoError(t, err)
-			require.Equal(t, replacement, loaded.GetCredential("api_key"))
+			require.Equal(t, oldJWT, loaded.GetCredential("api_key"))
 		})
 	}
 	account := create(true)
