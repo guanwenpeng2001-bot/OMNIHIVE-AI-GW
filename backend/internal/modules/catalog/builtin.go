@@ -96,6 +96,10 @@ func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
 	if m.fromPi && slices.ContainsFunc(d.Facts, func(f ModelFacts) bool { return f.Source == "approved_registry" }) {
 		return
 	}
+	missingModalities := len(d.Model.Modalities) == 0
+	modalities, actions := TaskPresentation(m.Mode)
+	d.Model.Actions = append(d.Model.Actions, actions...)
+	d.Model.Modalities = append(d.Model.Modalities, modalities...)
 	evidence := Evidence{Source: "approved_registry", Maturity: "unknown", State: "unknown"}
 	facts := ModelFacts{Evidence: evidence}
 	if m.fromPi {
@@ -124,11 +128,11 @@ func fillBuiltinFacts(d *Detail, contexts []ModelFacts) {
 			facts.Context, facts.ContextKind = &m.Input, "input"
 		}
 	}
-	if len(d.Model.Modalities) == 0 {
+	if missingModalities {
 		for _, group := range [][]string{m.Inputs, m.Outputs} {
 			for _, modality := range group {
 				switch modality {
-				case "text", "image", "audio", "video", "pdf", "embedding":
+				case "text", "image", "audio", "video", "pdf", "embedding", "3d":
 					facts.Modalities = append(facts.Modalities, modality)
 				}
 			}

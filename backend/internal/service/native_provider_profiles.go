@@ -16,8 +16,8 @@ type nativeProviderProfile struct {
 var nativeProviderProfiles = []nativeProviderProfile{
 	{"kimi", "payg", "Moonshot CN", "https://api.moonshot.cn/v1", "https://api.moonshot.cn/anthropic", "https://api.moonshot.cn/v1", "moonshotai-cn", true},
 	{"kimi", "payg", "Moonshot Global", "https://api.moonshot.ai/v1", "https://api.moonshot.ai/anthropic", "https://api.moonshot.ai/v1", "moonshot", true},
-	{"kimi", "coding", "Kimi Coding CN", "https://api.kimi.com/coding/v1", "https://api.kimi.com/coding", "https://api.kimi.com/coding/v1", "kimi-for-coding", false},
-	{"kimi", "coding", "Kimi Coding Global", "https://api.kimi.ai/coding/v1", "https://api.kimi.ai/coding", "https://api.kimi.ai/coding/v1", "", false},
+	{"kimi", "coding", "Kimi Coding CN", "https://api.kimi.com/coding/v1", "https://api.kimi.com/coding", "https://api.kimi.com/coding/v1", "kimi-for-coding", true},
+	{"kimi", "coding", "Kimi Coding Global", "https://api.kimi.ai/coding/v1", "https://api.kimi.ai/coding", "https://api.kimi.ai/coding/v1", "", true},
 	{"zhipu", "payg", "GLM CN payg", "https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/anthropic", "https://open.bigmodel.cn/api/v1", "zhipuai", false},
 	{"zhipu", "coding", "GLM CN coding", "https://open.bigmodel.cn/api/coding/paas/v4", "https://open.bigmodel.cn/api/anthropic", "https://open.bigmodel.cn/api/v1", "zhipuai-coding-plan", false},
 	{"zhipu", "payg", "GLM Global payg", "https://api.z.ai/api/paas/v4", "https://api.z.ai/api/anthropic", "https://api.z.ai/api/v1", "zai", false},
@@ -51,7 +51,7 @@ var nativeProviderProfiles = []nativeProviderProfile{
 	{"hunyuan", "coding", "Token Enterprise Pro / Lite CN", "https://tokenhub.tencentmaas.com/plan/v3", "https://tokenhub.tencentmaas.com/plan/anthropic", "https://tokenhub.tencentmaas.com/plan/v3", "", false},
 	// Personal and enterprise Intl share roots; enterprise Responses requires an explicit saved endpoint.
 	{"hunyuan", "coding", "Token Personal / Enterprise Pro / Lite Intl", "https://tokenhub-intl.tencentcloudmaas.com/plan/v3", "https://tokenhub-intl.tencentcloudmaas.com/plan/anthropic", "", "", false},
-	{"volcengine", "payg", "Ark PAYG", "https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/compatible", "https://ark.cn-beijing.volces.com/api/v3", "volcengine", false},
+	{"volcengine", "payg", "Ark PAYG", "https://ark.cn-beijing.volces.com/api/v3", "https://ark.cn-beijing.volces.com/api/compatible", "https://ark.cn-beijing.volces.com/api/v3", "volcengine", true},
 	{"volcengine", "coding", "Ark Coding", "https://ark.cn-beijing.volces.com/api/coding/v3", "https://ark.cn-beijing.volces.com/api/coding", "https://ark.cn-beijing.volces.com/api/coding/v3", "", false},
 	{"volcengine", "coding", "Ark Agent", "https://ark.cn-beijing.volces.com/api/plan/v3", "https://ark.cn-beijing.volces.com/api/plan", "https://ark.cn-beijing.volces.com/api/plan/v3", "", false},
 }

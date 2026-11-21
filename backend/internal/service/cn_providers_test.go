@@ -587,7 +587,7 @@ func TestBuildUpstreamModelsRequest_CNProviders(t *testing.T) {
 		wantURL  string
 	}{
 		{"kimi default", PlatformKimi, "", "https://api.moonshot.cn/v1/models"},
-		{"kimi coding", PlatformKimi, AccountModeCoding, ""},
+		{"kimi coding", PlatformKimi, AccountModeCoding, "https://api.kimi.com/coding/v1/models"},
 		{"zhipu default", PlatformZhipu, "", ""},
 		{"zhipu coding", PlatformZhipu, AccountModeCoding, ""},
 		{"deepseek", PlatformDeepseek, "", "https://api.deepseek.com/v1/models"},

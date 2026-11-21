@@ -80,6 +80,16 @@ UPDATE accounts SET workspace_id = 2 WHERE id = 12;
 	require.Len(t, batched, 7)
 	require.Equal(t, []int64{25, 42}, batched[0].GroupIDs)
 	require.Equal(t, []int64{25, 42}, batched[2].GroupIDs)
+	configured, err := repo.ListConfiguredModelCatalogAccountsForGroups(ctx, []int64{42, 25})
+	require.NoError(t, err)
+	require.Len(t, configured, 8, "active paused accounts configure inventory without becoming routable")
+	require.Equal(t, int64(11), configured[7].ID)
+	require.False(t, configured[7].Schedulable)
+	for _, account := range configured {
+		require.Equal(t, "active", account.Status)
+		require.Equal(t, int64(1), account.WorkspaceID)
+		require.Empty(t, account.GetCredential("api_key"))
+	}
 	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id,platform,type,status,schedulable) VALUES (13,'openai','oauth','error',false); UPDATE accounts SET parent_account_id=13 WHERE id=1`)
 	require.NoError(t, err)
 	withOwner, err := repo.ListModelCatalogAccountsForGroups(ctx, []int64{25})

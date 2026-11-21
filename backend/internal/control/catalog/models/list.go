@@ -156,10 +156,16 @@ func (f filter) matches(d catalog.Detail) bool {
 		f.Route == "true" && m.RouteState != "eligible" || f.Route == "false" && m.RouteState != "ineligible" {
 		return false
 	}
-	if (len(f.Values["action"]) > 0 || len(f.Values["protocol"]) > 0) &&
-		!slices.ContainsFunc(d.Capabilities, func(c catalog.Capability) bool {
+	// Action-only browsing includes descriptive registry tasks even when no
+	// gateway protocol implements them. A protocol filter still requires the
+	// action/protocol pair on the same non-stale capability.
+	if len(f.Values["protocol"]) > 0 {
+		if !slices.ContainsFunc(d.Capabilities, func(c catalog.Capability) bool {
 			return c.State != "stale" && f.any("action", []string{c.Action}) && f.any("protocol", []string{c.Protocol})
 		}) {
+			return false
+		}
+	} else if !f.any("action", m.Actions) {
 		return false
 	}
 	if (len(f.Values["region"]) > 0 || len(f.Values["retention"]) > 0) &&

@@ -98,7 +98,7 @@ func TestDiscoveryPartialPreviewPreservesEvidence(test *testing.T) {
 }
 
 func TestDiscoveryOfficialCandidateFallback(test *testing.T) {
-	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine} {
+	for _, platform := range []string{PlatformHunyuan} {
 		test.Run(platform, func(test *testing.T) {
 			upstream := &httpUpstreamRecorder{}
 			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
@@ -303,7 +303,7 @@ func TestDiscoveryMissingOptionalMetadataRemainsComplete(test *testing.T) {
 }
 
 func TestReviewOfficialPlatformCandidatesStayIncomplete(test *testing.T) {
-	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine} {
+	for _, platform := range []string{PlatformHunyuan} {
 		upstream := &httpUpstreamRecorder{}
 		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
@@ -375,7 +375,7 @@ func TestModelDiscoveryTransportFailureReason(test *testing.T) {
 }
 
 func TestModelDiscoveryClosedProfilesDoNotRequestUpstream(test *testing.T) {
-	for _, platform := range []string{PlatformZhipu, PlatformVolcengine, "aicodewith"} {
+	for _, platform := range []string{PlatformZhipu, "aicodewith"} {
 		test.Run(platform, func(test *testing.T) {
 			upstream := &httpUpstreamRecorder{}
 			syncService := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}

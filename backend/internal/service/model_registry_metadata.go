@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/domain"
@@ -107,6 +108,8 @@ func (s *ModelRegistrySnapshot) CatalogFacts(now time.Time) []catalog.RegistryMo
 			if model.MaxInputTokens > 0 {
 				facts.Context, facts.ContextKind = &model.MaxInputTokens, "input"
 			}
+			taskModalities, taskActions := catalog.TaskPresentation(model.TaskType)
+			facts.Modalities = append(facts.Modalities, taskModalities...)
 			capabilities := []catalog.Capability{}
 			for _, method := range model.Methods {
 				action, protocol, bound := catalog.GatewayAction(method)
@@ -116,7 +119,54 @@ func (s *ModelRegistrySnapshot) CatalogFacts(now time.Time) []catalog.RegistryMo
 				capabilities = append(capabilities, catalog.Capability{Action: action, Protocol: protocol, Mode: "unknown",
 					Tools: "unknown", Stream: "unknown", Evidence: evidence, Limitations: []string{}})
 			}
-			out = append(out, catalog.RegistryModel{Provider: preset.Platform, Model: model.ID, Canonical: model.CanonicalModelID, DisplayName: model.DisplayName, Facts: catalog.ModelFacts{Facts: facts, Evidence: evidence}, Capabilities: capabilities})
+			out = append(out, catalog.RegistryModel{Provider: preset.Platform, Model: model.ID, Canonical: model.CanonicalModelID, DisplayName: model.DisplayName, Facts: catalog.ModelFacts{Facts: facts, Evidence: evidence}, Capabilities: capabilities, Actions: taskActions})
+		}
+	}
+	// Capability-only exact records also belong to the approved platform
+	// inventory. Presets retain precedence, including explicit unknown facts.
+	seen := map[string]bool{}
+	profiles := map[string]string{}
+	for _, preset := range s.presets {
+		platform, exists := profiles[preset.ProviderProfile]
+		if !exists {
+			profiles[preset.ProviderProfile] = preset.Platform
+		} else if platform != preset.Platform {
+			// Labels such as "native" are reused across platforms. They
+			// cannot override the record's concrete provider identity.
+			profiles[preset.ProviderProfile] = ""
+		}
+	}
+	for _, model := range out {
+		seen[catalog.StableID(model.Provider, model.Model)] = true
+	}
+	if s.capabilities != nil {
+		keys := make([]string, 0, len(s.capabilities.records))
+		for key := range s.capabilities.records {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			record := cloneCapabilityRecord(s.capabilities.records[key])
+			platform := profiles[record.Profile]
+			if platform == "" && domain.IsConcretePlatform(record.Provider) {
+				platform = record.Provider
+			}
+			id := catalog.StableID(platform, record.ModelID)
+			if platform == "" || record.ModelID == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			observed, _ := time.Parse(time.RFC3339Nano, record.VerifiedAt)
+			modalities, actions := catalog.TaskPresentation(record.Mode)
+			facts := catalog.Facts{Context: knownCatalogLimit(record.ContextWindow), ContextKind: record.ContextLimitKind,
+				Output: record.MaxOutputTokens, EmbeddingDimensions: record.EmbeddingDimensions,
+				Tools: record.SupportsFunctionCalling, Vision: record.SupportsVision, Reasoning: record.SupportsReasoning,
+				Cache: record.SupportsPromptCaching, Modalities: append(catalogModalities(record.InputModalities, record.OutputModalities), modalities...)}
+			if facts.Context == nil && record.MaxInputTokens != nil && *record.MaxInputTokens > 0 {
+				facts.Context, facts.ContextKind = record.MaxInputTokens, "input"
+			}
+			out = append(out, catalog.RegistryModel{Provider: platform, Model: record.ModelID, Actions: actions,
+				Facts: catalog.ModelFacts{Facts: facts, Evidence: catalog.Observation("approved_registry", "unknown", observed, time.Time{}, now)}})
 		}
 	}
 	return out

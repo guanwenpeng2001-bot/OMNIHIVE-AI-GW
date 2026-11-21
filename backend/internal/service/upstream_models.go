@@ -1909,6 +1909,8 @@ type upstreamModelCapabilityEntry struct {
 	InputTokenLimit            int64    `json:"inputTokenLimit"`
 	OutputTokenLimit           int64    `json:"outputTokenLimit"`
 	DisplayNameCamel           string   `json:"displayName"`
+	SupportsReasoning          *bool    `json:"supports_reasoning"`
+	SupportsVision             *bool    `json:"supports_vision"`
 	SupportsThinking           *bool    `json:"supportsThinking"`
 	Thinking                   *bool    `json:"thinking"`
 	SupportsImages             *bool    `json:"supportsImages"`
@@ -2115,6 +2117,9 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	}
 	reasoning := entry.Reasoning
 	if reasoning == nil {
+		reasoning = entry.SupportsReasoning
+	}
+	if reasoning == nil {
 		reasoning = entry.SupportsThinking
 	}
 	if reasoning == nil {
@@ -2132,6 +2137,9 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 		modalities = entry.Modalities.Input
 	}
 	images := entry.SupportsImages
+	if images == nil {
+		images = entry.SupportsVision
+	}
 	if images == nil {
 		images = entry.Capabilities.ImageInput.Supported
 	}

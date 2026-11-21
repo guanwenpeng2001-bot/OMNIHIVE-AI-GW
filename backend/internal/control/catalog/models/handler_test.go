@@ -135,3 +135,41 @@ func TestCatalogDetailResolvesCanonicalModelSlugs(t *testing.T) {
 		}
 	}
 }
+
+type multimodalCatalog struct{}
+
+func (multimodalCatalog) Snapshot(_ context.Context, p catalog.Perspective, at time.Time) (catalog.Snapshot, error) {
+	return catalog.Project(p, catalog.Input{Models: []catalog.Candidate{{Provider: "grok", Model: "video-catalog", Offers: []catalog.Offer{{CatalogOnly: true, Access: true}}}},
+		Registry: []catalog.RegistryModel{{Provider: "grok", Model: "video-catalog", Actions: []string{"video.generate"}, Facts: catalog.ModelFacts{
+			Facts: catalog.Facts{Modalities: []string{"video"}}, Evidence: catalog.Evidence{Source: "approved_registry"},
+		}}}}, catalog.Window{}, at), nil
+}
+
+func TestCatalogOnlyMultimodalHTTPFilters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	Register(r.Group("/api/v2"), New(multimodalCatalog{}, nil, &config.Config{}), nil, nil)
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v2/public/models?modality=video&action=video.generate", nil))
+	require.Equal(t, 200, res.Code)
+	var response struct{ Data page }
+	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &response))
+	require.Len(t, response.Data.Items, 1)
+	model := response.Data.Items[0]
+	require.Equal(t, "catalog_only", model.AvailabilityState)
+	require.Equal(t, "listed", model.CatalogState)
+	require.Equal(t, "unpriced", model.PriceState)
+	require.Equal(t, "requires_scope", model.RouteState)
+	require.Nil(t, model.Input)
+}
+
+func TestCatalogDescriptiveActionDoesNotInventProtocolCompatibility(t *testing.T) {
+	snapshot, err := (multimodalCatalog{}).Snapshot(context.Background(), catalog.Perspective{}, time.Now())
+	require.NoError(t, err)
+	detail := snapshot.Details[0]
+	detail.Capabilities = []catalog.Capability{{Action: "text.chat", Protocol: "openai_chat"}}
+	f := filter{Values: map[string][]string{"action": {"video.generate"}, "protocol": {"openai_chat"}}}
+	require.False(t, f.matches(detail))
+	delete(f.Values, "protocol")
+	require.True(t, f.matches(detail))
+}

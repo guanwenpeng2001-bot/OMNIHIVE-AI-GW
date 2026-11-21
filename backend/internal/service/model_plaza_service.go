@@ -12,7 +12,9 @@ import (
 type PlazaModel struct {
 	Name     string
 	Platform string
-	Pricing  *ChannelModelPricing
+	// CatalogOnly is inventory, never an inference or billing authorization.
+	CatalogOnly bool `json:"-"`
+	Pricing     *ChannelModelPricing
 	// LongContextBasis 多档时的计价基准（整单 / 仅超出部分），单档为空。
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
@@ -21,6 +23,8 @@ type PlazaModel struct {
 	// 内部字段，只给 handler 做公开白名单投影；不参与可见集合判断，也不对外序列化。
 	Capabilities    []UpstreamModelMetadata
 	CatalogBindings []PlazaCatalogBinding `json:"-"`
+	// Observations describe scoped discoveries without an executable binding.
+	CatalogObservations []PlazaCatalogBinding `json:"-"`
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -95,13 +99,13 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
-	return s.listGroups(ctx, nil, nil)
+	return s.listGroups(ctx, nil, nil, false)
 }
 
 // ListVisibleGroups applies the freshly read user's group visibility before
 // loading accounts or computing prices. nil allowedGroups denotes anonymous.
 func (service *ModelPlazaService) ListVisibleGroups(ctx context.Context, allowedGroups map[int64]struct{}, restrictPublicGroups bool) ([]PlazaGroup, error) {
-	return service.listGroups(ctx, plazaGroupVisibility(allowedGroups, restrictPublicGroups), nil)
+	return service.listGroups(ctx, plazaGroupVisibility(allowedGroups, restrictPublicGroups), nil, false)
 }
 
 func plazaGroupVisibility(allowedGroups map[int64]struct{}, restrictPublicGroups bool) func(Group) bool {
@@ -127,10 +131,10 @@ type PlazaCatalogBinding struct {
 
 func (s *ModelPlazaService) ListProjectCatalogGroups(ctx context.Context, allowed map[int64]struct{}, restrict bool, selection PlazaCatalogSelection) ([]PlazaGroup, error) {
 	visible := plazaGroupVisibility(allowed, restrict)
-	return s.listGroups(ctx, func(g Group) bool { return selection.Groups[g.ID] && visible(g) }, &selection)
+	return s.listGroups(ctx, func(g Group) bool { return selection.Groups[g.ID] && visible(g) }, &selection, true)
 }
 
-func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection) ([]PlazaGroup, error) {
+func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool, selection *PlazaCatalogSelection, fullCatalog bool) ([]PlazaGroup, error) {
 	var visibility *VisibleModelResolver
 	if s.resolver != nil && s.resolver.channelService != nil {
 		visibility = s.resolver.channelService.visibleModels
@@ -263,6 +267,12 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 		}
 	}
 
+	if fullCatalog {
+		if err := s.expandConfiguredCatalog(ctx, groups, channels, byGroup, selection, visibility); err != nil {
+			return nil, err
+		}
+	}
+
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
 		pg := byGroup[gid]
@@ -277,7 +287,9 @@ func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group
 		})
 		g := groupEnt[gid]
 		for j := range pg.Models {
-			s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			if !pg.Models[j].CatalogOnly {
+				s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			}
 		}
 		out = append(out, *pg)
 	}

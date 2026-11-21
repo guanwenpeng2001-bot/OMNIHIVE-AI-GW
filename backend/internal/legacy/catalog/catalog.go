@@ -46,7 +46,7 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 	var priceErr error
 	endpoints := map[int64]postgres.EndpointEvidence{}
 	if p.Public() {
-		groups, err = s.plaza.ListVisibleGroups(ctx, nil, false)
+		groups, err = s.plaza.ListPublicCatalogGroups(ctx)
 	} else {
 		ctx = scope.With(ctx, scope.Authorized{WorkspaceID: p.Workspace, ProjectID: p.Project, ActorID: p.Actor, Version: p.AccessVersion})
 		groups, allowedGroups, err = s.scopedGroups(ctx, p)
@@ -74,17 +74,21 @@ func (s *Source) Load(ctx context.Context, p catalog.Perspective, window catalog
 				modelAt[id] = i
 				out.Models = append(out.Models, catalog.Candidate{Provider: model.Platform, Model: model.Name})
 			}
-			offer := catalog.Offer{GroupID: group.ID, Access: allowedGroups[group.ID], Eligible: len(model.CatalogBindings) > 0}
-			if p.Public() || offer.Access {
+			offer := catalog.Offer{GroupID: group.ID, Access: allowedGroups[group.ID], Eligible: !model.CatalogOnly && (p.Public() || len(model.CatalogBindings) > 0), CatalogOnly: model.CatalogOnly}
+			if !model.CatalogOnly && (p.Public() || offer.Access) {
 				if priceErr == nil {
 					offer.Price = priceFor(model, group, userRates, p.Public())
 				} else {
 					offer.Price.State = "error"
 				}
 			}
-			for _, binding := range model.CatalogBindings {
+			for _, binding := range append(slices.Clone(model.CatalogBindings), model.CatalogObservations...) {
 				e := endpoints[binding.AccountID]
 				offer.Facts = append(offer.Facts, binding.CatalogModelFacts(discoveryExpiry(binding, e), now)...)
+				if service.AuthoritativeCatalogModelField(binding.Metadata, "task_type") {
+					_, actions := catalog.TaskPresentation(binding.Metadata.TaskType)
+					offer.Actions = append(offer.Actions, actions...)
+				}
 				if endpoint, ok := projectEndpoint(p, model.Platform, binding, e, now); ok {
 					if offer.Access && p.EndpointMetadata {
 						for i := range endpoint.Capabilities {
@@ -186,7 +190,7 @@ func endpointAccounts(groups []service.PlazaGroup) []int64 {
 	seen := map[int64]struct{}{}
 	for _, group := range groups {
 		for _, model := range group.Models {
-			for _, binding := range model.CatalogBindings {
+			for _, binding := range append(slices.Clone(model.CatalogBindings), model.CatalogObservations...) {
 				seen[binding.AccountID] = struct{}{}
 			}
 		}
