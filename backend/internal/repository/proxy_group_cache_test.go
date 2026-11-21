@@ -21,7 +21,11 @@ func TestProxyGroupCacheDedicatedRedis(t *testing.T) {
 		t.Skip("requires dedicated Redis 127.0.0.1:56389")
 	}
 	ctx := context.Background()
-	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:56389", DB: 0})
+	addr := "127.0.0.1:56389"
+	if port := os.Getenv("IP_GROUP_TEST_REDIS_PORT"); port != "" {
+		addr = "127.0.0.1:" + port
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: addr, DB: 0})
 	defer rdb.Close()
 	require.NoError(t, rdb.Ping(ctx).Err())
 	c := &proxyGroupCache{rdb: rdb, prefix: "test:ip-group:" + uuid.NewString() + ":"}
@@ -34,7 +38,7 @@ func TestProxyGroupCacheDedicatedRedis(t *testing.T) {
 	defer func() { require.NoError(t, rdb.Del(ctx, keys...).Err()) }()
 
 	t.Run("atomic_winner_across_clients", func(t *testing.T) {
-		second := redis.NewClient(&redis.Options{Addr: "127.0.0.1:56389", DB: 0})
+		second := redis.NewClient(&redis.Options{Addr: addr, DB: 0})
 		defer second.Close()
 		other := &proxyGroupCache{rdb: second, prefix: c.prefix}
 		var wg sync.WaitGroup

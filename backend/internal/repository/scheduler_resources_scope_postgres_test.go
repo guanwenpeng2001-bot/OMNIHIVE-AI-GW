@@ -38,7 +38,7 @@ func TestSchedulerResourcesScopePostgresRedis(t *testing.T) {
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
 	require.Equal(t, "postgres", u.Scheme)
-	require.Equal(t, "127.0.0.1:55480", u.Host)
+	require.Equal(t, schedulerResourcesPostgresHost(), u.Host)
 	require.Equal(t, "/scheduler_resources_test", u.Path)
 	require.Equal(t, "sslmode=disable", u.RawQuery)
 	require.Equal(t, "127.0.0.1:56380", os.Getenv("SCHEDULER_RESOURCES_REDIS_ADDR"))
@@ -168,7 +168,7 @@ func TestSchedulerMembershipCoolingCredentialIsolationPostgres(t *testing.T) {
 	dsn := testresources.DedicatedPostgresDSN(t, "SCHEDULER_RESOURCES_TEST_DSN", "scheduler_resources_test")
 	u, err := url.Parse(dsn)
 	require.NoError(t, err)
-	require.Equal(t, "127.0.0.1:55480", u.Host)
+	require.Equal(t, schedulerResourcesPostgresHost(), u.Host)
 	require.Equal(t, "/scheduler_resources_test", u.Path)
 	t.Setenv(credentialSecretPostgresEnv, dsn)
 	f := newCredentialSecretFixture(t)
@@ -195,4 +195,11 @@ func TestSchedulerMembershipCoolingCredentialIsolationPostgres(t *testing.T) {
 	require.NoError(t, err, "retaining a revoked cooling member must not block a healthy account")
 	require.Len(t, got, 1)
 	require.Equal(t, healthy.ID, got[0].ID)
+}
+
+func schedulerResourcesPostgresHost() string {
+	if port := os.Getenv("SCHEDULER_RESOURCES_TEST_PGPORT"); port != "" {
+		return "127.0.0.1:" + port
+	}
+	return "127.0.0.1:55480"
 }

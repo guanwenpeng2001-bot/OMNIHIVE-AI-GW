@@ -833,8 +833,10 @@ func TestAPIContracts(t *testing.T) {
 						"login_agreement_mode": "modal",
 						"login_agreement_updated_at": "2026-03-31",
 						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "terms", "title": "服务条款", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Terms of Service\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: service scope, operator identity, support contact, liability and termination. Do not present this template as published legal terms."},
+							{"id": "privacy-policy", "title": "隐私政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Privacy Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: operator identity, contact, processing purposes, data categories, retention, upstream/cross-border transfers and privacy rights. Do not present this template as published legal terms."},
+							{"id": "refund-policy", "title": "退款政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Refund Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: eligible purchases, refund window, calculation, exclusions, payment channel and support contact. Do not present this template as published legal terms."},
+							{"id": "usage-policy", "title": "可接受使用政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Acceptable Use Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: prohibited conduct, abuse prevention, enforcement and appeal contact. Do not present this template as published legal terms."},
 							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
 							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
 						],
@@ -1187,8 +1189,10 @@ func TestAPIContracts(t *testing.T) {
 						"login_agreement_mode": "modal",
 						"login_agreement_updated_at": "2026-03-31",
 						"login_agreement_documents": [
-							{"id": "terms", "title": "服务条款", "content_md": ""},
-							{"id": "usage-policy", "title": "使用政策", "content_md": ""},
+							{"id": "terms", "title": "服务条款", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Terms of Service\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: service scope, operator identity, support contact, liability and termination. Do not present this template as published legal terms."},
+							{"id": "privacy-policy", "title": "隐私政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Privacy Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: operator identity, contact, processing purposes, data categories, retention, upstream/cross-border transfers and privacy rights. Do not present this template as published legal terms."},
+							{"id": "refund-policy", "title": "退款政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Refund Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: eligible purchases, refund window, calculation, exclusions, payment channel and support contact. Do not present this template as published legal terms."},
+							{"id": "usage-policy", "title": "可接受使用政策", "content_md": "[TEMPLATE — replace before enabling registration agreements]\n\n# Acceptable Use Policy\n\n[OPERATOR LEGAL NAME]\n[OPERATOR CONTACT EMAIL]\n[EFFECTIVE DATE]\n\nOperator: replace this placeholder with the text approved for this deployment. Document the following where applicable: prohibited conduct, abuse prevention, enforcement and appeal contact. Do not present this template as published legal terms."},
 							{"id": "supported-regions", "title": "支持的国家和地区", "content_md": ""},
 							{"id": "service-specific-terms", "title": "服务特定条款", "content_md": ""}
 						],

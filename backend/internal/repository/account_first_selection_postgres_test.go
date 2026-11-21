@@ -5,8 +5,8 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"net/url"
-	"os"
+	"encoding/json"
+
 	"testing"
 
 	"entgo.io/ent/dialect"
@@ -30,13 +30,7 @@ func (selectionRollbackTransaction) Rollback() error { return nil }
 
 func firstSelectionRepository(t *testing.T) (*accountRepository, *dbent.Client) {
 	t.Helper()
-	if os.Getenv("IP_GROUP_DEDICATED_TESTS") != "1" {
-		t.Skip("requires dedicated job_test on 127.0.0.1:55439")
-	}
-	password := os.Getenv("IP_GROUP_TEST_PASSWORD")
-	require.NotEmpty(t, password)
-	connection := url.URL{Scheme: "postgres", Host: "127.0.0.1:55439", Path: "/job_test", User: url.UserPassword("codex_test_admin", password), RawQuery: "sslmode=disable&connect_timeout=5"}
-	database, err := testresources.OpenPostgres(context.Background(), connection.String(), "job_test")
+	database, err := testresources.OpenPostgres(context.Background(), dedicatedJobDSN(t), "job_test")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
 	transaction, err := database.BeginTx(context.Background(), &sql.TxOptions{})
@@ -44,7 +38,9 @@ func firstSelectionRepository(t *testing.T) (*accountRepository, *dbent.Client) 
 	t.Cleanup(func() { require.NoError(t, transaction.Rollback()) })
 	driver := selectionRollbackDriver{entsql.NewDriver(dialect.Postgres, entsql.Conn{ExecQuerier: transaction})}
 	client := dbent.NewClient(dbent.Driver(driver))
-	return newAccountRepositoryWithSQL(client, transaction, nil), client
+	repo := newAccountRepositoryWithSQL(client, transaction, nil)
+	repo.credentialEncryptor = persistentTestAES(t, true)
+	return repo, client
 }
 
 func TestAccountFirstSelectionDedicatedPostgres(t *testing.T) {
@@ -102,10 +98,12 @@ func TestAccountSelectionConflictsDedicatedPostgres(t *testing.T) {
 			repository, client := firstSelectionRepository(t)
 			account := &service.Account{Name: "selection-conflict-fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}, Status: service.StatusActive, Concurrency: 1}
 			require.NoError(t, repository.Create(ctx, account))
+			account, err := repository.GetByID(ctx, account.ID)
+			require.NoError(t, err)
 			baseline := account.ModelCatalogBaseline()
 			switch change {
 			case "identity":
-				require.NoError(t, repository.UpdateCredentials(ctx, account.ID, map[string]any{"api_key": "rotated-fixture"}))
+				require.NoError(t, repository.UpdateCredentialsCAS(ctx, account, map[string]any{"api_key": "rotated-fixture"}))
 			case "mapping":
 				winner := map[string]string{"winner": "winner"}
 				_, err := repository.ReplaceAccountModelSelectionScope(ctx, account.ID, baseline, service.AccountModelAllowlist{Enabled: false}, &winner)
@@ -117,7 +115,7 @@ func TestAccountSelectionConflictsDedicatedPostgres(t *testing.T) {
 				require.NoError(t, err)
 			}
 			loser := map[string]string{"loser": "loser"}
-			_, err := repository.ReplaceAccountModelSelectionScope(ctx, account.ID, baseline, service.AccountModelAllowlist{Enabled: false}, &loser)
+			_, err = repository.ReplaceAccountModelSelectionScope(ctx, account.ID, baseline, service.AccountModelAllowlist{Enabled: false}, &loser)
 			require.ErrorIs(t, err, service.ErrAccountModelCatalogConflict)
 		})
 	}
@@ -126,11 +124,15 @@ func TestAccountSelectionConflictsDedicatedPostgres(t *testing.T) {
 func TestAccountLegacyFreezeAndRefreshDedicatedPostgres(t *testing.T) {
 	ctx := context.Background()
 	repository, client := firstSelectionRepository(t)
-	// Bypass modern creation deliberately to represent an actual legacy row.
-	row, err := client.Account.Create().SetName("legacy-selection-fixture").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeAPIKey).
-		SetCredentials(map[string]any{"api_key": "fixture"}).SetExtra(map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, EligibleModels: []service.AccountCatalogModel{{ID: "legacy-selected", Endpoints: []string{"responses"}}}}}).Save(ctx)
+	legacy := &service.Account{Name: "legacy-selection-fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: map[string]any{"api_key": "fixture"}}
+	require.NoError(t, repository.Create(ctx, legacy))
+	// Restore the pre-selection catalog shape while retaining the encrypted credential.
+	payload, err := json.Marshal(map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Revision: 1, Complete: true, EligibleModels: []service.AccountCatalogModel{{ID: "legacy-selected", Endpoints: []string{"responses"}}}}})
 	require.NoError(t, err)
-	legacy := accountEntityToService(row)
+	_, err = client.ExecContext(ctx, `UPDATE accounts SET extra=$2::jsonb WHERE id=$1`, legacy.ID, payload)
+	require.NoError(t, err)
+	legacy, err = repository.GetByID(ctx, legacy.ID)
+	require.NoError(t, err)
 	require.True(t, service.AccountModelSelectionNeedsFreeze(legacy))
 	staleBaseline := legacy.ModelCatalogBaseline()
 	snapshot := &service.AccountModelCatalogSnapshot{Revision: 2, Complete: true, DiscoveredModels: []string{"new-observation"}}
