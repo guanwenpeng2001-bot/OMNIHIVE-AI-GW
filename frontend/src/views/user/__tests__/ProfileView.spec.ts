@@ -97,4 +97,28 @@ describe('ProfileView', () => {
     expect(wrapper.get('[data-testid="profile-shell"]').html()).toContain('profile-password-form')
     expect(wrapper.get('[data-testid="profile-shell"]').html()).toContain('profile-totp-card')
   })
+
+  it('renders account deletion and personal data export human-support instructions [E1-4]', async () => {
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          ProfileInfoCard: true,
+          ProfileBalanceNotifyCard: true,
+          ProfilePasswordForm: true,
+          ProfileSessions: true,
+          ProfileTotpCard: true,
+          HumanSupportCard: true,
+          Icon: true,
+          RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const lifecycle = wrapper.find('[data-testid="profile-account-lifecycle"]')
+    expect(lifecycle.exists()).toBe(true)
+    expect(lifecycle.html()).toContain('/docs#support')
+  })
 })

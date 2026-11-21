@@ -12,6 +12,19 @@ export default {
       slaLabel: '响应时限',
       slaValue: '工作日 09:00–18:00（UTC+8），1–2 个工作日内首次响应。'
     },
+    accountService: {
+      lifecycleTitle: '账户注销与个人数据导出',
+      lifecycleSummary: '当前未开放自助导出或自助注销接口，相关请求需通过人工支持核验身份与账务结算后办理。',
+      exportTitle: '个人数据导出',
+      exportDesc: '如需导出账户资料、账单摘要或使用记录，请联系人工支持并提供注册邮箱与账户 ID。',
+      deletionTitle: '账户注销',
+      deletionDesc: '如需永久注销账户，请在确认余额与待结算账单结清后，联系人工支持并提供注册邮箱与账户 ID 核验办理。',
+      supportLinkLabel: '前往人工支持入口',
+      invoiceTitle: '订单票据与收据办理',
+      invoiceSummary: '当前未开放自助开票下载接口，已完成订单的票据或收据请通过人工支持申请办理。',
+      invoiceDesc: '联系支持时请附上订单编号（Order ID）、开票抬头及所需票据/税务信息。',
+      invoiceSupportLink: '通过人工支持申请票据'
+    },
     legal: {
       retry: '重试',
       settingsLoadFailedHint: '无法加载站点条款与注册配置，请重试后再继续操作。',

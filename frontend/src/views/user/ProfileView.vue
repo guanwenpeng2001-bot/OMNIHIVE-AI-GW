@@ -150,6 +150,46 @@
       <div id="profile-section-passkey" class="scroll-mt-20">
         <ProfilePasskeyCard :enabled="passkeyEnabled" />
       </div>
+      <div
+        id="profile-section-lifecycle"
+        data-testid="profile-account-lifecycle"
+        class="card scroll-mt-20 p-5 sm:p-6"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-1">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.lifecycleTitle') }}
+            </h3>
+            <p class="text-sm text-gray-500 dark:text-dark-400">
+              {{ t('publicPortal.accountService.lifecycleSummary') }}
+            </p>
+          </div>
+          <router-link
+            to="/docs#support"
+            class="btn btn-secondary shrink-0 text-xs"
+          >
+            {{ t('publicPortal.accountService.supportLinkLabel') }}
+          </router-link>
+        </div>
+        <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+          <div class="space-y-1">
+            <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.exportTitle') }}
+            </h4>
+            <p class="text-xs leading-relaxed text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.exportDesc') }}
+            </p>
+          </div>
+          <div class="space-y-1">
+            <h4 class="text-sm font-medium text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.deletionTitle') }}
+            </h4>
+            <p class="text-xs leading-relaxed text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.deletionDesc') }}
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   </AppLayout>
 </template>

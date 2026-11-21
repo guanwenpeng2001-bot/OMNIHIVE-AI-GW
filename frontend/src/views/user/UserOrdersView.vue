@@ -87,6 +87,31 @@
         @update:page="handlePageChange"
         @update:pageSize="handlePageSizeChange"
       />
+
+      <div
+        data-testid="order-invoice-support"
+        class="card p-4 sm:p-5"
+      >
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="space-y-1">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('publicPortal.accountService.invoiceTitle') }}
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-dark-300">
+              {{ t('publicPortal.accountService.invoiceSummary') }}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-dark-400">
+              {{ t('publicPortal.accountService.invoiceDesc') }}
+            </p>
+          </div>
+          <router-link
+            to="/docs#support"
+            class="btn btn-secondary shrink-0 text-xs"
+          >
+            {{ t('publicPortal.accountService.invoiceSupportLink') }}
+          </router-link>
+        </div>
+      </div>
     </div>
 
     <!-- Cancel Confirm Dialog -->

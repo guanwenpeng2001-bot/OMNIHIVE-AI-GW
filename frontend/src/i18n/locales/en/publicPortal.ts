@@ -12,6 +12,19 @@ export default {
       slaLabel: 'Response Time',
       slaValue: 'Within 1–2 business days (Mon–Fri 09:00–18:00 UTC+8).'
     },
+    accountService: {
+      lifecycleTitle: 'Account Data Export & Deletion',
+      lifecycleSummary: 'Self-service automated export and deletion are not enabled. Submit requests through human support for identity and settlement verification.',
+      exportTitle: 'Personal Data Export',
+      exportDesc: 'Request a copy of your account profile, billing summary, and usage records via human support. Include your account email and user ID.',
+      deletionTitle: 'Account Deletion',
+      deletionDesc: 'Request permanent account closure via human support after verifying remaining balance and pending settlements. Include your account email and user ID.',
+      supportLinkLabel: 'Go to Human Support',
+      invoiceTitle: 'Order Invoices & Receipts',
+      invoiceSummary: 'Automated invoice download is not enabled. Request official receipts or invoices for completed orders via human support.',
+      invoiceDesc: 'Provide your Order ID, billing entity name, and tax or receipt details when contacting support.',
+      invoiceSupportLink: 'Request via Human Support'
+    },
     legal: {
       retry: 'Retry',
       settingsLoadFailedHint: 'Unable to load site legal and registration settings. Please retry before continuing.',
