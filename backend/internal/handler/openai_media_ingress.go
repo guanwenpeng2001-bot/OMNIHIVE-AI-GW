@@ -637,27 +637,6 @@ func (h *OpenAIGatewayHandler) readOpenAIMediaBody(c *gin.Context) ([]byte, bool
 	return body, true
 }
 
-// writeOpenAIMediaActionResponse passes one synchronous provider response back
-// to the caller with a bounded body. The provider's own status and error
-// envelope stay visible; no gateway-side billing is invented for it.
-func (h *OpenAIGatewayHandler) writeOpenAIMediaActionResponse(c *gin.Context, reqLog *zap.Logger, response *http.Response) {
-	raw, err := io.ReadAll(io.LimitReader(response.Body, openAIMediaIngressResponseLimit+1))
-	if err != nil {
-		reqLog.Warn("openai_media.response_read_failed", zap.Error(err))
-		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream response could not be read")
-		return
-	}
-	if len(raw) > openAIMediaIngressResponseLimit {
-		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream response exceeds the gateway limit")
-		return
-	}
-	contentType := strings.TrimSpace(response.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "application/json"
-	}
-	c.Data(response.StatusCode, contentType, raw)
-}
-
 // writeOpenAIVideoSubmitFailure surfaces a durable submit-time failure through
 // the error envelope instead of a success object that silently carries an error
 // state. A provider rejection is a 422; an unknown submission outcome is a 502.

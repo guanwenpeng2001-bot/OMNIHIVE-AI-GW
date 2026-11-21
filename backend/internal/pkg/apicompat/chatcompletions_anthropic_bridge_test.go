@@ -56,8 +56,9 @@ func TestAnthropicToChatCompletionsRequest_BasicText(t *testing.T) {
 	require.Len(t, out.Messages, 1)
 	require.Equal(t, "user", out.Messages[0].Role)
 	require.Equal(t, `"hello"`, string(out.Messages[0].Content))
-	require.NotNil(t, out.MaxCompletionTokens)
-	require.Equal(t, 1024, *out.MaxCompletionTokens)
+	require.Nil(t, out.MaxCompletionTokens)
+	require.NotNil(t, out.MaxTokens)
+	require.Equal(t, 1024, *out.MaxTokens)
 }
 
 func TestAnthropicToChatCompletionsRequest_SystemPrompt(t *testing.T) {
@@ -268,8 +269,9 @@ func TestAnthropicToChatCompletionsRequest_PreservesSmallMaxTokens(t *testing.T)
 
 	out, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
-	require.NotNil(t, out.MaxCompletionTokens)
-	require.Equal(t, 10, *out.MaxCompletionTokens)
+	require.Nil(t, out.MaxCompletionTokens)
+	require.NotNil(t, out.MaxTokens)
+	require.Equal(t, 10, *out.MaxTokens)
 }
 
 func TestAnthropicToChatCompletionsRequest_ReasoningEffortMapping(t *testing.T) {

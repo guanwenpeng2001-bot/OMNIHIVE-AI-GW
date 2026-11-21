@@ -158,7 +158,7 @@ func TestAdminService_UpdateAccountAllowsCompositeGroupAssignment(t *testing.T) 
 
 	require.NoError(t, err)
 	require.Equal(t, int64(7), account.ID)
-	require.Len(t, accountRepo.updatedAccounts, 1)
+	require.Empty(t, accountRepo.updatedAccounts, "a group-only update binds groups without rewriting the account row")
 	require.ElementsMatch(t, []int64{99}, accountRepo.bindGroupsByAccount[7])
 }
 
