@@ -15,7 +15,7 @@ import (
 )
 
 func TestSupportsInstructionsCacheHoist(t *testing.T) {
-	for model, want := range map[string]bool{"gpt-6.1-sol": false, "gpt-6.2-astra": true, "gpt-6.2-sol": true, "gpt-6.10": true, "gpt-6.3": true, "gpt-7-mini": true, "gpt-10": true, "gpt-5.6": false, "gpt-6.": false, "gpt-7x": false, "other-7": false} {
+	for model, want := range map[string]bool{"gpt-6.1-sol": false, "gpt-6.2-astra": true, "gpt-6.2-sol": true, "gpt-6.10": true, "gpt-6.3": true, "gpt-7-mini": true, "gpt-10": true, "gpt-5.6": false, "gpt-6.": false, "gpt-7x": false, "other-7": false, "GPT-6.2-Astra": true, " gpt-6.2 ": true} {
 		t.Run(model, func(t *testing.T) { require.Equal(t, want, supportsInstructionsCacheHoist(model)) })
 	}
 }

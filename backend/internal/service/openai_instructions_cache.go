@@ -12,7 +12,7 @@ import (
 )
 
 func supportsInstructionsCacheHoist(model string) bool {
-	version, ok := strings.CutPrefix(model, "gpt-")
+	version, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(model)), "gpt-")
 	if !ok {
 		return false
 	}
