@@ -300,3 +300,34 @@ func TestTaskMutationsOmitBodiesAndExtensionReadIsAudited(t *testing.T) {
 	require.Equal(t, "tasks.retry", auditActionOverrides[path+"/:id/retry"])
 	require.Equal(t, "admin.extensions.list", auditSensitiveReads["GET /api/v2/admin/extensions"])
 }
+
+func TestV2MutationAuditRetainsScopeAndRedactedSubmittedDiff(t *testing.T) {
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 7})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestID, "req-v2-7"))
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.PUT("/api/v2/workspaces/:workspace_id/projects/:project_id/connections/:id", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+	req := httptest.NewRequest(http.MethodPut, "/api/v2/workspaces/3/projects/4/connections/9", bytes.NewBufferString(`{"name":"renamed","api_key":"audit-secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(httptest.NewRecorder(), req)
+	auditService.Stop()
+	require.Len(t, repository.logs, 1)
+	entry := repository.logs[0]
+	require.Equal(t, int64(4), *entry.ProjectID)
+	require.Equal(t, "9", entry.ResourceID)
+	require.Equal(t, "req-v2-7", entry.RequestID)
+	require.Equal(t, "/api/v2/workspaces/:workspace_id/projects/:project_id/connections/:id", entry.Path)
+	require.NotContains(t, entry.RequestBody, "audit-secret")
+	changes := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
+	require.Equal(t, "changed", changes[0].After)
+	require.Equal(t, "renamed", changes[1].After)
+}

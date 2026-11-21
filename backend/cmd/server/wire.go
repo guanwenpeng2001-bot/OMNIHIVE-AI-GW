@@ -184,7 +184,8 @@ func auditStoreProvider(db *sql.DB, access *identitypostgres.Store) *auditstore.
 
 func auditObserverProvider() *auditstore.Observer { return auditstore.NewObserver() }
 
-func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config) *audithttp.Handler {
+func auditHandlerProvider(store *auditstore.Store, observer *auditstore.Observer, cfg *config.Config, audit *service.AuditLogService) *audithttp.Handler {
+	audit.SetScopedStore(store)
 	return audithttp.New(store, observer, cfg)
 }
 

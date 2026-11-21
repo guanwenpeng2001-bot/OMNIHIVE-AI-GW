@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	auditdomain "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/modules/audit"
 )
 
 const (
@@ -35,7 +40,10 @@ type AuditLogService struct {
 	droppedCount uint64
 	writeFailed  uint64
 	writtenCount uint64
+	scoped       *auditdomain.Store
 }
+
+func (s *AuditLogService) SetScopedStore(store *auditdomain.Store) { s.scoped = store }
 
 func NewAuditLogService(repo AuditLogRepository, settingService *SettingService) *AuditLogService {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -85,6 +93,61 @@ func (s *AuditLogService) Record(entry *AuditLog) {
 	default:
 		atomic.AddUint64(&s.droppedCount, 1)
 	}
+}
+
+func (s *AuditLogService) captureScoped(entry *AuditLog) {
+	if s.scoped == nil || entry.ProjectID == nil || entry.ActorUserID == nil || entry.RequestID == "" || entry.StatusCode < 200 || entry.StatusCode >= 400 {
+		return
+	}
+	workspace := auditParam(entry, "workspace_id")
+	workspaceID, _ := strconv.ParseInt(workspace, 10, 64)
+	changes, _ := json.Marshal(auditChanges(entry.Extra))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.scoped.Capture(ctx, auditdomain.Operation{Workspace: workspaceID, Project: *entry.ProjectID, Actor: *entry.ActorUserID,
+		Action: entry.Action, Route: entry.Path, RequestID: entry.RequestID, ResourceID: entry.ResourceID, Method: entry.Method,
+		ActorEmail: entry.ActorEmail, ActorRole: entry.ActorRole, Status: entry.StatusCode, At: entry.CreatedAt, Changes: changes,
+		Reason: auditReason(entry.Extra)}); err != nil {
+		atomic.AddUint64(&s.writeFailed, 1)
+	}
+}
+
+func auditParam(entry *AuditLog, key string) string {
+	switch params := entry.Extra["params"].(type) {
+	case map[string]string:
+		return params[key]
+	case map[string]any:
+		value, _ := params[key].(string)
+		return value
+	}
+	return ""
+}
+
+func auditReason(extra map[string]any) string {
+	reason, _ := extra["reason"].(string)
+	return truncateStringForAudit(reason, 512)
+}
+
+func truncateStringForAudit(value string, limit int) string {
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return string(runes)
+}
+
+func auditChanges(extra map[string]any) []ConfigurationFieldDiff {
+	for _, key := range []string{"diff", "submitted_diff"} {
+		raw, err := json.Marshal(extra[key])
+		if err != nil {
+			continue
+		}
+		var changes []ConfigurationFieldDiff
+		if json.Unmarshal(raw, &changes) == nil && len(changes) > 0 {
+			return changes
+		}
+	}
+	return []ConfigurationFieldDiff{}
 }
 
 // List 分页查询审计日志。
@@ -141,6 +204,9 @@ func (s *AuditLogService) runWriter() {
 			_, _ = fmt.Fprintf(os.Stderr, "time=%s level=WARN msg=\"audit log flush failed\" batch=%d\n",
 				time.Now().Format(time.RFC3339Nano), len(batch))
 		} else {
+			for _, entry := range batch {
+				s.captureScoped(entry)
+			}
 			atomic.AddUint64(&s.writtenCount, uint64(inserted))
 		}
 		batch = batch[:0]

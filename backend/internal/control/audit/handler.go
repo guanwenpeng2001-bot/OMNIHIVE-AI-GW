@@ -105,6 +105,7 @@ func serve(status int, f endpoint) gin.HandlerFunc {
 func Register(v2 *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	g := v2.Group("/workspaces/:workspace_id/projects/:project_id/audit", append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
 	g.GET("/events", serve(200, h.list))
+	g.GET("/export", serve(200, h.export))
 	g.GET("/events/:id", serve(200, func(c *gin.Context, k domain.Scope, id int64) (any, error) {
 		return h.Store.Detail(c.Request.Context(), k, id)
 	}))

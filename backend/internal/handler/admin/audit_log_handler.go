@@ -100,6 +100,13 @@ func (h *AuditLogHandler) Get(c *gin.Context) {
 	response.Success(c, item)
 }
 
+// Export returns the same administrator-only, redacted page as List.
+// GET /api/v1/admin/audit-logs/export
+func (h *AuditLogHandler) Export(c *gin.Context) {
+	c.Header("Content-Disposition", `attachment; filename="audit-logs.json"`)
+	h.List(c)
+}
+
 type auditLogClearRequest struct {
 	TotpCode string `json:"totp_code" binding:"required"`
 }

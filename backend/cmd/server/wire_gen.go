@@ -408,7 +408,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	statusHandler := statusHandlerProvider(db, store2, cfg, opsService)
 	byokHandler := byokHandlerProvider(byokStore)
 	observer := auditObserverProvider()
-	auditHandler := auditHandlerProvider(auditStore, observer, cfg)
+	auditHandler := auditHandlerProvider(auditStore, observer, cfg, auditLogService)
 	exportStore, err := observabilityStoreProvider(supervisor, cfg)
 	if err != nil {
 		return nil, err
@@ -533,7 +533,8 @@ func auditStoreProvider(db *sql.DB, access *postgres2.Store) *audit2.Store {
 
 func auditObserverProvider() *audit2.Observer { return audit2.NewObserver() }
 
-func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config) *audit.Handler {
+func auditHandlerProvider(store *audit2.Store, observer *audit2.Observer, cfg *config.Config, auditService *service.AuditLogService) *audit.Handler {
+	auditService.SetScopedStore(store)
 	return audit.New(store, observer, cfg)
 }
 

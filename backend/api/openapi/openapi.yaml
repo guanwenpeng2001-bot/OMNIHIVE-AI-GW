@@ -2097,6 +2097,22 @@ paths:
       - {$ref: '#/components/parameters/IdentityProjectID'}
       - {$ref: '#/components/parameters/ScopedAuditEventID'}
       - {name: export_id, in: path, required: true, schema: {type: string, format: uuid}}
+  /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/export:
+    get:
+      operationId: exportScopedAuditEvents
+      summary: Export a redacted project audit page with audit.read and audit.export
+      parameters:
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: action, in: query, schema: {type: string}}
+        - {name: resource, in: query, schema: {$ref: '#/components/schemas/ScopedAuditResource'}}
+        - {name: resource_id, in: query, schema: {type: string}}
+        - {name: cursor, in: query, schema: {type: string, maxLength: 1024}}
+        - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 25}}
+      responses:
+        '200': {$ref: '#/components/responses/ScopedAuditPage'}
+        default: {$ref: '#/components/responses/ScopedAuditError'}
+    parameters: *auditScope
   /api/v2/workspaces/{workspace_id}/projects/{project_id}/audit/retention:
     get:
       operationId: getScopedAuditRetention
@@ -4591,6 +4607,23 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/IdentityError'}
+    ScopedAuditPage:
+      description: Redacted audit page
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items, as_of, next_cursor]
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ScopedAuditEvent'}}
+                  as_of: {type: string, format: date-time}
+                  next_cursor: {type: [string, 'null']}
     ScopedAuditPolicy:
       description: Effective policy
       content:
@@ -9151,6 +9184,23 @@ components:
         effect: {type: string, enum: [committed, observed]}
         at: {type: string, format: date-time}
         affected: {type: string}
+        request_id: {type: string}
+        route: {type: string}
+        method: {type: string}
+        actor_email: {type: string}
+        actor_role: {type: string}
+        status_code: {type: integer}
+        reason: {type: string}
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field, operation, before, after]
+            properties:
+              field: {type: string}
+              operation: {type: string}
+              before: {nullable: true}
+              after: {nullable: true}
     ScopedAuditResource:
       type: string
       enum: [request_export, artifact, billing_command, retention, audit_event, project]
