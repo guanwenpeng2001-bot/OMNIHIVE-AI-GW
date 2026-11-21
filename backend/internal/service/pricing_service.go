@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
@@ -205,6 +206,8 @@ type PricingService struct {
 	remoteClient     PricingRemoteClient
 	mu               sync.RWMutex
 	pricingData      map[string]*LiteLLMModelPricing
+	pricingRevision  uint64
+	baseNameIndex    atomic.Pointer[pricingBaseNameIndex]
 	registry         *ModelRegistry
 	registrySnapshot *ModelRegistrySnapshot
 	lastUpdated      time.Time
@@ -216,6 +219,31 @@ type PricingService struct {
 	// 停止信号
 	stopCh chan struct{}
 	wg     sync.WaitGroup
+}
+
+type pricingBaseNameIndex struct {
+	revision uint64
+	byName   map[string][]*LiteLLMModelPricing
+}
+
+func (s *PricingService) rebuildBaseNameIndex() {
+	if s.pricingData == nil {
+		s.pricingRevision++
+		s.baseNameIndex.Store(nil)
+		return
+	}
+	s.pricingRevision++
+	index := &pricingBaseNameIndex{revision: s.pricingRevision, byName: make(map[string][]*LiteLLMModelPricing, len(s.pricingData))}
+	for key, pricing := range s.pricingData {
+		keyBase := s.extractBaseName(strings.ToLower(key))
+		index.byName[keyBase] = append(index.byName[keyBase], pricing)
+	}
+	s.baseNameIndex.Store(index)
+}
+
+func (s *PricingService) replacePricingData(data map[string]*LiteLLMModelPricing) {
+	s.pricingData = data
+	s.rebuildBaseNameIndex()
 }
 
 // NewPricingService 创建价格服务
@@ -508,7 +536,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	warnDroppedCacheBasePrices(s.pricingData, data)
-	s.pricingData = data
+	s.replacePricingData(data)
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
 
@@ -578,7 +606,7 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	warnDroppedCacheBasePrices(s.pricingData, data)
-	s.pricingData = data
+	s.replacePricingData(data)
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
 	s.customFilesHash = customFilesHash
@@ -1045,7 +1073,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
 	warnDroppedCacheBasePrices(s.pricingData, pricingData)
-	s.pricingData = pricingData
+	s.replacePricingData(pricingData)
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
 
@@ -1286,13 +1314,18 @@ func (s *PricingService) lookupIdentifiedModelPricingLocked(lookupCandidates []s
 	// 3. 尝试模糊匹配（去掉版本号后缀）
 	// claude-opus-4-5-20251101 -> claude-opus-4.5
 	baseName := s.extractBaseName(lookupCandidates[0])
+	index := s.baseNameIndex.Load()
+	if index != nil && index.revision == s.pricingRevision {
+		if matches := index.byName[baseName]; len(matches) > 0 {
+			return matches[0]
+		}
+		return nil
+	}
 	for key, pricing := range s.pricingData {
-		keyBase := s.extractBaseName(strings.ToLower(key))
-		if keyBase == baseName {
+		if s.extractBaseName(strings.ToLower(key)) == baseName {
 			return pricing
 		}
 	}
-
 	return nil
 }
 
@@ -1409,21 +1442,50 @@ func lastSegment(model string) string {
 
 // extractBaseName 提取基础模型名称（去掉日期版本号）
 func (s *PricingService) extractBaseName(model string) string {
-	// 移除日期后缀 (如 -20251101, -20241022)
-	parts := strings.Split(model, "-")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		// 跳过看起来像日期的部分（8位数字）
-		if len(part) == 8 && isNumeric(part) {
-			continue
+	start := 0
+	for start <= len(model) {
+		end := strings.IndexByte(model[start:], '-')
+		if end < 0 {
+			end = len(model)
+		} else {
+			end += start
 		}
-		// 跳过版本号（如 v1:0）
-		if strings.Contains(part, ":") {
-			continue
+		part := model[start:end]
+		if (len(part) == 8 && isNumeric(part)) || strings.Contains(part, ":") {
+			break
 		}
-		result = append(result, part)
+		if end == len(model) {
+			return model
+		}
+		start = end + 1
 	}
-	return strings.Join(result, "-")
+	var result strings.Builder
+	result.Grow(len(model))
+	first := true
+	start = 0
+	for start <= len(model) {
+		end := strings.IndexByte(model[start:], '-')
+		if end < 0 {
+			end = len(model)
+		} else {
+			end += start
+		}
+		part := model[start:end]
+		if len(part) != 8 || !isNumeric(part) {
+			if !strings.Contains(part, ":") {
+				if !first {
+					result.WriteByte('-')
+				}
+				first = false
+				result.WriteString(part)
+			}
+		}
+		if end == len(model) {
+			break
+		}
+		start = end + 1
+	}
+	return result.String()
 }
 
 // matchByModelFamily 基于模型系列匹配
