@@ -50,6 +50,17 @@ if ! printf '%s\n' "$normalized_config" | grep -Eq '^reverse_proxy localhost:808
 	exit 1
 fi
 
+hsts_count=$(printf '%s\n' "$normalized_config" |
+	awk '$1 == "header" && $2 == "Strict-Transport-Security" && $3 == "max-age=31536000;" && $4 == "includeSubDomains" && NF == 4 { count++ } END { print count + 0 }')
+if [ "$hsts_count" -ne 1 ]; then
+	echo "Caddyfile TLS site must set exactly one one-year HSTS header with includeSubDomains" >&2
+	exit 1
+fi
+if printf '%s\n' "$normalized_config" | grep -Eiq 'Strict-Transport-Security.*preload'; then
+	echo "Caddyfile must not opt all operator domains into the HSTS preload list" >&2
+	exit 1
+fi
+
 if printf '%s\n' "$normalized_config" | grep -Eq '^import([[:space:]]|$)'; then
 	echo "Caddyfile must not import configuration outside this canonical policy check" >&2
 	exit 1
@@ -82,4 +93,4 @@ if [ "$actual_encode_block" != "$expected_encode_block" ]; then
 	exit 1
 fi
 
-echo "Caddyfile preserves backend cache policy, SSE streaming, and non-SSE compression"
+echo "Caddyfile preserves HSTS, backend cache policy, SSE streaming, and non-SSE compression"

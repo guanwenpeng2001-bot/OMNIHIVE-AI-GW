@@ -161,6 +161,12 @@ match `text/event-stream` and can buffer SSE until the response ends. Keep
 streaming responses uncompressed while retaining compression for the web UI,
 JSON, and static assets.
 
+The TLS site sets `Strict-Transport-Security: max-age=31536000; includeSubDomains`.
+Confirm HTTPS on every subdomain before deploying it. Preload is deliberately omitted:
+only the domain owner should opt in after reviewing the browser preload-list requirements
+and accepting its difficult rollback. The application owns the remaining security headers;
+verify them on the final Caddy response rather than duplicating them at the proxy.
+
 For a CDN deployment, first firewall the origin so only current CDN egress
 CIDRs can connect. Then configure those exact ranges as Caddy trusted proxies
 and derive upstream headers from Caddy's parsed `{client_ip}`. For example:

@@ -320,6 +320,9 @@ Application container healthchecks use `/health` for liveness. Caddy uses `/read
 sending new traffic when dependencies are unavailable or the process is draining; do not
 use dependency readiness as a restart trigger. See [EDGE_SECURITY.md](./EDGE_SECURITY.md)
 for the unchanged security defaults, forwarded-header trust and outbound endpoint risks.
+The TLS site in `Caddyfile` sets one-year HSTS with `includeSubDomains`, without `preload`.
+Enable it only after every subdomain supports HTTPS; the application retains its other
+security headers, so verify the final HTTPS response after replacing `api.example.com`.
 
 For a source production image use `docker build -f Dockerfile .` from the repository root;
 `deploy/Dockerfile` carries the same runtime section, including `pg_dump` and `psql` from

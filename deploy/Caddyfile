@@ -91,6 +91,12 @@ api.example.com {
 		max_size 256MB
 	}
 
+	# HSTS applies only to this TLS site. The application does not set it because
+	# its direct listener is HTTP; leave all other response security headers there.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Do not add preload unless every subdomain is HTTPS-ready and the domain
+	# owner accepts the effective irreversibility of browser preload-list inclusion.
+
 	# =========================================================================
 	# 日志配置
 	# =========================================================================
