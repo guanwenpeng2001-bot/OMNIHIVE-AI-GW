@@ -10,6 +10,7 @@ import (
 )
 
 type runtimeWriteLocked struct{}
+type runtimeCredentialRefresh struct{}
 
 func runtimeIdentityGuardRequired(ctx context.Context, id int64) bool {
 	return ctx.Value(runtimeWriteLocked{}) == nil && service.AccountRuntimeCacheSuffix(ctx, id) != strconv.FormatInt(id, 10)
@@ -148,7 +149,8 @@ func (r *accountRepository) UpdateAccountRuntimeCredentials(ctx context.Context,
 		return service.ErrAccountNilInput
 	}
 	return r.withRuntimeIdentity(ctx, expected.ID, service.AccountRuntimeIdentityKey(expected), func(lockedCtx context.Context, repository *accountRepository) error {
-		return repository.UpdateCredentials(service.WithCredentialRevision(lockedCtx, expected.CredentialRevision), expected.ID, credentials)
+		refreshCtx := context.WithValue(service.WithCredentialRevision(lockedCtx, expected.CredentialRevision), runtimeCredentialRefresh{}, true)
+		return repository.UpdateCredentials(refreshCtx, expected.ID, credentials)
 	})
 }
 

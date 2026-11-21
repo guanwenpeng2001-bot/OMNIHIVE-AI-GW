@@ -1083,35 +1083,46 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 	if err != nil {
 		return err
 	}
+	var runtimeSQL accountExtraSQL
+	catalogExtra := runtimeSQL.bind("catalog_extra", `(COALESCE((CASE
+		-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
+		-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
+		WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
+			AND type = 'apikey'
+			AND credentials IS DISTINCT FROM $1::jsonb
+			AND (
+				credentials -> 'credential_secret_version' IS DISTINCT FROM $1::jsonb -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
+				OR NOT (
+					`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
+					AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
+				)
+			)
+		THEN COALESCE(extra, '{}'::jsonb)
+			- 'upstream_billing_probe'
+			- 'ollama_cloud_usage_session'
+			- 'ollama_cloud_usage_auto_refresh'
+			- 'ollama_cloud_usage_snapshot'
+		-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
+		-- 身份变化，丢弃 stale 快照。
+		WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
+			AND credentials IS DISTINCT FROM $1::jsonb
+		THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
+		ELSE extra
+	END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb"))
+	openCodeIdentityChanged := runtimeSQL.bind("opencode_identity_changed", openCodeQuotaIdentityChangeSQL("$1::jsonb", catalogExtra, ""))
+	quotaColumns, quotaValues := openCodeQuotaInvalidationSQL(openCodeIdentityChanged)
+	runtimeExtra := runtimeSQL.bind("runtime_extra", clearChangedAccountRuntimeObservationsSQL("$1::jsonb", catalogExtra, ""))
+	if ctx.Value(runtimeCredentialRefresh{}) != nil {
+		runtimeExtra = runtimeSQL.bind("refreshed_runtime_extra", runtimeExtra+" || CASE WHEN credentials IS DISTINCT FROM $1::jsonb THEN jsonb_build_object('session_window_utilization',extra->'session_window_utilization') ELSE '{}'::jsonb END")
+	}
+	runtimeExtra = clearOpenCodeModelQuotaLimitsSQL(runtimeExtra, openCodeIdentityChanged)
+	columns := append([]string{"extra"}, quotaColumns...)
+	values := append([]string{runtimeExtra}, quotaValues...)
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = (COALESCE((CASE
-				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
-				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
-				WHEN platform IN (`+ollamaCloudUsagePlatformsSQL+`)
-					AND type = 'apikey'
-					AND credentials IS DISTINCT FROM $1::jsonb
-					AND (
-						credentials -> 'credential_secret_version' IS DISTINCT FROM $1::jsonb -> 'credential_secret_version' OR credentials -> 'api_key' IS DISTINCT FROM $1::jsonb -> 'api_key'
-						OR NOT (
-							`+ollamaCloudBaseURLMatchesSQL("credentials ->> 'base_url'")+`
-							AND `+ollamaCloudBaseURLMatchesSQL("$1::jsonb ->> 'base_url'")+`
-						)
-					)
-				THEN COALESCE(extra, '{}'::jsonb)
-					- 'upstream_billing_probe'
-					- 'ollama_cloud_usage_session'
-					- 'ollama_cloud_usage_auto_refresh'
-					- 'ollama_cloud_usage_snapshot'
-				-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
-				-- 身份变化，丢弃 stale 快照。
-				WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
-					AND credentials IS DISTINCT FROM $1::jsonb
-				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
-				ELSE extra
-			END), '{}'::jsonb) || `+accountCatalogRevisionPatchSQL("$1::jsonb", "", "", false)+`) - `+cloudQuotaInvalidationSQL("$1::jsonb")+`,
+			(`+strings.Join(columns, ", ")+`) = `+runtimeSQL.selectSQL(values...)+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`, string(payload), id)
