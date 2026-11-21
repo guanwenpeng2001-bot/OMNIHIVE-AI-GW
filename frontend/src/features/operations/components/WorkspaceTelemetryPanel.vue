@@ -123,9 +123,7 @@ async function loadWorkspaceTelemetryFromServer(wsId: string): Promise<void> {
         permissionDenied.value = true
         return
       }
-      if (normalized.status !== 404 && normalized.status !== 405) {
-        workspaceTelemetryUnavailable.value = true
-      }
+      workspaceTelemetryUnavailable.value = true
     }
   }
 
