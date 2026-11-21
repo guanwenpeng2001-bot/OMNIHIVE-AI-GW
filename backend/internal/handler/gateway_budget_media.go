@@ -90,7 +90,7 @@ func requestMediaMeter(spec service.GatewayRequestSpec, body []byte, contentType
 	meter.Count = upperInt(1, "n", "count", "num_images", "num_videos", "parameters.sample_count", "parameters.n")
 	route := strings.ToLower(spec.Route)
 	switch {
-	case strings.Contains(route, "transcription") || strings.Contains(route, "/stt") || strings.Contains(route, "/asr"):
+	case strings.Contains(route, "transcription") || strings.Contains(route, "translation") || strings.Contains(route, "/stt") || strings.Contains(route, "/asr"):
 		meter.Unit = "second"
 		if encoded := field("audio.data", "input_audio.data"); encoded != "" {
 			audio, _ = base64.StdEncoding.DecodeString(encoded)

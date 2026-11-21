@@ -58,6 +58,8 @@ func openAIActionCatalogEndpoint(action string) string {
 	switch action {
 	case "video.generate", "video.edit", "video.extend":
 		return CompositeRouteEndpointImages
+	case "audio.translate":
+		return "audio_translations"
 	default:
 		return action
 	}

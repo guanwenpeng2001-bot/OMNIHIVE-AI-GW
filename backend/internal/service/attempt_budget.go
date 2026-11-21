@@ -476,6 +476,11 @@ func beginGenerationAttempt(ctx context.Context, accountID int64, ws bool) (func
 		return nil, err
 	}
 	plan := GatewayRequestPlanFromContext(ctx)
+	if journal.From(ctx) != nil {
+		if plan == nil || plan.store == nil {
+			return nil, journal.ErrDispatch
+		}
+	}
 	tpmSequence, tpmErr := plan.beginTPMSend(ctx, accountID)
 	if tpmErr != nil {
 		return nil, tpmErr

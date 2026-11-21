@@ -402,6 +402,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	mode := BillingModeToken
+	if result.AudioUsage != nil {
+		mode = "audio"
+	}
 	logMultiplier := multiplier
 	if isVideoUsage {
 		mode = BillingModeVideo
@@ -566,6 +569,10 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 
 	billingModel := firstUsageBillingModel(billingModels)
+	if result != nil && result.AudioUsageUnresolved {
+		snapshot, _ := json.Marshal(PricingSnapshot{PricingState: PricingStateUnpriced, Source: "upstream_audio_usage_unknown", Model: billingModel, Mode: "audio"})
+		return &CostBreakdown{PricingState: PricingStateUnpriced, BillingMode: "audio", PricingSnapshot: string(snapshot)}, nil
+	}
 	if isQianwenNativeAudioResult(result) {
 		return s.calculateQianwenNativeAudioCost(ctx, result, apiKey, webSearchMultiplier)
 	}

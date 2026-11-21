@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	pkghttputil "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/httputil"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ip"
 	middleware2 "github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/server/middleware"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/tidwall/gjson"
@@ -153,6 +155,15 @@ func (h *OpenAIGatewayHandler) OpenAIAudioTranslations(c *gin.Context) {
 		defer accountRelease()
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	mappedModel := account.GetMappedModel(model)
+	finishPlan := beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "audio", h.maxAccountSwitches)
+	defer finishPlan()
+	if c.IsAborted() {
+		return
+	}
+	if !reserveGatewayRequestBudget(c, apiKey, model, body) {
+		return
+	}
 
 	// The translation body keeps the caller's model: audio.translate is a native
 	// OpenAI action, so the requested model is already the upstream model.
@@ -160,11 +171,68 @@ func (h *OpenAIGatewayHandler) OpenAIAudioTranslations(c *gin.Context) {
 	if err != nil {
 		status, code, message := openAIActionForwardFailure(err)
 		reqLog.Warn("openai_audio.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		if plan := service.GatewayRequestPlanFromContext(c.Request.Context()); plan != nil && len(plan.Attempts()) > 0 {
+			h.recordOpenAIAudioTranslationUsage(c, reqLog, nil, apiKey, account, subscription, model, mappedModel, requestStart, nil, true)
+		}
 		h.errorResponse(c, status, code, message)
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
-	h.writeOpenAIMediaActionResponse(c, reqLog, response)
+	h.writeOpenAIAudioTranslationResponse(c, reqLog, response, apiKey, account, subscription, model, mappedModel, requestStart)
+}
+
+func (h *OpenAIGatewayHandler) writeOpenAIAudioTranslationResponse(c *gin.Context, reqLog *zap.Logger, response *http.Response, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model, mappedModel string, requestStart time.Time) {
+	var raw []byte
+	completed := false
+	defer func() {
+		h.recordOpenAIAudioTranslationUsage(c, reqLog, response, apiKey, account, subscription, model, mappedModel, requestStart, raw, !completed)
+	}()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, openAIMediaIngressResponseLimit+1))
+	if err != nil {
+		reqLog.Warn("openai_media.response_read_failed", zap.Error(err))
+		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream response could not be read")
+		return
+	}
+	if len(raw) > openAIMediaIngressResponseLimit {
+		h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream response exceeds the gateway limit")
+		return
+	}
+	contentType := strings.TrimSpace(response.Header.Get("Content-Type"))
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	c.Data(response.StatusCode, contentType, raw)
+	completed = response.StatusCode >= 200 && response.StatusCode < 300
+}
+
+func (h *OpenAIGatewayHandler) recordOpenAIAudioTranslationUsage(c *gin.Context, reqLog *zap.Logger, response *http.Response, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model, mappedModel string, requestStart time.Time, raw []byte, interrupted bool) {
+	var upstreamHeaders http.Header
+	if response != nil {
+		upstreamHeaders = response.Header
+	}
+	result := &service.OpenAIForwardResult{Model: model, UpstreamModel: mappedModel, UpstreamHeaders: upstreamHeaders, Duration: time.Since(requestStart), AudioUsageUnresolved: true, ClientDisconnect: interrupted}
+	if !interrupted {
+		duration := gjson.GetBytes(raw, "duration")
+		if duration.Exists() && duration.Type == gjson.Number && duration.Float() >= 0 && !math.IsInf(duration.Float(), 0) && !math.IsNaN(duration.Float()) {
+			result.AudioUsage = &service.AudioUsage{Mode: "stt", DurationOrUnits: duration.Float() / 3600}
+			result.AudioUsageUnresolved = false
+		}
+	}
+	if service.GatewayRequestPlanFromContext(c.Request.Context()) == nil {
+		ctx, _ := h.gatewayService.CaptureRequestPlan(c.Request.Context(), service.GatewayRequestSpec{WorkspaceID: apiKey.WorkspaceID, UserID: apiKey.UserID, APIKeyID: apiKey.ID, Model: model, Route: c.Request.URL.Path, Protocol: "audio"})
+		c.Request = c.Request.WithContext(ctx)
+	}
+	pricingAt := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot().PricingAt
+	h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+		if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
+			Result: result, APIKey: apiKey, User: apiKey.User, Account: account, Subscription: subscription,
+			InboundEndpoint: GetInboundEndpoint(c), UpstreamEndpoint: GetUpstreamEndpoint(c, account.Platform),
+			UserAgent: c.GetHeader("User-Agent"), IPAddress: ip.GetClientIP(c), APIKeyService: h.apiKeyService,
+			QuotaPlatform: service.QuotaPlatform(c.Request.Context(), apiKey), SessionID: service.ExtractClientSessionID(c), PricingAt: pricingAt,
+		}); err != nil && !errors.Is(err, service.ErrUsageSettlementNeedsReview) {
+			reqLog.Error("openai_audio.usage_record_failed", zap.Error(err))
+		}
+	})
 }
 
 // handleOpenAIVideoSubmit admits one generate, edit or extension job and hands

@@ -440,7 +440,7 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 			method = CompositeRouteEndpointChatCompletions
 		}
 		switch method {
-		case "speech", "transcriptions", "voice", "rerank":
+		case "speech", "transcriptions", "audio_translations", "voice", "rerank":
 			if platformActionAdapterBound(account, chatOnlyCatalogEndpointAction(method)) {
 				endpoints = append(endpoints, method)
 			}
@@ -638,6 +638,8 @@ func chatOnlyCatalogEndpointAction(endpoint string) string {
 		return "audio.tts"
 	case "transcriptions":
 		return "audio.stt"
+	case "audio_translations":
+		return "audio.translate"
 	default:
 		return ""
 	}
