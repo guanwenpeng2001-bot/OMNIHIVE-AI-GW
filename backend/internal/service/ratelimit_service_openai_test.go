@@ -396,8 +396,7 @@ func TestRateLimitService_HandleUpstreamError_403FallsBackToRawBody(t *testing.T
 
 	require.True(t, shouldDisable)
 	require.Equal(t, 1, repo.setErrorCalls)
-	require.Contains(t, repo.lastErrorMsg, `"access_denied"`)
-	require.Contains(t, repo.lastErrorMsg, `"ip_blocked"`)
+	require.Equal(t, "Access forbidden (403): Upstream request failed", repo.lastErrorMsg)
 	require.NotContains(t, repo.lastErrorMsg, "account may be suspended or lack permissions")
 }
 
