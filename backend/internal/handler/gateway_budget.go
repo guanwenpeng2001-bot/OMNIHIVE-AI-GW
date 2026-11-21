@@ -31,6 +31,12 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
+	hit, _ := c.Get(gatewayCacheHitKey)
+	if serve, ok := hit.(func()); ok {
+		serve()
+		return false
+	}
+
 	return true
 }
 

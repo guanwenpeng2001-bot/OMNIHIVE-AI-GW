@@ -2,11 +2,16 @@ package service
 
 import (
 	"context"
-	"errors"
+	"time"
 )
 
 type CacheUsageRecorder interface {
-	RecordCacheHit(context.Context, UsageSettlementKey) error
+	LoadReceipt(context.Context, UsageSettlementKey) (*UsageSettlementReceipt, error)
+	RecordCacheHit(context.Context, *UsageSettlementReceipt) error
+}
+
+func (r *UsageSettlementReceipt) Cacheable() bool {
+	return r != nil && (r.State == UsageSettlementSettled || r.State == UsageSettlementPending) && r.CompletionState == "complete" && r.ResolutionState == "resolved"
 }
 
 func (s *UsageSettlementService) LoadReceipt(ctx context.Context, key UsageSettlementKey) (*UsageSettlementReceipt, error) {
@@ -16,22 +21,22 @@ func (s *UsageSettlementService) LoadReceipt(ctx context.Context, key UsageSettl
 	return s.repo.Get(ctx, key)
 }
 
-func (s *UsageSettlementService) RecordCacheHit(ctx context.Context, sourceKey UsageSettlementKey) error {
+func (s *UsageSettlementService) RecordCacheHit(ctx context.Context, source *UsageSettlementReceipt) error {
 	if s == nil || s.repo == nil {
 		return ErrUsageSettlementNotFound
 	}
 	plan := GatewayRequestPlanFromContext(ctx)
-	if plan == nil || !plan.Record() {
+	if plan == nil || !source.Cacheable() {
 		return ErrUsageSettlementNeedsReview
 	}
 	spec := plan.Snapshot()
-	source, err := s.repo.Get(ctx, sourceKey)
-	if err != nil || source == nil {
+	if source.Key.UserID != spec.UserID || source.Key.APIKeyID != spec.APIKeyID || !plan.Record() {
 		return ErrUsageSettlementNotFound
 	}
 	key := UsageSettlementKey{RequestID: spec.ExecutionID, UserID: spec.UserID, APIKeyID: spec.APIKeyID}
 	usage := source.Usage
 	usage.ID = 0
+	usage.CreatedAt = time.Now()
 	usage.RequestID = key.RequestID
 	usage.UserID, usage.APIKeyID = key.UserID, key.APIKeyID
 	usage.InboundEndpoint = optionalTrimmedStringPtr(spec.Route)
@@ -44,8 +49,5 @@ func (s *UsageSettlementService) RecordCacheHit(ctx context.Context, sourceKey U
 	command.ProjectWorkspaceID, command.ProjectID = 0, 0
 	command.Estimate, command.Reserved = nil, nil
 	receipt := &UsageSettlementReceipt{Key: key, Command: command, Usage: usage, ResolutionState: "resolved", CompletionState: "complete"}
-	if err := s.Submit(ctx, receipt, nil); err != nil && !errors.Is(err, ErrUsageSettlementNeedsReview) {
-		return err
-	}
-	return nil
+	return s.Submit(ctx, receipt, nil)
 }

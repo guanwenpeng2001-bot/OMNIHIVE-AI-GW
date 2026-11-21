@@ -925,12 +925,17 @@ type extensionCost struct {
 	Day string
 	USD float64
 }
+
+const gatewayCacheHitKey = "gatewayCacheHit"
+
 type extensionCache struct {
 	Body    []byte
 	Type    string
 	Expires time.Time
-	Receipt service.UsageSettlementKey
+	Receipt []byte
 }
+
+func (e extensionCache) size() int { return len(e.Body) + len(e.Receipt) }
 
 func (h *MCPGrantHandler) cachedExtension(key string, now time.Time) (extensionCache, bool) {
 	h.mu.Lock()
@@ -940,7 +945,7 @@ func (h *MCPGrantHandler) cachedExtension(key string, now time.Time) (extensionC
 		return extensionCache{}, false
 	}
 	if !now.Before(cached.Expires) {
-		h.cacheBytes -= len(cached.Body)
+		h.cacheBytes -= cached.size()
 		delete(h.cache, key)
 		for i, current := range h.cacheOrder {
 			if current == key {
@@ -967,7 +972,7 @@ func (h *MCPGrantHandler) cacheExtension(key string, cached extensionCache, maxE
 		h.cache = map[string]extensionCache{}
 	}
 	if old, exists := h.cache[key]; exists {
-		h.cacheBytes -= len(old.Body)
+		h.cacheBytes -= old.size()
 		for i, current := range h.cacheOrder {
 			if current == key {
 				h.cacheOrder = append(h.cacheOrder[:i], h.cacheOrder[i+1:]...)
@@ -978,14 +983,14 @@ func (h *MCPGrantHandler) cacheExtension(key string, cached extensionCache, maxE
 	if maxEntries <= 0 {
 		maxEntries = 256
 	}
-	for len(h.cacheOrder) >= maxEntries || h.cacheBytes+len(cached.Body) > 32<<20 && len(h.cacheOrder) > 0 {
+	for len(h.cacheOrder) >= maxEntries || h.cacheBytes+cached.size() > 32<<20 && len(h.cacheOrder) > 0 {
 		oldest := h.cacheOrder[0]
-		h.cacheBytes -= len(h.cache[oldest].Body)
+		h.cacheBytes -= h.cache[oldest].size()
 		delete(h.cache, oldest)
 		h.cacheOrder = h.cacheOrder[1:]
 	}
 	h.cache[key] = cached
-	h.cacheBytes += len(cached.Body)
+	h.cacheBytes += cached.size()
 	h.cacheOrder = append(h.cacheOrder, key)
 }
 
@@ -1406,24 +1411,32 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 			limit = 16 << 20
 		}
 		if len(body) <= limit {
-			cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(subject+"\x00"+c.Request.URL.RequestURI()+"\x00"+string(body))))
+			cacheSubject := subject
+			if key, ok := middleware.GetAPIKeyFromContext(c); ok && key != nil {
+				cacheSubject = fmt.Sprintf("user:%d:key:%d", key.UserID, key.ID)
+			}
+			cacheKey = fmt.Sprintf("%x", sha256.Sum256([]byte(cacheSubject+"\x00"+c.Request.URL.RequestURI()+"\x00"+string(body))))
 			cached, ok := h.cachedExtension(cacheKey, time.Now())
 			if ok {
-				if h.cacheUsage != nil {
-					if cached.Receipt.RequestID == "" {
-						extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage evidence is unavailable")
-						return
-					}
-					if err := h.cacheUsage.RecordCacheHit(c.Request.Context(), cached.Receipt); err != nil {
-						extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage could not be recorded")
-						return
-					}
+				serve := func() {
+					c.Header("X-OmniHive-Cache", "HIT")
+					c.Data(http.StatusOK, cached.Type, stripCachedUsage(cached.Body))
+					c.Abort()
 				}
-				cached.Body = stripCachedUsage(cached.Body)
-				c.Header("X-OmniHive-Cache", "HIT")
-				c.Data(200, cached.Type, cached.Body)
-				c.Abort()
-				return
+				if h.cacheUsage == nil {
+					serve()
+					return
+				}
+				var receipt service.UsageSettlementReceipt
+				if json.Unmarshal(cached.Receipt, &receipt) == nil && receipt.Cacheable() {
+					c.Set(gatewayCacheHitKey, func() {
+						if err := h.cacheUsage.RecordCacheHit(c.Request.Context(), &receipt); err != nil {
+							extensionError(c, http.StatusServiceUnavailable, "CACHE_USAGE_UNAVAILABLE", "Cached usage could not be recorded")
+							return
+						}
+						serve()
+					})
+				}
 			}
 			c.Header("X-OmniHive-Cache", "MISS")
 		}
@@ -1454,10 +1467,21 @@ func (h *MCPGrantHandler) executeExtensions(c *gin.Context, next func()) {
 		defer func() { c.Writer = original }()
 	}
 	next()
-	if capture != nil && !capture.overflow && c.Writer.Status() == 200 && strings.Contains(c.Writer.Header().Get("Content-Type"), "application/json") && json.Valid(capture.body.Bytes()) {
+	if capture != nil && c.Writer.Header().Get("X-OmniHive-Cache") != "HIT" && !capture.overflow && c.Writer.Status() == 200 && strings.Contains(c.Writer.Header().Get("Content-Type"), "application/json") && json.Valid(capture.body.Bytes()) {
 		cached := extensionCache{Body: append([]byte(nil), capture.body.Bytes()...), Type: c.Writer.Header().Get("Content-Type"), Expires: time.Now().Add(time.Duration(extFloat(cacheConfig, "ttl_seconds")) * time.Second)}
-		if plan := service.GatewayRequestPlanFromContext(c.Request.Context()); plan != nil {
-			cached.Receipt = plan.State().ReceiptKey
+		if h.cacheUsage != nil {
+			plan := service.GatewayRequestPlanFromContext(c.Request.Context())
+			if plan == nil || plan.State().ReceiptKey.RequestID == "" {
+				return
+			}
+			receipt, err := h.cacheUsage.LoadReceipt(c.Request.Context(), plan.State().ReceiptKey)
+			if err != nil || !receipt.Cacheable() {
+				return
+			}
+			cached.Receipt, err = json.Marshal(receipt)
+			if err != nil || cached.size() > 32<<20 {
+				return
+			}
 		}
 		h.cacheExtension(cacheKey, cached, int(extFloat(cacheConfig, "max_entries")))
 	}

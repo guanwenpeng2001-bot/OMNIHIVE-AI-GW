@@ -27,9 +27,13 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type cacheUsageRecorderFunc func(context.Context, service.UsageSettlementKey) error
+func (cacheUsageRecorderFunc) LoadReceipt(context.Context, service.UsageSettlementKey) (*service.UsageSettlementReceipt, error) {
+	return nil, service.ErrUsageSettlementNotFound
+}
 
-func (f cacheUsageRecorderFunc) RecordCacheHit(ctx context.Context, key service.UsageSettlementKey) error {
+type cacheUsageRecorderFunc func(context.Context, *service.UsageSettlementReceipt) error
+
+func (f cacheUsageRecorderFunc) RecordCacheHit(ctx context.Context, key *service.UsageSettlementReceipt) error {
 	return f(ctx, key)
 }
 
@@ -554,14 +558,16 @@ func TestMcpGrantExtensionEngines(t *testing.T) {
 		require.Equal(t, "HIT", hit.Header().Get("X-OmniHive-Cache"))
 		require.False(t, gjson.Get(hit.Body.String(), "usage").Exists())
 	})
-	t.Run("cache hit without durable receipt fails closed", func(t *testing.T) {
+	t.Run("cache hit without durable receipt forwards", func(t *testing.T) {
 		h, r, calls := newEngine("cache-layer")
-		h.SetCacheUsageRecorder(cacheUsageRecorderFunc(func(context.Context, service.UsageSettlementKey) error {
+		require.Equal(t, "MISS", request(r, `{"message":"hi"}`, "key").Header().Get("X-OmniHive-Cache"))
+		require.Len(t, h.cache, 1)
+		h.SetCacheUsageRecorder(cacheUsageRecorderFunc(func(context.Context, *service.UsageSettlementReceipt) error {
 			return service.ErrUsageSettlementNotFound
 		}))
+
 		require.Equal(t, "MISS", request(r, `{"message":"hi"}`, "key").Header().Get("X-OmniHive-Cache"))
-		require.Equal(t, http.StatusServiceUnavailable, request(r, `{"message":"hi"}`, "key").Code)
-		require.Equal(t, 1, *calls)
+		require.Equal(t, 2, *calls)
 	})
 	t.Run("cache is bounded LRU", func(t *testing.T) {
 		h, r, calls := newEngine("cache-layer")
