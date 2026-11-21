@@ -378,7 +378,7 @@ func decisionBudgetLocked(ctx context.Context, b *AttemptBudget) attempt.Budget 
 			switch r.Outcome {
 			case "unknown":
 				view.Acceptance = attempt.Unknown
-			case "transport_response":
+			case "transport_response", "rejected":
 				view.Acceptance = attempt.Accepted
 			}
 		}

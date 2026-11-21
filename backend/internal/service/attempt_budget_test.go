@@ -21,6 +21,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestHTTPRejectionRemainsSentAfterRetryDecision(t *testing.T) {
+	ctx, cancel := WithAttemptBudget(t.Context(), 2, time.Minute)
+	defer cancel()
+	finish, err := BeginGenerationAttempt(ctx, 9)
+	require.NoError(t, err)
+	finish(http.StatusInternalServerError, nil)
+	controller := attempt.New(1)
+	decision := DecideAttempt(ctx, &controller, attempt.Failure{AccountID: 9})
+	require.Equal(t, attempt.Accepted, decision.Acceptance)
+	record := AttemptBudgetFromContext(ctx).Snapshot()[0]
+	require.Equal(t, http.StatusInternalServerError, record.Status)
+	require.Equal(t, "rejected", record.Outcome)
+}
+
 type attemptBudgetHTTPUpstream struct {
 	sends  int
 	unsent bool
@@ -311,7 +325,7 @@ func TestAttemptBudgetWebSocketReconcileAndTerminal(t *testing.T) {
 	require.ErrorIs(t, CheckAttemptBudget(ctx), ErrAttemptOutcomeUnknown)
 	rejectAttemptWS(ctx, 7, 429)
 	require.NoError(t, CheckAttemptBudget(ctx))
-	require.Equal(t, attempt.NotSent, AttemptDecisionBudget(ctx).Acceptance)
+	require.Equal(t, attempt.Accepted, AttemptDecisionBudget(ctx).Acceptance)
 	require.NoError(t, generationWS(ctx, 8, msg, send))
 
 	calls := 0

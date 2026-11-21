@@ -257,6 +257,26 @@ func TestRegistrationAndUncertainReplacement(t *testing.T) {
 	require.NoError(t, s.Finish(ctx, e.RequestID, lifecycle.Terminal, false))
 }
 
+func TestDecisionDoesNotEraseObservedHTTPRejection(t *testing.T) {
+	db := database(t)
+	a, _ := identity(t, db)
+	ctx := scope.With(t.Context(), a)
+	s := journal.New(db)
+	in := request()
+	e, replay, err := s.Admit(ctx, in)
+	require.NoError(t, err)
+	require.False(t, replay)
+	dispatched, err := s.Dispatch(ctx, e, 1, 80)
+	require.NoError(t, err)
+	dispatched.Acceptance, dispatched.Outcome = attempt.Accepted, "rejected"
+	require.NoError(t, s.Observe(ctx, dispatched))
+	require.NoError(t, s.Decision(ctx, e.RequestID, attempt.AttemptDecision{AttemptNumber: 1, Acceptance: attempt.NotSent, Reason: "account_switch"}))
+	var acceptance, outcome string
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT acceptance,outcome FROM gateway_execution_attempts WHERE attempt_id=$1", dispatched.ID).Scan(&acceptance, &outcome))
+	require.Equal(t, "accepted", acceptance)
+	require.Equal(t, "rejected", outcome)
+}
+
 type discardAckConnector struct {
 	driver.Connector
 	prefix string

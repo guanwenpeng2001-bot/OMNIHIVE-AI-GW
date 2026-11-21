@@ -16,6 +16,7 @@ import (
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/core/scope"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/journal"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/gateway/execution/lifecycle"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/ctxkey"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/service"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -97,6 +98,10 @@ func testJournalFinalizes(t *testing.T, auth gin.HandlerFunc, assertFinished fun
 				require.True(t, ok)
 				p := service.GatewayRequestPlanFromContext(c.Request.Context())
 				requestID = p.Snapshot().ExecutionID
+				require.Equal(t, requestID, c.Writer.Header().Get("X-Request-ID"))
+				require.Equal(t, requestID, c.Request.Context().Value(ctxkey.RequestID))
+				require.Equal(t, requestID, c.Writer.Header().Get("X-Request-ID"))
+				require.Equal(t, requestID, c.Request.Context().Value(ctxkey.RequestID))
 				p.Acquire(func() { releases.Add(1) })
 				if exit == "panic" {
 					panic("fixture")

@@ -115,7 +115,8 @@ func (s *Postgres) Decision(ctx context.Context, id string, d attempt.AttemptDec
 		return err
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE gateway_execution_attempts SET decision=CASE WHEN abandoned_uncertain THEN decision ELSE $3 END,abandoned_uncertain=abandoned_uncertain OR $4,
- acceptance=CASE WHEN abandoned_uncertain OR $4 THEN 'unknown' ELSE $5 END,
+ acceptance=CASE WHEN abandoned_uncertain OR $4 THEN 'unknown'
+                 WHEN acceptance IN ('accepted','rejected') THEN acceptance ELSE $5 END,
  outcome=CASE WHEN $4 THEN 'unknown' ELSE outcome END WHERE request_id=$1 AND ordinal=$2 AND dispatched_at IS NOT NULL`, id, d.AttemptNumber, body, d.AbandonedUncertain, d.Acceptance)
 	return updated(result, err)
 }

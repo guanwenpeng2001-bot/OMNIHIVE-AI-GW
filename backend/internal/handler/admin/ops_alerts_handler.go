@@ -408,6 +408,7 @@ func (h *OpsHandler) GetAlertEvent(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	ev.ErrorsURL = "/api/v1/admin/ops/requests?kind=error"
 	response.Success(c, ev)
 }
 
@@ -610,6 +611,9 @@ func (h *OpsHandler) ListAlertEvents(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	for _, event := range events {
+		event.ErrorsURL = "/api/v1/admin/ops/requests?kind=error"
 	}
 	response.Success(c, events)
 }

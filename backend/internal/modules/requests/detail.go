@@ -20,6 +20,7 @@ type detailRow struct {
 	origin                       string
 	effectiveModel               *string
 	journalID, priceVersion      *string
+	clientCorrelationID          *string
 	ended, settled               *time.Time
 	receiptID, usageID           *int64
 	receiptAttemptID, completion *string
@@ -40,7 +41,7 @@ func lookup(ctx context.Context, tx *sql.Tx, p Projection, id string) (detailRow
 SELECT `+summaryColumns+`, api_key_id, last_attempt_ordinal, actor_id, owner_id, origin, effective_model,
        journal_id::text, price_version, observed_finish, settled_at,
        observed_receipt_id, observed_usage_id, receipt_attempt_id::text, completion_state,
-       receipt_state, funding_source, pricing_state, response_state, usage_duration_ms, usage_ttft_ms,
+       receipt_state, client_correlation_id, funding_source, pricing_state, response_state, usage_duration_ms, usage_ttft_ms,
        COALESCE(usage_duration_ms, ops_duration_ms), COALESCE(usage_ttft_ms, ops_ttft_ms),
        routing_latency_ms, ops_account_id, upstream_status_code,
        jsonb_build_object('InputTokens', usage_json->'InputTokens', 'OutputTokens', usage_json->'OutputTokens',
@@ -50,7 +51,7 @@ FROM projected`, p.WorkspaceID, p.ProjectID, time.Now().UTC(), p.Finance, id).Sc
 		append(row.targets(), &row.key, &row.lastAttempt, &row.actor, &row.owner, &row.origin, &row.effectiveModel,
 			&row.journalID, &row.priceVersion, &row.ended, &row.settled,
 			&row.receiptID, &row.usageID, &row.receiptAttemptID, &row.completion,
-			&row.receiptState, &row.source, &row.pricingState, &row.responseState, &row.usageDuration, &row.usageTTFT,
+			&row.receiptState, &row.clientCorrelationID, &row.source, &row.pricingState, &row.responseState, &row.usageDuration, &row.usageTTFT,
 			&row.duration, &row.ttft,
 			&row.routeLatency, &row.opsAccount, &row.upstreamStatus,
 			&row.usageJSON, &row.inputTokens, &row.outputTokens)...)
@@ -73,7 +74,8 @@ func (s *Store) Detail(ctx context.Context, p Projection, id string) (Detail, er
 	}
 	out := Detail{
 		Summary: item, WorkspaceID: p.WorkspaceID, ProjectID: p.ProjectID, ActorID: row.actor,
-		APIKeyID: row.key, KeyOwnerID: row.owner, Origin: row.origin, Action: action(item.Protocol), EffectiveModel: row.effectiveModel,
+		ClientCorrelationID: row.clientCorrelationID,
+		APIKeyID:            row.key, KeyOwnerID: row.owner, Origin: row.origin, Action: action(item.Protocol), EffectiveModel: row.effectiveModel,
 		EndedAt: utc(row.ended), Timings: Timings{Route: row.routeLatency, UpstreamTTFT: observedMS(row.ttft), Total: observedMS(row.duration)},
 		Timeline: []Milestone{}, Attempts: []Attempt{}, AbandonedAttempts: []Attempt{}, Usage: row.usage(),
 		Route: Route{ExplainURL: p.RequestURL(id) + "/route-explain"}, TaskIDs: []string{},
@@ -202,6 +204,14 @@ ORDER BY a.ordinal`, p.WorkspaceID, p.ProjectID, r.ID, p.Connections)
 		a.Conversion = decodeConversion(plan)
 		a.Outcome = "unknown"
 		identityRedacted = identityRedacted || (account != nil && a.ConnectionID == nil)
+		// A terminal Ops observation proves the final attempt received an HTTP
+		// response even when a later retry decision recorded not_sent.
+		terminalObserved := lastAttemptEvidence(r, d, a.Number, account, decisionReason)
+		if terminalObserved {
+			a.Acceptance = "accepted"
+			a.Outcome = d.Outcome
+			a.Status = r.upstreamStatus
+		}
 		if a.AbandonedUncertain {
 			d.AbandonedAttempts = append(d.AbandonedAttempts, a)
 			d.Diagnostics = append(d.Diagnostics, Diagnostic{Reason: "ABANDONED_ACCEPTANCE_UNKNOWN", AttemptID: &a.ID})
@@ -237,7 +247,7 @@ ORDER BY a.ordinal`, p.WorkspaceID, p.ProjectID, r.ID, p.Connections)
 		case last && d.Outcome == "running":
 			a.Outcome = "running"
 		}
-		if last && (d.Outcome == "failed" || d.Outcome == "interrupted") && account != nil && r.opsAccount != nil &&
+		if !terminalObserved && last && (d.Outcome == "failed" || d.Outcome == "interrupted") && account != nil && r.opsAccount != nil &&
 			*account == *r.opsAccount && decisionReason == nil {
 			a.Status = r.upstreamStatus
 			if a.Outcome == "unknown" {
@@ -256,6 +266,11 @@ ORDER BY a.ordinal`, p.WorkspaceID, p.ProjectID, r.ID, p.Connections)
 		d.Redactions = append(d.Redactions, "connection_identity")
 	}
 	return rows.Err()
+}
+
+func lastAttemptEvidence(r detailRow, d *Detail, number int, account *int64, decisionReason *string) bool {
+	return r.lastAttempt != nil && *r.lastAttempt == number && r.upstreamStatus != nil && r.opsAccount != nil && account != nil && *account == *r.opsAccount && decisionReason == nil &&
+		(d.Outcome == "failed" || d.Outcome == "interrupted")
 }
 
 func (r detailRow) readBilling(ctx context.Context, tx *sql.Tx, p Projection, d *Detail) error {

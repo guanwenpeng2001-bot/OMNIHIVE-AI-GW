@@ -25,6 +25,7 @@ const observations = `
            COALESCE(r.usage_json->>'DurationMs', u.duration_ms::text) AS usage_duration_ms,
            COALESCE(r.usage_json->>'FirstTokenMs', u.first_token_ms::text) AS usage_ttft_ms,
            o.duration_ms::text AS ops_duration_ms, o.time_to_first_token_ms::text AS ops_ttft_ms,
+           COALESCE(NULLIF(a.legacy_id, ''), a.id) AS client_correlation_id,
            o.routing_latency_ms, o.status_code, o.upstream_status_code, o.account_id AS ops_account_id,
            o.error_owner, o.stream, o.created_at AS ops_at
     FROM anchors a
