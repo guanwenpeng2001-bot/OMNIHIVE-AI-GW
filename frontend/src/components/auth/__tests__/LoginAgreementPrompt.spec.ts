@@ -102,4 +102,44 @@ describe('E1-1 LoginAgreementPrompt', () => {
     expect(wrapper.find('#login-agreement-consent').exists()).toBe(false)
     expect(wrapper.find('.auth-legal-actions').exists()).toBe(true)
   })
+
+  it('localizes default Chinese backend legal document titles when locale is English [E1-9]', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/legal/:documentId', name: 'LegalDocument', component: { template: '<div />' } }]
+    })
+    await router.push('/')
+    await router.isReady()
+    const i18n = createI18n({
+      legacy: false,
+      locale: 'en',
+      messages: compiledMessages
+    })
+
+    const wrapper = mount(LoginAgreementPrompt, {
+      props: {
+        enabled: true,
+        accepted: false,
+        mode: 'checkbox',
+        visible: false,
+        documents: [
+          { id: 'terms', title: '服务条款', content_md: '' },
+          { id: 'privacy-policy', title: '隐私政策', content_md: '' }
+        ]
+      },
+      global: {
+        plugins: [router, i18n],
+        stubs: {
+          Icon: true,
+          Teleport: true
+        }
+      }
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('OmniHive Terms of Service')
+    expect(wrapper.text()).toContain('OmniHive Privacy Policy')
+    expect(wrapper.text()).not.toContain('服务条款')
+    expect(wrapper.text()).not.toContain('隐私政策')
+  })
 })

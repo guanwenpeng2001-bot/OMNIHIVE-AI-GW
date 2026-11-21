@@ -23,7 +23,7 @@
               rel="noopener noreferrer"
               class="font-medium text-[var(--brand-text)] underline-offset-4 transition hover:underline"
             >
-              {{ doc.title }}
+              {{ localizedDocumentTitle(doc) }}
             </RouterLink>
             <span v-if="index < displayedDocuments.length - 1">{{ t('legal.loginAgreementPrompt.documentSeparator') }}</span>
           </template>
@@ -89,7 +89,7 @@
                   <Icon :name="documentIcon(index, doc.title)" size="sm" />
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-semibold text-[var(--foreground)]">{{ doc.title }}</span>
+                  <span class="block truncate text-sm font-semibold text-[var(--foreground)]">{{ localizedDocumentTitle(doc) }}</span>
                 </span>
                 <span class="flex h-8 w-8 shrink-0 items-center justify-center text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]">
                   <Icon name="document" size="sm" />
@@ -97,7 +97,7 @@
               </button>
             </div>
             <section v-if="selectedDocument" class="mt-5 border-t border-[var(--border)] pt-5" aria-labelledby="agreement-document-title">
-              <h3 id="agreement-document-title" class="mb-3 text-lg font-semibold">{{ selectedDocument.title }}</h3>
+              <h3 id="agreement-document-title" class="mb-3 text-lg font-semibold">{{ localizedDocumentTitle(selectedDocument) }}</h3>
               <div
                 v-if="selectedDocumentIsTemplate"
                 data-testid="agreement-template-notice"
@@ -159,7 +159,17 @@ import {
 } from '@/features/public/legal'
 import type { LoginAgreementDocument } from '@/types'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+function localizedDocumentTitle(doc: LoginAgreementDocument): string {
+  const rawTitle = (doc.title || '').trim()
+  const activeLocale = String(locale.value || '').toLowerCase()
+  const slotKeys = getLegalSlotTemplateKeys(doc.id || '')
+  if (slotKeys && (!rawTitle || (!activeLocale.startsWith('zh') && /[\u4e00-\u9fff]/.test(rawTitle)))) {
+    return t(slotKeys.titleKey)
+  }
+  return rawTitle
+}
 
 const props = withDefaults(defineProps<{
   enabled?: boolean
