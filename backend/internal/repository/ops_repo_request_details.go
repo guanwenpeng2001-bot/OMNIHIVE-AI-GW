@@ -59,7 +59,7 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 			addCondition(fmt.Sprintf("model = $%d", len(args)+1), model)
 		}
 		if requestID := strings.TrimSpace(filter.RequestID); requestID != "" {
-			addCondition(fmt.Sprintf("request_id = $%d", len(args)+1), requestID)
+			addCondition(fmt.Sprintf("(request_id = $%[1]d OR legacy_request_id = $%[1]d)", len(args)+1), requestID)
 		}
 		if q := strings.TrimSpace(filter.Query); q != "" {
 			like := "%" + strings.ToLower(q) + "%"
@@ -91,6 +91,7 @@ WITH combined AS (
     'success'::TEXT AS kind,
     ul.created_at AS created_at,
     ul.request_id AS request_id,
+    NULL::TEXT AS legacy_request_id,
     COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform,
     ul.model AS model,
     ul.duration_ms AS duration_ms,
@@ -118,6 +119,7 @@ WITH combined AS (
     'error'::TEXT AS kind,
     o.created_at AS created_at,
     COALESCE(execution.canonical_request_id, NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
+    o.request_id AS legacy_request_id,
     ` + canonicalPlatformSQL("COALESCE(NULLIF(o.platform, ''), ("+usageLogSourcePlatformExpr+"), '')") + ` AS platform,
     o.model AS model,
     o.duration_ms AS duration_ms,

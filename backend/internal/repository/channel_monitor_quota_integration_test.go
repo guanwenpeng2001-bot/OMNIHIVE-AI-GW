@@ -21,15 +21,13 @@ import (
 // 因此本文件用 integrationEntClient 直连 + t.Cleanup 显式清理，不走 testEntTx 回滚。
 
 func TestChannelMonitorQuotaModeRoundTrip(t *testing.T) {
+	prepareRepositoryFixtures(t)
 	ctx := context.Background()
 	repo := NewChannelMonitorRepository(integrationEntClient, integrationDB)
 
 	account := mustCreateAccount(t, integrationEntClient, &service.Account{
 		Name: "quota-linked-kimi", Platform: domain.PlatformKimi, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-kimi", "account_mode": service.AccountModeCoding},
-	})
-	t.Cleanup(func() {
-		_ = integrationEntClient.Account.DeleteOneID(account.ID).Exec(ctx)
 	})
 
 	created := &service.ChannelMonitor{

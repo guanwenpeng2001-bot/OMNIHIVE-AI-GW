@@ -262,6 +262,7 @@ jobs:
           CATALOG_EVENT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           WORKSPACE_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           CREDENTIAL_DRAFT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
+          MCP_GRANT_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           CREDENTIAL_SECRET_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           ACCOUNT_EXTRA_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable
           ACCOUNT_WORKFLOW_TEST_DSN: postgres://omni_fixture@127.0.0.1:55480/job_test?sslmode=disable

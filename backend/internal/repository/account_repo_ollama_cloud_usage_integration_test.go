@@ -16,7 +16,7 @@ import (
 func TestListDueOllamaCloudUsageAccountsOrderingLimitAndProxyHydration(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	proxy := mustCreateProxy(t, tx.Client(), &service.Proxy{
 		Name: "ollama-due-proxy", Protocol: "http", Host: "127.0.0.1", Port: 3128,
@@ -94,7 +94,7 @@ func TestListDueOllamaCloudUsageAccountsOrderingLimitAndProxyHydration(t *testin
 func TestListDueOllamaCloudUsageAccountsParsesAllRFC3339Precisions(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Date(2026, time.July, 22, 14, 0, 0, 0, time.UTC)
 	activity := now.Add(-30 * time.Second)
 
@@ -150,7 +150,7 @@ func TestListDueOllamaCloudUsageAccountsParsesAllRFC3339Precisions(t *testing.T)
 func TestListDueOllamaCloudUsageAccountsUsesGroupMaxLastUsedAndFailsOpen(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Date(2026, time.July, 22, 14, 0, 0, 0, time.UTC)
 	fetched := now.Add(-30 * time.Minute)
 	older := now.Add(-10 * time.Minute)
@@ -226,7 +226,7 @@ func TestLockAndMergeAccountProbeExtraCoalescesNullableOllamaGroupIdentity(t *te
 		Credentials: map[string]any{"api_key": "sk-no-base-url"},
 		Extra:       map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true},
 	})
-	loaded, err := newAccountRepositoryWithSQL(tx.Client(), tx, nil).GetByID(ctx, account.ID)
+	loaded, err := fixtureAccountRepository(t, tx.Client(), tx, nil).GetByID(ctx, account.ID)
 	require.NoError(t, err)
 
 	merged, err := lockAndMergeAccountProbeExtra(ctx, tx.Client(), loaded, nil, nil)
@@ -239,7 +239,7 @@ func TestLockAndMergeAccountProbeExtraCoalescesNullableOllamaGroupIdentity(t *te
 func TestOllamaCloudUsageGroupWritesAreAtomicAcrossPlatformsAndURLVariants(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	create := func(name, platform, apiKey, baseURL string) *service.Account {
 		t.Helper()
 		return mustCreateAccount(t, tx.Client(), &service.Account{
@@ -284,7 +284,7 @@ func TestOllamaCloudUsageGroupWritesAreAtomicAcrossPlatformsAndURLVariants(t *te
 		secondLoaded.Extra[service.OllamaCloudUsageSnapshotExtraKey].(map[string]any)["status"])
 
 	staleSecond := secondLoaded
-	require.NoError(t, repo.UpdateCredentials(ctx, second.ID, map[string]any{
+	require.NoError(t, repo.UpdateCredentialsCAS(ctx, secondLoaded, map[string]any{
 		"api_key": "rotated-key", "base_url": "https://ollama.com",
 	}))
 	require.ErrorIs(t, repo.DisableOllamaCloudUsageAutoRefresh(ctx, staleSecond), service.ErrOllamaCloudUsageIdentityChanged)
@@ -304,10 +304,11 @@ func TestOllamaCloudUsageGroupWritesAreAtomicAcrossPlatformsAndURLVariants(t *te
 }
 
 func TestConcurrentOllamaCloudUsageSaveAndDeleteSerializeGroupState(t *testing.T) {
+	prepareRepositoryFixtures(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	client := testEntClient(t)
-	repo := newAccountRepositoryWithSQL(client, integrationDB, nil)
+	repo := fixtureAccountRepository(t, client, integrationDB, nil)
 	suffix := time.Now().UnixNano()
 	apiKey := fmt.Sprintf("ollama-concurrent-%d", suffix)
 	create := func(platform string) *service.Account {
@@ -323,9 +324,7 @@ func TestConcurrentOllamaCloudUsageSaveAndDeleteSerializeGroupState(t *testing.T
 	}
 	first := create(service.PlatformOpenAI)
 	second := create(service.PlatformAnthropic)
-	t.Cleanup(func() {
-		_, _ = integrationDB.ExecContext(context.Background(), "DELETE FROM accounts WHERE id IN ($1, $2)", first.ID, second.ID)
-	})
+
 	anchor, err := repo.GetByID(ctx, first.ID)
 	require.NoError(t, err)
 
@@ -390,7 +389,7 @@ func accountIDs(accounts []service.Account) []int64 {
 func TestOllamaCloudUsageEligibilityExtendsToCNOpenAICompatPlatforms(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Now().UTC()
 	activity := now.Add(-time.Minute)
 	create := func(name, platform, baseURL string) *service.Account {
@@ -451,7 +450,7 @@ func TestOllamaCloudUsageEligibilityExtendsToCNOpenAICompatPlatforms(t *testing.
 func TestUpdateCredentialsPlainCNAPIKeyAccountCleanupIsSemanticallyEquivalent(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name: "plain-kimi-apikey", Platform: service.PlatformKimi, Type: service.AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "sk-moonshot", "base_url": "https://api.moonshot.cn"},
@@ -462,7 +461,9 @@ func TestUpdateCredentialsPlainCNAPIKeyAccountCleanupIsSemanticallyEquivalent(t 
 		},
 	})
 
-	require.NoError(t, repo.UpdateCredentials(ctx, account.ID, map[string]any{
+	observed, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.NoError(t, repo.UpdateCredentialsCAS(ctx, observed, map[string]any{
 		"api_key": "sk-moonshot-rotated", "base_url": "https://api.moonshot.cn",
 	}))
 
@@ -479,7 +480,7 @@ func TestUpdateCredentialsPlainCNAPIKeyAccountCleanupIsSemanticallyEquivalent(t 
 func TestOllamaCloudUsageCredentialAndBulkUpdatesPreserveManagedStateOnlyWhenSafe(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Now().UTC()
 	newAccount := func(name string) *service.Account {
 		return mustCreateAccount(t, tx.Client(), &service.Account{
@@ -530,7 +531,7 @@ func TestOllamaCloudUsageCredentialAndBulkUpdatesPreserveManagedStateOnlyWhenSaf
 func TestProxyIdentityUpdateInvalidatesOllamaSnapshotAndRejectsInFlightCAS(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	accountRepo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	accountRepo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	proxyRepo := newProxyRepositoryWithSQL(tx.Client(), tx)
 	proxy := mustCreateProxy(t, tx.Client(), &service.Proxy{
 		Name: "ollama-identity-proxy", Protocol: "http", Host: "old.example", Port: 8080,
@@ -576,7 +577,7 @@ func TestProxyIdentityUpdateInvalidatesOllamaSnapshotAndRejectsInFlightCAS(t *te
 func TestUpdateCredentialsUnchangedCredentialsPreserveManagedExtra(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 
 	probeAccount := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name: "openai-probe-unchanged", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
@@ -631,7 +632,7 @@ func TestUpdateCredentialsUnchangedCredentialsPreserveManagedExtra(t *testing.T)
 func TestListDueOllamaCloudUsageAccountsSQLDueRulesMatchService(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	now := time.Date(2026, time.July, 25, 12, 0, 0, 0, time.UTC)
 	debounce := time.Minute
 	maxWait := time.Hour

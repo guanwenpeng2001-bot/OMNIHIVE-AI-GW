@@ -32,7 +32,7 @@ func TestManagedAccountGroupsRemainEditable(t *testing.T) {
 	for _, ids := range [][]int64{{groupID}, {}} {
 		updated, err := admin.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{GroupIDs: &ids})
 		require.NoError(t, err)
-		require.Equal(t, ids, updated.GroupIDs)
+		require.ElementsMatch(t, ids, updated.GroupIDs)
 		var version int
 		var verified sql.NullString
 		require.NoError(t, database.QueryRowContext(ctx, "SELECT version,verified_id FROM provider_connections WHERE account_id=$1", account.ID).Scan(&version, &verified))

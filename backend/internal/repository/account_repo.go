@@ -686,6 +686,11 @@ func (r *accountRepository) updateLockedAccount(
 	if err != nil {
 		return nil, err
 	}
+	// The probe merge compares stored documents before a secret rotation
+	// advances the reference version. Invalidate its snapshot on that change too.
+	if service.CredentialVersion(current.Credentials) != service.CredentialVersion(persistedCredentials) {
+		delete(extra, service.UpstreamBillingProbeExtraKey)
+	}
 	beforeRuntime := accountEntityToService(current)
 	incomingRuntime := *account
 	// The encrypted reference version, including a just-rotated management

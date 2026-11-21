@@ -15,7 +15,7 @@ import (
 func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:        "probe-update-preserve",
 		Platform:    service.PlatformOpenAI,
@@ -49,7 +49,7 @@ func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	initialRate := 0.1
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-rate-concurrent-edit",
@@ -87,7 +87,7 @@ func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	initialRate := 0.25
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-rate-sync",
@@ -158,7 +158,7 @@ func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 func TestAccountUpdatePreservesConcurrentProbeEnableFlag(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:        "probe-update-enable",
 		Platform:    service.PlatformOpenAI,
@@ -185,7 +185,7 @@ func TestAccountUpdatePreservesConcurrentProbeEnableFlag(t *testing.T) {
 func TestAccountUpdateClearsProbeSnapshotWhenIdentityChanges(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:        "probe-update-identity",
 		Platform:    service.PlatformOpenAI,
@@ -210,7 +210,7 @@ func TestAccountUpdateClearsProbeSnapshotWhenIdentityChanges(t *testing.T) {
 func TestBulkUpdateAndCredentialUpdateDeleteProbeKey(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	newAccount := func(name string) *service.Account {
 		return mustCreateAccount(t, tx.Client(), &service.Account{
 			Name:        name,
@@ -234,7 +234,9 @@ func TestBulkUpdateAndCredentialUpdateDeleteProbeKey(t *testing.T) {
 	require.NotContains(t, got.Extra, service.UpstreamBillingProbeExtraKey)
 
 	credentialAccount := newAccount("probe-credentials-clear")
-	require.NoError(t, repo.UpdateCredentials(ctx, credentialAccount.ID, map[string]any{"api_key": "sk-new"}))
+	observed, err := repo.GetByID(ctx, credentialAccount.ID)
+	require.NoError(t, err)
+	require.NoError(t, repo.UpdateCredentialsCAS(ctx, observed, map[string]any{"api_key": "sk-new"}))
 	got, err = repo.GetByID(ctx, credentialAccount.ID)
 	require.NoError(t, err)
 	require.NotContains(t, got.Extra, service.UpstreamBillingProbeExtraKey)
@@ -256,7 +258,7 @@ func TestProbeSnapshotCASIncludesLoadedEnabledState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			tx := testEntTx(t)
-			repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+			repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 			account := mustCreateAccount(t, tx.Client(), &service.Account{
 				Name:        "probe-enabled-cas-" + tt.name,
 				Platform:    service.PlatformOpenAI,
@@ -295,7 +297,7 @@ func TestProbeSnapshotCASIncludesLoadedEnabledState(t *testing.T) {
 func TestProbeSnapshotCASProtectsManualRateAfterSyncDisabled(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
-	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	repo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	initialRate := 0.25
 	account := mustCreateAccount(t, tx.Client(), &service.Account{
 		Name:           "probe-sync-cas",
@@ -351,7 +353,7 @@ func TestProxyIdentityUpdateInvalidatesProbeAndRejectsInFlightSnapshot(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			tx := testEntTx(t)
-			accountRepo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+			accountRepo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 			proxyRepo := newProxyRepositoryWithSQL(tx.Client(), tx)
 			proxy := mustCreateProxy(t, tx.Client(), &service.Proxy{
 				Name:     "probe-proxy",
@@ -432,7 +434,7 @@ func TestSweepExpiredProxyWithoutFallbackInvalidatesOnlyExistingProbeSnapshot(t 
 	ctx := context.Background()
 	tx := testEntTx(t)
 	proxyRepo := newProxyRepositoryWithSQL(tx.Client(), tx)
-	accountRepo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	accountRepo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	past := time.Now().Add(-time.Hour)
 	proxy := &service.Proxy{
 		Name:           "expired-probe-proxy-none",
@@ -490,7 +492,7 @@ func TestSweepExpiredProxyFallbackRerouteDeletesProbeSnapshot(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
 	proxyRepo := newProxyRepositoryWithSQL(tx.Client(), tx)
-	accountRepo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	accountRepo := fixtureAccountRepository(t, tx.Client(), tx, nil)
 	past := time.Now().Add(-time.Hour)
 	proxy := &service.Proxy{
 		Name:           "expired-probe-proxy-direct",
