@@ -1209,6 +1209,13 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		}
 		account = credAccount
 	}
+	if account.Platform == PlatformWorkBuddy {
+		token := workBuddyToken(account)
+		if token == "" {
+			return "", "", errors.New("WorkBuddy credential is missing")
+		}
+		return token, account.Type, nil
+	}
 	switch account.Type {
 	case AccountTypeOAuth:
 		if account.IsOpenAIAgentIdentity() {

@@ -361,7 +361,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	}
 	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
 	if len(body) > 0 {
-		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok(), account.Platform)
+		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok(), account.Platform, workBuddySiteFor(account).ID)
 		if parseErr == nil {
 			catalog.Metadata = directMetadata
 			if len(directMetadata) > 0 {
@@ -1076,6 +1076,9 @@ func reasoningLevelsFromModelsDevOptions(options []modelsDevReasoningOption) []s
 }
 
 func upstreamModelRegistryBaseURL(account *Account) string {
+	if account != nil && account.Platform == PlatformWorkBuddy {
+		return workBuddyEndpoint(account)
+	}
 	if account == nil {
 		return ""
 	}
@@ -1339,10 +1342,16 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return s.fetchQianwenModelPages(req, account)
 	}
 
+	if account.Platform == PlatformWorkBuddy {
+		return s.fetchWorkBuddyModels(req, account)
+	}
 	return s.fetchCompleteModelPages(req, account)
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Platform == PlatformWorkBuddy {
+		return s.buildWorkBuddyModelsRequest(ctx, account)
+	}
 	if err := nativeProfileDiscoveryError(account); err != nil {
 		return nil, err
 	}
@@ -1981,6 +1990,13 @@ func extractGrokUpstreamModelIDs(body []byte) ([]string, error) {
 }
 
 func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]string, map[string]UpstreamModelMetadata, error) {
+	if len(platform) > 0 && platform[0] == PlatformWorkBuddy {
+		site := "cn"
+		if len(platform) > 1 {
+			site = platform[1]
+		}
+		return extractWorkBuddyModelCatalog(body, site)
+	}
 	entries, err := extractUpstreamModelRawEntries(body)
 	if err != nil {
 		return nil, nil, err

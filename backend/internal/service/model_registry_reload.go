@@ -41,6 +41,10 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 		return nil, err
 	}
 	for _, preset := range definitions {
+		// WorkBuddy adapter candidates are not part of this signed release.
+		if preset.Platform == PlatformWorkBuddy {
+			continue
+		}
 		profile := preset.ProviderProfile
 		if profile == "native" {
 			profile = preset.Platform

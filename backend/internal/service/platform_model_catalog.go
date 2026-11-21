@@ -100,12 +100,15 @@ func parsePlatformModelPresets(body []byte) ([]PlatformModelPreset, error) {
 	}
 	for _, platform := range domain.ConcretePlatforms() {
 		// Table providers may use manual declarations without vendor presets.
-		if IsCompatibleProvider(platform) {
+		if IsCompatibleProvider(platform) || platform == PlatformWorkBuddy {
 			continue
 		}
 		if !covered[platform] {
 			return nil, fmt.Errorf("missing preset coverage: %s", platform)
 		}
+	}
+	if !covered[PlatformWorkBuddy] {
+		presets = append(presets, workBuddyModelPresets()...)
 	}
 	return presets, nil
 }

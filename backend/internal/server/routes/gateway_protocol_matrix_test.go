@@ -64,13 +64,13 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					wireEndpoint := endpoint
 					if endpoint == "messages" {
 						switch descriptor.ID {
-						case service.PlatformMistral:
+						case service.PlatformMistral, service.PlatformWorkBuddy:
 							wireEndpoint = "chat_completions"
 						case service.PlatformVolcengine, service.PlatformQianfan:
 							wireEndpoint = "responses"
 						}
 					}
-					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral) {
+					if endpoint == "responses" && (descriptor.ID == service.PlatformCursor || descriptor.ID == service.PlatformHunyuan || descriptor.ID == service.PlatformMistral || descriptor.ID == service.PlatformWorkBuddy) {
 						wireEndpoint = "chat_completions"
 					}
 					if endpoint == "responses" && descriptor.ID == service.PlatformGemini {
@@ -80,7 +80,7 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 						switch descriptor.ID {
 						case service.PlatformAnthropic, service.PlatformBedrock:
 							wireEndpoint = "messages"
-						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan:
+						case service.PlatformCursor, service.PlatformMistral, service.PlatformOpenRouter, service.PlatformHunyuan, service.PlatformWorkBuddy:
 							wireEndpoint = "chat_completions"
 						default:
 							wireEndpoint = "responses"

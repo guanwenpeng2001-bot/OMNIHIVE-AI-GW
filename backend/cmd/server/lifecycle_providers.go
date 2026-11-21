@@ -224,7 +224,7 @@ func provideBackupService(s *process.Supervisor, settingRepo service.SettingRepo
 	return svc
 }
 
-func provideTokenRefreshService(s *process.Supervisor, accountRepo service.AccountRepository,
+func provideTokenRefreshService(workBuddyOAuth *service.WorkBuddyOAuthService, s *process.Supervisor, accountRepo service.AccountRepository,
 	oauthService *service.OAuthService,
 	openaiOAuthService *service.OpenAIOAuthService,
 	geminiOAuthService *service.GeminiOAuthService,
@@ -240,6 +240,7 @@ func provideTokenRefreshService(s *process.Supervisor, accountRepo service.Accou
 	runtimeBlocker service.AccountRuntimeBlocker) *service.TokenRefreshService {
 	svc := service.NewTokenRefreshService(accountRepo, oauthService, openaiOAuthService, geminiOAuthService, antigravityOAuthService, cacheInvalidator, schedulerCache, cfg, tempUnschedCache, grokOAuthService)
 
+	svc.SetWorkBuddyOAuthService(workBuddyOAuth)
 	svc.SetPrivacyDeps(privacyClientFactory, proxyRepo)
 
 	svc.SetRefreshAPI(refreshAPI)

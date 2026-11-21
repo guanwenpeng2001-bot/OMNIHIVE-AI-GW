@@ -54,10 +54,10 @@ func supported(provider, auth string) bool {
 			domain.PlatformAnthropic, domain.PlatformGemini, domain.PlatformOpenAI, domain.PlatformGrok,
 			domain.PlatformKimi, domain.PlatformZhipu, domain.PlatformDeepseek, domain.PlatformMiniMax,
 			domain.PlatformOpenCodeGo, domain.PlatformQianwen, domain.PlatformCommandCode, domain.PlatformVolcengine,
-			domain.PlatformQianfan, domain.PlatformHunyuan, domain.PlatformMistral, domain.PlatformOpenRouter,
+			domain.PlatformQianfan, domain.PlatformHunyuan, domain.PlatformMistral, domain.PlatformOpenRouter, domain.PlatformWorkBuddy,
 		}, provider)
 	case "oauth":
-		return slices.Contains([]string{"anthropic", "gemini", "openai", "grok", "cursor", "antigravity"}, provider)
+		return slices.Contains([]string{"anthropic", "gemini", "openai", "grok", "cursor", "antigravity", "workbuddy"}, provider)
 	case "bedrock":
 		return provider == "bedrock"
 	case "setup-token":

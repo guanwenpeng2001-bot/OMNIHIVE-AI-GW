@@ -693,6 +693,7 @@ var runtimeServiceProviders = wire.NewSet(
 	wire.Bind(new(service.AccountRuntimeBlocker), new(*service.OpenAIGatewayService)),
 	service.ProvideOAuthServiceWithEgress,
 	service.ProvideOpenAIOAuthService,
+	service.NewWorkBuddyOAuthService,
 	service.ProvideGrokOAuthService,
 	wire.Bind(new(service.GrokOAuthTokenService), new(*service.GrokOAuthService)),
 	service.ProvideGeminiOAuthServiceWithEgress,

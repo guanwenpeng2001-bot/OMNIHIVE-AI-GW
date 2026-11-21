@@ -57,7 +57,7 @@ func (UserPlatformQuota) Fields() []ent.Field {
 					"runapi", "shengsuanyun", "siliconflow_cn", "siliconflow_global", "soleapi",
 					"soshow", "sssaicode", "stepfun_api", "stepfun_api_intl", "stepfun_plan",
 					"stepfun_plan_intl", "subrouter", "sudocode_chat", "sudocode_us", "teamorouter",
-					"teamorouter_com", "therouter", "together", "xycai", "zetaapi", "github_copilot", "nous_research", "astron_token", "mimo_token_sg", "mimo_token_eu", "kaggle":
+					"teamorouter_com", "therouter", "together", "xycai", "zetaapi", "github_copilot", "nous_research", "astron_token", "mimo_token_sg", "mimo_token_eu", "kaggle", "workbuddy":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)

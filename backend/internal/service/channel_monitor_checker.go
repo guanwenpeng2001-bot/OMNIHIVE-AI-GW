@@ -170,6 +170,7 @@ type providerAdapter struct {
 //nolint:gochecknoglobals // 适配器表是只读静态数据，初始化后不变更。
 var providerAdapters = map[string]providerAdapter{
 	MonitorProviderOpenAI: providerOpenAIChatAdapter,
+	PlatformWorkBuddy:     newOpenAICompatibleChatAdapter("/v2/chat/completions"),
 	MonitorProviderGrok:   providerGrokChatAdapter,
 	// 国产 3 家（配额模式引入）：均为 OpenAI 兼容 Chat Completions，
 	// 仅智谱路径前缀不同（/api/paas/v4/chat/completions）。
@@ -308,9 +309,33 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
+	if provider == PlatformWorkBuddy {
+		a := &Account{Platform: PlatformWorkBuddy, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": endpoint, "api_key": apiKey}}
+		body, err = prepareWorkBuddyChat(body)
+		if err != nil {
+			return "", "", 0, err
+		}
+		h := http.Header{}
+		for k, v := range headers {
+			h.Set(k, v)
+		}
+		applyWorkBuddyChatHeaders(h, a, body)
+		for k, v := range h {
+			headers[k] = v[0]
+		}
+		full = workBuddyEndpoint(a) + "/v2/chat/completions"
+	}
+
 	respBytes, status, err := postRawJSON(ctx, full, body, headers)
 	if err != nil {
 		return "", "", status, err
+	}
+	if provider == PlatformWorkBuddy && status >= 200 && status < 300 {
+		aggregated, aggregateErr := aggregateWorkBuddyChat(bytes.NewReader(respBytes))
+		if aggregateErr != nil {
+			return "", string(respBytes), status, aggregateErr
+		}
+		respBytes = aggregated
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil

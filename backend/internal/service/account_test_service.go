@@ -481,6 +481,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountP
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
+		if account.Platform == PlatformWorkBuddy {
+			testModelID = workBuddyModels(workBuddySiteFor(account).ID)[0].ID
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 
@@ -2117,6 +2120,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
 	payloadBytes, _ := json.Marshal(payload)
+	if account.Platform == PlatformWorkBuddy {
+		payloadBytes, _ = prepareWorkBuddyChat(payloadBytes)
+	}
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/chat/completions 测试连接"})
@@ -2134,6 +2140,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
+	if account.Platform == PlatformWorkBuddy {
+		applyWorkBuddyChatHeaders(req.Header, account, payloadBytes)
+	}
 
 	proxyURL, egressErr := account.EgressProxyURL(ctx)
 	if egressErr != nil {
@@ -3316,7 +3325,8 @@ func verifyConnectionRequest(req *http.Request, shared *http.Client, account *Ac
 		result.Detail = "Could not read the upstream model catalog within the response size limit."
 		return result
 	}
-	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform)
+	body = workBuddyConfigFallback(body, account)
+	models, _, err := extractUpstreamModelCatalog(body, account.IsGrok(), account.Platform, workBuddySiteFor(account).ID)
 	if err != nil {
 		result.DiscoveryReason = "PROBE_FAILED"
 		result.Detail = "Upstream returned an invalid model catalog."

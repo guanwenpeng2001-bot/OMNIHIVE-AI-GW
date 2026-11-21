@@ -73,7 +73,7 @@ func Schemas(provider, auth string) []Schema {
 				s.Actions = append(s.Actions, action)
 			}
 		}
-		if path := map[string]string{"anthropic": "accounts/generate-auth-url", "openai": "openai/generate-auth-url", "gemini": "gemini/oauth/auth-url", "antigravity": "antigravity/oauth/auth-url", "grok": "grok/oauth/auth-url"}[d.ID]; path != "" {
+		if path := map[string]string{"anthropic": "accounts/generate-auth-url", "openai": "openai/generate-auth-url", "gemini": "gemini/oauth/auth-url", "antigravity": "antigravity/oauth/auth-url", "grok": "grok/oauth/auth-url", "workbuddy": "workbuddy/oauth/start"}[d.ID]; path != "" {
 			s.Workflows = map[string]string{"oauth": "/api/v1/workspaces/{workspace_id}/" + path}
 		}
 		if d.ID == domain.PlatformCursor {
@@ -82,7 +82,10 @@ func Schemas(provider, auth string) []Schema {
 		if d.ID == domain.PlatformAnthropic {
 			s.Workflows["setup-token"] = "/api/v1/workspaces/{workspace_id}/accounts/generate-setup-token-url"
 		}
-		if len(s.Workflows) > 0 {
+		if d.ID == domain.PlatformWorkBuddy {
+			s.Workflows["poll"] = "/api/v1/workspaces/{workspace_id}/workbuddy/oauth/poll"
+		}
+		if len(s.Workflows) > 0 && d.ID != domain.PlatformWorkBuddy {
 			s.Workflows["apply"] = "/api/v1/workspaces/{workspace_id}/connections/{connection_id}/authorization"
 		}
 		list = append(list, s)

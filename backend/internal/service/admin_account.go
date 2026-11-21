@@ -2086,6 +2086,9 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 }
 
 func validateExpandedPlatformAccount(account *Account) error {
+	if account.Platform == PlatformWorkBuddy {
+		return normalizeWorkBuddyAccount(account)
+	}
 	if IsCompatibleProvider(account.Platform) {
 		if err := validateCompatibleAccount(account); err != nil {
 			return infraerrors.BadRequest("INVALID_COMPATIBLE_ACCOUNT", err.Error())
