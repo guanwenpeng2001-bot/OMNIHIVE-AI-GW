@@ -176,13 +176,21 @@ func TestCompatibleReviewHandlerUsageReceipts(t *testing.T) {
 							require.Equal(t, 200, rec.Code, rec.Body.String())
 							require.Contains(t, rec.Body.String(), "delivered")
 							require.EqualValues(t, 1, calls.Load(), "optional counters must never replay generation")
-							if stream {
+							incompleteBridge := stream && protocol == domain.APIProtocolChatCompletions && path != "/v1/chat/completions" && presence != "positive" && presence != "zero"
+							if incompleteBridge {
+								require.Contains(t, rec.Body.String(), map[string]string{"/v1/messages": "event: error", "/v1/responses": "event: response.failed"}[path])
+								require.NotContains(t, rec.Body.String(), map[string]string{"/v1/messages": "event: message_stop", "/v1/responses": "event: response.completed"}[path])
+							} else if stream {
 								require.Contains(t, rec.Body.String(), map[string]string{"/v1/chat/completions": "[DONE]", "/v1/messages": "message_stop", "/v1/responses": "response.completed"}[path])
 							}
 							require.Len(t, receipts.receipts, 1)
 							require.Empty(t, usage.logs, "receipt owns settlement, not a zero-valued direct log")
 							for _, receipt := range receipts.receipts {
-								require.Equal(t, "complete", receipt.CompletionState)
+								if incompleteBridge {
+									require.Equal(t, "interrupted", receipt.CompletionState)
+								} else {
+									require.Equal(t, "complete", receipt.CompletionState)
+								}
 								if presence == "missing" || presence == "partial" || presence == "output_only" {
 									require.Equal(t, service.UsageSettlementNeedsReview, receipt.State)
 									require.Equal(t, service.PricingStateUnpriced, receipt.Usage.PricingState)
