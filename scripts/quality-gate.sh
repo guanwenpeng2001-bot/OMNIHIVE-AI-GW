@@ -376,7 +376,9 @@ run_stage() {
   printf '%-16s %-4s %6ss  %s\n' "$name" "$status" "$duration" "${LOG_DIR}/${name}.log" | tee -a "$SUMMARY"
   if [[ "$status" == FAIL ]]; then
     echo "----- ${name} failure tail -----" >&2
-    grep -E '^smoke failed: ' "${LOG_DIR}/${name}.log" >&2 || true
+    if [[ "$name" == smoke && -s "${LOG_DIR}/smoke-failures.log" ]]; then
+      cat "${LOG_DIR}/smoke-failures.log" >&2
+    fi
     tail -n 40 "${LOG_DIR}/${name}.log" >&2 || true
     echo "-------------------------------" >&2
   fi
@@ -761,8 +763,14 @@ EOF
     fi
     if [[ ! -x "$script" ]]; then chmod +x "$script"; fi
     echo "+ bash ${script}"
-    if ! bash "$script"; then
+    local script_log
+    script_log="${LOG_DIR}/smoke-$(basename "$(dirname "$script")").log"
+    if ! bash "$script" 2>&1 | tee "$script_log"; then
       echo "smoke failed: ${script}" >&2
+      {
+        echo "smoke failed: ${script}"
+        tail -n 25 "$script_log" | sed 's/^/  | /'
+      } >>"${LOG_DIR}/smoke-failures.log"
       failed=1
     fi
   done < <(find contracts/migrations -mindepth 2 -maxdepth 2 -name smoke.sh -print0 | sort -z)
