@@ -722,7 +722,9 @@ func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutChangeRebuildsClient() {
 	entry2, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
 	require.NoError(s.T(), err)
 	require.NotSame(s.T(), entry1, entry2, "OpenAI header timeout changes must rebuild cached client")
-	transport := entry2.client.Transport.(*httpclient.PublicTransport).Base
+	publicTransport, ok := entry2.client.Transport.(*httpclient.PublicTransport)
+	require.True(s.T(), ok, "expected *httpclient.PublicTransport")
+	transport := publicTransport.Base
 	require.Equal(s.T(), 1800*time.Second, transport.ResponseHeaderTimeout)
 }
 
