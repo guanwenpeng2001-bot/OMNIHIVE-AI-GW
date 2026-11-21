@@ -270,6 +270,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if policyModel == "" {
 		policyModel = reqModel
 	}
+	body, _ = s.applyInstructionsCacheHoist(c, account, policyModel, body)
 	updatedBody, policyErr := s.applyOpenAIFastPolicyToBody(ctx, account, policyModel, body)
 	if policyErr != nil {
 		var blocked *OpenAIFastBlockedError

@@ -984,7 +984,8 @@ type GatewayConfig struct {
 	AffinityHMACKeyVersion string `mapstructure:"affinity_hmac_key_version"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
-	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
+	ResponseHeaderTimeout        int  `mapstructure:"response_header_timeout"`
+	OpenAIInstructionsCacheHoist bool `mapstructure:"openai_instructions_cache_hoist"`
 	// OpenAIResponseHeaderTimeout: OpenAI/Codex 上游等待响应头的超时时间（秒），0表示无超时
 	// OpenAI/Codex 请求可能在上游排队较久；默认不使用通用响应头超时截断。
 	OpenAIResponseHeaderTimeout int `mapstructure:"openai_response_header_timeout"`
@@ -2464,6 +2465,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.session_affinity_enabled", true)
 	viper.SetDefault("gateway.affinity_hmac_key", "")
 	viper.SetDefault("gateway.affinity_hmac_key_version", "")
+	viper.SetDefault("gateway.openai_instructions_cache_hoist", true)
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)

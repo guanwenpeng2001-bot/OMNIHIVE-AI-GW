@@ -4,6 +4,14 @@ This project follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/
 
 ## Unreleased
 
+### Added
+
+- For stateless Responses requests to GPT-6.2 and later models on OpenAI API key accounts, the gateway moves top-level `instructions` into the first `developer` input message so they stay inside the cached prompt prefix (OpenAI bills top-level instructions on these models at the uncached rate). Disable with `GATEWAY_OPENAI_INSTRUCTIONS_CACHE_HOIST=false`.
+
+### Fixed
+
+- Update checks rank a prerelease below the release with the same version, so release candidates are offered the final release.
+
 ## 0.3.0 (pending release)
 
 ### Added
