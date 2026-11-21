@@ -113,4 +113,53 @@ describe('OutboundPoolsPanel & PoolsWorkbenchView', () => {
 
     expect(mocks.createPool).toHaveBeenCalledWith({ name: 'Burst Pool', max_concurrency: 200 }, '7')
   })
+
+  it('clears stale pools when workspace changes and ignores out-of-order responses (E2-4)', async () => {
+    let resolveWs1!: (value: { items: Array<{ id: string; name: string; max_concurrency: number }> }) => void
+    let resolveWs2!: (value: { items: Array<{ id: string; name: string; max_concurrency: number }> }) => void
+    mocks.listPools
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveWs1 = resolve
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveWs2 = resolve
+          })
+      )
+
+    const wrapper = mount(OutboundPoolsPanel, { props: { workspaceId: '1' } })
+    resolveWs1({ items: [{ id: 'p1', name: 'Workspace One Pool', max_concurrency: 50 }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Workspace One Pool')
+
+    await wrapper.setProps({ workspaceId: '2' })
+    expect(wrapper.text()).not.toContain('Workspace One Pool')
+
+    resolveWs2({ items: [{ id: 'p2', name: 'Workspace Two Pool', max_concurrency: 80 }] })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Workspace Two Pool')
+    expect(wrapper.text()).not.toContain('Workspace One Pool')
+  })
+
+  it('requires confirmation showing workspace and pool name before deleting a pool (E2-4)', async () => {
+    const wrapper = mount(OutboundPoolsPanel, { props: { workspaceId: '7' } })
+    await flushPromises()
+
+    const deleteBtn = wrapper.findAll('button').find((b) => b.text() === 'Delete')
+    expect(deleteBtn).toBeDefined()
+    await deleteBtn!.trigger('click')
+
+    expect(mocks.deletePool).not.toHaveBeenCalled()
+    const confirmBox = wrapper.get('[data-testid="outbound-pool-delete-confirm"]')
+    expect(confirmBox.text()).toContain('#7')
+    expect(confirmBox.text()).toContain('Primary Pool')
+
+    await wrapper.get('[data-testid="confirm-delete-pool-btn"]').trigger('click')
+    await flushPromises()
+    expect(mocks.deletePool).toHaveBeenCalledWith('pool_1', '7')
+  })
 })

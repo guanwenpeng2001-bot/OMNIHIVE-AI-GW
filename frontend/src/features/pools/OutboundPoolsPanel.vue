@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { Badge, Button, Card, Input } from '@/components/ui'
@@ -28,17 +28,30 @@ const editName = ref('')
 const editConcurrency = ref('50')
 const savingEdit = ref(false)
 const deletingId = ref<string | null>(null)
+const pendingDeletePool = ref<ConnectionPool | null>(null)
+let loadSeq = 0
+
+const workspaceLabel = computed(() => {
+  const ws = props.workspaceId?.trim()
+  return ws ? `#${ws}` : t('routing.outboundPools.globalWorkspace')
+})
 
 async function loadPools(): Promise<void> {
+  const seq = ++loadSeq
+  const targetWorkspaceId = props.workspaceId
   loading.value = true
   errorMsg.value = ''
   try {
-    const page = await connectionsApi.listPools({ limit: 100 }, props.workspaceId)
+    const page = await connectionsApi.listPools({ limit: 100 }, targetWorkspaceId)
+    if (seq !== loadSeq || props.workspaceId !== targetWorkspaceId) return
     pools.value = page.items ?? []
   } catch (err) {
+    if (seq !== loadSeq || props.workspaceId !== targetWorkspaceId) return
     errorMsg.value = extractApiErrorMessage(err, t('routing.outboundPools.loadFailed'))
   } finally {
-    loading.value = false
+    if (seq === loadSeq) {
+      loading.value = false
+    }
   }
 }
 
@@ -91,11 +104,23 @@ async function saveEdit(poolId: string): Promise<void> {
   }
 }
 
-async function handleDelete(pool: ConnectionPool): Promise<void> {
+function requestDelete(pool: ConnectionPool): void {
+  pendingDeletePool.value = pool
+  errorMsg.value = ''
+}
+
+function cancelDelete(): void {
+  pendingDeletePool.value = null
+}
+
+async function confirmDelete(): Promise<void> {
+  const pool = pendingDeletePool.value
+  if (!pool) return
   deletingId.value = pool.id
   errorMsg.value = ''
   try {
     await connectionsApi.deletePool(pool.id, props.workspaceId)
+    pendingDeletePool.value = null
     await loadPools()
   } catch (err) {
     errorMsg.value = extractApiErrorMessage(err, t('routing.outboundPools.deleteFailed'))
@@ -104,7 +129,16 @@ async function handleDelete(pool: ConnectionPool): Promise<void> {
   }
 }
 
-watch(() => props.workspaceId, () => void loadPools())
+watch(
+  () => props.workspaceId,
+  () => {
+    pools.value = []
+    editingPoolId.value = null
+    pendingDeletePool.value = null
+    errorMsg.value = ''
+    void loadPools()
+  }
+)
 onMounted(() => void loadPools())
 </script>
 
@@ -142,6 +176,45 @@ onMounted(() => void loadPools())
     >
       {{ errorMsg }}
     </p>
+
+    <div
+      v-if="pendingDeletePool"
+      role="alertdialog"
+      data-testid="outbound-pool-delete-confirm"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-oh-md border border-oh-status-danger-border bg-oh-status-danger-bg px-3 py-2.5 text-xs text-oh-status-danger-fg"
+    >
+      <div class="space-y-0.5">
+        <p class="font-semibold">{{ t('routing.outboundPools.deleteConfirmTitle') }}</p>
+        <p>
+          {{
+            t('routing.outboundPools.deleteConfirmMessage', {
+              workspace: workspaceLabel,
+              name: pendingDeletePool.name
+            })
+          }}
+        </p>
+      </div>
+      <div class="flex items-center gap-2">
+        <Button
+          size="xs"
+          variant="ghost"
+          data-testid="cancel-delete-pool-btn"
+          :disabled="deletingId === pendingDeletePool.id"
+          @click="cancelDelete"
+        >
+          {{ t('routing.outboundPools.cancel') }}
+        </Button>
+        <Button
+          size="xs"
+          variant="danger"
+          data-testid="confirm-delete-pool-btn"
+          :loading="deletingId === pendingDeletePool.id"
+          @click="confirmDelete"
+        >
+          {{ t('routing.outboundPools.confirmDelete') }}
+        </Button>
+      </div>
+    </div>
 
     <form
       v-if="showCreateForm"
@@ -215,7 +288,7 @@ onMounted(() => void loadPools())
               size="xs"
               variant="danger"
               :loading="deletingId === pool.id"
-              @click="handleDelete(pool)"
+              @click="requestDelete(pool)"
             >
               {{ t('routing.outboundPools.delete') }}
             </Button>
