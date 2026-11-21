@@ -52,6 +52,7 @@ type Preview struct {
 	ExpiresAt time.Time         `json:"expires_at"`
 }
 type Report struct {
+	Detail string            `json:"detail,omitempty"`
 	Digest string            `json:"source_digest,omitempty"`
 	Counts map[string]string `json:"counts,omitempty"`
 	Reason string            `json:"reason,omitempty"`
@@ -92,6 +93,7 @@ type Service struct {
 }
 
 type lease struct {
+	diagnostic string
 	Operation
 	Actor         Actor
 	Owner, Digest string

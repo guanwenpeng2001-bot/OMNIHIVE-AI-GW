@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,4 +66,68 @@ func TestRestoreDrainsTelemetryWriter(t *testing.T) {
 	require.EqualError(t, err, "lock_timeout public.telemetry_export_jobs")
 	_, err = workers.ExecContext(ctx, "UPDATE telemetry_export_jobs SET attempts=1")
 	require.NoError(t, err)
+}
+
+func TestRestoreN1(t *testing.T) {
+	db, cfg := testfixture.Database(t, "UPSTREAM_JOB_TEST_DSN", "job_test")
+	_, err := db.Exec("CREATE TABLE users(id integer PRIMARY KEY); INSERT INTO users VALUES (1); CREATE TABLE memberships(uid integer REFERENCES users)")
+	require.NoError(t, err)
+	d := NewPgDumper(cfg, db)
+	archive, err := d.Dump(t.Context())
+	require.NoError(t, err)
+	data, err := io.ReadAll(archive)
+	require.NoError(t, err)
+	require.NoError(t, archive.Close())
+	source := filepath.Join(t.TempDir(), "archive.sql")
+	require.NoError(t, os.WriteFile(source, data, 0600))
+	_, err = db.Exec("CREATE TABLE newer(uid integer REFERENCES users); INSERT INTO newer VALUES(1); INSERT INTO users VALUES(2)")
+	require.NoError(t, err)
+	checks := filepath.Join(t.TempDir(), "checks.sql")
+	noop := func() error { return nil }
+	for _, tc := range []struct {
+		name, sql string
+		count     int
+	}{
+		{"rollback", "SELECT 'private-row-secret'::integer;", 2},
+		{"apply", "SELECT 1;", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(checks, []byte(tc.sql), 0600))
+			err := d.RestoreChecked(t.Context(), source, checks, noop, noop, noop)
+			if tc.name == "rollback" {
+				require.ErrorContains(t, err, "SQLSTATE 22P02")
+				require.NotContains(t, err.Error(), "private-row-secret")
+			} else {
+				require.NoError(t, err)
+			}
+			var count int
+			require.NoError(t, db.QueryRow("SELECT count(*) FROM users").Scan(&count))
+			require.Equal(t, tc.count, count)
+			_, err = db.Exec("INSERT INTO newer VALUES(999)")
+			require.ErrorContains(t, err, "foreign key")
+		})
+	}
+}
+
+func TestRestoreN1MigratedSchema(t *testing.T) {
+	db, cfg := testfixture.Database(t, "UPSTREAM_JOB_TEST_DSN", "job_test")
+	ctx := t.Context()
+	require.NoError(t, ApplyMigrations(ctx, db))
+	d := NewPgDumper(cfg, db)
+	dump, err := d.Dump(ctx)
+	require.NoError(t, err)
+	data, err := io.ReadAll(dump)
+	require.NoError(t, err)
+	require.NoError(t, dump.Close())
+	source := filepath.Join(t.TempDir(), "archive.sql")
+	require.NoError(t, os.WriteFile(source, data, 0600))
+	_, err = db.Exec("ALTER TABLE users ADD CONSTRAINT target_only_fk FOREIGN KEY (id) REFERENCES users (id)")
+	require.NoError(t, err)
+	noop := func() error { return nil }
+	checks := filepath.Join(t.TempDir(), "checks.sql")
+	require.NoError(t, os.WriteFile(checks, []byte("SELECT count(*) FROM public.schema_migrations;"), 0600))
+	require.NoError(t, d.RestoreChecked(ctx, source, checks, noop, noop, noop))
+	var count int
+	require.NoError(t, db.QueryRow("SELECT count(*) FROM pg_constraint WHERE conrelid='users'::regclass AND conname='target_only_fk'").Scan(&count))
+	require.Zero(t, count)
 }

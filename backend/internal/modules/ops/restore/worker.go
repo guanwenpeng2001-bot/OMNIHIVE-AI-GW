@@ -92,7 +92,7 @@ func (s *Service) finish(ctx context.Context, l lease, counts map[string]string,
 	} else if l.Stage == "tx_apply" || l.Stage == "tx_verify" {
 		stage = "rolled_back"
 	}
-	report, _ := json.Marshal(Report{Digest: l.Digest, Counts: reportCounts(counts), Reason: reason})
+	report, _ := json.Marshal(Report{Digest: l.Digest, Counts: reportCounts(counts), Reason: reason, Detail: l.diagnostic})
 	return changed(s.Journal.ExecContext(ctx, `UPDATE restore_journal.operations SET state=$5,stage=$6,owner=NULL,lease_until=NULL,report=$7,updated_at=clock_timestamp()`+fence+` AND stage=$4`, l.ID, l.Generation, l.Owner, l.Stage, state, stage, string(report)))
 }
 
@@ -209,6 +209,10 @@ func (s *Service) apply(ctx context.Context, l *lease) (map[string]string, strin
 		return s.stage(ctx, l, "committing", nil)
 	}
 	if err = target.Database.RestoreChecked(ctx, script.Name(), checks.Name(), locked, applied, verified); err != nil {
+		var pgErr restoregate.PostgresError
+		if errors.As(err, &pgErr) {
+			l.diagnostic = pgErr.Error()
+		}
 		var lockErr restoregate.LockError
 		if errors.As(err, &lockErr) {
 			return nil, lockErr.Error()

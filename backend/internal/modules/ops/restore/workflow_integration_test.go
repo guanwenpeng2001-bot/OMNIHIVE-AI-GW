@@ -228,6 +228,9 @@ func TestFencedRestore(t *testing.T) {
 	require.Zero(t, n)
 	_, e = s.Execute(ctx, a, "early", ExecuteInput{early.ID, Production, current.ID})
 	require.ErrorIs(t, e, prerequisite)
+	// The live schema acquired an additional dependency after the archive was taken.
+	_, e = prod.Exec("ALTER TABLE api_keys ADD FOREIGN KEY (id) REFERENCES users")
+	require.NoError(t, e)
 	prodPreview := preview("fresh", Production)
 	_, e = s.Execute(ctx, Actor{1, 9, ""}, "prod", ExecuteInput{prodPreview.ID, Production, current.ID})
 	require.ErrorIs(t, e, fault.Forbidden)
@@ -303,6 +306,7 @@ func TestFencedRestore(t *testing.T) {
 	require.Equal(t, "failed", badProd.State)
 	require.Equal(t, "rolled_back", badProd.Stage)
 	require.Equal(t, "VERIFICATION_FAILED", badProd.Report.Reason)
+	require.Equal(t, "PostgreSQL SQLSTATE 23514", badProd.Report.Detail)
 	require.NoError(t, prod.QueryRow("SELECT value FROM users").Scan(&value))
 	require.Equal(t, "preserve-on-failure", value)
 	crash := execute(preview("crash", Production), "crash", Production, current.ID)

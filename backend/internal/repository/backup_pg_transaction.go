@@ -2,10 +2,12 @@ package repository
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -33,15 +35,69 @@ const lockRestoreTables = `SET LOCAL lock_timeout='5s';
  END $lock$;
  SELECT pg_temp.lock_restore_tables(false);`
 
+// pg_dump only cleans constraints known at backup time. Keep the definitions
+// for relations which survive the archive, including target-only tables.
+const detachForeignKeys = `SET LOCAL search_path = pg_catalog;
+CREATE TEMP TABLE restore_saved_fks ON COMMIT DROP AS
+ SELECT conrelid, conname, pg_get_constraintdef(c.oid) AS definition,
+ obj_description(c.oid, 'pg_constraint') AS comment
+ FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid
+ WHERE contype='f' AND conparentid=0 AND r.relpersistence <> 't';
+DO $fk$ DECLARE fk record; BEGIN
+ FOR fk IN SELECT * FROM pg_temp.restore_saved_fks ORDER BY conrelid, conname LOOP
+ EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',fk.conrelid::regclass,fk.conname);
+ END LOOP;
+END $fk$;
+RESET search_path;`
+
+const reattachForeignKeys = `SET LOCAL search_path = pg_catalog;
+DO $fk$ DECLARE fk record; BEGIN
+ FOR fk IN SELECT f.* FROM pg_temp.restore_saved_fks f JOIN pg_class r ON r.oid=f.conrelid
+ ORDER BY f.conrelid, f.conname LOOP
+ EXECUTE format('ALTER TABLE %s ADD CONSTRAINT %I %s',fk.conrelid::regclass,fk.conname,fk.definition);
+ IF fk.comment IS NOT NULL THEN
+ EXECUTE format('COMMENT ON CONSTRAINT %I ON %s IS %L',fk.conname,fk.conrelid::regclass,fk.comment);
+ END IF;
+ END LOOP;
+END $fk$;`
+
+var psqlState = regexp.MustCompile(`^psql:.*:[0-9]+: (?:ERROR|FATAL):  ([0-9A-Z]{5}):`)
+
+// Keep only a bounded line prefix and a SQLSTATE. DETAIL, CONTEXT, SQL,
+// paths and the server's free-form error message never enter the journal.
+type restoreStderr struct {
+	prefix []byte
+	state  string
+}
+
+func (s *restoreStderr) Write(p []byte) (int, error) {
+	size := len(p)
+	for len(p) > 0 {
+		line, rest, complete := bytes.Cut(p, []byte{'\n'})
+		s.prefix = append(s.prefix, line[:min(len(line), 512-len(s.prefix))]...)
+		if complete {
+			if match := psqlState.FindSubmatch(s.prefix); match != nil {
+				s.state = string(match[1])
+			}
+			s.prefix = s.prefix[:0]
+		}
+		p = rest
+	}
+	return size, nil
+}
+
 // RestoreChecked keeps the table locks, replacement and content checks in one
 // backend transaction. An EOF, cancellation or failed check before the explicit
 // COMMIT rolls it back. No password, COPY value or SQL is returned in errors.
-func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, locked, applied, verified func() error) error {
+func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, locked, applied, verified func() error) (result error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	cmd := d.commandContext(ctx, "psql", "-X", "-qAt", "--no-password", "-h", d.cfg.Host, "-p", strconv.Itoa(d.cfg.Port), "-U", d.cfg.User, "-d", d.cfg.DBName,
-		"-v", "ON_ERROR_STOP=on", "-v", "archive="+source, "-v", "checks="+checks, "-f", "-")
+	cmd := d.commandContext(ctx, "psql", "-X", "-qAt", "-w", "-h", d.cfg.Host, "-p", strconv.Itoa(d.cfg.Port), "-U", d.cfg.User, "-d", d.cfg.DBName,
+		"-v", "VERBOSITY=verbose", "-v", "ON_ERROR_STOP=on", "-v", "archive="+source, "-v", "checks="+checks, "-f", "-")
 	d.setCommandEnv(cmd)
+	cmd.Env = append(cmd.Env, "LC_ALL=C")
+	var diagnostic restoreStderr
+	cmd.Stderr = &diagnostic
 	input, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -58,6 +114,9 @@ func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, lo
 		input.Close()
 		if cmd.ProcessState == nil {
 			_ = cmd.Wait()
+		}
+		if result != nil && diagnostic.state != "" {
+			result = errors.Join(result, restoregate.PostgresError(diagnostic.state))
 		}
 	}()
 	reader := bufio.NewReader(output)
@@ -85,7 +144,7 @@ func (d *PgDumper) RestoreChecked(ctx context.Context, source, checks string, lo
 	if err = step("SELECT pg_temp.lock_restore_tables(true);", true, func() error { return nil }); err != nil {
 		return err
 	}
-	if err = step(`\i :archive`, false, applied); err != nil {
+	if err = step(detachForeignKeys+"\n"+`\i :archive`+"\n"+reattachForeignKeys, false, applied); err != nil {
 		return err
 	}
 	if err = step(`\i :checks`, false, verified); err != nil {

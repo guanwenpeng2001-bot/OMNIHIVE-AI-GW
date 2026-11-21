@@ -16,3 +16,8 @@ func IsSnapshot(ctx context.Context) bool { return ctx.Value(snapshotKey{}) == t
 type LockError string
 
 func (e LockError) Error() string { return string(e) }
+
+// PostgresError carries only the server SQLSTATE.
+type PostgresError string
+
+func (e PostgresError) Error() string { return "PostgreSQL SQLSTATE " + string(e) }
