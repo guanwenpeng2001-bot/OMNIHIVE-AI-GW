@@ -41,11 +41,23 @@ var ProviderSet = wire.NewSet(ProvideStore, New)
 func Register(v2 *gin.RouterGroup, h *Handler, session ...gin.HandlerFunc) {
 	g := v2.Group("/workspaces/:workspace_id/observability",
 		append([]gin.HandlerFunc{identityhttp.TenantHeaders}, session...)...)
+	g.GET("/destinations", serve(http.StatusOK, h.destinations))
 	g.POST("/destinations", serve(http.StatusCreated, h.registerDestination))
 	g.DELETE("/destinations/:id", serve(http.StatusOK, h.revokeDestination))
+	g.GET("/exports", serve(http.StatusOK, h.exports))
 	g.POST("/exports", serve(http.StatusCreated, h.create))
 	g.GET("/exports/:id", serve(http.StatusOK, h.detail))
 	g.PATCH("/exports/:id", serve(http.StatusOK, h.change))
+}
+
+func (h *Handler) destinations(r request) (any, error) {
+	items, err := h.store.Destinations(r.Request.Context(), r.caller)
+	return gin.H{"items": items}, err
+}
+
+func (h *Handler) exports(r request) (any, error) {
+	items, err := h.store.Configs(r.Request.Context(), r.caller)
+	return gin.H{"items": items}, err
 }
 
 type request struct {

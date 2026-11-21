@@ -1623,6 +1623,12 @@ paths:
               schema:
                 $ref: '#/components/schemas/IdentityError'
   /api/v2/workspaces/{workspace_id}/observability/destinations:
+    get:
+      operationId: listTelemetryExportDestinations
+      summary: List safe collector metadata under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryDestinationListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
     post:
@@ -1651,6 +1657,12 @@ paths:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
       - {$ref: '#/components/parameters/TelemetryExportID'}
   /api/v2/workspaces/{workspace_id}/observability/exports:
+    get:
+      operationId: listTelemetryExports
+      summary: List safe export configurations under ops.export.configure
+      responses:
+        '200': {$ref: '#/components/responses/TelemetryExportListResponse'}
+        default: {$ref: '#/components/responses/TelemetryExportError'}
     parameters:
       - {$ref: '#/components/parameters/IdentityWorkspaceID'}
     post:
@@ -4618,6 +4630,23 @@ components:
                     required: [version]
                     properties:
                       version: {$ref: '#/components/schemas/StatusCount'}
+    TelemetryDestinationListResponse:
+      description: Scoped collector metadata
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryDestination'}
     TelemetryDestinationResponse:
       description: Scoped collector metadata
       content:
@@ -4634,6 +4663,23 @@ components:
       content:
         application/json:
           schema: {$ref: '#/components/schemas/IdentityError'}
+    TelemetryExportListResponse:
+      description: Scoped export configurations
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [code, message, data]
+            properties:
+              code: {const: 0}
+              message: {type: string}
+              data:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/TelemetryExportConfig'}
     TelemetryExportResponse:
       description: Scoped export configuration
       content:

@@ -149,6 +149,51 @@ func (s *Store) RegisterDestination(ctx context.Context, caller Caller, key, end
 	return out, tx.Commit()
 }
 
+func (s *Store) Destinations(ctx context.Context, caller Caller) ([]Destination, error) {
+	if err := s.authorize(ctx, caller, 0, ConfigureGrant); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,version,revoked_at IS NOT NULL FROM telemetry_export_destinations WHERE workspace_id=$1 ORDER BY id LIMIT 200`, caller.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Destination, 0)
+	for rows.Next() {
+		var item Destination
+		var revoked bool
+		if err := rows.Scan(&item.ID, &item.Version, &revoked); err != nil {
+			return nil, err
+		}
+		item.State = "registered"
+		if revoked {
+			item.State = "revoked"
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Configs(ctx context.Context, caller Caller) ([]Config, error) {
+	if err := s.authorize(ctx, caller, 0, ConfigureGrant); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,state,version,destination_id FROM telemetry_exports WHERE workspace_id=$1 ORDER BY id LIMIT 200`, caller.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Config, 0)
+	for rows.Next() {
+		var item Config
+		if err := rows.Scan(&item.ID, &item.State, &item.Version, &item.DestinationID); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) RevokeDestination(ctx context.Context, caller Caller, id uuid.UUID, version int64) (Destination, error) {
 	tx, err := s.beginChange(ctx, caller)
 	if err != nil {

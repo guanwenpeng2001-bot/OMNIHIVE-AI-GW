@@ -880,7 +880,8 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** List safe collector metadata under ops.export.configure */
+        get: operations["listTelemetryExportDestinations"];
         put?: never;
         /** Register an immutable HTTPS collector under ops.export.configure */
         post: operations["registerTelemetryExportDestination"];
@@ -919,7 +920,8 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /** List safe export configurations under ops.export.configure */
+        get: operations["listTelemetryExports"];
         put?: never;
         /** Approve a scoped export and queue destination validation */
         post: operations["createTelemetryExport"];
@@ -4552,6 +4554,22 @@ export interface components {
             };
         };
         /** @description Scoped collector metadata */
+        TelemetryDestinationListResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["TelemetryDestination"][];
+                    };
+                };
+            };
+        };
+        /** @description Scoped collector metadata */
         TelemetryDestinationResponse: {
             headers: {
                 [name: string]: unknown;
@@ -4572,6 +4590,22 @@ export interface components {
             };
             content: {
                 "application/json": components["schemas"]["IdentityError"];
+            };
+        };
+        /** @description Scoped export configurations */
+        TelemetryExportListResponse: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": {
+                    /** @constant */
+                    code: 0;
+                    message: string;
+                    data: {
+                        items: components["schemas"]["TelemetryExportConfig"][];
+                    };
+                };
             };
         };
         /** @description Scoped export configuration */
@@ -6391,6 +6425,21 @@ export interface operations {
             };
         };
     };
+    listTelemetryExportDestinations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["TelemetryDestinationListResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
     registerTelemetryExportDestination: {
         parameters: {
             query?: never;
@@ -6427,6 +6476,21 @@ export interface operations {
         requestBody?: never;
         responses: {
             200: components["responses"]["TelemetryDestinationResponse"];
+            default: components["responses"]["TelemetryExportError"];
+        };
+    };
+    listTelemetryExports: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: components["parameters"]["IdentityWorkspaceID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["TelemetryExportListResponse"];
             default: components["responses"]["TelemetryExportError"];
         };
     };
