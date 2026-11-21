@@ -11,8 +11,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/apicompat"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -482,4 +484,28 @@ func TestForwardAsAnthropic_ResponsesSupportedAccountStillUsesResponsesEndpoint(
 	require.Empty(t, upstream.lastReq.Header.Get("version"))
 	require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "content.0.text").String())
+}
+
+func TestChatStreamPartialCountersRemainReviewEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, lastUsage string
+		input           int
+	}{
+		{"split", `{"completion_tokens":2}`, 7},
+		{"explicit_zero", `{"prompt_tokens":0}`, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := "data: " + `{"choices":[],"usage":{"prompt_tokens":7}}` + "\n\n" +
+				"data: " + `{"choices":[],"usage":{"completion_tokens":2}}` + "\n\n" +
+				"data: " + `{"choices":[],"usage":` + tc.lastUsage + "}\n\ndata: [DONE]\n\n"
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+			scan := (&OpenAIGatewayService{}).scanCCStream(c, &http.Response{Body: io.NopCloser(strings.NewReader(body))}, &Account{}, "", "", time.Now(), func(*apicompat.ChatCompletionsChunk) {})
+			require.Error(t, scan.Err)
+			require.True(t, scan.SawDone)
+			require.False(t, scan.UsageKnown)
+			require.Equal(t, tc.input, scan.Usage.InputTokens)
+			require.Equal(t, 2, scan.Usage.OutputTokens)
+		})
+	}
 }

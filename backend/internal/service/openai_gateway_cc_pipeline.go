@@ -360,6 +360,18 @@ func (s *OpenAIGatewayService) scanCCStream(
 			if mistralChatUsageKnown([]byte(payload)) {
 				st.Usage = *u
 				st.UsageKnown = true
+			} else if !st.UsageKnown {
+				// Preserve observed counters for review. Separate partial chunks
+				// do not establish a complete, billable usage report.
+				raw := []byte(payload)
+				if _, ok := openRouterCounter(raw, "usage.prompt_tokens"); ok {
+					st.Usage.InputTokens = u.InputTokens
+				}
+				if _, ok := openRouterCounter(raw, "usage.completion_tokens"); ok {
+					st.Usage.OutputTokens = u.OutputTokens
+				}
+				u.InputTokens, u.OutputTokens = 0, 0
+				mergeOpenAIUsageNonZero(&st.Usage, *u)
 			}
 		}
 
