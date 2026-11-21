@@ -2009,7 +2009,7 @@ func (s *AuthService) RevokeAllUserTokens(ctx context.Context, userID int64) err
 
 func (s *AuthService) refreshTokenHash(token string) string {
 	mac := hmac.New(sha256.New, []byte(s.cfg.JWT.Secret))
-	mac.Write([]byte("omnihive-refresh-v1\x00" + token))
+	_, _ = mac.Write([]byte("omnihive-refresh-v1\x00" + token))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
