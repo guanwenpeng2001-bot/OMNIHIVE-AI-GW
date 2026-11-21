@@ -510,7 +510,8 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	if billing != nil && billing.pricingService != nil {
 		prices := billing.pricingService
 		prices.mu.RLock()
-		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
+		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated, pricingRevision: prices.pricingRevision}
+		frozen.baseNameIndex.Store(prices.baseNameIndex.Load())
 		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
 		prices.mu.RUnlock()
 		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}

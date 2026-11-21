@@ -37,110 +37,95 @@ type Gate struct {
 	beforeHold  func()
 }
 
-func (g *Gate) hold(ctx context.Context) (bool, error) {
+func (g *Gate) clock() time.Time {
+	if g.now != nil {
+		return g.now()
+	}
+	return time.Now()
+}
+
+// hold takes exactly one reference on the shared fence. It reports whether
+// this call opened the fencing transaction and whether the last journal check
+// is still fresh. Callers that receive an error hold no reference.
+func (g *Gate) hold(ctx context.Context) (created, fresh bool, err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.held != nil {
 		g.users++
-		return false, nil
+		return false, g.clock().Before(g.clearUntil), nil
 	}
 	tx, err := g.journal.BeginTx(context.Background(), nil)
 	if err != nil {
-		return false, unavailableError{err}
+		return false, false, unavailableError{err}
 	}
 	var got bool
 	if err = tx.QueryRowContext(ctx, "SELECT pg_try_advisory_xact_lock_shared(298,3)").Scan(&got); err != nil {
 		_ = tx.Rollback()
-		return false, unavailableError{err}
+		return false, false, unavailableError{err}
 	}
 	if !got {
 		_ = tx.Rollback()
-		return false, ErrMaintenance
+		return false, false, ErrMaintenance
 	}
 	g.held = tx
 	g.users++
-	return true, nil
+	return true, false, nil
 }
 
 func (g *Gate) Enter(ctx context.Context) bool { return g.enter(ctx) == nil }
 
+// enter holds one fence reference on success and none on failure. Concurrent
+// callers share one journal lookup, but every caller takes its own reference.
 func (g *Gate) enter(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	now := time.Now()
-	if g.now != nil {
-		now = g.now()
-	}
-	g.mu.Lock()
-	cached := g.held != nil && now.Before(g.clearUntil)
-	g.mu.Unlock()
 	if g.beforeHold != nil {
 		g.beforeHold()
-		g.mu.Lock()
-		cached = g.held != nil && now.Before(g.clearUntil)
-		g.mu.Unlock()
 	}
-	if cached {
-		created, err := g.hold(ctx)
-		if err != nil || !created {
-			return err
-		}
-		return g.refresh(ctx)
-	}
-	value, err, _ := g.statusGroup.Do("status", func() (any, error) {
-		now := time.Now()
-		if g.now != nil {
-			now = g.now()
-		}
-		g.mu.Lock()
-		cached := g.held != nil && now.Before(g.clearUntil)
-		g.mu.Unlock()
-		if !cached {
-			if err := g.refresh(ctx); err != nil {
-				return nil, err
-			}
-			return true, nil
-		}
-		return false, nil
-	})
+	created, fresh, err := g.hold(ctx)
 	if err != nil {
 		return err
 	}
-	if refreshed, _ := value.(bool); refreshed {
+	if fresh && !created {
 		return nil
 	}
-	created, err := g.hold(ctx)
-	if err != nil || !created {
+	_, err, _ = g.statusGroup.Do("status", func() (any, error) {
+		g.mu.Lock()
+		fresh := g.held != nil && g.clock().Before(g.clearUntil)
+		g.mu.Unlock()
+		if fresh {
+			return nil, nil
+		}
+		return nil, g.check(ctx)
+	})
+	if err != nil {
+		g.Leave()
 		return err
 	}
-	return g.refresh(ctx)
+	return nil
 }
 
-func (g *Gate) refresh(ctx context.Context) error {
-	_, err := g.hold(ctx)
-	if err != nil {
-		return err
-	}
+// check reads the journal while the caller holds a fence reference. The read
+// uses a pooled connection: a cancelled or failed statement must not abort the
+// transaction fencing the other admitted handlers.
+func (g *Gate) check(ctx context.Context) error {
 	var blocked bool
-	// Use a pooled connection for the read. A cancelled request must not
-	// invalidate the transaction fencing the other admitted handlers.
-	err = g.journal.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.operations WHERE target='production' AND
+	err := g.journal.QueryRowContext(ctx, `SELECT EXISTS(SELECT FROM restore_journal.operations WHERE target='production' AND
  ((state='running' AND stage IN ('snapshot','applying','verify_counts','tx_apply','tx_verify','committing')) OR stage='manual_recovery' OR state='unknown'))`).Scan(&blocked)
 	var pgErr *pq.Error
+	// On first boot the business DB migrates before the journal schema exists.
+	// No restore can be claimed yet.
 	bootstrap := g.bootstrap && errors.As(err, &pgErr) && pgErr.Code == "42P01"
-	if (err != nil && !bootstrap) || blocked {
-		g.Leave()
-		if blocked {
-			return ErrMaintenance
-		}
+	if err != nil && !bootstrap {
 		return unavailableError{err}
 	}
-	g.mu.Lock()
-	now := time.Now()
-	if g.now != nil {
-		now = g.now()
+	if blocked {
+		return ErrMaintenance
 	}
-	g.clearUntil = now.Add(time.Second)
+	g.mu.Lock()
+	if g.held != nil {
+		g.clearUntil = g.clock().Add(time.Second)
+	}
 	g.mu.Unlock()
 	return nil
 }
