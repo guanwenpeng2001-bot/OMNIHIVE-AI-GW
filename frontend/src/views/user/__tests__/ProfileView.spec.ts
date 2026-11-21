@@ -121,4 +121,35 @@ describe('ProfileView', () => {
     expect(lifecycle.exists()).toBe(true)
     expect(lifecycle.html()).toContain('/docs#support')
   })
+
+  it('shows disabled TOTP summary in header when feature_enabled is false [E1-8]', async () => {
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          ProfileInfoCard: true,
+          ProfileBalanceNotifyCard: true,
+          ProfilePasswordForm: true,
+          ProfileSessions: true,
+          ProfileTotpCard: {
+            emits: ['status-loaded'],
+            mounted() {
+              this.$emit('status-loaded', { enabled: false, feature_enabled: false })
+            },
+            template: '<div data-testid="profile-totp-card" />'
+          },
+          HumanSupportCard: true,
+          Icon: true,
+          RouterLink: { props: ['to'], template: '<a :href="to"><slot /></a>' }
+        }
+      }
+    })
+
+    await flushPromises()
+
+    const chip = wrapper.find('[data-testid="profile-totp-summary-chip"]')
+    expect(chip.exists()).toBe(true)
+    expect(chip.text()).not.toContain('可配置')
+    expect(chip.text()).toContain('publicPortal.totpSummary.disabled')
+  })
 })

@@ -32,6 +32,12 @@ export default {
       dashboardAction: 'Back to Dashboard',
       supportAction: 'Human Support'
     },
+    totpSummary: {
+      enabled: 'Enabled',
+      configurable: 'Configurable',
+      disabled: 'Not enabled by admin',
+      checking: 'Checking'
+    },
     compatibilityChangelog: {
       eyebrow: 'VERSIONED CHANGELOG',
       title: 'Protocol & Migration Changelog',

@@ -32,6 +32,12 @@ export default {
       dashboardAction: '返回控制台',
       supportAction: '人工支持'
     },
+    totpSummary: {
+      enabled: '已开启',
+      configurable: '可配置',
+      disabled: '管理员未开放',
+      checking: '检测中'
+    },
     compatibilityChangelog: {
       eyebrow: '版本变更记录',
       title: '协议兼容与迁移更新日志',

@@ -37,13 +37,13 @@
                 <span class="pulse-dot pulse-ok" aria-hidden="true" />
                 <span>登录密码保护</span>
               </span>
-              <span class="chip text-xs">
+              <span data-testid="profile-totp-summary-chip" class="chip text-xs">
                 <span
                   class="pulse-dot"
-                  :class="userTotpEnabled ? 'pulse-ok' : 'pulse-warn'"
+                  :class="totpSummaryDotClass"
                   aria-hidden="true"
                 />
-                <span>TOTP 2FA · {{ userTotpEnabled ? '已开启' : '可配置' }}</span>
+                <span>TOTP 2FA · {{ totpSummaryLabel }}</span>
               </span>
               <span class="chip text-xs">
                 <span
@@ -142,7 +142,7 @@
       </div>
 
       <div id="profile-section-totp" class="scroll-mt-20">
-        <ProfileTotpCard />
+        <ProfileTotpCard @status-loaded="handleTotpStatusLoaded" />
       </div>
       <div id="profile-section-sessions" class="scroll-mt-20">
         <ProfileSessions />
@@ -218,6 +218,36 @@ const user = computed(() => authStore.user)
 const userTotpEnabled = computed(() =>
   Boolean((user.value as Record<string, unknown> | null)?.totp_enabled)
 )
+const totpFeatureEnabled = ref<boolean | null>(null)
+const totpCardEnabled = ref<boolean | null>(null)
+
+function handleTotpStatusLoaded(status: { enabled?: boolean; feature_enabled?: boolean }) {
+  if (typeof status.feature_enabled === 'boolean') {
+    totpFeatureEnabled.value = status.feature_enabled
+  }
+  if (typeof status.enabled === 'boolean') {
+    totpCardEnabled.value = status.enabled
+  }
+}
+
+const totpSummaryLabel = computed(() => {
+  if (totpFeatureEnabled.value === false) {
+    return t('publicPortal.totpSummary.disabled')
+  }
+  if (totpCardEnabled.value === true || userTotpEnabled.value) {
+    return t('publicPortal.totpSummary.enabled')
+  }
+  if (totpFeatureEnabled.value === true) {
+    return t('publicPortal.totpSummary.configurable')
+  }
+  return t('publicPortal.totpSummary.checking')
+})
+
+const totpSummaryDotClass = computed(() => {
+  if (totpFeatureEnabled.value === false) return 'bg-gray-400'
+  if (totpCardEnabled.value === true || userTotpEnabled.value) return 'pulse-ok'
+  return 'pulse-warn'
+})
 
 const contactInfo = ref('')
 const balanceLowNotifyEnabled = ref(false)
