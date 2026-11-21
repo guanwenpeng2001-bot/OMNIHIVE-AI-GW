@@ -611,6 +611,7 @@ export default {
         volcengine: '火山引擎',
         cursor: 'Cursor',
         workbuddy: 'WorkBuddy',
+        kilo: 'Kilo',
         composite: 'Composite',
         claude: 'Claude',
       },
@@ -750,6 +751,10 @@ export default {
         accountMode: {
           zen: 'Zen',
           zenDesc: '按量付费网关，消耗账户余额，按 Token 计费。',
+          zenFree: 'Zen 免费池（免 Key）',
+          zenFreeDesc: 'OpenCode Zen 免密公开免费模型池，无需付费 API Key，自动补齐客户端指纹头与工具兼容层。',
+          zenFreeBadge: 'Zen 免费池',
+          zenFreeApiKeyHint: '免密公开池：留空（或填写 public）即可直接接入 OpenCode Zen 免费模型。',
           go: 'GO',
           goDesc: 'OpenCode Go 订阅制网关，按 5 小时 / 周 / 月滚动用量窗口限流；请使用对应 Go 订阅的凭据。',
         },
@@ -763,6 +768,20 @@ export default {
           fallback: '未命中以上规则 → Chat Completions（/v1/chat/completions）',
         },
       },
+      kilo: {
+        accountMode: {
+          label: 'Kilo 接入模式',
+          free: '免费池（免 Key）',
+          freeDesc: 'Kilo 免鉴权公开免费池（含 kilo-auto/free、Nemotron、ERNIE 等免费模型），无需填写 API Key。',
+          freeBadge: 'Kilo 免费池',
+          freeApiKeyHint: '免密公开池：留空即可接入 Kilo 免费池，出站请求不会携带 Authorization 头。',
+          apikey: 'API Key（完整网关）',
+          apikeyDesc: '使用自有 Kilo API Key 接入 Kilo 完整模型网关。',
+          apikeyBadge: 'Kilo API Key',
+          baseUrlHint: '默认为 https://api.kilo.ai/api/gateway（无需追加 /v1）。'
+        },
+      },
+      apiKeyOptional: 'API Key（可选）',
       types: {
         oauth: 'OAuth',
         chatgptOauth: 'ChatGPT OAuth',

@@ -671,7 +671,8 @@ export default {
       minimax: 'MiniMax',
       cursor: 'Cursor',
       opencode_go: 'OpenCode',
-      workbuddy: 'WorkBuddy'
+      workbuddy: 'WorkBuddy',
+      kilo: 'Kilo'
     },
     // 检查模式（监控条目的工作方式）
     checkMode: {

@@ -548,10 +548,11 @@
       <!-- OpenCode Zen vs Go：该平台唯一的一级账号入口 -->
       <div v-if="isOpenCodeGoPlatform" data-tour="account-form-type">
         <label class="input-label">{{ t('admin.accounts.supplier.planType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="openCodeAccountMode = 'zen'"
+            data-testid="opencode-mode-zen"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               openCodeAccountMode === 'zen'
@@ -574,7 +575,32 @@
           </button>
           <button
             type="button"
+            @click="openCodeAccountMode = 'zen_free'"
+            data-testid="opencode-mode-zen-free"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              openCodeAccountMode === 'zen_free'
+                ? cnAccentActiveClass
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="openCodeAccountMode === 'zen_free'" :tabindex="openCodeAccountMode === 'zen_free' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                openCodeAccountMode === 'zen_free' ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.zenFreeDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
             @click="openCodeAccountMode = 'go'"
+            data-testid="opencode-mode-go"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               openCodeAccountMode === 'go'
@@ -593,6 +619,61 @@
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</span>
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.goDesc') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Kilo Free Pool vs API Key -->
+      <div v-if="isKiloPlatform" data-tour="account-form-type">
+        <label class="input-label">{{ t('admin.accounts.kilo.accountMode.label') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.kilo.accountMode.label')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            @click="kiloAccountMode = 'free'"
+            data-testid="kilo-mode-free"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiloAccountMode === 'free'
+                ? cnAccentActiveClass
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="kiloAccountMode === 'free'" :tabindex="kiloAccountMode === 'free' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiloAccountMode === 'free' ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.free') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            @click="kiloAccountMode = 'apikey'"
+            data-testid="kilo-mode-apikey"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              kiloAccountMode === 'apikey'
+                ? cnAccentActiveClass
+                : 'hover:border-gray-400 border-[var(--border)] dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="kiloAccountMode === 'apikey'" :tabindex="kiloAccountMode === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                kiloAccountMode === 'apikey' ? cnAccentIconClass : 'text-gray-500 bg-[var(--surface-2)] dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.kilo.accountMode.apikey') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</span>
             </div>
           </button>
         </div>
@@ -1463,11 +1544,11 @@
           :plan="openCodeAccountMode"
         />
         <div>
-          <label class="input-label">{{ specialCompatibleKeyOptional(form.platform, compatibleDraft) ? 'Proxy frontdoor key (optional)' : t('admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ specialCompatibleKeyOptional(form.platform, compatibleDraft) ? 'Proxy frontdoor key (optional)' : isKeylessPublicLane ? t('admin.accounts.apiKeyOptional') : t('admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue" data-account-field="apiKeyValue"
             type="password"
-            :required="!specialCompatibleKeyOptional(form.platform, compatibleDraft)"
+            :required="!specialCompatibleKeyOptional(form.platform, compatibleDraft) && !isKeylessPublicLane"
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
           />
@@ -3546,7 +3627,7 @@ import TencentQuotaFields from './TencentQuotaFields.vue'
 import { byteplusQuotaDraft, byteplusQuotaProfile, applyByteplusQuotaCredentials, tencentQuotaDraft, tencentQuotaProfile, applyTencentQuotaCredentials } from './credentialsBuilder'
 import UsageQueryCredentialFields from './UsageQueryCredentialFields.vue'
 import { usageQueryDraft, supportsUsageQuery, applyUsageQueryCredentials } from './credentialsBuilder'
-import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, type WorkBuddyOAuthDraft } from './credentialsBuilder'
+import { volcengineQuotaDraft, volcengineQuotaProfile, applyVolcengineQuotaCredentials, buildCursorCredentials, resolveCursorRelayProtocol, buildWorkBuddyCredentials, extractWorkBuddyOAuthDraft, type WorkBuddyOAuthDraft, buildKiloCredentials, DEFAULT_KILO_BASE_URL, type KiloAccountMode } from './credentialsBuilder'
 import type { WorkBuddySite } from '@/api/admin/workbuddy'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3688,11 +3769,14 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
+  if (form.platform === 'kilo') return t('admin.accounts.kilo.accountMode.baseUrlHint')
   if (form.platform === 'anthropic') return t('admin.accounts.baseUrlHint')
   return t('admin.accounts.platformBaseUrlHint')
 })
 
 const apiKeyHint = computed(() => {
+  if (form.platform === 'opencode_go' && openCodeAccountMode.value === 'zen_free') return t('admin.accounts.opencodeGo.accountMode.zenFreeApiKeyHint')
+  if (form.platform === 'kilo' && kiloAccountMode.value === 'free') return t('admin.accounts.kilo.accountMode.freeApiKeyHint')
   if (form.platform === 'qianwen' || form.platform === 'commandcode') return t('admin.accounts.apiKey')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
@@ -3718,6 +3802,8 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
       return 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
+    case 'kilo':
+      return DEFAULT_KILO_BASE_URL
     default:
       return 'https://api.anthropic.com'
   }
@@ -3744,7 +3830,10 @@ const apiKeyValuePlaceholder = computed(() => {
       return '<api-key>'
     case 'minimax':
     case 'opencode_go':
+      if (form.platform === 'opencode_go' && openCodeAccountMode.value === 'zen_free') return 'public'
       return 'sk-...'
+    case 'kilo':
+      return kiloAccountMode.value === 'free' ? 'public' : 'sk-...'
     // 后加平台：能查到官方文档给出 Key 前缀的按文档给（千帆 bce-v3/ALTAK-），
     // 查不到固定前缀的（腾讯云 TokenHub 仅说明脱敏显示、Mistral 不透明串、方舟 UUID）用中性占位，
     // 一律不套用 Anthropic 的 sk-ant-，也不自行编造 sk- 前缀。
@@ -3941,6 +4030,11 @@ const codingModeDescriptionKey = computed(
 )
 const paygOnlyNoteKey = computed(() => latePlatformAccountModeCopy.value?.paygOnlyNoteKey ?? '')
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
+const isKiloPlatform = computed(() => form.platform === 'kilo')
+const kiloAccountMode = ref<KiloAccountMode>('free')
+const isKeylessPublicLane = computed(
+  () => (isOpenCodeGoPlatform.value && openCodeAccountMode.value === 'zen_free') || (isKiloPlatform.value && kiloAccountMode.value === 'free')
+)
 const isMultiProtocolPlatform = computed(() => isMultiProtocolApiKeyPlatform(form.platform))
 // 后加平台（混元 / 火山方舟 / 千帆 / Mistral）：协议集合来自后端 domain/platform_capabilities.go
 // 的 MessagesPOST / ResponsesPOST 声明，不再按 "是不是 chat-only" 一刀切成 chat_completions。
@@ -3950,7 +4044,7 @@ const declaredProtocolPlatform = computed<DeclaredProtocolPlatform | null>(() =>
 // Cursor Relay 是 upstream 分类，不能因此进入国产多协议能力集合（端点预设、多 URL、account_mode、规则序列化）。
 const isCursorRelay = computed(() => form.platform === 'cursor' && accountCategory.value === 'upstream')
 // 双模式平台（Kimi/智谱/MiniMax/OpenCode）的一级入口就是模式卡本身，不再叠加只读 "API Key" 摘要。
-const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go'].includes(form.platform))
+const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go', 'kilo'].includes(form.platform))
 const showsAccountTypeSummary = computed(() => !isDualModeAccountPlatform.value && form.platform !== 'commandcode' &&
   declaredProtocolPlatform.value === null &&
   !['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform))
@@ -4701,6 +4795,10 @@ watch(
     } else if (isMultiProtocolApiKeyPlatform(newPlatform)) {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
+    } else if (newPlatform === 'kilo') {
+      apiKeyBaseUrl.value = DEFAULT_KILO_BASE_URL
+      kiloAccountMode.value = 'free'
+      apiKeyValue.value = ''
     } else {
       apiKeyBaseUrl.value =
         CHAT_PLATFORM_BASE_URLS[newPlatform] ?? ((newPlatform === 'cursor' || newPlatform === 'workbuddy') ? '' : (newPlatform === 'openai')
@@ -5176,6 +5274,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   accountMode.value = 'payg'
   openCodeAccountMode.value = 'zen'
+  kiloAccountMode.value = 'free'
   apiProtocol.value = 'adaptive'
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules('zen'))
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
@@ -5667,7 +5766,7 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim() && !specialCompatibleKeyOptional(form.platform, compatibleDraft.value)) {
+  if (!apiKeyValue.value.trim() && !specialCompatibleKeyOptional(form.platform, compatibleDraft.value) && !isKeylessPublicLane.value) {
     focusAccountCredentialField('create-account-form', 'apiKeyValue')
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
@@ -5681,12 +5780,24 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
+          : form.platform === 'kilo'
+            ? DEFAULT_KILO_BASE_URL
           : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   let credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
+  }
+  if (form.platform === 'kilo') {
+    credentials = buildKiloCredentials({
+      mode: kiloAccountMode.value,
+      apiKey: apiKeyValue.value,
+      baseUrl: apiKeyBaseUrl.value
+    })
+  }
+  if (form.platform === 'opencode_go' && openCodeAccountMode.value === 'zen_free' && !apiKeyValue.value.trim()) {
+    credentials.api_key = 'public'
   }
   if (selectedCompatibleProvider.value) {
     try {

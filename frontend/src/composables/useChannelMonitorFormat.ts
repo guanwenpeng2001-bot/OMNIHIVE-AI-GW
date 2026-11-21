@@ -25,6 +25,7 @@ import {
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   PROVIDER_WORKBUDDY,
+  PROVIDER_KILO,
   PROVIDERS,
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
@@ -126,6 +127,8 @@ export function useChannelMonitorFormat() {
         return 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
       case PROVIDER_WORKBUDDY:
         return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300'
+      case PROVIDER_KILO:
+        return 'bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300'
       default:
         return NEUTRAL_BADGE
     }

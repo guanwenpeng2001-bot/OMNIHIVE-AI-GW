@@ -345,6 +345,13 @@ const proxyOptions = computed(() => {
 const supportsOAuth = computed(() => isOAuthWorkflowSupported(selectedSchema.value, state.authType))
 const isWorkBuddy = computed(() => state.provider.trim().toLowerCase() === 'workbuddy')
 const isWorkBuddyOAuth = computed(() => isWorkBuddy.value && state.authType.trim().toLowerCase() === 'oauth')
+const isKilo = computed(() => state.provider.trim().toLowerCase() === 'kilo')
+const isOpenCode = computed(() => state.provider.trim().toLowerCase() === 'opencode_go')
+const isKeylessPublicLane = computed(
+  () =>
+    (isKilo.value && state.kiloMode === 'free') ||
+    (isOpenCode.value && state.openCodeMode === 'zen_free')
+)
 const workbuddyNumericProxyId = computed<number | null>(() => {
   const parsed = Number(state.networkPolicyId.trim())
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
@@ -504,6 +511,15 @@ function selectProviderSchema(schema: ConnectionSchema) {
     if (!state.endpoint.trim()) {
       state.endpoint = defaultWorkBuddyBaseUrl('cn')
     }
+  }
+  if (schema.provider === 'kilo') {
+    state.kiloMode = 'free'
+    if (!state.endpoint.trim()) {
+      state.endpoint = 'https://api.kilo.ai/api/gateway'
+    }
+  }
+  if (schema.provider === 'opencode_go') {
+    state.openCodeMode = 'zen'
   }
   if (!state.name || prevAutoNames.has(state.name)) {
     const candidateName = `${nextMeta.label} (${getAuthModeLabel(state.authType, isZh.value)})`
@@ -1702,18 +1718,99 @@ function formatEventType(type: string): string {
                 />
               </div>
 
+              <div v-if="isKilo && state.credentialMode === 'set'" class="space-y-2">
+                <div class="text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.kilo.accountMode.label') }}
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.kilo.accountMode.label')">
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.kiloMode === 'free'"
+                    data-testid="wizard-kilo-mode-free"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.kiloMode === 'free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="state.kiloMode = 'free'; state.credentialSecret = ''"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.free') }}</div>
+                    <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.freeDesc') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.kiloMode === 'apikey'"
+                    data-testid="wizard-kilo-mode-apikey"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.kiloMode === 'apikey' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="state.kiloMode = 'apikey'"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.kilo.accountMode.apikey') }}</div>
+                    <div class="text-[11px] text-oh-muted">{{ t('admin.accounts.kilo.accountMode.apikeyDesc') }}</div>
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="isOpenCode && state.credentialMode === 'set'" class="space-y-2">
+                <div class="text-xs font-semibold text-oh-fg">
+                  {{ t('admin.accounts.supplier.planType') }}
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.supplier.planType')">
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'zen'"
+                    data-testid="wizard-opencode-mode-zen"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'zen' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="state.openCodeMode = 'zen'"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zen') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'zen_free'"
+                    data-testid="wizard-opencode-mode-zen-free"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'zen_free' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="state.openCodeMode = 'zen_free'; state.credentialSecret = ''; if (!state.endpoint.trim()) state.endpoint = 'https://opencode.ai/zen/v1'"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.zenFree') }}</div>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    :aria-checked="state.openCodeMode === 'go'"
+                    data-testid="wizard-opencode-mode-go"
+                    class="rounded-oh-md border px-3 py-2.5 text-left transition-colors"
+                    :class="state.openCodeMode === 'go' ? 'border-oh-accent bg-oh-accent/10 text-oh-fg' : 'border-oh-default bg-oh-surface hover:border-oh-strong text-oh-muted'"
+                    @click="state.openCodeMode = 'go'"
+                  >
+                    <div class="text-xs font-semibold text-oh-fg">{{ t('admin.accounts.opencodeGo.accountMode.go') }}</div>
+                  </button>
+                </div>
+              </div>
+
               <div v-if="state.credentialMode === 'set' && !isWorkBuddyOAuth" class="space-y-3">
                 <Input
                   v-model="state.credentialSecret"
                   type="password"
                   :label="
-                    isZh
-                      ? `${getAuthModeLabel(state.authType, true)} 密钥`
-                      : `${getAuthModeLabel(state.authType, false)} Secret`
+                    isKeylessPublicLane
+                      ? t('admin.accounts.apiKeyOptional')
+                      : isZh
+                        ? `${getAuthModeLabel(state.authType, true)} 密钥`
+                        : `${getAuthModeLabel(state.authType, false)} Secret`
                   "
-                  :placeholder="isZh ? '粘贴上游 API Key 或访问令牌' : 'Paste upstream API key or token'"
+                  :placeholder="isKeylessPublicLane ? 'public' : (isZh ? '粘贴上游 API Key 或访问令牌' : 'Paste upstream API key or token')"
                   autocomplete="new-password"
                 />
+                <p v-if="isKilo && state.kiloMode === 'free'" class="text-xs text-oh-muted">
+                  {{ t('admin.accounts.kilo.accountMode.freeApiKeyHint') }}
+                </p>
+                <p v-else-if="isOpenCode && state.openCodeMode === 'zen_free'" class="text-xs text-oh-muted">
+                  {{ t('admin.accounts.opencodeGo.accountMode.zenFreeApiKeyHint') }}
+                </p>
                 <Input
                   v-if="supportsOAuth"
                   v-model="state.credentialRefreshToken"

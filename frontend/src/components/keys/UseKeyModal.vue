@@ -1298,6 +1298,7 @@ function generateRoutedCodexFiles(
     hunyuan: '',
     qianfan: '',
     cursor: 'default',
+    kilo: 'kilo-auto/free',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''

@@ -176,7 +176,8 @@ export const FEATURED_PROVIDER_IDS: readonly string[] = [
   'grok',
   'openrouter',
   'minimax',
-  'workbuddy'
+  'workbuddy',
+  'kilo'
 ]
 
 const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
@@ -690,6 +691,15 @@ const PROVIDER_CATALOG: Record<string, ProviderCatalogEntry> = {
     category: 'domestic',
     featured: true
   },
+  kilo: {
+    labelEn: 'Kilo',
+    labelZh: 'Kilo',
+    protocolEn: 'Free Pool (No Key) · OpenAI-Compatible',
+    protocolZh: '免费池（免 Key）· OpenAI 兼容',
+    defaultEndpoint: 'https://api.kilo.ai/api/gateway',
+    category: 'compatible',
+    featured: true
+  },
   compatible: {
     labelEn: 'OpenAI / Claude Compatible',
     labelZh: 'OpenAI / Claude 兼容网关',
@@ -723,6 +733,7 @@ const PROVIDER_WORD_OVERRIDES: Record<string, string> = {
   maas: 'MaaS',
   openai: 'OpenAI',
   openrouter: 'OpenRouter',
+  kilo: 'Kilo',
   siliconflow: 'SiliconFlow',
   stepfun: 'StepFun',
   sudocode: 'SudoCode',
@@ -1027,7 +1038,8 @@ const API_KEY_HEADER_OVERRIDE_PROVIDERS = new Set([
   'opencode_go',
   'qianwen',
   'commandcode',
-  'workbuddy'
+  'workbuddy',
+  'kilo'
 ])
 
 export function inferWorkBuddySiteFromEndpoint(endpoint: string): 'cn' | 'global' {
