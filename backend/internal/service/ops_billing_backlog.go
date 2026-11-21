@@ -29,6 +29,7 @@ func (c *OpsMetricsCollector) collectBillingBacklog(ctx context.Context) error {
 	}
 	var pending, review, jobs, unknown, retries, terminalReview, terminalWaiver int64
 	var oldestPending, oldestDue float64
+	var recoveredAttempts int64
 	err := c.db.QueryRowContext(ctx, `SELECT
  (SELECT count(*) FROM usage_settlement_receipts WHERE state='pending'),
  (SELECT count(*) FROM usage_settlement_receipts WHERE state='needs_review'),
@@ -37,14 +38,15 @@ func (c *OpsMetricsCollector) collectBillingBacklog(ctx context.Context) error {
  (SELECT count(*) FROM upstream_jobs WHERE error_code='submission_unknown'),
  (SELECT count(*) FROM upstream_jobs WHERE status IN ('submitted','running') AND charged_usage_log_id IS NULL AND attempt_count>0 AND family<>'realtime_session'),
  (SELECT COALESCE(GREATEST(EXTRACT(EPOCH FROM NOW()-min(next_poll_at)),0),0) FROM upstream_jobs WHERE status IN ('submitted','running') AND charged_usage_log_id IS NULL AND family<>'realtime_session' AND next_poll_at<=NOW()),
- terminal.needs_review_count, terminal.manual_waiver_count
- FROM (`+terminalJobsReviewCountsSQL+`) terminal`).Scan(&pending, &review, &oldestPending, &jobs, &unknown, &retries, &oldestDue, &terminalReview, &terminalWaiver)
+ terminal.needs_review_count, terminal.manual_waiver_count,
+ (SELECT count(*) FROM gateway_execution_reconciliation)
+ FROM (`+terminalJobsReviewCountsSQL+`) terminal`).Scan(&pending, &review, &oldestPending, &jobs, &unknown, &retries, &oldestDue, &terminalReview, &terminalWaiver, &recoveredAttempts)
 	if err != nil {
 		return err
 	}
 	// A missing charge anchor alone does not imply missing billing: successful
 	// free resources are legitimate. Only the explicit review marker qualifies.
 	// Keep this at Info: a review job is neither an automatic retry nor a debt.
-	slog.Info("billing backlog", "component", "billing", "pending_count", pending, "needs_review_count", review, "oldest_pending_age_seconds", oldestPending, "pending_jobs", jobs, "submission_unknown_count", unknown, "retry_jobs", retries, "oldest_due_age_seconds", oldestDue, "terminal_jobs_needs_review_count", terminalReview, "terminal_jobs_manual_waiver_count", terminalWaiver)
+	slog.Info("billing backlog", "component", "billing", "pending_count", pending, "needs_review_count", review, "oldest_pending_age_seconds", oldestPending, "pending_jobs", jobs, "submission_unknown_count", unknown, "retry_jobs", retries, "oldest_due_age_seconds", oldestDue, "terminal_jobs_needs_review_count", terminalReview, "terminal_jobs_manual_waiver_count", terminalWaiver, "execution_needs_review_count", recoveredAttempts)
 	return nil
 }

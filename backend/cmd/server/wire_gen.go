@@ -158,7 +158,7 @@ func initializeApplication(buildInfo handler.BuildInfo, cfg *config.Config, supe
 	balanceNotifyService := service.ProvideBalanceNotifyService(emailService, settingRepository, accountRepository, notificationEmailService)
 	usageSettlementReceiptRepository := repository.NewUsageSettlementReceiptWithQuotaRepository(db)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(cfg)
-	usageSettlementService := provideUsageSettlementService(supervisor, usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService, apiKeyService)
+	usageSettlementService := provideUsageSettlementService(supervisor, usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService, apiKeyService, db)
 	gatewayService := service.ProvideGatewayService(accountRepository, groupRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, cfg, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCacheImpl, digestSessionStore, settingService, tlsFingerprintProfileService, channelService, modelPricingResolver, compositeRouteResolver, balanceNotifyService, serviceUserPlatformQuotaRepository, usageSettlementService)
 	modelAccessHandler := handler.NewModelAccessHandler(modelAccessService, gatewayService, apiKeyService)
 	workspaceRepository := repository.NewWorkspaceRepository(db)

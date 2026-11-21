@@ -149,6 +149,28 @@ func TestCrashRecovery(t *testing.T) {
 	}
 }
 
+func TestRecoverAbandonedImmediatelyAfterCrash(t *testing.T) {
+	db := database(t)
+	a, _ := identity(t, db)
+	ctx := scope.With(t.Context(), a)
+	store := journal.New(db)
+	in := request()
+	e, replay, err := store.Admit(ctx, in)
+	require.NoError(t, err)
+	require.False(t, replay)
+	_, err = store.Dispatch(ctx, e, 1, 80)
+	require.NoError(t, err)
+
+	err = store.RecoverAbandoned(ctx)
+
+	require.NoError(t, err)
+	require.EqualValues(t, 1, id(t, db, "SELECT count(*) FROM gateway_execution_reconciliation WHERE request_id=$1 AND reason='missing_receipt'", e.RequestID))
+	err = store.RecoverAbandoned(ctx)
+	require.NoError(t, err)
+	require.NoError(t, receipt(t, db, e, 80, `{"InputTokens":0,"OutputTokens":0}`))
+	require.Zero(t, id(t, db, "SELECT count(*) FROM gateway_execution_reconciliation WHERE request_id=$1", e.RequestID))
+}
+
 func TestCrashProcess(t *testing.T) {
 	stage := os.Getenv("BE06_STAGE")
 	if stage == "" {
