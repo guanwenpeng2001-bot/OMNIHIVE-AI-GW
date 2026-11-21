@@ -275,11 +275,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		writeEvents(events)
 	})
 
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !scan.UsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
-	}
 	if scan.Err != nil {
 		return &OpenAIForwardResult{
+			UsageIncomplete:             true,
 			RequestID:                   requestID,
 			UpstreamHeaders:             resp.Header,
 			Usage:                       scan.Usage,
@@ -324,9 +322,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		if !clientDisconnected {
 			c.Writer.Flush()
 		}
-	}
-	if !scan.SawDone {
-		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
 	}
 
 	return &OpenAIForwardResult{

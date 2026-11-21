@@ -379,8 +379,8 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		if err != nil {
-			if result != nil && c.Writer.Size() > writerSizeBeforeForward &&
-				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
+			if result != nil && (result.UsageIncomplete || c.Writer.Size() > writerSizeBeforeForward &&
+				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0)) {
 				submitUsage()
 			}
 			if writeGatewayTPMRequestError(c, err) {

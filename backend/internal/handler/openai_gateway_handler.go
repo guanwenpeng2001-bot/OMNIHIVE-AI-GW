@@ -923,7 +923,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if res == nil || undeliveredReplacement {
 				return
 			}
-			if err != nil && res.Stream {
+			if err != nil && res.Stream && !res.UsageIncomplete {
 				res.ClientDisconnect = true
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
@@ -1507,7 +1507,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if res == nil {
 				return
 			}
-			if err != nil && res.Stream {
+			if err != nil && res.Stream && !res.UsageIncomplete {
 				res.ClientDisconnect = true
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)

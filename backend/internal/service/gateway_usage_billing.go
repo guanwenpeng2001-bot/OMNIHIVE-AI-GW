@@ -74,6 +74,7 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
+	UsageIncomplete       bool
 	Cost                  *CostBreakdown
 	User                  *User
 	APIKey                *APIKey
@@ -785,6 +786,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	return submitUsageSettlement(ctx, s.usageSettlement, usageLog, &postUsageBillingParams{
+		UsageIncomplete:       result.UsageIncomplete,
 		Cost:                  cost,
 		User:                  user,
 		APIKey:                apiKey,

@@ -396,11 +396,11 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	}
 
 	if err := scanner.Err(); err != nil {
-		return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, newOpenAIUpstreamStreamReadError(err)
+		return &ForwardResult{UsageIncomplete: !scanner.completed, RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, newOpenAIUpstreamStreamReadError(err)
 	}
 
 	if readerContext != nil && readerContext.Err() != nil {
-		return &ForwardResult{RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, readerContext.Err()
+		return &ForwardResult{UsageIncomplete: !scanner.completed, RequestID: requestID, UpstreamHeaders: resp.Header, Usage: usage, Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort, Duration: time.Since(startTime)}, readerContext.Err()
 	}
 	if finalResp == nil {
 		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream stream ended without a response")
@@ -492,6 +492,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
+			UsageIncomplete: !scanner.completed,
 			RequestID:       requestID,
 			UpstreamHeaders: resp.Header,
 			Usage:           usage,

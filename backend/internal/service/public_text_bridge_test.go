@@ -14,10 +14,18 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/config"
 	"github.com/guanwenpeng2001-bot/OMNIHIVE-AI-GW/backend/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func publicTextTestConfig() *config.Config {
+	cfg := rawChatCompletionsTestConfig()
+	cfg.Security.URLAllowlist.UpstreamHosts = []string{"127.0.0.1"}
+	cfg.Security.URLAllowlist.AllowPrivateHosts = true
+	return cfg
+}
 
 // These fixtures use real HTTP locally; no vendor host or credential is contacted.
 type publicTextHTTP struct{ client *http.Client }
@@ -57,7 +65,7 @@ func TestPublicMistralTextBridgeHTTP(t *testing.T) {
 				account.Platform = PlatformMistral
 				account.Credentials["base_url"] = server.URL
 				account.Credentials["model_mapping"] = map[string]any{"public-model": "native-model"}
-				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
+				svc := &OpenAIGatewayService{cfg: publicTextTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
 				body := []byte(fmt.Sprintf(`{"model":"public-model","max_tokens":100,"stream":%v,"messages":[{"role":"user","content":"weather?"},{"role":"assistant","content":[{"type":"tool_use","id":"call_prior","name":"weather","input":{"city":"Rome"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_prior","content":"sunny"}]}],"tools":[{"name":"weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}]}`, stream))
 				if protocol == "responses" {
 					body = []byte(fmt.Sprintf(`{"model":"public-model","stream":%v,"input":[{"role":"user","content":"weather?"},{"type":"function_call","call_id":"call_prior","name":"weather","arguments":"{\"city\":\"Rome\"}"},{"type":"function_call_output","call_id":"call_prior","output":"sunny"}],"tools":[{"type":"function","name":"weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}`, stream))
@@ -147,7 +155,7 @@ func TestPublicMistralErrorsAndBeforeContentFailoverHTTP(t *testing.T) {
 					fmt.Fprint(w, `{"id":"chat_ok","model":"public-model","choices":[{"index":0,"message":{"role":"assistant","content":"second account"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
 				}))
 				defer server.Close()
-				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
+				svc := &OpenAIGatewayService{cfg: publicTextTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
 				body := []byte(`{"model":"public-model","max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`)
 				if protocol == "responses" {
 					body = []byte(`{"model":"public-model","input":"hello"}`)
@@ -225,7 +233,7 @@ func TestPublicPlanAndPayGMessagesHTTP(t *testing.T) {
 					c.Request.Header.Set("Authorization", "Bearer caller-secret")
 					c.Request.Header.Set("x-api-key", "caller-secret")
 					c.Request.Header.Set("x-goog-api-key", "caller-secret")
-					svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
+					svc := &OpenAIGatewayService{cfg: publicTextTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
 					result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
 					require.NoError(t, err)
 					require.Equal(t, "public-model", result.Model)
@@ -267,7 +275,7 @@ func TestPublicMistralStreamFailureAfterContentIsNotReplayable(t *testing.T) {
 			}))
 			defer server.Close()
 			account := &Account{ID: 1, Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": server.URL}}
-			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
+			svc := &OpenAIGatewayService{cfg: publicTextTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
 			body := []byte(`{"model":"public-model","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"hello"}]}`)
 			if protocol == "responses" {
 				body = []byte(`{"model":"public-model","input":"hello","stream":true}`)
@@ -336,7 +344,7 @@ func TestPublicMistralMissingUsageIsNotBillable(t *testing.T) {
 				}))
 				defer server.Close()
 				account := &Account{ID: 1, Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": server.URL}}
-				svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
+				svc := &OpenAIGatewayService{cfg: publicTextTestConfig(), httpUpstream: publicTextHTTP{server.Client()}}
 				body := []byte(fmt.Sprintf(`{"model":"public-model","stream":%v,"max_tokens":32,"messages":[{"role":"user","content":"hello"}]}`, stream))
 				if protocol == "responses" {
 					body = []byte(fmt.Sprintf(`{"model":"public-model","input":"hello","stream":%v}`, stream))
@@ -352,7 +360,12 @@ func TestPublicMistralMissingUsageIsNotBillable(t *testing.T) {
 					result, err = svc.Forward(context.Background(), c, account, body)
 				}
 				require.ErrorContains(t, err, "usage is unknown")
-				require.Nil(t, result)
+				if stream {
+					require.NotNil(t, result)
+					require.True(t, result.UsageIncomplete)
+				} else {
+					require.Nil(t, result)
+				}
 				require.NotContains(t, recorder.Body.String(), "message_stop")
 				require.NotContains(t, recorder.Body.String(), "response.completed")
 				if !stream {

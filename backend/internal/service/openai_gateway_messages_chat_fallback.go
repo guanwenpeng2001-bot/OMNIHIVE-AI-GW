@@ -279,14 +279,12 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	scan := s.scanCCStream(c, resp, account, "openai messages chat fallback", requestID, startTime, emitChunk)
 	usage := scan.Usage
 
-	if (account.Platform == PlatformMistral || account.Platform == PlatformOpenRouter) && !scan.UsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("upstream chat usage is unknown"))
-	}
 	if scan.Err != nil {
 		// Broken upstream read: skip finalization so no synthetic message_stop
 		// masks the truncation, and surface the error to flag usage incomplete
 		// (mirrors forwardResponsesViaRawChatCompletions).
 		return &OpenAIForwardResult{
+			UsageIncomplete:             true,
 			RequestID:                   requestID,
 			UpstreamHeaders:             resp.Header,
 			Usage:                       usage,
@@ -303,9 +301,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
 	}
 
-	if account.Platform == PlatformOpenRouter && openRouterGoogleIngress(c.Request.Context()) && !scan.SawDone {
-		return nil, newOpenAIUpstreamStreamReadError(ErrOpenAIUpstreamStreamTruncated)
-	}
 	// Finalize: close open blocks + emit message_delta/message_stop.
 	finalEvents := apicompat.FinalizeChatCompletionsAnthropicStream(anthropicState)
 	if !clientDisconnected {
@@ -321,9 +316,6 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 			}
 		}
 		c.Writer.Flush()
-	}
-	if !scan.SawDone {
-		logCCStreamMissingDoneSentinel("openai messages chat fallback", requestID)
 	}
 
 	return &OpenAIForwardResult{

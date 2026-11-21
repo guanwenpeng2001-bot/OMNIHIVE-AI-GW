@@ -256,3 +256,20 @@ func TestHandleCCStreamingFromAnthropic_PreservesMessageStartCacheUsageAndReason
 	require.Equal(t, "medium", *result.ReasoningEffort)
 	require.Contains(t, rec.Body.String(), `[DONE]`)
 }
+
+func TestChatBridgeRequiresFinalUsageAndStop(t *testing.T) {
+	start := "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg\",\"usage\":{\"input_tokens\":100}}}\n\n"
+	for _, tail := range []string{"", "data: {\"type\":\"message_stop\"}\n\n", "data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":2}}\n\n"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		resp := &http.Response{Body: io.NopCloser(strings.NewReader(start + tail))}
+		res, err := (&GatewayService{}).handleCCStreamingFromAnthropic(resp, c, "claude", "claude", nil, time.Now(), false)
+		require.Error(t, err)
+		require.NotNil(t, res)
+		billing, key := newGatewayRecordUsageServiceWithResolverForTest(&openAIRecordUsageLogRepoStub{inserted: true})
+		err = billing.RecordUsage(t.Context(), &RecordUsageInput{APIKey: key, User: &User{ID: 2}, Account: &Account{ID: 3, Type: AccountTypeAPIKey, Platform: PlatformAnthropic}, InboundEndpoint: "/v1/chat/completions", Result: res})
+		require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+		receipt := billing.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+		require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+		require.Equal(t, "interrupted", receipt.CompletionState)
+	}
+}

@@ -503,6 +503,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		cost.PricingState = PricingStateError
 	}
 	return submitUsageSettlement(ctx, s.usageSettlement, usageLog, &postUsageBillingParams{
+		UsageIncomplete:       result.UsageIncomplete,
 		Cost:                  cost,
 		User:                  user,
 		APIKey:                apiKey,

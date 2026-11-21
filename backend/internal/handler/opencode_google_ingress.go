@@ -188,7 +188,7 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 		if writeGatewayTPMRequestError(c, forwardErr) {
 			return
 		}
-		if result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0) {
+		if result != nil && (result.UsageIncomplete || result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0) {
 			h.recordOpenCodeGoogleUsage(c, reqLog, apiKey, subject, subscription, account, result, body, callerModel, pricingAt, channelMapping, action)
 		}
 		var failoverErr *service.UpstreamFailoverError
@@ -231,6 +231,9 @@ func (h *GatewayHandler) forwardOpenCodeGeminiText(c *gin.Context, account *serv
 	}
 	if finishErr := writer.Finish(); err == nil {
 		err = finishErr
+		if result != nil && stream && finishErr != nil {
+			result.UsageIncomplete = true
+		}
 	}
 	return result, err
 }
