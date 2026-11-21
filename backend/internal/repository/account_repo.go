@@ -4784,7 +4784,8 @@ func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtr
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
 	fields := service.AccountCatalogIdentityCredentialFields()
 	changes := make([]string, 0, len(fields)+1)
-	changes = append(changes, "credentials->'credential_secret_version' IS DISTINCT FROM "+incoming+"->'credential_secret_version'")
+	versionChanged := "(credentials->'credential_secret_version' IS DISTINCT FROM " + incoming + "->'credential_secret_version')"
+	changes = append(changes, "(type <> 'oauth' AND "+versionChanged+")")
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}
@@ -4796,7 +4797,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 	if manual {
 		stable = []string{"FALSE"}
 	}
-	changes = append(changes, "(credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token' AND NOT ("+strings.Join(stable, " OR ")+"))")
+	changes = append(changes, "(("+versionChanged+" OR credentials->'access_token' IS DISTINCT FROM "+incoming+"->'access_token') AND NOT ("+strings.Join(stable, " OR ")+"))")
 	identity := "(" + strings.Join(changes, " OR ") + ")"
 	ruleChanges := []string{identity}
 	for _, field := range service.AccountCatalogRuleCredentialFields() {
